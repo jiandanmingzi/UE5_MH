@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "echo [Copilot Hook] 即将修改 Source/ 目录下的 C++ 文件，请确认操作安全。"
+      }
+    ]
+  }
+}
