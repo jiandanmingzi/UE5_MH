@@ -66,7 +66,7 @@ class UMHGZAbilitySystemComponent : public UAbilitySystemComponent
 ### 核心方法
 
 - `void InitializeAbilitySystem()`
-  - 作用：BeginPlay 时调用。授予 CoreAbilities → Apply CoreAttributeEffects → 遍历 `InputBindings` 用 **lambda 捕获 `FGameplayTag`** 绑定 EnhancedInput 的 `Triggered` 和 `Completed` 事件。`OnInputActionTriggered` 按 Tag 分叉——武器 Tag → `Coordinator→HandleWeaponInput(Tag)`；非武器 Tag → `TryActivateAbilityByTag(Tag)`。`OnInputActionCompleted` 分发给当前 Active 的蓄力类 GA 接收释放信号。
+  - 作用：BeginPlay 时调用。授予 CoreAbilities → Apply CoreAttributeEffects → 遍历 `InputBindings` 用 **lambda 捕获 `FGameplayTag`** 绑定 EnhancedInput 的 `Triggered` 和 `Completed` 事件。`OnInputActionTriggered` 按 Tag 分叉——武器 Tag → `Coordinator→HandleWeaponInput(Tag)`；非武器 Tag → `TryActivateAbilityByTag(Tag)`。`OnInputActionCompleted` 检查 `Combat.State.Charging` Tag → 若存在则发送 `Combat.Event.ChargeReleased` GameplayEvent（蓄力 GA 通过 AbilityTrigger 监听）。
     ```cpp
     for (auto& Binding : InputBindings)
     {
@@ -84,7 +84,7 @@ class UMHGZAbilitySystemComponent : public UAbilitySystemComponent
 
 - `void OnInputActionCompleted(FGameplayTag AbilityTag)`
   - 输入：直接传入 `AbilityTag`。
-  - 作用：通知当前持有该 `InputTag` 的 Active Ability 输入已释放（Completed 事件）。主要用于蓄力类 GA——蓄力 GA 在 Activate 时缓存自己的 `InputTag`，在内部处理 Completed 回调以释放蓄力等级对应的攻击。
+  - 作用：检查 ASC 是否持有 `Combat.State.Charging` Tag → 若是则 `HandleGameplayEvent(Combat.Event.ChargeReleased, InputTag=AbilityTag)`。蓄力 GA 通过 `AbilityTrigger` 监听此 Event 接收释放信号。若 ASC 无 `Charging` Tag，静默跳过（蓄力 GA 可能已被 Cancel，避免意外释放）。
 
 - `void GrantWeaponAbilities(TArray<TSubclassOf<UGameplayAbility>> Abilities)`
   - 输入：武器授予的能力类列表。
@@ -234,7 +234,7 @@ struct FAttackSegmentConfig
   - 作用：基类扣耐力/资源 → `ASC→AddLooseGameplayTag(Combat.State.Attacking)` → **方向修正**（`GetLastMovementInputVector` → 若长度 ≥ 0.1 且与角色朝向夹角 ≤ `MaxCorrectionAngle` → `MotionWarpingComponent→AddOrUpdateWarpTarget` → 播放 Montage）→ 等待 `AnimNotifyState_AttackCollision` 控制碰撞窗口。
 
 - `void EndAbility(...) override`
-  - 作用：`ASC→RemoveLooseGameplayTag(Combat.State.Attacking)` → 查找 `GA_WeaponComboCoordinator` → `Coordinator→OnAttackFinished()` → 清理动画状态、结束冷却、清除 `MultiHitTimer`。
+  - 作用：**幂等清理——正常结束、Cancel、异常销毁均经此路径**（GAS 保证 `Cancel→EndAbility` 调用链，无需在 `CancelAbility` 中重复）。`ASC→RemoveLooseGameplayTag(Combat.State.Attacking)` → 查找 `GA_WeaponComboCoordinator` → `Coordinator→OnAttackFinished()` → `DisableCollision`（内部 `ClearTimer(MultiHitTimer)`，幂等安全）→ 清理动画状态、结束冷却。
 
 - `void EnableCollision(int32 SegmentIndex = 0)`
   - 输入：段索引。
@@ -345,7 +345,28 @@ UMHGZAttackAbility                         ← 碰撞+伤害+方向修正（通�
 | `DodgeWindow` | 碰撞通道切换 | 玩家 Capsule 对 **Weapon** 通道 = Ignore（免疫伤害），对 **MonsterAttack** 通道 = **Overlap**（穿透但产生重叠事件），**Pawn** 始终 Block（被怪物身体挡住） |
 | `ForesightJudge` | 见切成功判定 | 订阅玩家 CapsuleComponent→`OnComponentBeginOverlap`，过滤重叠组件是否带 `MonsterAttack` 相关 Tag → 是则 `bDodgeSuccessful=true` |
 
-→ 段0 NotifyEnd 读摇杆方向更新 Warp Target（回砍方向, `MaxWarpAngle=120°`）→ `AttackCollision(ConfigIndex=1)` 回砍 → 若 `bDodgeSuccessful`：**恢复固定量气刃槽**（如 +50% `Amount`，GA 内部直接调用 `URes_LongSword::Restore(FixedAmount)`，不经过 ExecCalc——与 AttributeSet 无关）+ `GrantedTags={Combo.Branch.ForesightSuccess}`（大回旋可派生）；否则仅伤害。
+**Montage 时间轴约束（关键）：**
+
+```
+见切 Montage 时间轴（动画师必须遵守的区间约束）：
+├─ 0.00s ─ 0.40s: DodgeWindow + ForesightJudge（段0, 碰撞通道切换+重叠监听）
+│   └─ 0.40s: DodgeWindow.NotifyEnd → 恢复 Weapon 通道 = Block
+│       ★ 必须在此之后至少留 1 帧间隙（~0.016s@60fps）
+├─ 0.42s ─ 0.70s: AttackCollision(ConfigIndex=1)（段1, 标准攻击碰撞）
+│   └─ 此时 Weapon 通道已恢复 Block，Sweep 正常工作
+└─ 0.70s ─ 1.00s: 收招 Blend
+```
+
+> ⚠️ **DodgeWindow.NotifyEnd 必须在 AttackCollision.NotifyBegin 之前至少 1 帧**，确保段 1 的 Sweep 碰撞检测不受段 0 通道切换影响。此约束由动画师在 Montage 中拖拽区间保证。
+
+**段方向修正——取最晚输入：**
+
+- **段 0（后撤）**：方向在 `ActivateAbility` 时确定——取按键瞬间的摇杆反向作为后撤方向。后撤是防御性动作，方向不应中途改变。
+- **段 1（回砍）**：方向在 `EnableCollision(SegmentIndex=1)`（即 `AttackCollision::NotifyBegin`）时读取——此时是段 1 动画实际开始前的最后一刻，玩家可在后撤期间调整摇杆方向，实现"后撤向左、回砍向右"的灵活操作。
+
+> **通用规则（多段 MotionWarping）：** 段 0 方向取 `ActivateAbility` 时的摇杆输入；后续每段的方向取该段 `EnableCollision` 时的摇杆输入（若该段无碰撞则取最近一次 `EnableCollision` 的缓存）。这保证每段都使用"尽可能晚"的输入方向。
+
+→ 段 1 回砍命中后：若 `bDodgeSuccessful`：**恢复固定量气刃槽**（如 +50% `Amount`，GA 内部直接调用 `URes_LongSword::Restore(FixedAmount)`，不经过 ExecCalc——与 AttributeSet 无关）+ `GrantedTags={Combo.Branch.ForesightSuccess}`（大回旋可派生）；否则仅伤害。
 
 > **设计理由：** 不再依赖"受击→HitStagger 事件"来判定见切成功——改为几何重叠检测。只要玩家闪避路径与怪物攻击碰撞体有空间交集即成功，攻击本身穿透不造成伤害。这避免了"无敌帧阻止受击事件→见切永远无法成功"的悖论。
 
@@ -355,7 +376,9 @@ UMHGZAttackAbility                         ← 碰撞+伤害+方向修正（通�
 
 ## 蓄力式攻击
 
-蓄力不进连招表路由——全程在一个 GA 内部闭环。`bIsContinuous=true`，按住累积 `ChargeLevel`（通过曲线/参数控制递增速率），ASC 持有 `Input.Modifier.Charging` Tag。松开（Completed 事件）→ 根据 `ChargeLevel` 分支选 Montage 和 `DamageConfig` → 方向修正（`MaxCorrectionAngle` 通常设 60°）→ 播放释放 Montage。不同等级使用不同 `AttackSegments` 配置，不创建多个 GA 蓝图子类。
+蓄力不进连招表路由——全程在一个 GA 内部闭环。`bIsContinuous=true`，按住累积 `ChargeLevel`（通过曲线/参数控制递增速率），ASC 持有 `Input.Modifier.Charging` Tag。松开（Completed 事件）→ ASC 的 `OnInputActionCompleted` 检查 `Combat.State.Charging` Tag → 若存在则 `HandleGameplayEvent(Combat.Event.ChargeReleased, InputTag=AbilityTag)`。蓄力 GA 通过 `AbilityTrigger` 监听此 Event → 根据 `ChargeLevel` 分支选 Montage 和 `DamageConfig` → 方向修正（`MaxCorrectionAngle` 通常设 60°）→ 播放释放 Montage。不同等级使用不同 `AttackSegments` 配置，不创建多个 GA 蓝图子类。
+
+> **优势：** 蓄力 GA 被 Cancel（受击/死亡）时 `Charging` Tag 已移除 → Completed 事件检查 Tag 不存在 → 不发送 `ChargeReleased` 事件 → 蓄力 GA 不会在被打断后意外释放。不再需要遍历 ActiveAbilities 查找蓄力 GA。
 
 ## 怪物攻击碰撞——部位胶囊体复用 + 通道切换
 
@@ -397,7 +420,7 @@ UMHGZAttackAbility                         ← 碰撞+伤害+方向修正（通�
 | 高速攻击穿透（如龙车） | 首帧 Sweep 从上一帧位置扫到当前帧位置，`FHitResult.Time` 升序取首个命中——高速也不会穿透 |
 | 攻击范围大于部位胶囊体 | 部分招式（如翻滚碾压）临时叠加一个更大的 Box/Sphere 碰撞体，NotifyEnd 时移除 |
 | 多部位同时攻击 | NotifyState 的 `AttackPartTags` 数组可配多个部位 Tag——如龙扫尾同时涉及 Tail1 + Tail2 + TailTip |
-| 攻击被硬直/死亡打断 | **强制恢复机制**——怪物 GA EndAbility（被打断/取消/死亡）时遍历所有部位，强制设 MonsterAttack 通道 = Ignore。不依赖 NotifyEnd 被正常调用。实现：在 `AMHGZMonsterBase` 中提供 `ForceRestoreAllChannels()`，由 GA EndAbility 和死亡流程调用 |
+| 攻击被硬直/死亡打断 | **强制恢复机制**——怪物 GA EndAbility（被打断/取消/死亡）时遍历所有部位，强制设 MonsterAttack 通道 = Ignore。不依赖 NotifyEnd 被正常调用。实现：在 `AMHGZMonsterBase` 中提供 `ForceRestoreAllChannels()`，由 GA EndAbility、死亡流程、`BeginDestroy()` 三重调用——确保无论对象以何种方式销毁，通道都能恢复 |
 
 ## 武器资源子系统
 
@@ -423,7 +446,7 @@ UMHGZAttackAbility                         ← 碰撞+伤害+方向修正（通�
 | 子类 | 特有字段 | 特殊逻辑 | 音效成员 |
 |------|----------|----------|----------|
 | `URes_LongSword` | `ESpiritLevel Level`（无/白/黄/红）、`float Amount`、`FTimerHandle DecayTimer` | 击中回复量不同、等级随时间和命中升降、衰减 Timer | `GaugeFillSound` / `LevelUpSound`（白→黄→红） / `LevelDownSound` / `DepleteSound` |
-| `URes_InsectGlaive` | `TMap<ELightColor, float> RemainingTimes`（三灯各自倒计时）、`float KinsectStamina` | 同时持两灯=组合Buff、三灯=全Buff且刷新时间、猎虫离身扣耐/归身回耐 | `ExtractCollectedSound`（红/白/橙各不同） / `TripleBuffSound`（三灯齐） / `ExtractExpirySound` |
+| `URes_InsectGlaive` | `float KinsectStamina`/`MaxKinsectStamina`（猎虫耐力）、`float KinsectStaminaRegenRate`/`DrainRate`（回复/消耗速率）、`TMap<FGameplayTag, float> ExtractDurations`（白/黄/红单灯基础时长）、`float TripleUpDuration`（三灯固定时长）、`TArray<FActiveGameplayEffectHandle> ActiveExtractHandles`（当前激活的单灯 GE Handle）、`FActiveGameplayEffectHandle TripleUpHandle`（三灯 GE Handle）、`bool bTripleUpActive`（三灯激活标志位）、`TMap<FGameplayTag, FActiveModifier> ActiveModifiers`（词条修饰器） | **萃取状态机**：`MapHitzoneToExtract(HitzoneTag)→ExtractColor`（部位→颜色映射，虚函数可覆写）→ `ApplyExtract(Color)`（Apply Duration GE 到 ASC）→ `CheckAndActivateTripleUp()`（三灯齐全时移除单灯 GE → Apply 三灯 GE，不可刷新）。**猎虫耐力**：Tick 放出时扣耐力（`DrainRate × Δt`）→ 归零自动强制召回；休息时回复（`RegenRate × Δt`）。**灯消耗**：`ConsumeExtract(Color)`移除对应 GE → 若原为三灯则解除、剩余灯继续各自计时。**词条**：`ApplyEntryModifier(Tag, Value, Op)`接收装备词条修改倍率参数 | `ExtractCollectedSound`（红/白/黄各不同） / `TripleUpActivatedSound`（三灯齐聚） / `TripleUpExpiredSound`（三灯到期） / `ExtractExpirySound`（单灯到期） / `KinsectDepletedSound`（猎虫耐力归零） |
 | `URes_ChargeBlade` | `int32 PhialCount`(0~6)、`bool ShieldCharged`、`FTimerHandle RedShieldTimer` | 瓶被动不消耗、部分招式主动消耗、红盾有时限 | `PhialLoadSound` / `ShieldChargeSound` / `PhialBurstSound` / `OverheatSound` |
 | `URes_SwitchAxe` | `float ChargeGauge`(0~1) | 连续值充能 | `GaugeChargedSound`（充能就绪） / `SwordModeActivateSound` / `SwordModeDeactivateSound` |
 
@@ -480,7 +503,7 @@ GA_Dodge::ActivateAbility：
 
 ### 翻滚与连招的关系
 
-- 翻滚激活时 GAS 自动取消当前攻击 GA → 协调器的 ComboTimeout 兜底回 Idle
+- 翻滚激活时 GAS 自动取消当前攻击 GA → 协调器的 `SafetyTimer`（GlobalComboTimeout）兜底回 Idle
 - 翻滚无敌帧由独立的 `AnimNotifyState_DodgeWindow` 控制
 
 ### DT_WeaponDodgeConfig — 武器翻滚配置表
@@ -633,11 +656,9 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 | RequiredTags | FGameplayTagContainer | 空 | 激活前提——ASC **必须持有全部**这些 Tag（AND）。含状态标签：`Grounded/Unsheathed`（地面招式）、`Aerial/Unsheathed`（空中招式）、`Sheathed`（拔刀攻击）。Buff/PowerUp 也在此列 |
 | BlockedTags | FGameplayTagContainer | 空 | 激活阻止——ASC **必须不持有任一**这些 Tag（NOR）。用于排除特定状态：登龙剑设 `BlockedTags={Combo.Branch.PostRoundslash}`，大回旋 `GrantedTags` 含此 Tag → 登龙无法从大回旋后派生 |
 | GrantedTags | FGameplayTagContainer | 空 | **GA 首次命中后**由协调器授予的临时 Tag，供后续节点 RequiredTags/BlockedTags 判断（非激活时立即授予）。空挥则 GrantedTags 不生效 → 依赖此 Tag 的后续节点匹配失败 → 空挥断连 |
-| bRequiresHitToContinue | bool | false | 为 true 时本节点必须命中才能接下一段（协调器仅收到 GA 命中通知后才应用 GrantedTags）。false=激活即授予，允许空挥接下一段 |
+| bRequiresHitToGrantTags | bool | false | 为 true 时本节点必须命中才能接下一段（协调器仅收到 GA 命中通知后才应用 GrantedTags）。false=激活即授予，允许空挥接下一段 |
 | bRequiresWindowOpen | bool | true | 为 false 时本节点匹配**不受 `Combat.State.ComboWindowOpen` Tag 限制**——即使连招窗口关闭也能触发。实际可用性仍受 `RequiredTags` 约束（收虫/纳刀需 `DodgeAcceptOpen`）。默认 true |
-| bResetsComboLevel | bool | false | 命中后是否重置连段计数（不影响状态机，仅供伤害修正等系统读取） |
 | Priority | int32 | 0 | 显式匹配优先级。同层（精确招式/通用招式 + DirectionalInput）内有多个候选行满足 InputAction 条件时，Priority 高的优先匹配 |
-| ComboTimeout | float | 10.0 | 绝对安全兜底超时（秒）。自 GA 激活起算，到期时若仍未回 Idle→强切 Idle+清临时 Tag。★ 正常流程 Montage 播完→EndAbility→OnAttackFinished() 已回 Idle，此计时器不触发。仅 Montage 卡死/GA 异常未结束/超长运镜等极端情况介入。10s 足够覆盖任何合法动画 |
 
 ### 出招表数据模型
 
@@ -692,12 +713,12 @@ class UMHGZWeaponComboCoordinatorAbility : public UGameplayAbility
 | PreInputTag | FGameplayTag | 预输入缓冲区——ComboWindow 打开前景早按键的 Tag（后覆盖前，仅存一个）。在 `HandleWeaponInput` 中窗口关闭时写入，`ComboWindow→NotifyBegin` 中刷新消费 |
 | PreInputTimestamp | float | 预输入捕获时刻（`GetWorld()->GetTimeSeconds()`）。用于判定是否在 `PreInputLifetime` 内 |
 | PreInputLifetime | float | 预输入有效窗口（秒）。默认 0.15（~9帧@60fps），策划可在蓝图中调整。超时未等到窗口打开则清空缓冲 |
-| ActiveLoadRequestID | int32 | 异步加载令牌（竞态保护——SetComboData 时检查令牌，过期则丢弃） |
+| ActiveLoadRequestID | FGuid | 异步加载令牌（竞态保护——SetComboData 时检查令牌，过期则丢弃）。`DataManager::RequestWeaponComboData` 返回 `FGuid`，两者类型一致 |
 
 ### 公共方法
 
-- `void SetComboData(UMHGZWeaponComboData* InData, int32 RequestID)`
-  - 输入：武器连招表 DataAsset、加载请求令牌。
+- `void SetComboData(UMHGZWeaponComboData* InData, FGuid RequestID)`
+  - 输入：武器连招表 DataAsset、加载请求令牌（`FGuid`，与 `DataManager::RequestWeaponComboData` 返回类型一致）。
   - 作用：检查令牌是否匹配当前 ActiveLoadRequestID → 若匹配则构建 StateIndex（遍历 ComboEntries 按 StateName 分组），完成后协调器开始接收输入。仅在 Activate 后、EndAbility 前有效。
 
 - `void HandleWeaponInput(FGameplayTag AbilityTag)`
@@ -714,15 +735,15 @@ class UMHGZWeaponComboCoordinatorAbility : public UGameplayAbility
 
 **阶段 A（装备武器）：** `EquipmentComponent→OnEquipmentChanged()` → `GrantWeaponAbilities` → `GiveAbility + TryActivateAbility(GA_WeaponComboCoordinator)`（先激活空状态）→ 异步加载 ComboData → `SetComboData` 构建 StateIndex。
 
-**阶段 B（起手攻击）：** `HandleWeaponInput` → 候选行 = `StateIndex["Idle"] ∪ StateIndex["*"]` → 四级排序（`bMatchAnyState=false > true`；`DirectionalInput` 具体 > None；`Priority` 降序）→ 遍历检查 6 条件（`InputAction`/`DirectionalInput`/`RequiredTags`/窗口或起手/`BlockedTags`/`StaminaRequired`）→ 匹配成功则 `ActivateAbility` + 更新 `CurrentState` + 存入 `PendingGrantedTags` + 重置 `ComboTimeoutTimer`。
+**阶段 B（起手攻击）：** `HandleWeaponInput` → 候选行 = `StateIndex["Idle"] ∪ StateIndex["*"]` → 四级排序（`bMatchAnyState=false > true`；`DirectionalInput` 具体 > None；`Priority` 降序）→ 遍历检查 6 条件（`InputAction`/`DirectionalInput`/`RequiredTags`/窗口或起手/`BlockedTags`/`StaminaRequired`）→ 匹配成功则 `ActivateAbility` + 更新 `CurrentState` + 存入 `PendingGrantedTags` + 重置 `SafetyTimer`（时长为 `GlobalComboTimeout`）。
 
 **阶段 C（GA 执行）：** GA `ActivateAbility` 扣耐力/播 Montage → `AttackCollision→NotifyBegin` 调 `EnableCollision` → Sweep 命中 → `ApplyDamage` → `NotifyEnd` 调 `DisableCollision` → `ComboWindow→NotifyBegin` 加 `ComboWindowOpen` Tag。
 
-**阶段 D（连招下一段）：** 窗口内 `HandleWeaponInput` → `StateIndex[CurrentState] ∪ StateIndex["*"]` → 匹配成功则取消旧 Timer → `ActivateAbility` → 更新 `CurrentState` → 重启 Timer。GA 首次命中时 `OnAttackHit()` 将 `PendingGrantedTags` 写入 ASC。
+**阶段 D（连招下一段）：** 窗口内 `HandleWeaponInput` → `StateIndex[CurrentState] ∪ StateIndex["*"]` → 匹配成功则取消旧 `SafetyTimer` → `ActivateAbility` → 更新 `CurrentState` → 重启 `SafetyTimer`（时长为 `GlobalComboTimeout`）。GA 首次命中时 `OnAttackHit()` 将 `PendingGrantedTags` 写入 ASC。
 
 **阶段 E（回 Idle）：** `ComboWindow→NotifyEnd` 移除 Tag → Montage 播完 → GA `EndAbility` → `Coordinator→OnAttackFinished()` → 若 `CurrentState` 未变更则回 `"Idle"` + 清除 `Combo.Branch.*` Tag。
 
-**阶段 F（异常兜底）：** `ComboTimeoutTimer` 到期（10s，仅 Montage 卡死等极端情况）→ 强制 `CurrentState="Idle"`。武器卸下：清除所有 `Combo.Branch.*` Tag + StateIndex 清空。
+**阶段 F（异常兜底）：** `SafetyTimer` 到期（`GlobalComboTimeout` 秒，仅 Montage 卡死等极端情况）→ 强制 `CurrentState="Idle"` + 清除所有 `Combo.Branch.*` Tag。武器卸下：清除所有 `Combo.Branch.*` Tag + StateIndex 清空。
 
 ### 关键设计要点
 
@@ -764,7 +785,7 @@ NotifyEnd（窗口关闭）：
   → 攻击 Montage 自然播放至 BlendOut → 动画回到 Idle 待机
 ```
 
-> ComboWindow（AnimNotifyState, 0.1–0.5s）精确控制可接下一招的帧；ComboTimeout（FComboNode 字段, ~10s）为异常兜底。
+> ComboWindow（AnimNotifyState, 0.1–0.5s）精确控制可接下一招的帧；GlobalComboTimeout（协调器字段, ~10s）为异常兜底。
 
 ### UAnimNotifyState_DodgeWindow — 翻滚无敌帧通知
 

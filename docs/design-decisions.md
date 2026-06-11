@@ -40,7 +40,7 @@
 | 22 | Ability 基类统一处理耐力/冷却/资源 | 蓝图子类只需实现具体动作逻辑 |
 | 23 | 攻击 Ability 统一继承 UMHGZAttackAbility | 碰撞检测+命中过滤+伤害 GE 构造全部由中间层处理；新增武器 0 行代码 |
 | 24 | 连招系统采用出招表（FComboNode 有向图），辅以 RequiredTags/GrantedTags | 策划在一处可视化完整连招树；Tag 仅用于动态分支条件 |
-| 25 | 回 Idle 主驱动 = Montage 完成，ComboTimeout 仅唯一安全兜底 | Montage 自身长度即精确计时 |
+| 25 | 回 Idle 主驱动 = Montage 完成，GlobalComboTimeout（协调器统一字段，默认 10s）仅唯一安全兜底 | Montage 自身长度即精确计时；统一兜底优于每节点单独配置 |
 | 26 | FComboNode 支持 StateName 自指/前指（有向图允许环），用具体招式名 | 适应虫棍等无收尾招武器；招式名让多路径收敛显式可见 |
 | 27 | UMHGZWeaponComboData 归属动作系统（§3）而非装备系统（§2） | 连招表定义的是"怎么做动作"而非"装备有什么属性" |
 | 28 | bMatchAnyState 处理纳刀/起跳等通用招式 | 一行覆盖所有地面招式，不硬编码排除受击/击倒 |
@@ -57,7 +57,7 @@
 | 39 | VFX/SFX/镜头三层分工——不设独立系统 | 帧同步（AnimNotify）/ 状态驱动（GameplayCue）/ 镜头（Ability 内 CameraModifier） |
 | 40 | InputComponent 只管 IMC 生命周期，ASC 管 IA→Tag 绑定 | 消除双方各自持有绑定数组的冗余 |
 | 41 | 协调器帧级输入批处理——Chord Trigger 优先级高于单键 | 确保 Y+B 超必杀不被 Y 普通攻击抢先消耗 |
-| 42 | 当前版本仅单机，暂不考虑网络复制 | 所有 GAS、Attribute、装备状态同步方案在后续版本补充 |
+| 42 | **当前版本仅单机，不考虑网络复制及多人化** | 所有 GAS、Attribute、装备状态同步方案不在本版本范围内。MoveSpeedMultiplier Tick 同步、挥刀风声 Montage 实例化、QuickBarComponent 持久性等均按单机设计，不预留多人扩展 |
 | 43 | 武器专属资源不在 AttributeSet 中 | 各武器自行管理资源，通过 WeaponResourceComponent 子类实现 |
 | 44 | Grounded/Aerial 在同一函数调用内完成切换 | 不跨帧，不存在"切换过程中输入被吞"的窗口 |
 | 45 | bMatchAnyState 不硬编码排除任何状态 | 是否排除受击/击倒由 RequiredTags 显式声明 |
@@ -80,8 +80,8 @@
 | 62 | 受击硬直用 GameplayEvent 替代 Tag Trigger | 每次调用独立触发，InstancedPerExecution 支持受击连打 |
 | 63 | FComboNode::StaminaRequired（门槛）与 GA::StaminaCost（消耗）分离 | 语义独立，策划可设 Required > Cost 保留耐力余量 |
 | 64 | 持续耗耐用 Tick × DeltaTime + ApplyModToAttribute | 帧率无关（30/60/120 FPS 1 秒总扣除一致） |
-| 65 | 蓄力攻击在 GA 内部闭环，不进连招表路由 | 蓄力是 GA 内部多阶段状态机 |
-| 66 | EnhancedInput 同时绑定 Triggered + Completed | Triggered→连招匹配；Completed→蓄力 GA 接收释放通知 |
+| 65 | 蓄力攻击在 GA 内部闭环，不进连招表路由 | 蓄力是 GA 内部多阶段状态机。Completed 事件通过检查 `Combat.State.Charging` Tag → 发送 `Combat.Event.ChargeReleased` GameplayEvent 触发释放 |
+| 66 | EnhancedInput 同时绑定 Triggered + Completed | Triggered→连招匹配/标准 Ability 激活；Completed→检查 `Combat.State.Charging` Tag → 若存在则 `HandleGameplayEvent(Combat.Event.ChargeReleased)` |
 | 67 | 无敌帧 = Weapon 通道 Ignore + Invincible Tag 双层保障 | Pawn 通道始终 Block——玩家不可穿过怪物身体 |
 | 68 | 怪物部位胶囊体复用 + MonsterAttack 通道窗口切换 | 收招自动 Ignore——不误伤 |
 | 69 | 怪物攻击首帧 Sweep 防高速穿透 | 龙车等高速攻击不会穿透玩家 |
@@ -113,9 +113,23 @@
 | 95 | EComboDirection 在 HandleWeaponInput 时快照 | 保证方向是玩家按键时的意图 |
 | 96 | AnimNotifyState_ForesightJudge 协作模式 | NotifyState 管理窗口 + GA 管理事件委托 |
 | 97 | 关卡切换——Seamless Travel 为主 | 据点↔任务地图，PlayerState 保留，ASC/背包/仓库无缝衔接 |
-| 98 | MultiHitTimer 清理——双重保障 | 正常路径+取消路径均有清除 |
+| 98 | MultiHitTimer 清理——三重保障 | `DisableCollision` 正常路径 + `EndAbility` 取消路径 + `BeginDestroy` 销毁兜底均有清除 |
 | 99 | 伤害数字走 GameplayCue（`GameplayCue.Hit.DamageNumber`） | 触发入口统一；内部用 WorldSubsystem 对象池管理 Widget 生命周期 |
 | 100 | 命中反馈全面走 GameplayCue（火花+音效+震屏） | 一个 GC 蓝图同时配置三者，策划替换武器时只改一个 Tag |
 | 101 | C++ 基类按语义分类——`UMHGZCue_HitBase`（Burst）+ `UMHGZCue_BuffBase`（Latent） | 接口精准不混淆，各自独立优化 |
 | 102 | 武器拖尾不入 GameplayCue | 拖尾需帧精确匹配动画（AnimNotify 管理 start/stop），属帧同步范畴 |
 | 103 | 伤害数字内建独立对象池（WorldSubsystem） | Widget 生命周期与 GC Actor 池不同——Widget 1.5s 淡出，GC Actor 即刻回收 |
+| 104 | FComboNode 去掉 ComboTimeout，协调器使用 GlobalComboTimeout 统一兜底 | 避免策划每行配置超时，减少遗漏和出错 |
+| 105 | FComboNode 去掉 bResetsComboLevel | 连段计数系统未定义，无消费方——后续需要时由武器基类自行管理 |
+| 106 | 蓄力释放走 GameplayEvent（Combat.Event.ChargeReleased） | 蓄力 GA 被打断后 Charging Tag 已移除→事件不触发，避免意外释放；不依赖查找 ActiveAbilities |
+| 107 | MonsterAttack 通道强制恢复三重调用（EndAbility + Death + BeginDestroy） | 确保任何销毁路径都能恢复通道，不依赖 NotifyEnd 正常执行 |
+| 108 | 猎虫耐力在 ResourceComponent 内用纯 float 管理（非 GAS Attribute） | 遵循决策 #43——武器专属资源不在 AttributeSet；词条通过 ApplyEntryModifier 修改倍率参数 |
+| 109 | 萃取 Buff 用 Duration GE + GrantedTag（纯 Tag 方案） | 遵循决策 #83——限时 Buff 用 Duration GE；ASC Tag 供连招表/其他系统查询。各萃取灯有不同基础时长 |
+| 110 | 三灯不可刷新——由 CheckAndActivateTripleUp 逻辑标志位保证 | UE GE 的 DurationPolicy 无法原生阻止刷新；代码层通过 bTripleUpActive 标志位拒绝重复 Apply。三灯到期后标志位复位 |
+| 111 | 三灯到期全部灯消失——GE_IG_TripleUp 不携带单独灯 Tag | 符合 MHW/MHR 核心机制；到期后玩家需重新萃取三个灯 |
+| 112 | 红灯改连招用 FComboNode::RequiredTags + Priority | 协调器零改动；同一输入两条节点由 ASC Tag 状态分流；策划在一张出招表中可视化全部红灯/非红灯分支 |
+| 113 | 三灯特殊命中音效走 GameplayCue Tag 注入（非 AnimNotify） | 遵循决策 #100——命中反馈统一走 GameplayCue；UMHGZInsectGlaiveAbility 覆写 MakeDamageSpec 额外注入 Tag |
+| 114 | 萃取颜色映射为虚函数 MapHitzoneToExtract | 支持不同猎虫品种覆写部位颜色规则——速度型/力量型/回复型猎虫可自定义部位→颜色映射 |
+| 115 | 消耗灯→Apply 短时 Buff GE（非永久修改属性） | 消耗灯是战术爆发行为，Buff 应为临时增益。与装备 GE 走不同路径——不触发 OnEquipmentChanged |
+| 116 | 三灯后被消耗单个灯→解除三灯、剩余灯继续各自计时 | 遵循 MHW/MHR 逻辑——三灯被破后回归单灯状态（白+黄继续有效），不全部清空。需要重新 Apply 剩余时长的单灯 GE |
+| 117 | 猎虫召回时才萃取——不是命中瞬间立即萃取 | MHW/MHR 核心机制——猎虫必须在放出后回到猎人身上才传递萃取。飞行中途召回=萃取失败 |

@@ -23,7 +23,7 @@ class UMHGZAttributeSet : public UAttributeSet
 | AttackPower | FGameplayAttributeData | 0 | ∞ | 0 | 攻击力 |
 | Defense | FGameplayAttributeData | 0 | ∞ | 0 | 防御力 |
 | CriticalRate | FGameplayAttributeData | 0 | 100 | -100 | 会心率（%） |
-| StaggerMultiplier | FGameplayAttributeData | 1.0 | ∞ | 0 | ★ 破坏值倍率。参与硬直计算：`Stagger = BaseStaggerValue(招式) × StaggerMultiplier × HitzoneStaggerRate(怪物部位)`。基础 1.0，通过装备词条 GE 加成（如"破坏王"技能珠 +0.3） |
+| StaggerMultiplier | FGameplayAttributeData | 1.0 | ∞ | 0 | ★ 破坏值倍率（**攻击方属性**——代表玩家造成怪物硬直的能力）。参与硬直计算：`Stagger = BaseStaggerValue(招式) × StaggerMultiplier(攻击方) × HitzoneStaggerRate(怪物部位)`。基础 1.0，通过装备词条 GE 加成（如"破坏王"技能珠 +0.3）。怪物侧无此属性——怪物硬直阈值由自身系统内部累积管理 |
 | MoveSpeedMultiplier | FGameplayAttributeData | 1.0 | 3.0 | 0.1 | 移速倍率（驱动 CMC.MaxWalkSpeed。CMC 每 Tick 读取 `MoveSpeedMultiplier` 写回 `MaxWalkSpeed = BaseSpeed × Multiplier`，见下方同步说明）。GE 修改此值即可实现加速/减速 |
 
 > **武器专属资源不在 AttributeSet 中：** 怪猎武器资源系统极其多样——太刀气刃槽（色阶）、盾斧瓶计数+盾充能、大剑蓄力等级、操虫棍萃取、双刀鬼人槽等——无法用简单的 float Current/Max/Regen 统一概括。每种武器的资源由各自的 Ability/Component 管理，UI 按 `WeaponTypeTag` 查表选择对应的资源显示组件。`DT_WeaponResourceConfig` 保留作为武器种类→资源类型的查找桥接（具体字段待各武器资源方案确定后补充）。`UMHGZGameplayAbility` 中的 `bRequiresWeaponResource` / `WeaponResourceCost` 保留为通用钩子——各武器 Ability 子类覆写实现具体资源消耗逻辑。
@@ -43,12 +43,25 @@ class UMHGZAttributeSet : public UAttributeSet
 
 ### MoveSpeedMultiplier → CMC 同步机制
 
-`MoveSpeedMultiplier` 是 GAS Attribute，`CMC.MaxWalkSpeed` 是 CharacterMovementComponent 属性——两者不在同一系统。同步方式：**角色 Tick 中每帧读 Attribute 写回 CMC**。
+`MoveSpeedMultiplier` 是 GAS Attribute，`CMC.MaxWalkSpeed` 是 CharacterMovementComponent 属性——两者不在同一系统。同步方式：**事件驱动——`PostGameplayEffectExecute` 中检测变化后立即写 CMC**。
 
 ```cpp
-void AMHGZCharacter::Tick(float DeltaTime)
+// UMHGZAttributeSet::PostGameplayEffectExecute
+void UMHGZAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
 {
-    Super::Tick(DeltaTime);
+    if (Data.EvaluatedData.Attribute == GetMoveSpeedMultiplierAttribute())
+    {
+        // GE 修改了移速倍率 → 立即同步到 CMC
+        if (AMHGZCharacter* Character = GetTypedOuter<AMHGZCharacter>())
+        {
+            Character->UpdateMaxWalkSpeed();
+        }
+    }
+}
+
+// AMHGZCharacter::UpdateMaxWalkSpeed
+void AMHGZCharacter::UpdateMaxWalkSpeed()
+{
     if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
     {
         const float Multiplier = ASC->GetNumericAttribute(
@@ -58,6 +71,8 @@ void AMHGZCharacter::Tick(float DeltaTime)
 }
 ```
 
+> **为何用事件驱动而非 Tick：** MoveSpeedMultiplier 变化频率极低（换武器/喝药/奔跑——每秒最多几次），`PostGameplayEffectExecute` 在 GE Apply/Remove 时自动触发，零额外轮询开销。多个 GE 叠加修改时每次变化都触发回调，不存在"中间状态漏掉"的问题。`UpdateMaxWalkSpeed` 内部仅一行 Attribute 读取——调用频率低、开销可忽略。
+
 | 移速来源 | 实现 | 说明 |
 |----------|------|------|
 | 收刀态基础速度 | `BaseMaxWalkSpeed`（角色构造函数中从 CMC 初始值缓存） | 所有武器收刀时移速相同 |
@@ -66,8 +81,6 @@ void AMHGZCharacter::Tick(float DeltaTime)
 | 奔跑加速 | GA_Sprint 激活期间 Apply GE 提升 `MoveSpeedMultiplier` | 持续扣耐力，松开/耐力耗尽 EndAbility |
 | 持刀不可奔跑 | GA_Sprint::CanActivateAbility 检查 `Combat.State.Unsheathed` Tag → 阻塞 | 收刀态（Sheathed）可奔跑，拔刀态（Unsheathed）不可 |
 | 重型武器笨重感 | 武器 GE 同时降低 `MaxAcceleration`（CMC 属性，通过 GE 修改或直接设置） | 起步/转向更慢；AnimBP 按 WeaponTypeTag 切换 BlendSpace 资产实现不同移动动画 |
-
-> **为何用 Tick 而非 PostGameplayEffectExecute：** Tick 读 Attribute 写 CMC 是一行代码，每帧开销 < 0.001ms。PostGameplayEffectExecute 回调在 GE Apply/Remove 时触发，但多个 GE 叠加修改 MoveSpeedMultiplier 时的中间状态变化可能漏掉。Tick 保证永远同步。
 
 ## UMHGZEquipmentComponent — 装备 GE 管理组件
 
@@ -127,7 +140,13 @@ class UMHGZEquipmentComponent : public UActorComponent
 - 作用：面向 `Item→Definition` + `Item→Customization` 创建 GE 并 Apply 到 ASC。
 - 设计思路：
   1. `ApplyIntrinsicGE(ASC, Item→Definition, Item→GetCustomization())` — 读取覆盖后的有效数值 Apply GE。
-  2. 收集有效词条：`Def→Entries − Customization.RemovedEntryIDs + Customization.AddedEntries` → `ApplyEntryGEs(ASC, EffectiveEntries)`。
+  2. 收集有效词条（优先级：`ModifiedEntries` > `RemovedEntryIDs`）：
+     a) 遍历 `Def→Entries` → 对每条 `FEntryReference`：
+        - 若 `EntryID` 在 `Customization.ModifiedEntries` 中 → 使用修改后的等级
+        - 若 `EntryID` 在 `Customization.RemovedEntryIDs` 中 → 跳过（删除）
+        - 否则 → 使用原等级
+     b) 追加 `Customization.AddedEntries`
+     c) 将收集结果传入 `ApplyEntryGEs(ASC, EffectiveEntries)`。
   3. **仅当 `Item→Definition` 为 `UMHGZWeaponDefinition` 时：** 通过 `UMHGZDataManager::FindWeaponResourceConfig(WeaponTypeTag)` 查表 → 若匹配则 Apply 资源 GE。
   4. 遍历 `Item→SocketedAccessories` → `ApplyEntryGEs(ASC, AccDef)`。
   5. **仅当 `Item→Definition` 为 `UMHGZWeaponDefinition` 时：** 通过 `UMHGZDataManager::FindWeaponComboData(WeaponTypeTag)` 查表 → 若匹配则授予连招协调器 Ability。
@@ -153,6 +172,10 @@ class UMHGZEquipmentComponent : public UActorComponent
   4. 所有 GE 统一添加 `GrantedTags: Effect.Source.Equipment`。
 
 > **多武器词条路由机制：** `FEntryModifier::AttributeTag` 作为路由键。`WeaponResource.LongSword.*` 仅长刀识别；`WeaponResource.Shared.*` 所有武器识别。不匹配→静默跳过。**前缀校验：** `ApplyEntryModifier` 检查 `MatchesTag("WeaponResource")`，不匹配则 Warning 日志+跳过。同理 UExecCalc_EntryStat 检查 `MatchesTag("Attribute")`。
+
+> **复合词条处理：** `EffectType` 为单一枚举值——SimpleStat/Complex/WeaponResource 三种路径互斥。若一个词条需同时影响 Attribute 和 WeaponResource（如"攻击力+10 且气刃槽回复+20%"），采用以下策略：
+> - **推荐——拆分为两个独立词条引用**：装备定义中挂两个 `FEntryReference`，一个 SimpleStat（走 `GE_EntryStat` → ExecCalc 改 Attribute），一个 WeaponResource（走 `ApplyEntryModifier` 改资源组件）。95% 的复合词条可用此方案解决。
+> - **备选——Complex 自定义 GE**：创建 `GE_MasterSwordsman` 蓝图，在 GE 内同时配置 Attribute Modifiers 和自定义逻辑操作 ResourceComponent。适用于需要复杂条件判断的复合效果。
 
 ### Delegate
 

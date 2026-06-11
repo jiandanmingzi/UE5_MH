@@ -39,6 +39,8 @@ USTRUCT(BlueprintType)
 | ModifierOp | EGameplayModOp | Add | 操作类型（Add/Multiply/Override） |
 | MagnitudeCurve | FCurveTableRowHandle | 必填 | 等级→数值曲线（X=等级, Y=数值）。支持非线性、跨级突变 |
 
+> ⚠️ **Editor 约束：** `MagnitudeCurve.CurveTable` 必须指向 `CT_EntryMagnitudes`。运行时 `DataManager::EvaluateEntryMagnitude` 使用 `CT_EntryMagnitudes` 进行求值，不依赖 `FCurveTableRowHandle` 中的 CurveTable 引用。建议添加 DataTable 保存时的 Editor-time 验证（`OnPostDataTableChanged`），检查所有 `FEntryModifier` 的 `CurveTable` 引用是否正确。
+
 ## FEntryDefinition — 词条目录行
 
 ```

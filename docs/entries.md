@@ -32,6 +32,53 @@ CurveTable，每行一条 FRichCurve，X=词条等级，Y=该等级数值。策�
 
 > Curve_CritBoost：非均匀——Lv1=20%, Lv2=50%, Lv3=100%。Curve_AtkMas_Crit：Lv4 才出现会心加成——多属性+突变。
 
+## 三种 EffectType 实现流程
+
+### SimpleStat（80% 词条）——纯数值修改
+
+```
+装备 Apply 流程:
+  EquipmentComponent::ApplyEntryGEs
+    → ASC->MakeOutgoingSpec(GE_EntryStat)     // 通用 GE 蓝图，无预设 Modifiers
+    → Spec->SetByCaller("EntryID", EntryID)
+    → Spec->SetByCaller("EntryLevel", Level)
+    → ASC->ApplyGameplayEffectSpecToSelf(Spec)
+        → UExecCalc_EntryStat::Execute:
+            → DataManager->FindEntryDefinition(EntryID)
+            → 遍历 Modifiers:
+                → 检查 MatchesTag("Attribute") ✓
+                → Value = DataManager->EvaluateEntryMagnitude(CurveName, Level)
+                → Out.AddOutputModifier(Attribute, Op, Value)
+                   // 直接修改 ASC 的 Attribute，如 AttackPower +15
+```
+
+### Complex（少数）——自定义 GE 蓝图
+
+```
+装备 Apply 流程:
+  EquipmentComponent::ApplyEntryGEs
+    → 实例化 FEntryDefinition::EffectClass（策划创建的 GE 蓝图）
+    → ASC->ApplyGameplayEffectSpecToSelf(Spec)
+        → GE 蓝图自身配置了 Modifiers、Duration、ExecCalc 等
+        → GAS 按 GE 蓝图定义执行（如 GE_LifeSteal: HasDuration + 自定义 ExecCalc）
+```
+
+### WeaponResource——直接修改资源组件参数（不走 GE）
+
+```
+装备 Apply 流程:
+  EquipmentComponent::ApplyEntryGEs
+    → 找到当前武器的 ResourceComponent（如 URes_LongSword）
+    → 遍历 FEntryDefinition::Modifiers:
+        → 检查 MatchesTag("WeaponResource") ✓
+        → ResourceComponent->ApplyEntryModifier(Tag, Value, Op)
+            → 存入 ActiveModifiers Map（Key=Tag, Value={Op, Magnitude}）
+    → ResourceComponent::GetModifiedParam("RegenMultiplier")
+        → 返回 BaseValue × ActiveModifiers 累计倍率
+```
+
+> **复合词条策略：** 若一个词条需同时修改 Attribute 和 WeaponResource，拆分为两个独立 `FEntryReference`（一个 SimpleStat + 一个 WeaponResource），或使用 Complex 创建自定义 GE 蓝图。详见 [attributes.md](attributes.md) ApplyEntryGEs 段。
+
 ## UMHGZDataManager — 全局数据管理器
 
 ```
@@ -56,6 +103,8 @@ GameInstanceSubsystem，全局单例。统一持有所有全局 DataTable/CurveT
 
 - `virtual void Initialize(FSubsystemCollectionBase& Collection) override`
   - 作用：同步加载所有 SoftObjectPtr 引用的 DataTable/CurveTable 资产。在 GameInstance 初始化阶段完成，确保首次查询前所有资产已就绪。
+
+> **为何用同步加载而非异步：** `DT_EntryCatalog`（~100-500 行）、`CT_EntryMagnitudes`（~100-200 条曲线）等均为轻量资产，合计 < 1MB，`LoadSynchronous` 阻塞时间 < 50ms（编辑器开发模式下资产已驻留内存，近乎零开销）。这些数据被所有系统依赖（装备组件、ExecCalc、UI），异步加载反而要求每个调用方处理"尚未就绪"的情况——判空成本 > 50ms 启动延迟。仅在启动时加载一次，后续 `FindEntryDefinition` 等查询均 O(1)。
 
 - `bool FindEntryDefinition(FName EntryID, FEntryDefinition& OutDef) const`
   - 输入：词条 ID（对应 DT_EntryCatalog RowName）。

@@ -81,6 +81,11 @@ Source/MHGZ/
 │   ├── MHGZCue_BuffBase.h/cpp                 (Buff 光环基类：Latent——循环粒子/层数绑定)
 │   └── MHGZDamageNumberPool.h/cpp             (伤害数字 Widget 对象池：WorldSubsystem)
 │
+├── UI/                                        ← 新增：UI 系统
+│   ├── MHGZHUD.h/cpp                          (主 HUD——Widget 创建/销毁/容器管理)
+│   ├── MHGZAimComponent.h/cpp                 (瞄准检测组件——Character 端，射线+准心目标识别)
+│   └── MHGZUISubsystem.h/cpp                  (武器资源 Widget 工厂——GameInstanceSubsystem)
+│
 ├── Monster/                                   ← 新增：怪物系统
 │   ├── MHGZMonsterBase.h/cpp                  (怪物基类：ASC + Hitzone集合 + Config)
 │   ├── MHGZTrainingDummy.h/cpp                (木桩子类)
@@ -101,10 +106,45 @@ Content/
 │   └── WBP_StorageSlot.uasset
 ├── Equipment/UI/
 │   └── WBP_EquipmentStatus.uasset
+├── InsectGlaive/
+│   ├── GE_IG_WhiteExtract.uasset
+│   ├── GE_IG_YellowExtract.uasset
+│   ├── GE_IG_RedExtract.uasset
+│   ├── GE_IG_TripleUp.uasset
+│   └── GE_IG_ExtractBurst_Any.uasset
 └── UseSystem/
     ├── Actions/
     └── UI/
         └── WBP_QuickBar.uasset
+
+Content/Blueprints/Ability/InsectGlaive/
+├── GA_IG_SendKinsect.uasset
+├── GA_IG_RecallKinsect.uasset
+├── GA_IG_Slash_01.uasset
+├── GA_IG_RedSlash_01.uasset
+├── GA_IG_RedSlam.uasset
+├── GA_IG_DivingWyvern.uasset
+├── GA_IG_ExtractSurge.uasset
+└── GA_IG_TripleBurst.uasset
+
+Content/UI/
+├── WBP_HUD.uasset                       ← 主 HUD 面板（血条/耐力条/武器资源插槽/准心/小地图容器）
+├── WBP_Crosshair.uasset                 ← 通用准心 Widget
+├── WBP_HealthBar.uasset                 ← 血条 Widget（后续）
+├── WBP_StaminaBar.uasset                ← 耐力条 Widget（后续）
+├── InsectGlaive/
+│   ├── WBP_IG_ResourcePanel.uasset      ← 虫棍资源面板（容器）
+│   ├── WBP_IG_KinsectStamina.uasset     ← 猎虫耐力条
+│   └── WBP_IG_ExtractDisplay.uasset     ← 三灯圆盘
+└── LongSword/
+    └── WBP_LS_SpiritGauge.uasset        ← 太刀气刃槽（后续）
+
+Content/GameplayCues/InsectGlaive/
+├── GC_Hit_IG_TripleUp.uasset
+├── GC_Hit_IG_DivingWyvern.uasset
+├── GC_IG_ExtractGained.uasset
+├── GC_IG_TripleUpActivated.uasset
+└── GC_IG_ExtractExpired.uasset
 
 Content/GameplayCues/
 ├── Hit/

@@ -19,7 +19,7 @@
 17. **武器切换**：太刀→大剑→旧连招 Ability 被移除→新连招 Ability 被授予→输入绑定自动切换
 18. **AttackAbility**：创建 GA_Sword_Slash_01→只配 AttackSegments+Montage→不写蓝图逻辑→命中自动 Apply 伤害 GE
 19. **连招窗口**：Montage 中拖拽 NotifyState 区间 → 窗口内按键触发下一招、窗口外被忽略
-20. **连招安全兜底**：动画被打断超过 ComboTimeout→协调器强切 Idle→清除临时 Tag
+20. **连招安全兜底**：动画被打断超过 GlobalComboTimeout→协调器强切 Idle→清除临时 Tag
 21. **虫棍无收尾招环**：DoubleSlash→△→DoubleSlash 自循环→窗口超时自然回 Idle
 22. **Montage 完成回 Idle**：Montage 自然播完→GA EndAbility→协调器 OnAttackFinished()→CurrentState="Idle"
 23. **协调器 Infinite**：装备太刀期间 ASC→GetActiveAbilities() 始终包含 GA_WeaponComboCoordinator
