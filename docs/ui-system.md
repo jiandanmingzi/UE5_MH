@@ -288,12 +288,16 @@ class UMHGZCrosshairWidget : public UMHGZUserWidget
 | CurrentAimHitzoneTag | FGameplayTag | "Aim\|State" | 空 | 准心指向的怪物部位 Tag |
 | AimMaxDistance | float | "Aim\|Config" | 3000 | 瞄准射线最大距离（cm） |
 | AimChannel | TEnumAsByte\<ECollisionChannel\> | "Aim\|Config" | GameTraceChannel1 | 碰撞通道（Weapon——检测怪物 HitzoneComponent） |
+| AimInputAction | TObjectPtr\<UInputAction\> | "Aim\|Config" | nullptr | `IA_LT` 资产——`BeginPlay` 时直接绑定 EnhancedInput 的 Triggered/Completed |
 
 | Delegate | 签名 | 说明 |
 |------|------|------|
 | OnAimTargetChanged | `(AActor* Target, FGameplayTag HitzoneTag)` | 准心指向变化时广播。Target 为 nullptr 表示瞄空/场景 |
 
 ### 关键方法
+
+- `void BeginPlay() override`
+  - 作用：获取 ASC → 订阅 `RegisterGameplayTagEvent(Combat.State.Aiming)` → `OnAimingTagChanged`。直接向 EnhancedInput Subsystem 绑定 `AimInputAction` 的 Triggered/Completed——按下 LT → `ASC->AddLooseGameplayTag(Combat.State.Aiming)`；松开 → `RemoveLooseGameplayTag`。不走 GAS 分叉路由（瞄准是输入状态，非 Ability）。
 
 - `void TickComponent(float DeltaTime) override`
   - 作用：若 `bIsAiming` → `LineTraceSingleByChannel(AimChannel)` → 命中 `UMonsterHitzoneComponent` → 读 HitzoneTag → 若与上一帧不同 → 广播 `OnAimTargetChanged(Monster, HitzoneTag)`。命中其他 → 广播 `OnAimTargetChanged(nullptr, 空)`。**仅在目标变化时广播**——避免每帧重复触发 UI。

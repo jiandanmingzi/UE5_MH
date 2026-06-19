@@ -23,6 +23,496 @@
 | 受击硬直 Montage | 击退距离由 Impulse + Montage RootMotion 共同决定 | ✅ true |
 | 待机/收刀行走 | 摇杆+CMC 正常移动 | ❌ false |
 
+### MotionWarping——FBX 无根骨骼位移数据时的补位方案
+
+#### 问题背景：外部游戏提取的 FBX 通常缺少根骨骼位移
+
+从商业游戏（如怪猎崛起 RE Engine）解包获得的 FBX 动画，其骨骼层级与 UE5 的 RootMotion 预期存在结构性差异：
+
+```
+UE5 RootMotion 预期结构：
+  Root Bone（世界原点）→ 随角色移动逐帧改变坐标 → 帧间差值 = RootMotion 位移
+
+RE Engine FBX 实际结构：
+  Root Bone（始终锚定原点 0,0,0，不动）
+    └─ Hips/Pelvis → 此骨骼随攻击向前移动，但 Root 不动
+```
+
+**典型现象：** 闪避/小幅攻击有位移生效，大幅位移攻击（虫棍飞天突刺、大剑蓄力斩等）无位移——因为 RE Engine 中大幅位移由游戏逻辑代码实时驱动，动画文件本身只存储原地姿态数据。
+
+#### 验证方法
+
+1. 打开动画序列 → 骨骼树面板 → 选中根骨骼
+2. 曲线编辑器查看 Translation X/Y/Z 曲线
+3. **曲线全程水平线 = 根骨骼无位移数据 → 必须用 MotionWarping 补偿**
+
+#### MotionWarping 核心机制
+
+**MotionWarping 不是瞬移。** 工作方式：
+
+```
+原始动画根骨骼轨迹：起点 ════════ 终点（前移 50cm，动画师 K 的小幅位移）
+设定 Warp Target：   起点 ════════════════════════ 目标点（前移 800cm）
+
+逐帧处理：
+  每帧读取原始动画根骨骼位移 → 乘以缩放因子（或重新映射到目标点）
+  → 最终累积位移 = 起点到目标点的向量
+  → 角色在 Warp Window 时长内平滑移动到目标点
+```
+
+#### 位移速度控制
+
+MotionWarping 不提供类似 CMC 的加速度曲线，但可通过以下参数控制视觉速度：
+
+| 控制方式 | 作用 | 配置位置 |
+|----------|------|----------|
+| **Warp Window 时长** | 位移被拉伸的时间段。窗越短→速度越快；窗越长→越平滑 | `AnimNotifyState_MotionWarping` 的 Start/End 时间 |
+| **Warp Translation 轴开关** | 控制 X/Y/Z 各轴是否参与 Warp、最大缩放倍数 | NotifyState 的 `WarpTranslation` 属性 |
+| **Montage Play Rate** | 与 Warp 叠加生效。Rate=2.0 + Warp=800cm → 视觉速度翻倍 | GA 的 `PlayMontageAndWait` 的 `Rate` 参数 |
+| **自定义 Warp Curve** | 自定义缓入缓出曲线（Ease-In/Out） | `MotionWarpingComponent` 的 Warp Curves 资产 |
+| **分段 Warp** | 同 Montage 内多个 Warp Notify 覆盖不同时间片段 | 动画师在 Montage 时间轴上分段拖拽 |
+
+> **精细曲线方案：** 如需精确的"先加速后减速"曲线，可 C++ 派生 `UMotionWarpingModifier`，在 `OnWarpUpdate` 中实现自定义 easing 逻辑。
+
+#### 高速突刺 + 命中分支的 MotionWarping 配合
+
+```
+招式结构（单 Montage，三 Section）：
+  Section "Approach"  ← MotionWarping Notify 驱动位移 + AttackCollision 检测命中
+  Section "OnHit"     ← 命中后追击动画（可选新 Warp 或纯 RootMotion）
+  Section "OnMiss"    ← 未命中收招动画
+
+GA 流程：
+  1. ActivateAbility → 计算 Warp Target（怪物位置/前方固定距离）
+  2. PlayMontage("Approach") → Warp 逐帧驱动位移
+  3. 碰撞命中 → Montage_JumpToSection("OnHit") → Warp Notify 自然结束
+  4. Approach 段正常播完 → 自动进入 "OnMiss"
+```
+
+> ⚠️ **命中时不可 Stop Montage 再 Play 新 Montage**——Stop 会强制终止 MotionWarping，导致根骨骼弹回参考位置、角色瞬移。必须用 Section 切换（`JumpToSection`），Warp Notify 自然结束。
+
+## 移动动画系统（Blend Space + 状态机）
+
+**设计原则：** 移动循环动画是纯视觉层——不开启 Root Motion、CMC 全权负责物理位移。AnimBP 通过 Speed（Velocity.Size()）驱动动画选择。GAS 仅通过 GE 修改 MoveSpeedMultiplier 间接影响 Speed。
+
+### 动画资产配置
+
+| 动画资产 | bLoop | bEnableRootMotion | Rate Scale | 说明 |
+|----------|:-----:|:-----------------:|:----------:|------|
+| A_Idle | ✅ | ❌ | 1.0 | 待机循环 |
+| **A_Start_Walk** | ❌ | ❌ | 1.0 | 走路起步（一次性 ~0.3s） |
+| **A_Start_Run** | ❌ | ❌ | 1.0 | 奔跑起步（一次性 ~0.25s） |
+| A_Walk | ✅ | ❌ | 1.0 | 走路循环 |
+| A_Run | ✅ | ❌ | 2.0 | 奔跑循环（FBX 源帧率不匹配时需 Scale 修正） |
+| A_Sprint | ✅ | ❌ | 3.0 | 冲刺循环（A_Run 副本，×1.5 速） |
+| **A_Walk_Stop** | ❌ | ❌ | 1.0 | 走路停步（一次性 ~0.3s） |
+| **A_Run_Stop** | ❌ | ❌ | 1.0 | 奔跑停步（一次性 ~0.3s，含跑步→走路→站定全程） |
+
+> **加粗 = 一次性过渡动画，** 其余 = 循环动画。A_Sprint 无需单独 FBX——复制 A_Run 资产后在 Asset Details 中设 `Rate Scale = 3.0` 即可（A_Run 自身 Rate Scale = 2.0 修正帧率后，Sprint 在此基础上再 ×1.5）。
+
+### AnimBP 状态机结构
+
+```
+                    ┌──────────────────────┐
+                    │       Idle           │
+                    │    (A_Idle 循环)      │
+                    └──────┬───────┬───────┘
+              InputMag     │       │  Speed < 10 持续 0.1s
+              0.2~0.7      │       │  ▶ 播放 Stop 动画
+              ▶ Start_Walk │       │
+                           │       │
+              InputMag     ▼       ▲
+              > 0.7    ┌───┴───────┴───┐
+              ▶ Start_Run│   Moving    │
+                         │ BlendSpace1D│
+                         │ Walk⇄Run⇄   │
+                         │ Sprint      │
+                         └─────────────┘
+```
+
+| 转换 | 条件 | 过渡动画 | 播完后 |
+|------|------|----------|--------|
+| Idle → Moving | `InputMagnitude ∈ [0.2, 0.7)` | A_Start_Walk | 切入 Moving 状态（Blend Space） |
+| Idle → Moving | `InputMagnitude ∈ [0.7, 1.0]` | A_Start_Run | 切入 Moving 状态（Blend Space） |
+| Moving → Idle | `Speed < 10` 且 `InputMagnitude ≈ 0` 持续 0.1s | 见下方停步判定 | 切入 Idle 状态 |
+
+### 起步判定：用 InputMagnitude 而非 Speed
+
+**原因：** Speed 有 CMC 加速延迟——等 Speed 涨到能判断"玩家想跑"时，起步动画已经播完了。`GetPendingMovementInputVector().Size()` 返回摇杆幅度，0 帧瞬时响应。
+
+```cpp
+// AnimBP EventGraph 中每帧获取
+APawn* Pawn = TryGetPawnOwner();
+float InputMag = Pawn->GetPendingMovementInputVector().Size();
+// 范围：0.0（未推摇杆）～ 1.0（摇杆推到底）
+```
+
+| 信号 | 延迟 | 适用场景 |
+|------|:--:|----------|
+| InputMagnitude（摇杆幅度） | 0 帧 | ✅ 判断起步类型（Walk/Run） |
+| Speed（Velocity.Size()） | 有加速惯性 | 用于 Moving→Idle 停步判定 |
+
+### 停步判定：松手瞬间 Speed 快照
+
+**问题：** 松摇杆时角色还在高速移动，等 Speed 降到阈值时已不知道原本是 Walk 还是 Run。**解决：在 InputMagnitude 下降沿瞬间快照当前 Speed。**
+
+```
+每帧比较 InputMag 与上一帧：
+  ┌─ 上一帧 InputMag > 0.2 且 当前帧 InputMag < 0.1
+  │    → SnapSpeedAtRelease = 当前 Speed  ← 快照
+  │
+  └─ 等 Speed < 10 且 InputMag ≈ 0 持续 0.1s → 触发 Moving→Stop
+       ├─ SnapSpeedAtRelease > RunSpeedThreshold（如 400）
+       │    → 播放 A_Run_Stop（跑步收脚→走路减速→站定）
+       └─ SnapSpeedAtRelease ≤ RunSpeedThreshold
+            → 播放 A_Walk_Stop（走路收脚→站定）
+```
+
+> **为什么不需要 Walk_Stop 后再接 Run_Stop：** Run_Stop FBX 的时间线已覆盖"跑步姿势→过渡到走路→走路收脚→Idle"全程，一段动画完成所有减速阶段。
+
+### 冲刺动画派生
+
+冲刺和奔跑是同一运动模式，仅频率不同。无需额外 FBX：
+
+1. 在编辑器中复制 `A_Run` 动画序列 → 重命名为 `A_Sprint`
+2. 打开 `A_Sprint` → Asset Details → `Rate Scale = 3.0`
+   - A_Run 已设 Rate Scale = 2.0（修正 FBX 帧率不匹配）
+   - Sprint = Run 的 1.5 倍速 → 2.0 × 1.5 = 3.0
+3. Blend Space 中 Sprint 格点引用 `A_Sprint`
+
+| 格点 | 动画资产 | 资产 Rate Scale | 实际播放速度 |
+|------|----------|:---:|:---:|
+| Idle | A_Idle | 1.0 | 1.0 |
+| Walk | A_Walk | 1.0 | 1.0 |
+| Run | A_Run | 2.0 | 2.0 |
+| Sprint | A_Sprint（A_Run 副本） | 3.0 | 3.0 |
+
+### FBX 导入注意事项
+
+#### 帧率不匹配
+
+FBX 导出帧率 ≠ UE5 导入帧率会导致动画变慢/变快。表现为导入后动捕速度明显不对。
+
+- **查：** 打开动画序列 → Asset Details → `Number of Keys` 和 `Sequence Length` 是否匹配预期
+- **改（推荐）：** 动画序列 → Asset Details → `Rate Scale` 设修正倍数
+- **改（导入时）：** FBX Import Options → `Import Uniform Sampling = 0` → `Sample Rate` = 源帧率
+
+#### Z 轴偏移
+
+部分解包动画的根骨骼不在地面高度，导入后动画序列中角色浮空。表现为需在预览中手动偏移 Z 才能贴合地面。
+
+- **根骨骼在腰部时的常见问题：** 角色脚底 Z < 0，Animation Sequence 预览浮空
+- **方案 A（推荐——导入时）：** FBX Import → `Translation Offset` 填入偏移值（如 `(0, 0, -111)`）
+- **方案 B（AnimBP 修正）：** AnimGraph 末尾加 `Transform (Modify) Bone` 节点 → Root Bone → Translation Z = 偏移值
+- **方案 C（动画序列内修正）：** 打开动画序列 → 选中根骨骼 Translation Z 曲线 → 全选关键帧整体偏移
+
+> ⚠️ 移动循环动画务必 **关闭 Root Motion**（`bEnableRootMotion = false`）。若误开 Root Motion，根骨骼在腰部时其 Z 轴上下起伏（Walk/Run Bob）会被 CMC 累积应用，导致角色逐帧上浮。此问题在 Blend Space 中尤其明显——不同 Speed 格点的 Z 增量混合后加速上浮。
+
+#### Root Motion Root Lock
+
+开启 Root Motion 时（仅攻击/翻滚 Montage），`Root Motion Root Lock` 控制根骨骼旋转处理：
+
+| 枚举值 | 行为 | 适用 |
+|--------|------|------|
+| `RefPose` | 锁定到参考姿势 | ✅ 推荐——根骨骼在腰部时也安全 |
+| `AnimFirstFrame` | 锁定到动画第一帧朝向 | ✅ 备选 |
+| `Zero` | 所有旋转归零 | ❌ 根骨骼在腰部时会导致模型面朝上等异常朝向 |
+
+### 八方向移动的转向策略
+
+项目仅使用正向 Walk/Run 动画循环（无侧面/后退动画），八方向移动靠 CMC 旋转角色实现：
+
+| 玩家操作 | CMC 行为 | AnimBP 行为 |
+|----------|----------|-------------|
+| 摇杆前推 | 直走 | 播正向 Walk/Run |
+| 摇杆左推 | `bOrientRotationToMovement = true` → 自动旋转角色 -90° | 播正向 Walk/Run |
+| 摇杆后推 | 自动旋转角色 180° | 播正向 Walk/Run |
+| 摇杆右推 | 自动旋转角色 +90° | 播正向 Walk/Run |
+
+**关键 CMC 配置：**
+
+| 属性 | 值 | 效果 |
+|------|:--:|------|
+| `bOrientRotationToMovement` | `true` | 角色自动朝向移动方向 |
+| `RotationRate.Yaw` | 540°/s | 转向速度 |
+| `bUseControllerDesiredRotation` | `false` | 不跟随摄像机朝向 |
+
+> **结论：** 正向动画 + CMC 旋转 = 完整的八方向移动表现。不需要侧面或后退动画。注意区分"摇杆后推→CMC 转身 180°"（移动循环，无 Root Motion）和"战斗回避后撤"（Dodge/见切 Montage，Root Motion 驱动）——两者是不同的系统路径。
+
+### 系统数据流总览
+
+```
+摇杆输入 → AddMovementInput → CMC（物理）→ Velocity → Speed
+                                                          │
+                                          ┌───────────────┘
+                                          ▼
+                                    AnimBP 状态机
+                                    ├─ Idle 状态: A_Idle
+                                    ├─ Start 转换: A_Start_Walk / A_Start_Run
+                                    ├─ Moving 状态: BlendSpace1D (Walk ⇄ Run ⇄ Sprint)
+                                    └─ Stop 转换: A_Walk_Stop / A_Run_Stop
+                                                          │
+                                                          ▼
+                                                     输出 Pose
+
+攻击/翻滚（并行路径，RootMotion=ON）：
+EnhancedInput → Tag → ASC → GA → Montage → RootMotion 覆盖 CMC 位移
+```
+
+## 空中动作系统
+
+**设计原则：** 空中招式按位移来源分为 5 类，通过**惯性速度状态（AerialVelocity）**在 CMC 与 GA 之间交接动量，AnimBP 按 `Combat.State.Aerial.Falling.*` Tag 选择下落/收招 Pose。
+
+### 招式分类与位移策略
+
+| 分类 | 虫棍示例 | 位移特征 | 实现方案 |
+|------|---------|----------|----------|
+| **① FBX 自带位移** | 空中回避(137)、降龙上升(173)、撑杆前半 | FBX 已 K 帧，方向锁定（4向/8向） | `bEnableRootMotion=true` + `MaxCorrectionAngle` 方向修正 |
+| **② 准心方向 + 固定距离** | 操虫斩(162)、铁虫丝跳跃(178) | 方向=按键时准心朝向，最大距离固定 | MotionWarping `AddOrUpdateWarpTargetFromLocation` |
+| **③ 固定垂直 + 摇杆水平缩放** | 撑杆起跳(141-146)、舞踏(189)、猎虫滑翔(190)、操虫斩命中后(163) | 上升高度固定，水平受摇杆影响（前推增、后推减） | 垂直: FBX RootMotion 或 Task；水平: RootMotion Task + 摇杆缩放 |
+| **④ 纯惯性下落** | 被动下坠(74)、持刀下坠(76)、起跳下坠(143) | 仅重力+空气摩擦 | **无 GA**——CMC 全权管理 |
+| **⑤ 惯性 + 摇杆参与** | 跳跃斩(105)→下坠(106)、急袭突刺 | 继承动量 + 摇杆修正 + 重力 | RootMotion Task（Additive 模式合成） |
+
+> ③ 的上升方向由动画类型决定（撑杆前跳=前上、舞踏=正上、猎虫滑翔=前上、操虫斩命中=后上），水平位移是"动画预设方向 × 摇杆缩放"。⑤ 的位移方向完全由当前惯性+摇杆实时计算。
+
+### 惯性系统——AerialVelocity 状态
+
+**核心问题：** 空中 GA 期间 RootMotion/MotionWarping 覆盖 CMC Velocity，GA 结束时若不做交接，惯性丢失——角色像"撞墙"一样失去空中动量。
+
+```
+AerialVelocity（逻辑概念，物理载体是 CMC→Velocity）：
+  生命周期：
+    起跳瞬间：CMC→Velocity 初始化
+    GA 激活时：快照 Velocity → 传递给 GA（作为惯性力的输入）
+    GA 执行时：GA 读取+修改 → RootMotion Task 驱动合成
+    GA 结束时：最终合成值写回 CMC→Velocity
+    无 GA 时：CMC 自主管理重力+空气摩擦
+```
+
+### 速度交接协议
+
+```
+CMC（物理层）          GA（逻辑层）               AnimBP（表现层）
+═══════════          ═══════════               ═══════════════
+地面移动             （无空中 GA）              地面状态机
+  ↓ 起跳/击飞
+Velocity=(vx,vy,vz)
+  ↓ GA 激活              ↓
+暂停 Velocity 更新  →  快照 Velocity
+                        ↓
+                    根据分类处理：
+                    ① RootMotion 直接
+                    ② MotionWarping
+                    ③ RootMotion Task(垂直) + 摇杆缩放(水平)
+                    ⑤ RootMotion Task(惯性+摇杆, Additive)
+                        ↓
+  ↓ GA 结束              ↓
+Velocity=最终合成值  ←  回灌               下落 Pose Tag 写入
+  ↓                                          ↓
+CMC 管理重力+摩擦
+  ↓ 落地                   ↓                    ↓
+Velocity归零→Grounded    可激活新 GA          落地动画→Idle
+```
+
+### 各分类实现细节
+
+#### ① FBX 自带位移
+
+```cpp
+void UGA_IG_AirDodge::EndAbility(...)
+{
+    // 从 Montage 末帧反算速度（不能用 CMC→Velocity——可能已衰减）
+    UAnimInstance* Anim = Mesh->GetAnimInstance();
+    FVector RootDelta = Anim->GetRootMotionDelta();
+    FVector FinalVelocity = RootDelta / Anim->GetDeltaSeconds();
+    CMC->Velocity = FinalVelocity;
+
+    ASC->AddLooseGameplayTag(Combat.State.Aerial.Falling.IG_AirDodge);
+    Super::EndAbility(...);
+}
+```
+
+#### ② 准心方向 + 固定距离
+
+```cpp
+void UGA_IG_KinsectSlash::ActivateAbility(...)
+{
+    FVector Target = Avatar->GetActorLocation()
+                   + GetAimComponent()->GetAimDirection() * MaxSlashDistance;
+    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(
+        FName("KinsectSlashTarget"), Target);
+    PlayMontageAndWait(KinsectSlashMontage);
+}
+// 命中后：结束当前 GA，激活 ③ 类 GA 处理命中后动画
+// ③ 类 GA 的 Task(bIsAdditive=false) 覆盖 Warp 残留速度
+```
+
+#### ③ 固定垂直 + 摇杆水平缩放
+
+```cpp
+void UGA_IG_PoleVaultForward::ActivateAbility(...)
+{
+    FVector2D Stick = GetLastMovementInputVector();
+    float StickScale = FMath::Clamp(1.0f + Stick.Y, 0.2f, 1.8f);  // 前推×1.8，后推×0.2
+    float HDist = PoleVaultBaseForwardDistance * StickScale;
+
+    FVector LaunchVel = Avatar->GetActorForwardVector() * HDist / Duration;
+    LaunchVel.Z = PoleVaultBaseHeight / Duration;
+    LaunchVel += CMC->Velocity * InertiaPreserveRatio;
+
+    UAbilityTask_ApplyRootMotionConstantForce* Task =
+        UAbilityTask_ApplyRootMotionConstantForce::ApplyRootMotionConstantForce(
+            this, TEXT("PoleVault"), LaunchVel, Duration,
+            false, nullptr, ERootMotionFinishVelocityMode::SetVelocity);
+    Task->ReadyForActivation();
+}
+```
+
+#### ⑤ 惯性 + 摇杆参与
+
+```cpp
+void UGA_IG_JumpSlash::ActivateAbility(...)
+{
+    FVector Inherited = CMC->Velocity;
+    FVector2D Stick = GetLastMovementInputVector();
+    FVector StickDir = Avatar->GetActorForwardVector() * Stick.Y
+                     + Avatar->GetActorRightVector() * Stick.X;
+
+    FVector Vel = Inherited * 0.7f + StickDir * StickForce + FVector(0,0,-DownwardForce);
+    Vel = Vel.GetClampedToMaxSize(MaxAerialSpeed);
+
+    UAbilityTask_ApplyRootMotionConstantForce* Task = ...;
+    Task->ReadyForActivation();
+}
+```
+
+### RootMotion Task vs MotionWarping — 惯性行为对照
+
+| | RootMotion Task（SetVelocity） | MotionWarping |
+|------|:--:|:--:|
+| **运行时速度正确反映在 CMC？** | ✅ 每帧 | ⚠️ 反映，但 Warp 是"位移缩放"而非"速度控制" |
+| **结束时自动保留惯性？** | ✅ `SetVelocity` 模式自动写 CMC | ❌ 需手动从 `GetRootMotionDelta` 反算回灌 |
+| **能叠加惯性（Additive）？** | ✅ `bIsAdditive=true` | ❌ Warp 只修改动画内位移 |
+| **能覆盖惯性（重置）？** | ✅ `bIsAdditive=false` | ❌ 需配合 Task 覆盖 |
+| **适用分类** | ③ ⑤ | ② |
+
+> **MotionWarping 的坑：** Montage 结束和 `EndAbility` 之间可能差 1~数帧，此时 CMC 已恢复自主物理（`BrakingDecelerationFalling` 生效），直接读 `CMC→Velocity` 得到的是已衰减的速度。正确做法：从 `UAnimInstance::GetRootMotionDelta()` 反算末帧瞬时速度。
+
+### 统一 EndAbility — 空中 GA 速度回灌
+
+```cpp
+void UMHGZAttackAbility::EndAbility(...)
+{
+    // 仅空中 GA 需要惯性保留
+    if (ASC->HasMatchingGameplayTag(Combat.State.Aerial))
+    {
+        UAnimInstance* Anim = Mesh->GetAnimInstance();
+        if (Anim && CurrentMontage)
+        {
+            if (!bHasActiveRootMotionTask)
+            {
+                // ①② 类（FBX RootMotion / MotionWarping）：
+                // Task 未接管位移 → 从 Montage 末帧反算速度
+                FVector RootDelta = Anim->GetRootMotionDelta();
+                if (!RootDelta.IsNearlyZero())
+                {
+                    CMC->Velocity = RootDelta / Anim->GetDeltaSeconds();
+                }
+            }
+            // ③⑤ 类（RootMotion Task）：Task 已在结束时自动写 CMC→Velocity
+        }
+    }
+
+    Super::EndAbility(...);
+}
+```
+
+> `bHasActiveRootMotionTask` 在 GA 激活 RootMotion Task 时设为 true，Task 结束时（`SetVelocity` 模式自动写 CMC）或 `EndAbility` 清理时设回 false。
+
+### 各分类惯性行为总览
+
+| 分类 | 位移源 | 结束时机 | 惯性交接方式 |
+|------|--------|---------|-------------|
+| ① | Montage RootMotion | Montage 末帧 | `EndAbility` 手动：`GetRootMotionDelta() / Δt` → CMC |
+| ② | MotionWarping | Warp 窗口结束 | `EndAbility` 手动：同上 |
+| ② 命中 → ③ | — | GA 切换 | ③ 类 Task（`bIsAdditive=false`）覆盖残留速度 |
+| ③ | RootMotion Task | Task 结束 | `SetVelocity` 自动 → CMC |
+| ④ | CMC 物理 | 持续直到落地 | CMC 自身（重力+摩擦） |
+| ⑤ | RootMotion Task（Additive） | Task 结束 | `SetVelocity` 自动 → CMC |
+
+### 空中收招后的状态流向
+
+```
+空中回避(137) 结束 → ① → 末速度写入 CMC → ④下落
+操虫斩(162) 命中 → ② → ③ 类 GA 重置惯性 → ③ 结束 → ④下落
+操虫斩(162) 未命中 → ② → 末速度写入 CMC → ④下落
+撑杆起跳(141) 结束 → ③ → SetVelocity 自动 → ④下落
+跳跃斩(105) 结束 → ⑤ → SetVelocity 自动 → ④下落
+```
+
+### 空中动作次数限制
+
+**设计思路：** 不维护数字计数器，用 Cant（禁止）Tag 做"空中体力槽"。默认无限制——用了才禁止。每轮滞空：空中回避 ×1 + 空中攻击 ×1。两者用完→两个 Cant 同时存在→各自 BlockedTags 命中→双阻塞。舞踏/操虫斩命中后清 Cant 重置。
+
+```
+权限模型（Tag 驱动，零交叉逻辑）：
+
+  起跳 → ASC 无任何 Cant Tag（默认全部可用）
+    │
+    ├── GA_AirDodge: BlockedTags={CantDodge}
+    │     → 激活时添加 CantDodge（锁自己）
+    │
+    ├── GA_AirAttack_*: BlockedTags={CantAttack}
+    │     → 激活时添加 CantAttack（锁自己）
+    │
+    ├── 两者都用了 → CantDodge + CantAttack 都存在
+    │     → 各自 BlockedTags 各自命中 → 双阻塞
+    │
+    └── ★ GA_DanceJump 激活（命中触发/操虫斩命中后）
+          → 移除 CantDodge + CantAttack（重置）
+
+不需要 Exhausted——两个 Cant 各自独立，不需要"汇总"标签。
+```
+
+**与碰撞/伤害系统无关：** 次数限制仅影响 GA 的 `CanActivateAbility`（GAS 原生 `BlockedTags`，零覆写代码）——不阻塞连招表匹配、不涉及 AnimNotifyState、不改变位移逻辑。空中攻击未命中→`ShouldContinueAfterHit` 返回 false→`EndAbility` 写入 `Falling.*` Tag→AnimBP 维持下落 Pose，不会额外发放新的空中权限。Cant 的容错性优于 Can：加 Cant 失败→最多多用一次；加 Can 失败→本应可用的招式被误锁。
+
+### 着陆重置——落地后恢复连招
+
+**问题：** 落地链路绕过了协调器（CMC `OnLanded` 事件，不经过任何 GA）→ `CurrentState` 残留空中攻击的招式名 → 地面 `FComboNode` 无法从 `"Idle"` 匹配起手攻击。
+
+**方案：** 在 `AMHGZCharacter::OnLanded()` 中：
+1. ASC 移除所有 `Aerial`/`Falling.*`/`CantDodge`/`CantAttack` Tag → 添加 `Grounded`
+2. `Coordinator→OnLanded()` → `CurrentState = "Idle"` + 清除 `Combo.Branch.*` Tag
+3. AnimBP 自然检测 `Grounded` Tag → 播放 Landing→Idle 过渡
+
+> 着陆不是 GA——不产生伤害、不消耗资源、不需要 Montage。只是状态复位。落地后的攻击由协调器正常匹配 `StateName="Idle"` 的 `FComboNode` 行触发。
+
+### GameplayTag 扩展
+
+```
+Combat.State.Aerial                               ← 已有
+Combat.State.Aerial.Falling                       ← 下落态
+Combat.State.Aerial.Falling.Default               ← 兜底 Pose
+Combat.State.Aerial.Falling.IG_AirDodge
+Combat.State.Aerial.Falling.IG_JumpSlash
+Combat.State.Aerial.Falling.IG_PoleVault
+Combat.State.Aerial.Falling.IG_DanceJump
+Combat.State.Aerial.Falling.IG_KinsectSlide
+Combat.State.Aerial.Falling.IG_KinsectSlashHit
+Combat.State.Aerial.CantDodge                  ← 空中回避已用
+Combat.State.Aerial.CantAttack                 ← 空中攻击已用
+Combat.State.Aerial.Landing                       ← 落地瞬间过渡
+```
+
+### CMC 空中物理配置
+
+| 属性 | 值 | 说明 |
+|------|:--:|------|
+| `GravityScale` | 1.8 | 空中重力倍率 |
+| `AirControl` | 0.15 | 摇杆微调（低值=惯性主导，接近怪猎手感） |
+| `BrakingDecelerationFalling` | 80 | 水平速度空中衰减 |
+| `MaxAerialSpeed` | 2000 | 终端速度上限（cm/s），覆写 `CalcVelocity` 钳制 XY 分量 |
+
 ## 边缘跳越（Vault）
 
 CMC 边缘检测 + 自定义组件触发 + GA 播动画。推荐方案 A（组件轮询）：`UMHGZEdgeVaultComponent` Tick 中检测 → `TryActivateAbilityByTag(Input.EdgeVault)`。
@@ -374,6 +864,151 @@ UMHGZAttackAbility                         ← 碰撞+伤害+方向修正（通�
 
 段0 突刺（`AttackCollision, ConfigIndex=0`）→ 首次命中时 `ShouldContinueAfterHit()` 检查气刃槽 ≥ 白 → 是则播段1 起跳，否则播后摇 `EndAbility`。段1 起跳（MotionWarping 上跳，无碰撞）。段2 下劈（`AttackCollision, ConfigIndex=1, MultiHitCount=7, MultiHitInterval=0.1s`）→ 每 0.1s `ApplyDamage` 共 7 次。`ShouldContinueAfterHit()` 是**招内派生**（同一 GA 内），不同于连招表的**跨 GA 派生**（`GrantedTags`）。
 
+### 招内分支：命中/未命中派生——GA 与 Montage 的职责划分
+
+#### 架构原则
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Montage 负责                          │
+│  动画时间线编排（Section 分段、Blend 曲线、Notify 位置）  │
+│  不包含任何条件判断逻辑                                  │
+├─────────────────────────────────────────────────────────┤
+│                    GA 负责                               │
+│  条件判断（命中？未命中？资源够？）、分支决策、           │
+│  JumpToSection 指令、Warp Target 设置                    │
+└─────────────────────────────────────────────────────────┘
+```
+
+#### 为什么不能放 Montage？
+
+| 原因 | 说明 |
+|------|------|
+| Montage Section 链接是**静态**的 | 只能在编辑器中预设"Section A 播完→切 Section B"，无法执行时判断"这一帧有没有命中怪物" |
+| AnimNotify 只能"通知"，不能"决策" | Notify 上报命中事件，但命中后需查 ASC Tag、资源组件状态、连招表——只有 GA 能访问这些 |
+| 项目已有反例 | 见切 `ForesightJudge` Notify 只负责**记录** `bDodgeSuccessful=true`，实际分支决策在 GA 的回调中读取该标记 |
+
+#### 命中分支的标准实现模式
+
+```
+Montage 结构（纯动画分段，不含逻辑）：
+  Section "Approach"  ← 含 MotionWarping Notify + AttackCollision Notify
+  Section "OnHit"     ← 命中追击动画
+  Section "OnMiss"    ← 未命中收招动画
+
+GA 中的分支逻辑：
+  ActivateAbility()
+    ├── 设置 Warp Target
+    ├── PlayMontageAndWait("Approach")
+    └── 注册回调
+
+  命中回调（碰撞系统检测到命中时）：
+    ├── 查 ASC Tag / 资源组件 → 判断是否满足派生条件
+    ├── 是 → Montage_JumpToSection("OnHit")
+    └── 否 → 继续等待
+
+  Montage 播完回调（Approach 自然结束）：
+    └── 中途未 JumpToSection → 自动进入 "OnMiss"
+```
+
+#### 与已有机制的关系
+
+项目已有两套分支机制，高速突刺招式是 `ShouldContinueAfterHit()` 的扩展用法：
+
+| 分支类型 | 对应方法 | 作用层级 |
+|----------|---------|----------|
+| **招内派生**（同一 GA 内，命中→继续/命中→切段） | `ShouldContinueAfterHit()` + `JumpToSection` | 同一 GA 内部 |
+| **跨 GA 派生**（一个 GA 结束→下一个 GA） | `FComboNode::GrantedTags` + 协调器 | GA 之间 |
+
+### Montage 资产策略——单 Montage（多 Section）vs 多 Montage
+
+#### 决策对照
+
+| 维度 | 单 Montage 多 Section | 多 Montage |
+|------|:--:|:--:|
+| **Section 间 Blend** | ✅ 内置，动画师拖拽 Blend 曲线 | ❌ 需代码 Stop→Play，有 1 帧空白或硬切 |
+| **MotionWarping 连续性** | ✅ Warp Notify 跨 Section 自然结束 | ❌ Stop Montage 强制终止 Warp，角色可能瞬移 |
+| **RootMotion 连续性** | ✅ 根骨骼位移跨 Section 累积 | ❌ 切 Montage 时根骨骼回参考位置 |
+| **Notify 管理** | ⚠️ 所有 Notify 在同一轨道，需注意区间不重叠 | ✅ 各自独立，互不干扰 |
+| **独立设置（RateScale/RootMotion 等）** | ❌ 所有 Section 共享同一 Montage 属性 | ✅ 每个 Montage 可独立配置 |
+| **资产复用** | ❌ Section 不能跨 Montage 引用 | ✅ 收招动画可被多个 GA 共用 |
+| **版本控制** | ⚠️ 单文件多人编辑易冲突 | ✅ 各文件独立 |
+
+#### 选择规则
+
+| 场景 | 推荐 | 理由 |
+|------|:--:|------|
+| 同一 GA 内，各段共享 RootMotion/MotionWarping 设置 | **单 Montage** | Section Blend 保证命中瞬间过渡流畅 |
+| 需要 MotionWarping 驱动的位移跨段连续 | **单 Montage** | Stop Montage 会破坏 Warp 连续性 |
+| 命中动画需跨招式/跨武器复用 | **多 Montage** | 避免资产冗余 |
+| 不同段需要不同 `bEnableRootMotion` 设置 | **多 Montage** | 单 Montage 所有 Section 共享该属性 |
+| 多人协作，不同动画师负责不同段 | **多 Montage** | 二进制文件合并冲突严重 |
+
+> **项目推荐：** 高速突刺→命中/未命中分支、登龙剑、见切等招式均用**单 Montage 多 Section**——这些场景共享 RootMotion 设置、依赖 MotionWarping 连续性、命中瞬间需要平滑 Blend。
+
+### 招式衔接动画——Montage Entry Section 模式
+
+**设计原则：** 不改变"每个招式 = 一个 GA + 一个 Montage"的架构。衔接动画放在**下一个招式的 Montage 开头**作为 Entry Section，GA 激活时根据协调器的 `PreviousState` 选择对应入口。
+
+#### Montage Entry Section 结构
+
+```
+Montage_Slash_103（连续上捞）：
+  ┌─────────────────────────────────────────────────────┐
+  │ Section "Entry_From_Idle"       ← 从站立起手         │
+  │ Section "Entry_From_Slash101"   ← 从袈裟斩衔接       │
+  │ Section "Entry_From_Dodge"      ← 从回避恢复         │
+  │ Section "Entry_Default"         ← 兜底（走 Inertialization 硬混）│
+  │ Section "Attack"                ← 攻击本体（含碰撞窗口）│
+  └─────────────────────────────────────────────────────┘
+```
+
+各 Section 之间用 Montage 内置的 `Automatic Section Transition` 或 GA 在 Entry 播完后 `JumpToSection("Attack")` 衔接。
+
+#### GA 激活时选择入口
+
+```cpp
+// 在武器 GA（如 UGA_IG_Slash_103）的 ActivateAbility 中
+void UGA_IG_Slash_103::ActivateAbility(...)
+{
+    // 查询协调器：上一个招式是什么？
+    FName PreviousState = Coordinator->GetPreviousState();
+
+    // 根据来源选择入口 Section
+    FName EntrySection;
+    static const TMap<FName, FName> EntryMap = {
+        { "Idle",       "Entry_From_Idle"       },
+        { "Slash_101",  "Entry_From_Slash101"   },
+        { "Dodge",      "Entry_From_Dodge"      },
+    };
+    EntrySection = EntryMap.FindRef(PreviousState, FName("Entry_Default"));
+
+    // 从入口 Section 播放，播完自动进入 "Attack"
+    PlayMontageAndWait(Montage, EntrySection);
+}
+```
+
+> **Entry_Default：** 当 `PreviousState` 无匹配时走此兜底 Section——通常是一个极短的过渡段或直接空 Section，依赖 UE5 内置 Inertialization 做骨骼惯性混合。
+
+#### 哪些招式对需要专属衔接动画？
+
+**判定标准：** 两个动画的首尾帧骨骼 Pose 差异是否大到 Inertialization 混合也会出现肉眼可见的跳帧。
+
+| 条件 | 需要专属 Entry Section？ |
+|------|:--:|
+| 上一个招式的结束 Pose 和下一个招式的起始 Pose 差异大（如袈裟斩收刀在右上→上捞从左下起手） | ✅ 需要 |
+| 空中动作落地→地面攻击（下落惯性姿势和站姿差异大） | ✅ 需要 |
+| 快速连招之间（如横扫→二连斩），Pose 接近 | ❌ 走 Entry_Default + Inertialization |
+| Idle 起手（已有专门的起手式动画） | ❌ Entry_From_Idle 本身就是起手动画 |
+
+#### 与已有机制的关系
+
+| 机制 | Montage 结构 | 触发方式 | 适用 |
+|------|-------------|----------|------|
+| **招内分支**（上节） | 单 Montage 多 Section | GA 内部 `JumpToSection`（命中/未命中） | 同一招式内的分支 |
+| **Entry Section**（本节） | 每个 Montage 多个入口 Section | GA 激活时选 Section（基于 `PreviousState`） | 招式间的衔接过渡 |
+| **Inertialization** | 不需要额外 Section | UE5 自动 | Pose 接近的招式间过渡 |
+
 ## 蓄力式攻击
 
 蓄力不进连招表路由——全程在一个 GA 内部闭环。`bIsContinuous=true`，按住累积 `ChargeLevel`（通过曲线/参数控制递增速率），ASC 持有 `Input.Modifier.Charging` Tag。松开（Completed 事件）→ ASC 的 `OnInputActionCompleted` 检查 `Combat.State.Charging` Tag → 若存在则 `HandleGameplayEvent(Combat.Event.ChargeReleased, InputTag=AbilityTag)`。蓄力 GA 通过 `AbilityTrigger` 监听此 Event → 根据 `ChargeLevel` 分支选 Montage 和 `DamageConfig` → 方向修正（`MaxCorrectionAngle` 通常设 60°）→ 播放释放 Montage。不同等级使用不同 `AttackSegments` 配置，不创建多个 GA 蓝图子类。
@@ -659,8 +1294,11 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 | bRequiresHitToGrantTags | bool | false | 为 true 时本节点必须命中才能接下一段（协调器仅收到 GA 命中通知后才应用 GrantedTags）。false=激活即授予，允许空挥接下一段 |
 | bRequiresWindowOpen | bool | true | 为 false 时本节点匹配**不受 `Combat.State.ComboWindowOpen` Tag 限制**——即使连招窗口关闭也能触发。实际可用性仍受 `RequiredTags` 约束（收虫/纳刀需 `DodgeAcceptOpen`）。默认 true |
 | Priority | int32 | 0 | 显式匹配优先级。同层（精确招式/通用招式 + DirectionalInput）内有多个候选行满足 InputAction 条件时，Priority 高的优先匹配 |
+| bAutoTransition | bool | false | ★ 自动转移标记。为 true 时本节点不需要 `InputAction`——命中/播完时由 GA 调用 `OnAutoTransition(NextState)` 自动转入下一招式。`NextState` 必须在连招表中存在对应行。InputAction 可为空（不接受玩家输入）。用于操虫斩命中→命中后动画、特殊招式播完自动回 Idle 等场景 |
 
 ### 出招表数据模型
+
+`ComboEntries` 定义了 FSM 的有向转移图。`StateName` 是状态，`NextState` 是转移目标。**连招协调器本质就是一台有限状态机（FSM）**——`CurrentState` 是当前状态，`InputAction` 等字段是转移条件，`ActivateAbility` 是转移动作。`bAutoTransition` 对应的概念是 **ε 转移（无需输入的自动转移）**。
 
 `ComboEntries` 是平面数组，`NextState` 是字符串键（非指针）。协调器构建 `TMap<FName, TArray<int32>> StateIndex`，按 `StateName` 分组（`bMatchAnyState=true` 的行放入 `"*"` 桶），运行时 O(1) 查候选行。匹配时查询 `StateIndex[CurrentState]` 和 `StateIndex["*"]` 两个桶。`StateName` 用具体招式名（如 `"RisingSlash"`）而非抽象编号——多路径收敛和派生差异在出招表中显式可见。
 
@@ -704,6 +1342,7 @@ class UMHGZWeaponComboCoordinatorAbility : public UGameplayAbility
 | 成员 | 类型 | 说明 |
 |------|------|------|
 | CurrentState | FName | 当前所处的招式名（初始 "Idle"） |
+| PreviousState | FName | 上一个成功激活的招式名（初始 `"Idle"`）。GA 在 `ActivateAbility` 中通过 `Coordinator→GetPreviousState()` 读取，用于选择 Montage 的入口 Section（Entry Section） |
 | ComboData | TObjectPtr\<UMHGZWeaponComboData\> | 当前武器的连招表 |
 | StateIndex | TMap\<FName, TArray\<int32\>\> | 按 StateName 分组的行号索引。含 `"*"` 桶存放所有 bMatchAnyState=true 的行。O(1) 查找候选行 |
 | ComboTimeoutTimer | FTimerHandle | 绝对安全兜底计时器。每次新 GA 激活时重置，时长=`ComboTimeout`(10s)。到期时若仍未回 Idle→强切+清临时 Tag。正常流程 Montage 完成先触发，此计时器不介入 |
@@ -725,25 +1364,51 @@ class UMHGZWeaponComboCoordinatorAbility : public UGameplayAbility
   - 输入：武器输入 Tag（`Input.Weapon.Y` / `Input.Weapon.B` 等）。
   - 作用：由 ASC 的 `OnInputActionTriggered` 在判别为武器 Tag 时调用。若 ComboData 未注入（StateIndex 为空）→ 忽略。帧批处理收集 → 排序 → 匹配 → 激活 GA。
 
+- `FName GetPreviousState() const`
+  - 输出：上一个成功激活的招式名。
+  - 作用：GA 在 `ActivateAbility` 中调用——根据来源招式选择 Montage 的入口 Section（Entry Section）。
+
 - `void OnAttackHit()`
   - 作用：由攻击 GA 的 `ApplyDamage` 在首次命中时调用。将 `PendingGrantedTags` 写入 ASC。
 
 - `void OnAttackFinished()`
-  - 作用：由攻击 GA 的 `EndAbility` 调用。若 `CurrentState` 在此期间未被新 GA 激活变更 → `CurrentState = "Idle"` + 清除 `Combo.Branch.*` 临时 Tag。
+  - 作用：由攻击 GA 的 `EndAbility` 调用。若 `CurrentState` 在此期间未被新 GA 激活变更（包括 `OnAutoTransition` 变更）→ `CurrentState = "Idle"` + 清除 `Combo.Branch.*` 临时 Tag。
+
+- `void OnAutoTransition(FName NextStateName)`
+  - 输入：自动转移目标的招式名。
+  - 作用：GA 命中/播完时主动调用——不经过玩家输入，直接按 `StateName=NextStateName` 从 `StateIndex` 查找对应 GA 类并激活。内部流程：`PreviousState = CurrentState` → 查 `FindAbilityClassForState(NextStateName)` → `ASC→TryActivateAbilityByClass(NextGA)` → `CurrentState = NextStateName` → 重置 `SafetyTimer`。调用方为 GA 子类的命中回调或 `ShouldContinueAfterHit` 覆写。
+  - 前提：`NextStateName` 对应的连招表行必须设 `bAutoTransition=true`，否则不激活（防止非法自动转移）。
+
+- `TSubclassOf<UGameplayAbility> FindAbilityClassForState(FName StateName) const`
+  - 输出：指定招式名对应的 Ability 类。
+  - 作用：从 `StateIndex[StateName]` 中取出首个节点的 `AbilityClass`（所有同名节点共享同一个 AbilityClass）。若 `StateIndex` 中无此键或 AbilityClass 为空 → 返回 nullptr。
 
 ### 运行时工作流
 
 **阶段 A（装备武器）：** `EquipmentComponent→OnEquipmentChanged()` → `GrantWeaponAbilities` → `GiveAbility + TryActivateAbility(GA_WeaponComboCoordinator)`（先激活空状态）→ 异步加载 ComboData → `SetComboData` 构建 StateIndex。
 
-**阶段 B（起手攻击）：** `HandleWeaponInput` → 候选行 = `StateIndex["Idle"] ∪ StateIndex["*"]` → 四级排序（`bMatchAnyState=false > true`；`DirectionalInput` 具体 > None；`Priority` 降序）→ 遍历检查 6 条件（`InputAction`/`DirectionalInput`/`RequiredTags`/窗口或起手/`BlockedTags`/`StaminaRequired`）→ 匹配成功则 `ActivateAbility` + 更新 `CurrentState` + 存入 `PendingGrantedTags` + 重置 `SafetyTimer`（时长为 `GlobalComboTimeout`）。
+**阶段 B（起手攻击）：** `HandleWeaponInput` → 候选行 = `StateIndex["Idle"] ∪ StateIndex["*"]` → 四级排序（`bMatchAnyState=false > true`；`DirectionalInput` 具体 > None；`Priority` 降序）→ 遍历检查 6 条件（`InputAction`/`DirectionalInput`/`RequiredTags`/窗口或起手/`BlockedTags`/`StaminaRequired`）→ 匹配成功则 `PreviousState = CurrentState` → `ActivateAbility` + 更新 `CurrentState`（新招式名）+ 存入 `PendingGrantedTags` + 重置 `SafetyTimer`（时长为 `GlobalComboTimeout`）。
 
 **阶段 C（GA 执行）：** GA `ActivateAbility` 扣耐力/播 Montage → `AttackCollision→NotifyBegin` 调 `EnableCollision` → Sweep 命中 → `ApplyDamage` → `NotifyEnd` 调 `DisableCollision` → `ComboWindow→NotifyBegin` 加 `ComboWindowOpen` Tag。
 
-**阶段 D（连招下一段）：** 窗口内 `HandleWeaponInput` → `StateIndex[CurrentState] ∪ StateIndex["*"]` → 匹配成功则取消旧 `SafetyTimer` → `ActivateAbility` → 更新 `CurrentState` → 重启 `SafetyTimer`（时长为 `GlobalComboTimeout`）。GA 首次命中时 `OnAttackHit()` 将 `PendingGrantedTags` 写入 ASC。
+**阶段 D（连招下一段）：** 窗口内 `HandleWeaponInput` → `StateIndex[CurrentState] ∪ StateIndex["*"]` → 匹配成功则取消旧 `SafetyTimer` → `PreviousState = CurrentState` → `ActivateAbility` → 更新 `CurrentState` → 重启 `SafetyTimer`（时长为 `GlobalComboTimeout`）。GA 首次命中时 `OnAttackHit()` 将 `PendingGrantedTags` 写入 ASC。
 
-**阶段 E（回 Idle）：** `ComboWindow→NotifyEnd` 移除 Tag → Montage 播完 → GA `EndAbility` → `Coordinator→OnAttackFinished()` → 若 `CurrentState` 未变更则回 `"Idle"` + 清除 `Combo.Branch.*` Tag。
+**阶段 E（回 Idle）：** `ComboWindow→NotifyEnd` 移除 Tag → Montage 播完 → GA `EndAbility` → `Coordinator→OnAttackFinished()` → 若 `CurrentState` 未变更（未被 `HandleWeaponInput` 或 `OnAutoTransition` 改变）则回 `"Idle"` + 清除 `Combo.Branch.*` Tag。
 
 **阶段 F（异常兜底）：** `SafetyTimer` 到期（`GlobalComboTimeout` 秒，仅 Montage 卡死等极端情况）→ 强制 `CurrentState="Idle"` + 清除所有 `Combo.Branch.*` Tag。武器卸下：清除所有 `Combo.Branch.*` Tag + StateIndex 清空。
+
+**阶段 G（自动转移）：** GA 命中/播完 → `Coordinator→OnAutoTransition(NextStateName)` → 检查 `StateIndex` 中是否含此状态 → 目标行 `bAutoTransition==true` 才激活 → `PreviousState=CurrentState` → 查 `FindAbilityClassForState` → `ActivateAbility` → `CurrentState=NextStateName` → 重置 `SafetyTimer`。与阶段 B/D 共享同一状态变更路径，不绕过协调器。
+
+### 两种转移路径对照
+
+| | **输入转移**（阶段 B/D） | **自动转移**（阶段 G） |
+|------|------|------|
+| 触发源 | 玩家按键 | GA 事件（命中/播完） |
+| 协调器方法 | `HandleWeaponInput` | `OnAutoTransition` |
+| InputAction | 必填 | 可为空或忽略 |
+| 匹配方式 | 四级排序匹配 | 直接按 StateName 查找 |
+| 出招表标记 | — | `bAutoTransition=true` |
+| 示例 | 袈裟斩→二连斩（按 Y） | 操虫斩命中→命中后动画（自动） |
 
 ### 关键设计要点
 
@@ -752,6 +1417,10 @@ class UMHGZWeaponComboCoordinatorAbility : public UGameplayAbility
 - **节点匹配四级排序 + 匹配即停**
 - **死亡处理：** `Combat.Event.Death` → `GA_Death` Cancel 所有 GA。猫车 = `SetActorLocation` + 设 Grounded+Sheathed
 - **打断后自动恢复：** 监听 Hitstun/Knockdown Removed → 检查 `Input.Modifier.*` → 自动 `TryActivateAbilityByTag`
+- **着陆重置——`Coordinator→OnLanded()`：** CMC 落地事件触发，将 `CurrentState` 强制复位 `"Idle"` + 清除 Branch Tag。确保地面连招表正确匹配起手招式
+- **空中次数限制——Cant 权限模型（零交叉逻辑）：** `CantDodge`/`CantAttack` 两个 Tag 各自独立。`GA_AirDodge` 添加 `CantDodge`，`GA_AirAttack_*` 添加 `CantAttack`。无需 `Exhausted` 汇总——两个 Cant 同时存在 = 双阻塞。GAS 原生 `BlockedTags` 处理，GA 零覆写代码
+- **FSM 两条转移路径不冲突：** 输入转移（`HandleWeaponInput`）和自动转移（`OnAutoTransition`）共享同一状态变更路径——都经过 `PreviousState=CurrentState` → 激活新 GA → `CurrentState=NextState`。GA 的 `EndAbility` 中 `OnAttackFinished()` 仅当 `CurrentState` 未被两者修改时才回 Idle
+- **GA→GA 自动派生不走 `TryActivateAbilityByTag`：** 必须通过 `OnAutoTransition`——确保协调器感知状态变更、`PreviousState` 正确传递、`SafetyTimer` 更新。绕过协调器直接激活 GA 会导致状态不同步、Entry Section 选错、`OnAttackFinished` 误回 Idle
 
 ## AnimNotifyState 系列
 

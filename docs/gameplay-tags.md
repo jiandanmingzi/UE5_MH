@@ -66,6 +66,17 @@ Combat.State.Hitstun       ← 受击硬直中
 Combat.State.Knockdown     ← 击倒/击飞中
 Combat.State.Grounded      ← 地面态（MovementComponent 管理）
 Combat.State.Aerial        ← 空中态（与 Grounded 互斥）
+Combat.State.Aerial.Falling               ← 下落态（GA 结束但未落地，AnimBP 读此 Tag 选下落 Pose）
+Combat.State.Aerial.Falling.Default       ← 兜底下落 Pose
+Combat.State.Aerial.Falling.IG_AirDodge      ← 空中回避后
+Combat.State.Aerial.Falling.IG_JumpSlash     ← 跳跃斩后
+Combat.State.Aerial.Falling.IG_PoleVault     ← 撑杆跳后
+Combat.State.Aerial.Falling.IG_DanceJump     ← 舞踏后
+Combat.State.Aerial.Falling.IG_KinsectSlide  ← 猎虫滑翔后
+Combat.State.Aerial.Falling.IG_KinsectSlashHit← 操虫斩命中后
+Combat.State.Aerial.CantDodge             ← 空中回避已用（默认无限制，舞踏重置清）
+Combat.State.Aerial.CantAttack            ← 空中攻击已用（默认无限制，舞踏重置清）
+Combat.State.Aerial.Landing               ← 落地瞬间过渡（AnimBP 内部用）
 Combat.State.Sheathed      ← 拔刀前/纳刀态（GA_Sheathe/GA_Unsheathe 管理，非战斗默认持有）
 Combat.State.Unsheathed    ← 拔刀后/持刀态（与 Sheathed 互斥）
 Combat.State.Aiming        ← 瞄准态（LT Hold → GA_Aim 激活时持有，松开/被打断时移除）

@@ -9,16 +9,19 @@
 ```
 AKinsect (独立 Actor, 由 URes_InsectGlaive 管理生命周期)
 ├── USkeletalMeshComponent (猎虫品种骨骼模型)
-├── UFloatingPawnMovement (飞行移动——悬停时速度为 0)
+├── UProjectileMovementComponent (飞行移动——bAutoActivate=false，手动控制 Velocity；悬停时 Velocity=0)
 ├── UKinsectCollisionComponent (胶囊体: Weapon 通道 = Block)
 ├── AnimInstance (单套飞行动画——前进/返回/悬停共用，通过 PlayRate 区分)
+├── 伤害控制: EKinsectDamageMode + CurrentMotionValue + DamageInterval
+├── 萃取控制: EKinsectExtractMode + PendingExtractColor
 └── 品种数据: UInsectGlaiveKinsectData (DataAsset)
 
 URes_InsectGlaive (WeaponResourceComponent, 挂载到 PlayerState)
 ├── 猎虫生命周期: Spawn → AttachToArm → Deploy(FVector) → Hover → Recall → Destroy
 ├── 目标坐标管理: 瞄准射线→WorldLocation / 收刀RT直飞→Forward×Distance
 ├── 猎虫耐力管理 (KinsectStamina: 悬停扣减 / 休息回复 / 归零自动召回)
-├── 萃取状态机 (悬停中接近怪物→自动萃取 → Apply Duration GE → 三灯检测)
+├── 猎虫伤害管理 (ApplyKinsectDamage → 借玩家 ASC 走统一 GE 管道)
+├── 萃取状态机 (召回时 Apply → Apply Duration GE → 三灯检测)
 ├── 三灯激活与保护 (替换单独灯 GE、不可刷新、到期全部消失)
 ├── 灯消耗接口 (ConsumeExtract → 移除 GE)
 └── 词条加成接收 (ApplyEntryModifier → ActiveModifiers Map)
@@ -71,7 +74,7 @@ class AKinsect : public AActor
 |------|------|----------|--------|------|
 | Mesh | TObjectPtr\<USkeletalMeshComponent\> | "Kinsect\|Component" | CreateDefaultSubobject | 猎虫骨骼模型（品种 DataAsset 运行时注入） |
 | Collision | TObjectPtr\<UKinsectCollisionComponent\> | "Kinsect\|Component" | CreateDefaultSubobject | 胶囊体碰撞——仅 Weapon 通道 Block，用于萃取判定 |
-| Movement | TObjectPtr\<UFloatingPawnMovement\> | "Kinsect\|Component" | CreateDefaultSubobject | 飞行移动——无重力、可悬停 |
+| Movement | TObjectPtr\<UProjectileMovementComponent\> | "Kinsect\|Component" | CreateDefaultSubobject | 飞行移动——`bAutoActivate=false`，手动控制 Velocity 和 HomingTargetComponent。无重力、可悬停 |
 | State | EKinsectState | "Kinsect\|State" | Attached | 猎虫状态：Attached / Flying / Hovering / Returning / Recalled |
 | OwnerActor | TWeakObjectPtr\<AActor\> | "Kinsect\|State" | nullptr | 玩家引用——收虫时每 Tick 读取实时坐标动态修正回归路径。`AttachToPlayer` 时设置 |
 | bFollowRay | bool | "Kinsect\|State" | false | true=沿射线方向飞行（臂上放虫模式），false=直线飞向目标坐标（悬停放虫模式） |
@@ -79,40 +82,78 @@ class AKinsect : public AActor
 | FlyDestination | FVector | "Kinsect\|State" | ZeroVector | 悬停放虫时的目标坐标。bFollowRay==false 时有效 |
 | PendingExtractColor | FGameplayTag | "Kinsect\|State" | 空 | 萃取暂存颜色——飞行中碰撞到怪物部位时记录，返回玩家后传递给 ResourceComponent |
 | KinsectData | TObjectPtr\<UInsectGlaiveKinsectData\> | "Kinsect\|Data" | nullptr | 品种配置 DataAsset——运行时由 ResourceComponent 注入 |
+| DamageMode | EKinsectDamageMode | "Kinsect\|Damage" | SingleHit | 伤害模式——SingleHit=命中 1 次即停；Piercing=按间隔持续伤害 |
+| ExtractMode | EKinsectExtractMode | "Kinsect\|Damage" | FirstHitOnly | 萃取行为——NoExtract=不萃取；FirstHitOnly=仅首次命中记录；AlwaysOverwrite=高优先级覆盖 |
+| CurrentMotionValue | float | "Kinsect\|Damage" | 1.0f | 当前送虫招式的动作值——由 GA 传入 |
+| CurrentDamageInterval | float | "Kinsect\|Damage" | 0.12f | 贯穿伤害间隔（秒）——0 表示非贯穿。由 GA 传入 |
+| TimeSinceLastDamage | float | "Kinsect\|Damage" | 999.0f | 距上次伤害的时间——初始极大值确保首帧可立即伤害 |
+| bHasDealtDamage | bool | "Kinsect\|Damage" | false | 普通放虫是否已造成过伤害——SingleHit 模式命中后置 true，阻止后续伤害 |
+| ResourceComponent | TWeakObjectPtr\<URes_InsectGlaive\> | "Kinsect\|Reference" | nullptr | 虫棍资源组件引用——用于 ApplyKinsectDamage 调用 |
 
 ### 关键方法
 
 - `void StartFlightAlongRay(FVector RayDirection, float MaxDistance)`
   - 输入：相机准心射线方向、最大飞行距离。
-  - 作用：Detach（若已 Attach）→ State = Flying, bFollowRay = true → Movement 设速度 = RayDirection × FlightSpeed → Collision Enable → 播放 FlyMontage（PlayRate=1.5）。猎虫沿射线方向直线飞出——像从枪口射出的曳光弹。超过 MaxDistance 未命中任何物体 → State = Hovering。飞行途中碰撞到怪物 → 萃取。
+  - 作用：Detach（若已 Attach）→ State = Flying, bFollowRay = true → `Movement->Velocity = RayDirection.GetSafeNormal() × FlightSpeed` → Collision Enable。猎虫沿射线方向直线飞出。
+  - **终止条件：** 撞墙 → 悬停。普通放虫命中怪物 → 立即停止并悬停。贯穿放虫碰怪不停，撞墙或飞满 MaxDistance → 悬停。
 
 - `void StartFlightToPoint(FVector Destination)`
   - 输入：目标世界坐标。
-  - 作用：State = Flying, bFollowRay = false → Movement 设速度朝向 Destination → FlyMontage（PlayRate=1.5）。猎虫沿当前位置到目标坐标的直线飞行。距离 < AcceptRadius → State = Hovering。
+  - 作用：State = Flying, bFollowRay = false → `Movement->Velocity = (Destination - GetActorLocation()).GetSafeNormal() × FlightSpeed`。猎虫沿直线飞向目标坐标。
+  - **终止条件：** 撞墙 → 悬停。普通放虫命中怪物 → 立即停止并悬停。贯穿放虫碰怪不停，撞墙或距离 < AcceptRadius → 悬停。
+
+- `void SetDamageParams(EKinsectDamageMode InDamageMode, float InMotionValue, float InDamageInterval, EKinsectExtractMode InExtractMode = FirstHitOnly)`
+  - 输入：伤害模式、动作值、贯穿间隔、萃取行为。
+  - 作用：在 `DeployKinsect` 之后、`StartFlight*` 之前由 GA 调用，设置本次飞行的伤害与萃取参数。重置 `TimeSinceLastDamage=999`、`bHasDealtDamage=false`。
+
+- `void TryApplyKinsectDamage(float DeltaTime)`
+  - 作用：Tick 中调用——仅在 `State==Flying` + `DamageMode==Piercing` 时生效。检查 Overlap + 冷却 → 调用 `ApplyDamageOnce` + 重置冷却。普通放虫的伤害在 `OnHitMonsterHitzone` 回调中处理。
+
+- `void TryRecordExtract(UMonsterHitzoneComponent* Hitzone)`
+  - 输入：命中的怪物部位碰撞体。
+  - 作用：根据 `ExtractMode` 决定是否记录/更新 `PendingExtractColor`。NoExtract→跳过；FirstHitOnly→仅首次记录；AlwaysOverwrite→高优先级覆盖（红 3 > 黄 2 > 白 1）。
+
+- `void ApplyDamageOnce(UMonsterHitzoneComponent* Hitzone, float MotionValue)`
+  - 输入：部位碰撞体、当前招式的动作值。
+  - 作用：委托 `ResourceComponent->ApplyKinsectDamage(Hitzone, Monster, MotionValue)` 走玩家 ASC 的统一 GE 管道（复用现有 ExecCalc + GameplayCue）。
+
+- `bool ShouldStopFlying() const`
+  - 输出：本次飞行是否应立即终止。
+  - 逻辑：撞墙→true；飞到极限距离→true；普通放虫已伤害→true；贯穿放虫碰怪→false。
+
+- `void StopAndHover()`
+  - 作用：`Movement->Velocity = FVector::ZeroVector`（立即停止）→ State=Hovering。有 PendingExtractColor 则保留，等待召回；无则等待玩家重新送虫。
 
 - `void StartReturn()`
-  - 作用：State = Returning → 播放 FlyMontage（PlayRate=1.0）。**每 Tick 读取 `OwnerActor->GetActorLocation()` 动态修正飞行方向**——即使玩家移动，猎虫也能追踪回归。距离 < AcceptRadius → 自动调用 `AttachToPlayer`。
+  - 作用：State = Returning → **设置 `Movement->HomingTargetComponent = OwnerActor->GetRootComponent()` 并启用 `bIsHomingProjectile`**——`UProjectileMovementComponent` 自动追踪目标，即使玩家移动，猎虫也能追踪回归。距离 < AcceptRadius → 自动调用 `AttachToPlayer`。
 
 - `void ForceRecall()`
   - 作用：耐力归零强制召回。调用 `StartReturn()`，**不清除 `PendingExtractColor`**——已萃取到的灯保留，召回后正常 Apply。
 
 - `void Interrupt()`
-  - 作用：停止当前 Movement + 停止动画 + 重置 bFollowRay/FlyDestination。在 `DeployKinsect` 重新放虫前调用——实现放虫↔收虫互斥打断。不修改 `PendingExtractColor`（若已萃取则保留）。
+  - 作用：`Movement->Velocity = FVector::ZeroVector` + 停止动画 + 重置 `bFollowRay`/`FlyDestination` + `Movement->HomingTargetComponent = nullptr`。在 `DeployKinsect` 重新放虫前调用——实现放虫↔收虫互斥打断。不修改 `PendingExtractColor`（若已萃取则保留）。
 
 - `void AttachToPlayer(USceneComponent* ArmSocket)`
   - 输入：玩家手臂 Socket 组件。
-  - 作用：`AttachToComponent(ArmSocket)` → State = Attached, OwnerActor = ArmSocket→GetOwner() → Collision Disable → 停止动画。
+  - 作用：`AttachToComponent(ArmSocket)` → State = Attached, OwnerActor = ArmSocket→GetOwner() → Collision Disable。
 
 - `void EnableCollision()` / `void DisableCollision()`
   - 作用：切换 `Collision` 组件的 Weapon 通道响应（Block / Ignore）。
 
 - `void OnHitMonsterHitzone(UMonsterHitzoneComponent* Hitzone)`
   - 输入：被命中的怪物部位碰撞体。
-  - 作用：Overlap 回调——**仅在 `State == Flying` 时处理**。读取 `Hitzone->HitzoneTag` → `PendingExtractColor = MapHitzoneToExtract(...)` → `StartReturn()`。若已有 `PendingExtractColor` 则跳过。萃取本质是猎虫飞行中"咬"到怪物表皮——视觉反馈由 `GameplayCue.IG.ExtractGained` 粒子+音效表现。
+  - 作用：Overlap 回调——**仅在 `State == Flying` 时处理**。调用 `TryRecordExtract(Hitzone)` 按 `ExtractMode` 记录萃取颜色。若 `DamageMode==SingleHit` 且未伤害过→调用 `ApplyDamageOnce` + 设置 `bHasDealtDamage=true`（下一帧 Tick 中 `ShouldStopFlying` 会返回 true 停止飞行）。贯穿放虫的伤害由 `Tick→TryApplyKinsectDamage` 处理，此处不处理伤害。
+
+- `void OnFlightEnded()`
+  - 作用：飞行终止时调用——若 `PendingExtractColor` 有效→自动 `StartReturn()`（衔光球飞回）；无效→`StopAndHover()`（等待召回或重新送虫）。
+
+- `UMonsterHitzoneComponent* GetOverlappingHitzone() const`
+  - 输出：当前重叠的怪物部位碰撞体（若无返回 nullptr）。
+  - 作用：Tick 中供 `TryApplyKinsectDamage` 查询当前 Overlap 状态。
 
 - `void OnWorldCollision(const FHitResult& Hit)`
   - 输入：碰撞命中结果。
-  - 作用：Hit 回调——**仅在 `State == Flying` 时处理**。猎虫撞到世界静态几何体（墙壁/建筑/地面）→ `Movement->StopMovementImmediately()` → State = Hovering（就地悬停）。不会萃取（只有怪物部位触发萃取）。与 `OnHitMonsterHitzone` 互斥——若同一帧同时命中怪物和墙壁，怪物优先。
+  - 作用：Hit 回调——**仅在 `State == Flying` 时处理**。猎虫撞到世界静态几何体（墙壁/建筑/地面）→ `Movement->Velocity = FVector::ZeroVector` → State = Hovering（就地悬停）。不会萃取（只有怪物部位触发萃取）。与 `OnHitMonsterHitzone` 互斥——若同一帧同时命中怪物和墙壁，怪物优先。
 
 - `float GetFlightSpeed() const`
   - 输出：当前飞行速度（`KinsectData->FlightSpeed × ResourceComponent 词条修正`）。
@@ -162,6 +203,7 @@ class AKinsect : public AActor
 | StaminaRegenRate | float | 基础耐力回复速率 |
 | HoverDrainRate | float | 悬停耐力消耗速率（低于飞行耗耐——降低"飞过头"惩罚） |
 | FlightDrainRate | float | 飞行耐力消耗速率 |
+| KinsectAttackPower | float | 猎虫基础攻击力（默认 10.0）——当前品种未分化时所有猎虫共用。后续品种分化时可覆写 |
 
 ### 飞行轨迹机制——双模式
 
@@ -216,16 +258,18 @@ class AKinsect : public AActor
 **悬停机制：**
 
 ```
-猎虫到达目标坐标（Distance < AcceptRadius）
+猎虫停止飞行（撞墙 / 飞满距离 / 普通放虫命中）
   → Movement->StopMovementImmediately()
   → State = Hovering
-  → 飞行动画 PlayRate = 0.3（慢速浮空——视觉上停在原地微振翅膀）
+  → FlyMontage PlayRate = 0.3（慢速浮空——视觉上停在原地微振翅膀）
   → Tick 中每帧 KinsectStamina -= HoverDrainRate × Δt
   → Collision 组件保持 Enable（Weapon=Block）
-  → ★ 悬停中不会萃取——必须召回后重新送虫
+  → ★ 若 PendingExtractColor 有效（命中过怪物且已记录萃取）→ 等待玩家召回（按 B 或耐力归零）
+  → ★ 若 PendingExtractColor 无效（未命中任何怪物）→ 等待玩家重新送虫（按 Y）
+  → ★ 悬停中不会造成伤害、不会触发新的萃取——萃取仅在飞行中发生
 ```
 
-> **为何悬停不能萃取：** 萃取是猎虫飞行中"咬"到怪物表皮——需要飞行速度带来的接触判定。悬停时猎虫原地微振翅膀，即使怪物主动靠近也不会触发萃取。这要求玩家主动管理猎虫——精准瞄准怪物部位送虫、飞行途中命中、未命中则召回重新尝试。
+> **为何悬停不能萃取/伤害：** 萃取和伤害是猎虫飞行中"咬"到怪物表皮——需要飞行速度带来的接触判定。悬停时猎虫原地微振翅膀，即使怪物主动靠近也不会触发萃取或伤害。这要求玩家主动管理猎虫——精准瞄准怪物部位送虫、飞行途中命中、未命中则召回重新尝试。
 
 ### 目标坐标管理
 
@@ -279,42 +323,43 @@ void URes_InsectGlaive::DeployKinsect()
     → Kinsect->AttachToPlayer(Character->GetMesh(), "Kinsect_Arm_Socket")
     → State = Attached（碰撞体 Disable，纯静态 Mesh 吸附——无闲置动画）
 
-瞄准送虫（持刀 LT+Y，臂上）
+瞄准送虫（持刀 LT+Y，臂上）——★ 贯穿型
   → GA_SendKinsect → ResourceComponent->DeployKinsect()
-    → 若 bKinsectDeployed → Kinsect->Interrupt()（打断当前飞行/悬停/返回）
-    → Kinsect->Detach → StartFlightAlongRay(CameraForward, MaxRange)
-    → bFollowRay = true, State = Flying, Collision Enable
-    → Anim: FlyMontage, PlayRate = 1.5
+    → 若 bKinsectDeployed → Kinsect->Interrupt()
+    → Kinsect Detach
+    → ★ Kinsect->SetDamageParams(Piercing, 1.0, 0.12s, AlwaysOverwrite)
+    → StartFlightAlongRay(CameraForward, MaxRange)
+    → State=Flying, bFollowRay=true, Collision Enable
 
-悬停重新放虫（持刀 LT+Y，悬停中）
-  → GA_SendKinsect → ResourceComponent->DeployKinsect()
-    → Kinsect->Interrupt()（打断当前悬停）
+悬停重新放虫（持刀 LT+Y，悬停中）——★ 贯穿型
+  → GA_SendKinsect → DeployKinsect()
+    → Kinsect->Interrupt()
+    → ★ Kinsect->SetDamageParams(Piercing, 1.0, 0.12s, AlwaysOverwrite)
     → StartFlightToPoint(HitLocation)
-    → bFollowRay = false, State = Flying
+    → bFollowRay=false, State=Flying
 
-收刀直飞（收刀 RT）
+收刀直飞（收刀 RT）——★ 普通单发型
   → GA_DrawAndSendKinsect → 先 Unsheathe → DeployKinsect()
+    → ★ Kinsect->SetDamageParams(SingleHit, 0.8, 0.0, FirstHitOnly)
     → StartFlightAlongRay(PlayerForward, StraightFlightDistance)
 
-猎虫到达射线最大距离 / 目标坐标
-  → State = Hovering
-    → Movement->StopMovementImmediately()
-    → Anim: PlayRate = 0.3
-    → Tick: KinsectStamina -= HoverDrainRate × Δt
-    → ★ 悬停中不会萃取——必须召回后重新送虫
-
-飞行中碰到怪物→萃取（仅 State == Flying 时生效）
-  → Collision Overlap 怪物 HitzoneComponent
-    → OnHitMonsterHitzone → PendingExtractColor = MapHitzoneToExtract(...)
-    → 播放 GameplayCue.IG.ExtractGained（粒子+音效——猎虫"咬"到怪物的视觉反馈）
-    → State = Returning（自动开始返回——不需要额外操作）
-    → Anim: PlayRate = 1.0
-
-飞行中撞到世界几何体→停止（仅 State == Flying 时生效）
-  → Collision Hit WorldStatic（墙壁/建筑/地面/空气墙）
-    → OnWorldCollision → Movement->StopMovementImmediately()
-    → State = Hovering（就地悬停——不会萃取）
-    → Anim: PlayRate = 0.3
+飞行中每 Tick（仅 State == Flying）：
+  ├─ ★ 贯穿伤害：TryApplyKinsectDamage(DeltaTime)
+  │     ├─ 检查 Overlap？→ 否 → 跳过
+  │     ├─ 检查冷却？→ 未到 → 跳过
+  │     └─ Overlap + 冷却到 → TryRecordExtract(Hitzone) + ApplyDamageOnce
+  │
+  ├─ 撞墙（WorldStatic Hit）→ StopAndHover()
+  │
+  ├─ 飞到极限距离？
+  │     └─ ★ OnFlightEnded()
+  │           ├─ 有 PendingExtractColor → StartReturn()（衔光球飞回）
+  │           └─ 无 PendingExtractColor → StopAndHover()（等待召回）
+  │
+  └─ 普通放虫命中怪物（Overlap 回调）
+        ├─ TryRecordExtract(Hitzone) → 按 ExtractMode 记录
+        ├─ ApplyDamageOnce（1 次伤害）
+        └─ bHasDealtDamage=true → 下帧 Tick 中 ShouldStopFlying→StopAndHover
 
 召回（B / 耐力归零）——可打断飞行/悬停，不可打断返回
   → 若 State == Returning → 静默跳过（已在返回中）
@@ -334,16 +379,124 @@ void URes_InsectGlaive::DeployKinsect()
 
 ### 猎虫动画
 
-猎虫只有**一套飞行动画**——`Montage_Kinsect_Fly`（翅膀扇动循环）。前进/返回/悬停统一使用，通过 `PlayRate` 区分：
+**现阶段不做猎虫动画**——纯 Mesh 飞行即可验证碰撞和萃取。后续需要时：单套飞行动画 `Montage_Kinsect_Fly`（翅膀扇动循环），前进/返回/悬停共用，通过 `PlayRate` 区分（Flying=1.5 / Returning=1.0 / Hovering=0.3），AnimBP 只需一个 Slot 节点播放 Montage。
 
-| 状态 | PlayRate | 视觉效果 |
+---
+
+## 零-A、猎虫伤害系统
+
+**设计原则：** 猎虫不挂载 ASC、不新增 GA——伤害走玩家 ASC 的统一 GE 管道。伤害参数（动作值、贯穿间隔、萃取行为）由送虫 GA 传入，不存 DataAsset。飞行结束条件按 `EKinsectDamageMode` 区分：普通放虫命中即停，贯穿放虫碰怪不停、撞墙或飞满距离才停。
+
+### 伤害枚举
+
+```cpp
+// 伤害模式
+UENUM(BlueprintType)
+enum class EKinsectDamageMode : uint8
+{
+    SingleHit,      // 普通放虫：飞行中只造成 1 次伤害，命中后立即停止飞行
+    Piercing        // 贯穿放虫：按间隔持续造成伤害，碰怪不停止飞行
+};
+
+// 萃取行为
+UENUM(BlueprintType)
+enum class EKinsectExtractMode : uint8
+{
+    NoExtract,          // 不萃取（纯伤害贯穿）
+    FirstHitOnly,       // 仅首次命中时记录萃取颜色（贯穿途中多次伤害但不更新）
+    AlwaysOverwrite,    // 每次命中都记录，高优先级颜色覆盖低优先级（标准贯穿行为）
+};
+```
+
+### 萃取颜色优先级
+
+```
+红(3) > 黄(2) > 白(1)
+```
+
+> 红灯同时提供最大 Buff 和连招分支——`AlwaysOverwrite` 模式下贯穿大型怪物时自然优先锁定红色。
+
+### 飞行终止条件
+
+| 条件 | 普通放虫 (SingleHit) | 贯穿放虫 (Piercing) |
+|------|:--:|:--:|
+| 撞墙 | ✅ 停止 | ✅ 停止 |
+| 飞到极限距离 | ✅ 停止 | ✅ 停止 |
+| 命中怪物 | ✅ 立即停止 | ❌ 继续飞行 |
+
+停止后：有萃取→自动 `StartReturn()`（衔光球飞回）；无萃取→`StopAndHover()`（等待召回）。
+
+### 伤害数据流
+
+```
+GA 送虫
+  → Kinsect->SetDamageParams(DamageMode, MotionValue, Interval, ExtractMode)
+  → Kinsect->StartFlight*()
+
+飞行中 Tick（仅 State == Flying）：
+  ├─ Piercing 模式：
+  │     IsOverlappingMonsterHitzone()?
+  │       ├─ 否 → 跳过
+  │       └─ 是 → TimeSinceLastDamage >= DamageInterval?
+  │               ├─ 否 → 跳过
+  │               └─ 是 → TryRecordExtract(Hitzone)  ← 按 ExtractMode
+  │                     → ApplyDamageOnce(Hitzone, MotionValue)
+  │                     → TimeSinceLastDamage = 0
+  │
+  └─ SingleHit 模式（Overlap 回调触发，不在 Tick 中轮询）：
+        OnHitMonsterHitzone(Hitzone)
+          → TryRecordExtract(Hitzone)  ← 按 ExtractMode
+          → ApplyDamageOnce(Hitzone, MotionValue)
+          → bHasDealtDamage = true
+          → 下帧 Tick 中 ShouldStopFlying() → true → StopAndHover()
+
+ApplyDamageOnce 内部：
+  → ResourceComponent->ApplyKinsectDamage(Hitzone, Monster, MotionValue)
+    → PlayerASC->MakeOutgoingSpec(GE_KinsectDamage)
+    → SetByCaller: "Damage.Kinsect.MotionValue" = MotionValue
+    → SetByCaller: "Damage.Kinsect.AttackPower" = 猎虫基础攻击力 × 词条修正
+    → AddDynamicAssetTag: HitzoneTag（部位信息）
+    → PlayerASC->ApplyGameplayEffectSpecToTarget(Spec, MonsterASC)
+    → ★ 走统一 ExecCalc → GameplayCue 自动触发（火花/音效/伤害数字）
+```
+
+### GA 调用对照
+
+| GA | DamageMode | MotionValue | Interval | ExtractMode | 说明 |
+|------|:--:|:--:|:--:|:--:|------|
+| `GA_SendKinsect`（瞄准送虫） | Piercing | 1.0 | 0.12s | AlwaysOverwrite | 标准贯穿萃取 |
+| `GA_DrawAndSendKinsect`（收刀直飞） | SingleHit | 0.8 | — | FirstHitOnly | 普通单发萃取 |
+| 未来：贯穿强袭 | Piercing | 1.5 | 0.08s | NoExtract | 纯伤害无萃取 |
+| 未来：速攻送虫 | Piercing | 0.7 | 0.15s | FirstHitOnly | 贯穿仅首录 |
+
+### URes_InsectGlaive 新增方法
+
+- `void ApplyKinsectDamage(UMonsterHitzoneComponent* Hitzone, AActor* Monster, float MotionValue)`
+  - 输入：部位碰撞体、怪物 Actor、当前招式的动作值。
+  - 作用：**借玩家 ASC** 构造 `GE_KinsectDamage` Spec → 通过 `SetByCaller` 传递 `MotionValue` 和 `KinsectAttackPower` → `ApplyGameplayEffectSpecToTarget` → 走统一 `ExecCalc` 计算最终伤害。GameplayCue 自动触发（火花/音效/伤害数字）。
+
+- `float GetModifiedKinsectAttackPower() const`
+  - 输出：猎虫基础攻击力 × 词条修正后的最终攻击力。
+
+### KinsectData 新增字段（可选，暂不分化）
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|------|------|
+| KinsectAttackPower | float | 10.0f | 猎虫基础攻击力——当前品种未分化时所有猎虫共用 |
+
+### 新增 GameplayTag
+
+```
+Damage.Kinsect.MotionValue           ← 猎虫伤害动作值（SetByCaller）
+Damage.Kinsect.AttackPower           ← 猎虫攻击力（SetByCaller）
+GameplayCue.Hit.Kinsect              ← 猎虫命中反馈（小号火花+音效）
+```
+
+### 新增 GE 蓝图
+
+| GE | 类型 | 说明 |
 |------|:--:|------|
-| Flying（前进） | 1.5 | 翅膀高速扇动——快速飞行 |
-| Returning（返回） | 1.0 | 正常扇动——衔光球飞回 |
-| Hovering（悬停） | 0.3 | 慢速扇动——原地浮空微振 |
-| Attached（停手臂） | —（不播放动画） | 静态 Mesh 吸附——昆虫停在手臂上几乎不动 |
-
-> **不需要 AnimBP 状态机。** 在 `AKinsect::Tick` 中根据 `State` 直接控制 `USkeletalMeshComponent::PlayMontage` + `SetPlayRate`——通过 Flipbook/BlendSpace 在 Montage 内部即可实现转向倾斜效果。若后续需要不同品种翅膀扇动风格差异，使用不同 Montage 资产即可，AnimBP 始终只需一个 Slot 节点播放 Montage。
+| `GE_KinsectDamage` | Instant | 猎虫伤害 GE——ExecCalc 复用现有伤害计算，`SetByCaller` 接收 `MotionValue` 和 `AttackPower` |
 
 ---
 
@@ -371,9 +524,9 @@ void URes_InsectGlaive::DeployKinsect()
 
 飞行中猎虫碰撞体 Overlap 怪物 HitzoneComponent（仅 State == Flying 时）
   → Kinsect::OnHitMonsterHitzone(HitzoneComponent)
-    → PendingExtractColor = MapHitzoneToExtract(HitzoneTag)
-    → State = Returning（自动）
-    → 回调 ResourceComponent->OnKinsectHitMonster(HitzoneTag)
+    → TryRecordExtract(Hitzone)  ← 按 ExtractMode 记录
+    → 若 SingleHit 模式：ApplyDamageOnce + bHasDealtDamage=true → 下帧自动悬停
+    → 若 Piercing 模式：不处理伤害（由 Tick 中 TryApplyKinsectDamage 处理），不停止飞行
 
 召回（持刀 B / 耐力归零）
   → 若 Kinsect State == Returning → 跳过（已在返回中）
@@ -396,7 +549,8 @@ void URes_InsectGlaive::DeployKinsect()
 - **归属**：`URes_InsectGlaive` 内部 `float KinsectStamina` / `float MaxKinsectStamina`，非 GAS Attribute（遵循决策 #43）
 - **消耗速率**：飞行期间 `FlightDrainRate`、悬停期间 `HoverDrainRate`（< FlightDrainRate）
 - **回复速率**：`StaminaRegenRate`（休息时——Attached 状态——每秒回复量）
-- **耐力归零检测——Tick 内联判断**：`URes_InsectGlaive::Tick` 中扣减耐力后直接 `if (KinsectStamina <= 0) → ForceRecall()`。不设独立 Timer 或事件——耐力只有一个修改源（Tick），一次 `<=0` 比较即可，零额外开销。单机 60Hz Tick 延迟最多 16ms，完全不可感知。
+- **Tick 启用**：构造函数设置 `PrimaryComponentTick.bCanEverTick = true`，`BeginPlay` 中兜底检查 `IsTickFunctionEnabled`。挂载在 PlayerState 上，单机下 Tick 正常执行（PlayerState 为 AActor 子类，其 Actor Tick 驱动所有已启用 Tick 的子组件）。
+- **耐力归零检测——Tick 内联判断**：`URes_InsectGlaive::TickComponent` 中扣减耐力后直接 `if (KinsectStamina <= 0) → ForceRecall()`。不设独立 Timer 或事件——耐力只有一个修改源（Tick），一次 `<=0` 比较即可，零额外开销。
 - **装备词条修改**：通过 `ApplyEntryModifier(WeaponResource.IG.HoverDrainRate, Value, Multiply)` 等路径（遵循决策 #78）
 - **UI 显示**：`WBP_IG_KinsectStamina` 独立进度条，位于武器资源 UI 下方，订阅组件 Delegate 更新
 
@@ -655,19 +809,29 @@ Combat.Branch.TripleUp                ← 三灯连招分支
 
 ### 输入（虫棍复用现有标签，不新增专用输入 Tag）
 
-| 操作 | 输入 Tag | 说明 |
-|------|------|------|
-| 瞄准 | `Input.Modifier.Aiming`（已有） | 持刀态 LT 长按 |
-| 送虫（瞄准） | `Input.Weapon.Y`（已有） | 瞄准态下按 Y → GA_SendKinsect |
-| 召回 | `Input.Weapon.B`（已有） | 持刀态按 B → GA_RecallKinsect |
-| 收刀直飞 | `Input.Modifier.Sheathed`（已有） | 收刀态 RT → GA_DrawAndSendKinsect |
-| 萃取爆发 | `Input.Weapon.RTB`（已有） | RT+B → GA_IG_ExtractSurge |
-| 萃取终结 | `Input.Weapon.YB`（已有） | Y+B → GA_IG_TripleBurst |
+| 操作 | 输入 Tag | 连招表节点 | 说明 |
+|------|------|------|------|
+| 拔刀 | `Input.Weapon.Y`（已有） | `bMatchAnyState=true`, `RequiredTags={Combat.State.Sheathed}`, `Priority=30` | ★ 收刀态按 Y 优先拔刀——最高的 Priority 确保拔刀不被送虫/攻击抢占 |
+| 瞄准 | `Input.Modifier.Aiming`（已有） | — | 持刀态 LT 长按→ASC 持有 `Combat.State.Aiming` |
+| 送虫（瞄准） | `Input.Weapon.Y`（已有） | `bMatchAnyState=true`, `RequiredTags={Combat.State.Aiming}`, `Priority=20` | ★ 瞄准态下按 Y 优先匹配送虫 |
+| 召回 | `Input.Weapon.B`（已有） | `bMatchAnyState=true`, `RequiredTags={WeaponResource.IG.Kinsect.Active}`, `Priority=15` | ★ 有虫放出时按 B 召回 |
+| 收刀直飞 | `Input.Modifier.Sheathed`（已有） | `bMatchAnyState=true`, `RequiredTags={Combat.State.Sheathed}`, `Priority=10` | 收刀态 RT → `GA_DrawAndSendKinsect`（单发：SingleHit / FirstHitOnly） |
+| 萃取爆发 | `Input.Weapon.RTB`（已有） | 按武器连招表匹配 | RT+B → GA_IG_ExtractSurge |
+| 萃取终结 | `Input.Weapon.YB`（已有） | 按武器连招表匹配 | Y+B → GA_IG_TripleBurst |
 
-> **设计理由：** 虫棍不新增专用输入标签——送虫复用轻攻击键（Y），召回复用重攻击键（B），瞄准复用现有 LT 瞄准。收刀 RT 直飞通过 `Input.Modifier.Sheathed` 路由到 GA_DrawAndSendKinsect。萃取爆发/终结复用和弦输入（RT+B / Y+B）。
+> **设计理由：** 送虫和收虫不是独立的"武器操作"——它们与拔刀和攻击动作共享输入键（Y/B），通过 GameplayTag 状态（收刀态/瞄准态/虫已放出）在连招表的同一级匹配中自然分流。`bMatchAnyState=true` 使送虫/收虫/拔刀可在连招任意节点触发（允许连招期间放虫/收虫），遵循决策 #28 和 #45。所有 Y/B/RT 键行为在一张出招表中可视化，单一代码路径——协调器的 `HandleWeaponInput` 是唯一入口。
+>
+> **冲突解决：** 收刀态下 Y 键同时匹配 `GA_Unsheathe`（Priority=30）和 `GA_SendKinsect`（Priority=20）——两者 RequiredTags 都满足（`Sheathed`），但拔刀 Priority 更高，自然选择拔刀。瞄准态下 Y 键：`GA_SendKinsect`（Priority=20）> `GA_IG_Slash_01`（Priority=0），自然选择送虫。`GA_RecallKinsect` 同理。
+
+### 猎虫伤害
+```
+Damage.Kinsect.MotionValue           ← 猎虫伤害动作值（SetByCaller）
+Damage.Kinsect.AttackPower           ← 猎虫攻击力（SetByCaller）
+```
 
 ### GameplayCue
 ```
+GameplayCue.Hit.Kinsect              ← 猎虫命中反馈（小号火花+音效——与武器攻击共用 GC 管道）
 GameplayCue.Hit.IG.DivingWyvern       ← 降龙命中特效
 GameplayCue.IG.ExtractGained          ← 萃取成功视觉反馈（颜色=灯色）
 GameplayCue.IG.TripleUpActivated      ← 三灯齐聚瞬间特效
@@ -681,25 +845,26 @@ GameplayCue.IG.ExtractExpired         ← 灯到期消散特效
 ```
 Source/MHGZ/
 ├── AttributeSystem/
-│   └── Res_InsectGlaive.h/cpp              ← 虫棍资源组件（猎虫生命周期 + 耐力 + 三灯状态机）
+│   └── Res_InsectGlaive.h/cpp              ← 虫棍资源组件（猎虫生命周期 + 耐力 + 三灯状态机 + ★ ApplyKinsectDamage）
 ├── ActionSystem/
 │   └── MHGZInsectGlaiveAbility.h/cpp       ← 虫棍 GA 基类（萃取检查 + 三灯音效注入 + 消耗灯）
 ├── InsectGlaive/
 │   └── Kinsect/
-│       ├── Kinsect.h/cpp                   ← 猎虫 Actor（骨骼模型 + 碰撞 + 飞行移动）
+│       ├── Kinsect.h/cpp                   ← 猎虫 Actor（骨骼模型 + 碰撞 + 飞行移动 + ★ 伤害/萃取枚举与控制）
 │       ├── KinsectCollisionComponent.h/cpp ← 猎虫专用碰撞组件（胶囊体 + Weapon 通道管理）
-│       └── InsectGlaiveKinsectData.h/cpp   ← 猎虫品种 DataAsset（模型/速度/耐力/飞行距离）
+│       └── InsectGlaiveKinsectData.h/cpp   ← 猎虫品种 DataAsset（模型/速度/耐力/飞行距离 + ★ KinsectAttackPower）
 
 Content/
 ├── GameplayEffects/InsectGlaive/
+│   ├── GE_KinsectDamage.uasset              ← 猎虫伤害 GE（Instant——SetByCaller 接收 MotionValue + AttackPower）
 │   ├── GE_IG_WhiteExtract.uasset            ← 白灯 Duration GE
 │   ├── GE_IG_YellowExtract.uasset           ← 黄灯 Duration GE
 │   ├── GE_IG_RedExtract.uasset              ← 红灯 Duration GE
 │   ├── GE_IG_TripleUp.uasset                ← 三灯 Duration GE（不可刷新）
 │   └── GE_IG_ExtractBurst_Any.uasset        ← 消耗灯爆发 Buff GE（短时高攻）
 ├── Blueprints/Ability/InsectGlaive/
-│   ├── GA_IG_SendKinsect.uasset             ← 送虫（瞄准飞行）
-│   ├── GA_IG_DrawAndSendKinsect.uasset      ← 收刀直飞（RT 拔刀+送虫）
+│   ├── GA_IG_SendKinsect.uasset             ← 送虫（瞄准贯穿：Piercing / AlwaysOverwrite）
+│   ├── GA_IG_DrawAndSendKinsect.uasset      ← 收刀直飞（单发：SingleHit / FirstHitOnly）
 │   ├── GA_IG_RecallKinsect.uasset           ← 召回
 │   ├── GA_IG_Slash_01.uasset                ← 标准纵斩（无红灯版）
 │   ├── GA_IG_RedSlash_01.uasset             ← 强化纵斩（红灯版）
@@ -712,6 +877,7 @@ Content/
 │   ├── WBP_IG_KinsectStamina.uasset         ← 猎虫耐力条
 │   └── WBP_IG_ExtractDisplay.uasset         ← 三灯圆盘
 ├── GameplayCues/InsectGlaive/
+│   ├── GC_Hit_Kinsect.uasset               ← 猎虫命中反馈（小号火花+音效——复用 GC_HitBase 基类）
 │   ├── GC_Hit_IG_DivingWyvern.uasset        ← 降龙命中特效
 │   ├── GC_IG_ExtractGained.uasset           ← 萃取成功
 │   ├── GC_IG_TripleUpActivated.uasset       ← 三灯齐聚瞬间
@@ -742,7 +908,7 @@ Content/
 | IG-0d | 猎虫对 Pawn 通道始终 Ignore——不参与物理阻挡且不可受击 | 猎虫太小、非物理实体，可穿透玩家和怪物身体。猎虫无受击机制——怪物攻击不命中猎虫 |
 | IG-0e | 猎虫动画极简化——仅单套飞行动画，停手臂无动画 | 猎虫不是战斗核心（武器才是），无需复杂 Idle/Attack/Stagger 动画。停手臂时静态 Mesh 已足够——昆虫停在手上本来几乎不动，视觉差异不可感知 |
 | IG-0f | 猎虫无受击——不可被怪物攻击命中 | 怪猎系列猎虫从未有受击机制。猎虫太小、飞行轨迹灵活，怪物攻击命中猎虫既不合理也无必要 |
-| IG-0g | 萃取仅发生在飞行途中（State==Flying），悬停不会触发萃取 | 萃取是猎虫飞行中"咬"到怪物表皮——需要飞行的接触判定。悬停时猎虫原地微振翅膀，即使怪物主动靠近也不触发。这要求玩家精准瞄准怪物部位送虫——未命中则召回重新尝试。萃取无攻击动画，视觉反馈由 `GameplayCue.IG.ExtractGained` 粒子+音效表现"咬中"瞬间 |
+| IG-0g | 萃取和伤害仅发生在飞行途中（State==Flying），悬停不会触发萃取或伤害 | 萃取和伤害是猎虫飞行中"咬"到怪物表皮——需要飞行的接触判定。悬停时猎虫原地微振翅膀，即使怪物主动靠近也不触发。这要求玩家精准瞄准怪物部位送虫——未命中则召回重新尝试。萃取/伤害无攻击动画，视觉反馈由 `GameplayCue.*` 粒子+音效表现 |
 | IG-0h | 目标坐标由 URes_InsectGlaive 计算、以 FVector 传给 AKinsect | 目标坐标计算逻辑属于资源系统（知道玩家状态、相机方向），不属于猎虫 Actor（只知道"飞去哪"）。用纯 FVector 解耦——猎虫零依赖怪物 Actor |
 | IG-0i | 飞行双模式——瞄准飞行（LT+Y/B）和收刀直飞（RT） | 两种使用场景：战斗中的精准萃取（瞄准）+ 快速接近/应急（直飞）。共用同一套飞行和悬停逻辑 |
 | IG-0j | 悬停消耗耐力小于飞行消耗——鼓励玩家大胆送虫，但悬停不能萃取 | 悬停是"飞行未命中目标"后的等待状态——玩家应召回重新瞄准，而非悬停等待怪物经过。低耗耐降低"飞过头"的惩罚，但不提供萃取捷径 |
@@ -760,6 +926,15 @@ Content/
 | IG-8 | 消耗灯→Apply 短时 Buff GE（非永久修改属性） | 消耗灯是战术爆发行为，Buff 应为临时增益。与装备 GE 走不同路径——不触发 OnEquipmentChanged |
 | IG-9 | 三灯后被消耗单个灯→解除三灯、剩余灯继续各自计时 | 遵循 MHW/MHR 逻辑——三灯被破后回归单灯状态（白+黄继续有效），不全部清空 |
 | IG-10 | 猎虫回收时萃取——不是命中瞬间立即萃取 | MHW/MHR 核心机制——猎虫必须在放出后回到猎人身上才传递萃取。飞行中途收回=萃取失败 |
+| IG-11 | 猎虫飞行结束条件统一为三种（撞墙/极限距离/普通命中）——贯穿放虫碰怪不终止 | 贯穿伤害需要猎虫完整穿过怪物身体。普通放虫命中即停（符合"咬一口就回"的直觉），贯穿放虫只有墙或距离能让它停下 |
+| IG-12 | 猎虫伤害参数（动作值、贯穿间隔、萃取行为）由送虫 GA 通过 `SetDamageParams` 传入，不存 DataAsset | 动作值属于招式不属于品种；萃取策略属于招式设计（伤害贯穿 vs 萃取贯穿 vs 混合）。当前阶段暂不做品种数值分化 |
+| IG-12b | 猎虫伤害走玩家 ASC 的统一 GE 管道——不新增 GA、不给猎虫加 ASC | 复用现有伤害公式（AttackPower × MotionValue × HitzoneDefense）、GameplayCue 火花/音效/伤害数字管道。猎虫无"出招"概念，不需要 Ability 激活/取消生命周期 |
+| IG-13 | 猎虫击中怪物后的行为由 `EKinsectDamageMode` 控制——SingleHit 立刻停止，Piercing 继续飞行 | 普通放虫咬一口就原地悬停——玩家回收取得萃取。贯穿放虫穿过去才停——最大化贯穿伤害次数 |
+| IG-14 | 猎虫萃取行为通过 `EKinsectExtractMode` 枚举控制，由送虫 GA 传入 | 萃取策略属于招式设计范畴（伤害贯穿 vs 萃取贯穿 vs 混合），不硬编码在猎虫内部。一个 GA 可以送"纯伤害无萃取"的虫，另一个可以送"标准萃取贯穿"的虫 |
+| IG-15 | 萃取颜色优先级硬编码为红(3) > 黄(2) > 白(1)，`AlwaysOverwrite` 模式下自动覆盖 | 红灯同时提供最大 Buff 和连招分支——玩家自然希望贯穿时优先锁定红灯。优先级顺序与游戏机制一致 |
+| IG-16 | 普通放虫的伤害在 `OnHitMonsterHitzone` Overlap 回调中处理，贯穿放虫的伤害在 Tick 中按 DamageInterval 轮询处理 | SingleHit 只需判断一次命中——Overlap 回调语义正好匹配。Piercing 需要持续检测 Overlap + 冷却计时——Tick 是唯一合适的位置。两者互不干扰 |
+| IG-17 | 猎虫移动用 `UProjectileMovementComponent`（`bAutoActivate=false`），不继承 APawn | `UFloatingPawnMovement` 依赖 APawn 的 `GetNavAgentLocation()` 等接口，与 `AActor` 不兼容。`UProjectileMovementComponent` 的 `HomingTargetComponent` 天然支持回归追踪，手动控制 `Velocity` 比 Pawn Movement 更灵活且无 Pawn 附加负担（Controller/AI/Input） |
+| IG-18 | 送虫/收虫 GA 进连招表（`bMatchAnyState=true`），不设独立激活路径 | 单一输入路由（协调器 `HandleWeaponInput` 唯一入口）消除双路径竞态。`bMatchAnyState` 使送虫/收虫可在连招任意节点触发。瞄准态下 Y 键分流由 `RequiredTags={Combat.State.Aiming}` + `Priority` 在出招表中可视化控制——不依赖 ASC 内部执行顺序 |
 
 ---
 
@@ -768,20 +943,27 @@ Content/
 | # | 测试项 | 预期结果 |
 |:--:|------|------|
 | 0a | 装备虫棍→猎虫 Spawn 并吸附手臂 | Kinsect Actor 存在；State=Attached；碰撞体 Disable；无动画 |
-| 0b | 送虫→猎虫 Detach 并沿准心飞出 | State=Flying, bFollowRay=true；碰撞体 Enable（Weapon=Block）；Anim PlayRate=1.5；耐力开始扣减 |
-| 0c | 猎虫飞行中碰到怪物 HitzoneComponent→命中回调 | OnHitMonsterHitzone 触发；PendingExtractColor 记录正确颜色；State 切换为 Returning；碰撞体 Disable |
-| 0d | 猎虫飞回→到达玩家→Attach 吸附 | State=IdleOnArm；PendingExtractColor 传递给 ResourceComponent→ApplyExtract；UI 灯亮起 |
+| 0b | 送虫→猎虫 Detach 并沿准心飞出 | State=Flying, bFollowRay=true；碰撞体 Enable（Weapon=Block）；Anim PlayRate=1.5；耐力开始扣减；伤害参数已设置 |
+| 0c | 普通放虫（收刀RT）命中怪物→造成 1 次伤害→立即悬停 | OnHitMonsterHitzone 触发→TryRecordExtract 按 FirstHitOnly 记录颜色→ApplyDamageOnce 1 次伤害→下帧 State=Hovering。萃取保留在 PendingExtractColor，不自动返回 |
+| 0c2 | 贯穿放虫（瞄准送虫）命中怪物→持续伤害→继续飞行 | Piercing 模式：每 DamageInterval 秒 ApplyDamageOnce 1 次；TryRecordExtract 按 AlwaysOverwrite 更新；飞行不停止 |
+| 0c3 | 贯穿放虫穿过怪物后→无 Overlap→停止伤害但继续飞行 | 伤害冷却自动重置，Overlap 结束后不再触发新伤害。萃取颜色保留最后覆盖的结果 |
+| 0c4 | 贯穿放虫贯穿大型怪物（如 5 次 Overlap）→造成 5 次伤害 | 每次伤害独立走 GE 管道→GameplayCue.Hit.Kinsect 触发小火花；伤害数字各自弹出 |
+| 0d | 有萃取的猎虫悬停→召回→灯 Apply | 召回→到达→PendingExtractColor 有效→ApplyExtract→UI 灯亮起 |
+| 0d2 | 无萃取的猎虫悬停→召回→萃取失败 | 召回→到达→PendingExtractColor 空→无灯 Apply→UI 无变化 |
 | 0e | 猎虫飞行/悬停中穿透怪物身体 | Pawn 通道 Ignore→猎虫不被怪物物理阻挡，可在怪物身体附近悬停 |
 | 0f | 不同品种猎虫→不同外观 | 切换 DA_Kinsect_Speed → Mesh + Material + FlyMontage 正确加载 |
-| 0g | 臂上 LT+Y→猎虫沿准心射线飞出 | State=Flying, bFollowRay=true; 轨迹=相机方向直线; Anim PlayRate=1.5 |
-| 0h | 收刀 RT→猎虫沿玩家前方直飞+拔刀 | StartFlightAlongRay(PlayerForward, StraightFlightDistance); 同时 Unsheathe |
-| 0i | 悬停中 LT+Y→猎虫直线飞向新目标坐标 | Kinsect->Interrupt() → StartFlightToPoint(HitLocation); bFollowRay=false |
+| 0g | 臂上 LT+Y→猎虫沿准心射线贯穿飞出 | SetDamageParams(Piercing,1.0,0.12s,AlwaysOverwrite)→State=Flying→轨迹=相机方向直线 |
+| 0h | 收刀 RT→猎虫单发飞出+拔刀 | SetDamageParams(SingleHit,0.8,0,FirstHitOnly)→StartFlightAlongRay(PlayerForward,StraightFlightDistance) |
+| 0i | 悬停中 LT+Y→猎虫贯穿飞向新目标坐标 | Kinsect->Interrupt() → StartFlightToPoint(HitLocation); 贯穿参数不变 |
 | 0j | 飞行中按 B→立即中断飞行→开始返回 | Interrupt 被调用; State 切换 Returning; 上次飞行萃取结果保留 |
 | 0k | 返回中按 Y→中断返回→飞向新目标 | Interrupt 被调用; 若有 PendingExtractColor 则保留; 重新放虫 |
 | 0l | 收虫时玩家移动→猎虫实时修正回归方向 | 每 Tick 读 OwnerActor->GetActorLocation(); 回归路径始终指向玩家当前位置 |
 | 0m | 飞行中耐力归零→强制召回→不清空萃取 | Tick 内联检测 KinsectStamina<=0 → ForceRecall; PendingExtractColor 保留 |
 | 0n | 飞行中撞到墙壁/建筑→立即停止→就地悬停 | OnWorldCollision 触发; Movement 停止; State=Hovering; 不萃取 |
-| 0o | 同一帧命中怪物+墙壁→怪物优先 | OnHitMonsterHitzone 先生效→萃取+返回；WorldStatic Hit 被忽略 |
+| 0o | 同一帧命中怪物+墙壁→怪物优先 | OnHitMonsterHitzone 先生效→TryRecordExtract + 伤害（或标记普通命中）；WorldStatic Hit 被忽略 |
+| 0p | ExtractMode=NoExtract 贯穿→多次伤害但无萃取 | 贯穿命中 3 次→3 次伤害→召回后 PendingExtractColor 为空→无灯 |
+| 0q | ExtractMode=FirstHitOnly 贯穿→首次命中记录，后续不更新 | 首次命中头部→PendingExtractColor=Red；后续 Overlap 躯干→TryRecordExtract 跳过（已有颜色）→不覆盖 |
+| 0r | ExtractMode=AlwaysOverwrite 贯穿→从黄灯部位穿到红灯部位 | 首次命中躯干→Yellow；后续命中头部→优先级 3>2→覆盖为 Red |
 | 1 | 猎虫放出→耐力持续下降 | Tick 中每帧扣减正确；UI 条同步更新 |
 | 2 | 猎虫耐力归零→自动强制召回 | 播放警告音效；萃取失败；耐力条开始回复 |
 | 3 | 猎虫命中 Head→召回→红灯 Apply | ASC 持有 `Extract.Red` + `Branch.Extract.Red`；UI 红灯亮起+倒计时 |
@@ -849,11 +1031,15 @@ class UMHGZAimComponent : public UActorComponent
 
 ### 关键方法
 
+- `void BeginPlay() override`
+  - 作用：获取 ASC → 订阅 `RegisterGameplayTagEvent(Combat.State.Aiming)` → `OnAimingTagChanged`。**直接向 EnhancedInput Subsystem 绑定 `AimInputAction` 的 Triggered/Completed 事件**——按下 LT → `ASC->AddLooseGameplayTag(Combat.State.Aiming)`；松开 LT → `ASC->RemoveLooseGameplayTag(Combat.State.Aiming)`。不走 GAS 的 `OnInputActionTriggered` 分叉路由。
+
 - `void TickComponent(float DeltaTime) override`
   - 作用：若 `bIsAiming==true` → 从 `PlayerCameraManager` 做 `LineTraceSingleByChannel(AimChannel)`。命中 `UMonsterHitzoneComponent` → 读 HitzoneTag → `MapHitzoneToExtract` → 若与上一帧不同 → 广播 `OnAimTargetChanged(Monster, HitzoneTag, ExtractColor)`。命中 WorldStatic → 广播 `OnAimTargetChanged(nullptr, 空, 空)`。**仅在目标变化时广播**——避免每帧重复触发 UI 动画。
 
 - `void OnAimingTagChanged(const FGameplayTag Tag, int32 NewCount)`
-  - 作用：BeginPlay 时订阅 ASC 的 `RegisterGameplayTagEvent(Combat.State.Aiming)`。NewCount>0 → `bIsAiming=true`；NewCount==0 → `bIsAiming=false` → 广播 `OnAimTargetChanged(nullptr, 空, 空)`。
+  - 作用：`NewCount>0` → `bIsAiming=true`；`NewCount==0` → `bIsAiming=false` → 广播 `OnAimTargetChanged(nullptr, 空, 空)`。
+  - **Tag 来源：** 不由 GA 添加——由本组件的 EnhancedInput 绑定回调直接调用 `ASC->AddLooseGameplayTag` / `RemoveLooseGameplayTag`。受击/击倒时 `TickComponent` 检测 `HasMatchingGameplayTag(Hitstun)` → 主动 `RemoveLooseGameplayTag(Aiming)`。
 
 - `FGameplayTag MapHitzoneToExtract(FGameplayTag HitzoneTag) const`
   - 作用：部位→萃取颜色映射。与 `URes_InsectGlaive::MapHitzoneToExtract` 相同逻辑——共用静态工具函数或通过 ResourceComponent 代理调用，保证映射一致。
@@ -862,8 +1048,9 @@ class UMHGZAimComponent : public UActorComponent
 
 ```
 玩家按下 LT
-  → ASC 添加 Combat.State.Aiming Tag
-  → UMHGZAimComponent::OnAimingTagChanged → bIsAiming = true
+  → UMHGZAimComponent 直接绑定 EnhancedInput IA_LT Triggered
+    → ASC->AddLooseGameplayTag(Combat.State.Aiming)
+  → OnAimingTagChanged → bIsAiming = true
   → Tick 启动射线检测
 
 每帧（仅当 bIsAiming==true）：
@@ -877,13 +1064,18 @@ class UMHGZAimComponent : public UActorComponent
         → WBP_Crosshair 收到 → 显示默认灰色准心
 
 玩家按下 Y（送虫）：
+  → ASC::OnInputActionTriggered(Input.Weapon.Y)
+    → ComboCoordinator::HandleWeaponInput（★ 唯一入口——不在 ASC 直接激活）
+      → 匹配连招表中 `bMatchAnyState=true` 的 GA_SendKinsect 节点
+        → RequiredTags={Combat.State.Aiming} 满足（Priority=20 高于攻击节点）
   → GA_SendKinsect::ActivateAbility
     → 读取 UMHGZAimComponent::CurrentAimExtractColor（当前准心颜色）
     → 读取 UMHGZAimComponent 当前相机朝向
     → DeployKinsect() → StartFlightAlongRay(CameraForward, MaxRange)
 
 玩家松开 LT：
-  → ASC 移除 Combat.State.Aiming Tag
+  → UMHGZAimComponent 绑定 EnhancedInput IA_LT Completed
+    → ASC->RemoveLooseGameplayTag(Combat.State.Aiming)
   → OnAimingTagChanged → bIsAiming = false
   → 广播 OnAimTargetChanged(nullptr, 空, 空) → 准心隐藏
 ```

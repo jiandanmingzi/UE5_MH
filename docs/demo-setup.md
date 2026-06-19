@@ -180,14 +180,28 @@ UI/
 
 **父类：** `UMHGZWeaponComboData`
 
-**最简配置（1 个招式——能按 Y 打出纵斩即可）：**
+**完整配置（6 个节点——还原虫棍完整战斗流程：拔刀→瞄准→送虫→萃取→三灯→攻击→收虫→收刀直飞）：**
 
-| StateName | AbilityClass | RequiredTags | InputTag | Priority |
-|------|------|------|------|:--:|
-| Idle | `GA_IG_Slash_01` | — | `Input.Weapon.Y` | 0 |
-| Idle（红灯版） | `GA_IG_RedSlash_01` | `Combat.Branch.Extract.Red` | `Input.Weapon.Y` | 10 |
+| StateName | bMatchAnyState | AbilityClass | InputTag | RequiredTags | BlockedTags | Priority |
+|------|:--:|------|------|------|------|:--:|
+| — | ✅ | `GA_Unsheathe` | `Input.Weapon.Y` | `Combat.State.Sheathed` | — | 30 |
+| — | ✅ | `GA_SendKinsect` | `Input.Weapon.Y` | `Combat.State.Aiming` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 20 |
+| — | ✅ | `GA_RecallKinsect` | `Input.Weapon.B` | `WeaponResource.IG.Kinsect.Active` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 15 |
+| — | ✅ | `GA_DrawAndSendKinsect` | `Input.Modifier.Sheathed` | `Combat.State.Sheathed` | — | 10 |
+| Idle | ❌ | `GA_IG_RedSlash_01` | `Input.Weapon.Y` | `Combat.Branch.Extract.Red` | — | 10 |
+| Idle | ❌ | `GA_IG_Slash_01` | `Input.Weapon.Y` | — | — | 0 |
 
-> **Demo 阶段只需 Idle → Slash 一条。** 更多招式（Slash→Sweep→RoundSlash 连招链）后续添加。红灯版 GA 可以先用同一蓝图——先验证 Tag 分流逻辑，再替换不同 Montage。
+> **节点 1（拔刀）：** `bMatchAnyState=true`, `Priority=30` 最高——收刀态（`Sheathed`）下按 Y 优先拔刀，不送虫也不攻击。拔刀成功后 ASC 持有 `Unsheathed` Tag，`Sheathed` Tag 被移除，后续 Y 键自然回退到攻击/送虫节点。
+>
+> **节点 2（送虫）：** 瞄准态（`Aiming`）下按 Y → 优先匹配（Priority 20 > 0）。非瞄准态 RequiredTags 不满足→跳过。
+>
+> **节点 3（召回）：** 有虫放出（`Kinsect.Active`）时按 B → 召回。
+>
+> **节点 4（收刀直飞）：** 收刀态（`Sheathed`）按 RT → 单发普通萃取（`SingleHit / FirstHitOnly`）。
+>
+> **节点 5/6（攻击）：** Idle 态按 Y。红灯存在→`GA_IG_RedSlash_01` 匹配（Priority 10 > 0）。无红灯→`GA_IG_Slash_01`。
+>
+> **协调器初始化：** `SetComboData` 时 `CurrentState = "Idle"`。每次 `OnAttackFinished` 回归 `"Idle"`。`bMatchAnyState=true` 的节点不依赖 CurrentState。
 
 ---
 
@@ -261,39 +275,54 @@ UI/
 
 暂时和 `GA_IG_Slash_01` 完全相同的配置（包括同一个 Montage）——先验证红灯 Tag 分流逻辑，再替换强化 Montage。
 
-### 6.3 GA_SendKinsect（送虫）
+### 6.3 GA_SendKinsect（送虫——通过连招表匹配，非直接ASC激活）
 
-**父类：** `UMHGZGameplayAbility`（不是 InsectGlaiveAbility——不需要攻击碰撞）
+**父类：** `UMHGZGameplayAbility`（不受击碰撞——不需要继承 `UMHGZInsectGlaiveAbility`）
 
 | 成员 | 值 |
 |------|------|
-| InputTag | `Input.Weapon.Y`（和攻击共用一个 Tag——由瞄准态区分：瞄准时 Y=送虫，非瞄准时 Y=攻击） |
 | StaminaCost | 0 |
 
-**Event Graph：** `ActivateAbility` → 获取 `URes_InsectGlaive`→ `DeployKinsect()` → `EndAbility`。
+> **激活方式：** 由协调器的 `HandleWeaponInput(Input.Weapon.Y)` → 匹配连招表中 `bMatchAnyState=true` 的送虫节点 → `RequiredTags={Combat.State.Aiming}` 满足时激活。**不在蓝图设 `InputTag` 或 `ActivationRequiredTags`**——这些由连招表的 `FComboNode` 统一管理。
 
-> **注意：** `GA_SendKinsect` 的 `CanActivateAbility` 需要检查 `ASC->HasMatchingGameplayTag(Combat.State.Aiming)`——只有瞄准态下 Y 才触发送虫。这个检查在 C++ `UMHGZGameplayAbility` 基类中通过 `ActivationRequiredTags` 实现——蓝图设 `ActivationRequiredTags = Combat.State.Aiming`。
+**Event Graph：** `ActivateAbility` → 读取 `UMHGZAimComponent` 当前相机朝向 → 获取 `URes_InsectGlaive`→ `DeployKinsect()` → `EndAbility`。
 
-### 6.4 GA_RecallKinsect（召回）
+### 6.4 GA_RecallKinsect（召回——通过连招表匹配）
 
 **父类：** `UMHGZGameplayAbility`
 
 | 成员 | 值 |
 |------|------|
-| InputTag | `Input.Weapon.B` |
 | StaminaCost | 0 |
+
+> **激活方式：** 由协调器的 `HandleWeaponInput(Input.Weapon.B)` → 匹配连招表中 `bMatchAnyState=true` 的召回节点 → `RequiredTags={WeaponResource.IG.Kinsect.Active}` 满足时激活。同样不在蓝图设 `InputTag`。
 
 **Event Graph：** `ActivateAbility` → 获取 `URes_InsectGlaive`→ `RecallKinsect()` → `EndAbility`。
 
-### 6.5 GA_Unsheathe（拔刀——虫棍默认持刀）
+### 6.5 GA_Unsheathe（拔刀——通过连招表匹配）
 
 **父类：** `UMHGZGameplayAbility`
 
 | 成员 | 值 |
 |------|------|
-| InputTag | `Input.Weapon.Y`（收刀态 Y=拔刀） |
-| ActivationRequiredTags | `Combat.State.Sheathed` |
-| GrantedTags | `Combat.State.Unsheathed`（激活后移除 Sheathed） |
+| StaminaCost | 0 |
+| GrantedTags | `Combat.State.Unsheathed`（激活后 GAS 自动移除互斥的 `Sheathed` Tag） |
+
+> **激活方式：** 由协调器匹配连招表中 `bMatchAnyState=true` 的拔刀节点 → `RequiredTags={Combat.State.Sheathed}` 满足时激活，`Priority=30` 最高。不在蓝图设 `InputTag` 或 `ActivationRequiredTags`。
+
+**Event Graph：** `ActivateAbility` → 播放拔刀 Montage（若有）→ `EndAbility`。
+
+### 6.6 GA_DrawAndSendKinsect（收刀直飞——通过连招表匹配）
+
+**父类：** `UMHGZGameplayAbility`
+
+| 成员 | 值 |
+|------|------|
+| StaminaCost | 0 |
+
+> **激活方式：** 由协调器匹配连招表中 `bMatchAnyState=true` 的收刀直飞节点 → `RequiredTags={Combat.State.Sheathed}` 满足时激活。不在蓝图设 `InputTag`。
+
+**Event Graph：** `ActivateAbility` → 先调用 `GA_Unsheathe` 逻辑拔刀 → 获取 `URes_InsectGlaive`→ `DeployKinsect()`（内部自动走 `StartFlightAlongRay(PlayerForward, StraightFlightDistance)` + `SetDamageParams(SingleHit, 0.8, 0, FirstHitOnly)`）→ `EndAbility`。
 
 ---
 
@@ -373,18 +402,21 @@ Canvas Panel（根）
 创建 InputAction 资产：
 - `IA_Y`（轻攻击/送虫）
 - `IA_B`（重攻击/召回）
-- `IA_LT`（瞄准）
-- `IA_RT`（收刀直飞——Demo 可暂不配）
+- `IA_LT`（瞄准——由 `UMHGZAimComponent` 直接绑定，不走 ASC）
+- `IA_RT`（收刀直飞）
 
 创建 InputMappingContext `IMC_IG`：
 - `IA_Y` → `Input.Weapon.Y`（Triggered + Completed）
 - `IA_B` → `Input.Weapon.B`
 - `IA_LT` → `Input.Modifier.Aiming`（Triggered + Completed）
+- `IA_RT` → `Input.Modifier.Sheathed`（Triggered + Completed）
 
 打开 `BP_IG_Character` → `UMHGZAbilitySystemComponent` → `InputBindings` 数组：
 - [0] InputAction=`IA_Y`, AbilityTag=`Input.Weapon.Y`
 - [1] InputAction=`IA_B`, AbilityTag=`Input.Weapon.B`
-- [2] InputAction=`IA_LT`, AbilityTag=`Input.Modifier.Aiming`
+- [2] InputAction=`IA_RT`, AbilityTag=`Input.Modifier.Sheathed`
+
+> **注意：** `IA_LT` 不在 ASC 的 `InputBindings` 中——瞄准是输入状态而非招式。`UMHGZAimComponent::BeginPlay` 直接向 EnhancedInput Subsystem 绑定 `IA_LT` 的 Triggered/Completed，自行调用 `ASC->AddLooseGameplayTag(Combat.State.Aiming)` / `RemoveLooseGameplayTag`。不走 GAS 的 `OnInputActionTriggered` 分叉路由。
 
 ### 8.4 初始装备配置
 
@@ -415,7 +447,7 @@ Canvas Panel（根）
 | 5 | 瞄头时按 Y | 猎虫从手臂 Detach → 沿准心飞出 → 碰到木桩 Head → 自动返回 | `insect-glaive.md §十一·0g/0c` |
 | 6 | 猎虫回手 | 红灯图标亮起 + 倒计时；ASC 持有 `Extract.Red` + `Branch.Extract.Red` | `insect-glaive.md §十一·3` |
 | 7 | 不瞄时按 Y | 打出纵斩 Montage；碰撞窗口检测到木桩 → ApplyDamage → 木桩受击 | `insect-glaive.md §十一·9` |
-| 8 | 木桩受击 | 伤害数字浮空；血条扣减（若木桩挂了 AttributeSet） | `monster-system.md` |
+| 8 | 木桩受击 | 伤害数字浮空（木桩无 AttributeSet，仅显示伤害数字） | `monster-system.md` |
 | 9 | 三灯萃取完毕 | 三个灯逐一亮起 → 自动三灯齐聚 → UI 三灯合一光环 | `insect-glaive.md §十一·6` |
 | 10 | 三灯后按 Y | 攻击激活 → `PlaySound2D(TripleUpSwingSound)` | `insect-glaive.md §十一·11` |
 
@@ -425,14 +457,12 @@ Canvas Panel（根）
 
 | 复杂功能 | Demo 做法 |
 |------|------|
-| 连招表多招式 | 只需 1 招 Idle→Slash |
+| 连招表多招式 | 只需 1 招 Idle→Slash（+ 红灯版复用） |
 | 红灯版招式 | 复用同一 GA 蓝图——先验证 Tag 分流 |
-| 猎虫悬停 | 先不做——萃取成功后直接 Returning |
-| 收刀直飞（RT） | 不做——只做 LT+Y 瞄准送虫 |
-| 消耗灯特殊技 | 不做——只验证萃取+三灯 |
+| 消耗灯特殊技 | 不做——只验证萃取+三灯+红灯连招 |
 | 装备词条 | 不做——固定白板铁虫棍 |
 | GameplayCue 粒子 | 引擎自带粒子临时替代 |
-| 猎虫 FlyMontage | 无动画时用纯 Mesh 飞行（没翅膀扇动也能验证碰撞） |
+| 猎虫动画 | 不做——纯 Mesh 飞行，无翅膀扇动 |
 | 三灯攻击音效 | 用引擎自带提示音临时替代 |
 | UI 动画（缩放/消散等） | 不做——只做颜色切换 |
 

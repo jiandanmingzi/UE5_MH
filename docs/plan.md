@@ -27,6 +27,7 @@
 | [docs/gameplay-tags.md](docs/gameplay-tags.md) | GameplayTags 完整层级 |
 | [docs/monster-system.md](docs/monster-system.md) | 怪物与靶子系统——木桩、Hitzone、伤害数字、渐进式架构 |
 | [docs/gameplay-cue.md](docs/gameplay-cue.md) | GameplayCue 系统——命中反馈/Buff光环/仇恨数字、自定义GC管理器、对象池 |
+| [docs/exec-calc.md](docs/exec-calc.md) | 伤害执行计算——ExecCalc 完整设计、SetByCaller 键名体系、伤害/硬直公式 |
 | [docs/design-decisions.md](docs/design-decisions.md) | 一键整理排序表 + 设计决策汇总 |
 | [docs/directory-structure.md](docs/directory-structure.md) | 目录结构 |
 | [docs/verification.md](docs/verification.md) | 验证方案 |

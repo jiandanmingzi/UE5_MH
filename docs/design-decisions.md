@@ -133,3 +133,20 @@
 | 115 | 消耗灯→Apply 短时 Buff GE（非永久修改属性） | 消耗灯是战术爆发行为，Buff 应为临时增益。与装备 GE 走不同路径——不触发 OnEquipmentChanged |
 | 116 | 三灯后被消耗单个灯→解除三灯、剩余灯继续各自计时 | 遵循 MHW/MHR 逻辑——三灯被破后回归单灯状态（白+黄继续有效），不全部清空。需要重新 Apply 剩余时长的单灯 GE |
 | 117 | 猎虫召回时才萃取——不是命中瞬间立即萃取 | MHW/MHR 核心机制——猎虫必须在放出后回到猎人身上才传递萃取。飞行中途召回=萃取失败 |
+| 118 | 空中招式按位移来源分 5 类（FBX 自带/准心固定距离/固定垂直+摇杆水平/纯惯性/惯性+摇杆） | 位移来源不同——FBX 有 K 帧 vs 代码驱动。统一方案会导致①类叠加冲突/②③⑤类原地踏步 |
+| 119 | AerialVelocity 作为 CMC↔GA 速度交接的中间状态 | 解决 RootMotion/MotionWarping 覆盖 CMC Velocity 导致空中惯性丢失的问题。物理载体始终是 CMC→Velocity，GA 在入口快照、出口回灌 |
+| 120 | 分类①②（FBX RootMotion / MotionWarping）在 EndAbility 手动从 GetRootMotionDelta 反算回灌速度 | Montage 结束和 EndAbility 之间可能差 1~数帧，CMC 已恢复 BrakingDecelerationFalling 衰减——直接读 CMC→Velocity 不准确 |
+| 121 | 分类③⑤ 用 GAS RootMotion Task + SetVelocity 模式自动保留惯性 | Task 的 SetVelocity 模式在结束时原生的 CMC→Velocity 写入——无需手动 EndAbility 回灌。比 MotionWarping 更适合需要惯性叠加/覆盖的场景 |
+| 122 | MotionWarping 不自动保留惯性——位移缩放≠速度控制 | Warp 结束时 CMC 恢复自主物理→速度衰减。需配合决策 #120 手动回灌 |
+| 123 | 空中下落用 GameplayTag 区分 Pose（GA 结束，AnimBP 接管） | 下落是状态（state）非能力（ability）；AnimBP 天然适合状态驱动的动画选择；不阻塞其他空中 GA 激活 |
+| 124 | 摇杆水平缩放公式 = 1.0 + StickInput.Y（非直接乘） | 不推摇杆=默认距离（非原地）；前推=1.8×/后推=0.2×，符合怪猎操作直觉 |
+| 125 | 连招协调器本质是有限状态机（FSM）——FComboNode 定义转移图 | CurrentState=状态、InputAction=转移条件、NextState=转移目标、ActivateAbility=转移动作。bAutoTransition=ε 转移 |
+| 126 | GA→GA 自动派生必须通过协调器的 OnAutoTransition（不走 TryActivateAbilityByTag） | 绕过协调器会导致：CurrentState 不同步、PreviousState 断裂、OnAttackFinished 误回 Idle、PendingGrantedTags 丢失 |
+| 127 | FComboNode 新增 bAutoTransition 字段区分自动转移与输入转移 | 两条路径共享同一状态变更流程，输入转移走 HandleWeaponInput（四级排序匹配），自动转移走 OnAutoTransition（按 StateName 直接查找） |
+| 128 | 空中动作次数限制用 Cant 模型（CantDodge/CantAttack）而非数字计数器或 Can 模型 | 默认全部可用，用过才加锁。GAS 原生 BlockedTags 处理，零 GA 覆写。容错优于 Can——加锁失败最多多用一次，不会误锁。不需要 Exhausted 汇总标签 |
+| 129 | 着陆重置协调器——`Coordinator→OnLanded()` 强制 `CurrentState="Idle"` | CMC OnLanded 是事件而非 GA——不产生伤害/消耗资源。落地后地面连招从 "Idle" 匹配起手 |
+| 130 | 瞄准不走 GAS——`UMHGZAimComponent` 直接绑定 EnhancedInput，`AddLooseGameplayTag`/`RemoveLooseGameplayTag` 管理 `Combat.State.Aiming` | 瞄准是输入状态而非招式——无动画、无前后摇、不消耗资源。GA_Aim 不存在。AimComponent 零 GAS 开销切换 Tag，连招表的 `RequiredTags={Aiming}` 照常匹配 |
+| IG-17 | 猎虫移动用 `UProjectileMovementComponent`（`bAutoActivate=false`），不继承 APawn | `UFloatingPawnMovement` 依赖 APawn 接口，与 `AActor` 不兼容。`UProjectileMovementComponent` 的 `HomingTargetComponent` 天然支持回归追踪，手动控制 Velocity 更灵活且零 Pawn 负担 |
+| IG-18 | 送虫/收虫 GA 进连招表（`bMatchAnyState=true`），不设独立激活路径 | 单一输入路由消除双路径竞态。`bMatchAnyState` 使任意连招节点均可送/收虫。瞄准态分流由 `RequiredTags` + `Priority` 在出招表中可视化控制 |
+| ED-0 | 单一 ExecCalc 处理全部伤害来源 | 武器攻击与猎虫伤害复用同一公式，通过 SetByCaller 覆写区分攻击力来源 |
+| ED-4 | 硬直走 `HandleGameplayEvent` 而非 Tag Trigger | 每次调用独立触发，InstancedPerExecution 支持受击连打 |
