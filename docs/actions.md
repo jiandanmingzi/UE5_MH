@@ -556,7 +556,9 @@ class UMHGZAbilitySystemComponent : public UAbilitySystemComponent
 ### 核心方法
 
 - `void InitializeAbilitySystem()`
-  - 作用：BeginPlay 时调用。授予 CoreAbilities → Apply CoreAttributeEffects → 遍历 `InputBindings` 用 **lambda 捕获 `FGameplayTag`** 绑定 EnhancedInput 的 `Triggered` 和 `Completed` 事件。`OnInputActionTriggered` 按 Tag 分叉——武器 Tag → `Coordinator→HandleWeaponInput(Tag)`；非武器 Tag → `TryActivateAbilityByTag(Tag)`。`OnInputActionCompleted` 检查 `Combat.State.Charging` Tag → 若存在则发送 `Combat.Event.ChargeReleased` GameplayEvent（蓄力 GA 通过 AbilityTrigger 监听）。
+  - 作用：BeginPlay 时调用。**★ H-2 修复——依次执行：** (1) 设置初始 GameplayTag（`Combat.State.Sheathed`、`Combat.State.Grounded`），(2) 授予 CoreAbilities，(3) Apply CoreAttributeEffects（含 `GE_InitStats`），(4) 遍历 `InputBindings` 用 **lambda 捕获 `FGameplayTag`** 绑定 EnhancedInput 的 `Triggered` 和 `Completed` 事件。`OnInputActionTriggered` 按 Tag 分叉——武器 Tag → `Coordinator→HandleWeaponInput(Tag)`；非武器 Tag → `TryActivateAbilityByTag(Tag)`。`OnInputActionCompleted` 检查 `Combat.State.Charging` Tag → 若存在则发送 `Combat.Event.ChargeReleased` GameplayEvent（蓄力 GA 通过 AbilityTrigger 监听）。
+  - **CoreAbilities 内容（Demo）：** `GA_Dodge`、`GA_Sprint`。
+  - **CoreAttributeEffects 内容（Demo）：** `GE_InitStats`（Infinite——设置 Health=100, MaxHealth=100, Stamina=100, MaxStamina=100, StaminaRegenRate=1.0 等）。
     ```cpp
     for (auto& Binding : InputBindings)
     {
@@ -1282,7 +1284,8 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | StateName | FName | 必填 | 当前所处的具体招式名（"Idle" / "RisingSlash" / "DoubleSlash" / "TornadoSlash"…），非抽象段位编号。`"Idle"` 为起手待机态 |
-| bMatchAnyState | bool | false | 为 true 时忽略 StateName 匹配——匹配任意招式状态（含 Idle）。用于纳刀、起跳等通用招式。**不自动排除任何状态**——若需排除受击/击倒/Idle，使用 `RequiredTags`+`BlockedTags` 显式声明 |
+| bMatchAnyState | bool | false | 为 true 时忽略 StateName 匹配——匹配任意招式状态（含 Idle）。用于纳刀、起跳等通用招式。若需排除特定招式状态，使用 `BlockedStateNames`；若需排除受击/击倒等，使用 `BlockedTags` |
+| BlockedStateNames | TArray\<FName\> | 空 | **仅 `bMatchAnyState==true` 时生效**——排除这些源状态名。空数组=匹配任意状态（原行为）。用于"任意派生但不可从 Idle/收刀态起手"（如太刀特殊纳刀）或"排除特定招式"的场景。黑名单模式——只需列出不允许的少数状态 |
 | InputAction | FGameplayTag | 必填 | 触发条件（`Input.Weapon.Y` / `Input.Weapon.B` / `Input.Weapon.RT` 为基础按键；`Input.Weapon.YB` / `Input.Weapon.RTA` 等为 Chord Trigger 同时按键）。修饰态（如按住 LT 瞄准）不走单独 InputAction——通过 `RequiredTags={Input.Modifier.Aiming}` 区分 |
 | DirectionalInput | EComboDirection | None | 方向条件：None=不判方向 / Forward / Back / Left / Right。不匹配则跳过该节点 |
 | NextState | FName | 必填 | 命中后跳转到的招式名（可指向自身或前序招式，有向图允许环） |
@@ -1300,7 +1303,7 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 
 `ComboEntries` 定义了 FSM 的有向转移图。`StateName` 是状态，`NextState` 是转移目标。**连招协调器本质就是一台有限状态机（FSM）**——`CurrentState` 是当前状态，`InputAction` 等字段是转移条件，`ActivateAbility` 是转移动作。`bAutoTransition` 对应的概念是 **ε 转移（无需输入的自动转移）**。
 
-`ComboEntries` 是平面数组，`NextState` 是字符串键（非指针）。协调器构建 `TMap<FName, TArray<int32>> StateIndex`，按 `StateName` 分组（`bMatchAnyState=true` 的行放入 `"*"` 桶），运行时 O(1) 查候选行。匹配时查询 `StateIndex[CurrentState]` 和 `StateIndex["*"]` 两个桶。`StateName` 用具体招式名（如 `"RisingSlash"`）而非抽象编号——多路径收敛和派生差异在出招表中显式可见。
+`ComboEntries` 是平面数组，`NextState` 是字符串键（非指针）。协调器构建 `TMap<FName, TArray<int32>> StateIndex`，按 `StateName` 分组（`bMatchAnyState=true` 的行放入 `"*"` 桶），运行时 O(1) 查候选行。匹配时查询 `StateIndex[CurrentState]` 和 `StateIndex["*"]` 两个桶——`"*"` 桶中检查 `BlockedStateNames.Contains(CurrentState)` 过滤被排除的源状态。`StateName` 用具体招式名（如 `"RisingSlash"`）而非抽象编号——多路径收敛和派生差异在出招表中显式可见。
 
 ### 与装备系统的对接
 
@@ -1391,7 +1394,7 @@ class UMHGZWeaponComboCoordinatorAbility : public UGameplayAbility
 
 **阶段 C（GA 执行）：** GA `ActivateAbility` 扣耐力/播 Montage → `AttackCollision→NotifyBegin` 调 `EnableCollision` → Sweep 命中 → `ApplyDamage` → `NotifyEnd` 调 `DisableCollision` → `ComboWindow→NotifyBegin` 加 `ComboWindowOpen` Tag。
 
-**阶段 D（连招下一段）：** 窗口内 `HandleWeaponInput` → `StateIndex[CurrentState] ∪ StateIndex["*"]` → 匹配成功则取消旧 `SafetyTimer` → `PreviousState = CurrentState` → `ActivateAbility` → 更新 `CurrentState` → 重启 `SafetyTimer`（时长为 `GlobalComboTimeout`）。GA 首次命中时 `OnAttackHit()` 将 `PendingGrantedTags` 写入 ASC。
+**阶段 D（连招下一段）：** 窗口内 `HandleWeaponInput` → `StateIndex[CurrentState] ∪ StateIndex["*"]`（`"*"` 桶中过滤 `BlockedStateNames.Contains(CurrentState)` 的行）→ 匹配成功则取消旧 `SafetyTimer` → `PreviousState = CurrentState` → `ActivateAbility` → 更新 `CurrentState` → 重启 `SafetyTimer`（时长为 `GlobalComboTimeout`）。GA 首次命中时 `OnAttackHit()` 将 `PendingGrantedTags` 写入 ASC。
 
 **阶段 E（回 Idle）：** `ComboWindow→NotifyEnd` 移除 Tag → Montage 播完 → GA `EndAbility` → `Coordinator→OnAttackFinished()` → 若 `CurrentState` 未变更（未被 `HandleWeaponInput` 或 `OnAutoTransition` 改变）则回 `"Idle"` + 清除 `Combo.Branch.*` Tag。
 

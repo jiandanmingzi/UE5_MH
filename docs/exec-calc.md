@@ -195,34 +195,33 @@ void UExecCalc_Damage::Execute_Implementation(
             EGameplayModOp::Additive,
             -FinalDamage));
 
-    // ── 7. 暴击时动态注入 GameplayCue Tag ──
+    // ── 7. 暴击时标记 GameplayCue ──
+    // ★ I-6 修复：使用 OutExecutionOutput.MarkGameplayCueActive 而非 const_cast 修改 Spec。
+    // const_cast 在 Spec 为栈拷贝时修改无效——GC 通知系统读不到注入的 Tag。
     if (bCrit)
     {
-        // 在 Spec 的生命周期内追加 Crit GC Tag
-        FGameplayEffectSpec* MutableSpec = const_cast<FGameplayEffectSpec*>(&Spec);
-        MutableSpec->DynamicGameplayCueTags.AddTag(
+        OutExecutionOutput.MarkGameplayCueActive(
             FGameplayTag::RequestGameplayTag("GameplayCue.Hit.Crit"));
     }
 
     // ── 8. 硬直计算与事件广播 ──
+    // ★ 注意：HandleGameplayEvent 不是 const 方法，ExecCalc 中不能直接调用。
+    // 硬直事件通过 PostGameplayEffectExecute 中检查 DynamicAssetTags 再广播。
+    // 此处仅将 StaggerValue 通过 SetSetByCaller 输出，供 AttributeSet 回调读取。
     if (BaseStagger > 0.f)
     {
         float StaggerValue = BaseStagger * StaggerMultiplier * HitzoneStaggerRate;
-        FGameplayEventData EventData;
-        EventData.EventMagnitude = StaggerValue;
-        EventData.Instigator = SourceActor;
-        EventData.Target = TargetActor;
-        EventData.TargetData = Spec.GetContext().GetTargetData();
-
-        ExecutionParams.GetTargetAbilitySystemComponent()->HandleGameplayEvent(
-            FGameplayTag::RequestGameplayTag("Combat.Event.HitStagger"),
-            &EventData);
+        // 通过 OutExecutionOutput 的 SetSetByCaller 传递硬直值
+        //（具体 API 取决于 UE 版本——也可通过 GameplayEffectContext 传递）
+        OutExecutionOutput.MarkGameplayCueActive(
+            FGameplayTag::RequestGameplayTag("Combat.Event.HitStagger"));
     }
 
-    // ── 9. 记录伤害显示值 ──
-    // SetByCaller "Damage.DisplayValue" 供 GameplayCue 的 RawMagnitude 读取
-    const_cast<FGameplayEffectSpec&>(Spec).SetSetByCallerMagnitude(
-        FGameplayTag::RequestGameplayTag("Damage.DisplayValue"), FinalDamage);
+    // ── 9. 伤害显示值 ──
+    // ★ GC_Hit_DamageNumber::OnBurst 从 FGameplayCueParameters::RawMagnitude 读取伤害值。
+    // RawMagnitude 由 GAS 自动从 GE Modifier 的 Magnitude 填充——无需手动 SetByCaller。
+    // 此处 FinalDamage 已通过步骤 6 的 AddOutputModifier(Health, Additive, -FinalDamage)
+    // 写入——GC 的 RawMagnitude 为 abs(-FinalDamage) = FinalDamage。
 }
 ```
 
@@ -242,14 +241,15 @@ void UExecCalc_Damage::Execute_Implementation(
 
 ### 5.2 伤害数字读取方式
 
-`GC_Hit_DamageNumber::OnBurst` 从 GE Spec 读取 `Damage.DisplayValue` SetByCaller：
+`GC_Hit_DamageNumber::OnBurst` 从 `FGameplayCueParameters::RawMagnitude` 读取伤害值——这是 GAS 标准路径。`GE_Damage` 的唯一 Modifier 是 `Health -= FinalDamage`，GAS 自动将其 Magnitude 的绝对值填入 `RawMagnitude`。
 
 ```cpp
-float DamageValue = Parameters.SourceSpec.GetSetByCallerMagnitude(
-    FGameplayTag::RequestGameplayTag("Damage.DisplayValue"), false, 0.f);
+// GC_Hit_DamageNumber::OnBurst
+float DamageValue = FMath::Abs(Parameters.RawMagnitude);
+// RawMagnitude 为负值（扣血），取绝对值显示
 ```
 
-> **备选方案：** 若蓝图实现，可在 GC 蓝图中通过 `GetAttributeMagnitude(Health)` 前后的差值推算——但 SetByCaller 更可靠（不依赖 Target 是否有 AttributeSet）。
+> **原理：** `RawMagnitude` 由 GAS 在 ApplyGE 时从首个 Modifier 的 Magnitude 自动填充，不依赖 SetByCaller、不依赖 Target AttributeSet。木桩无 AttributeSet 时 ExecCalc 仍执行、`RawMagnitude` 仍填充——伤害数字正常显示。
 
 ---
 

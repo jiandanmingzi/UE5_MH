@@ -167,14 +167,14 @@ class AKinsect : public AActor
 
 | 通道 | 常态（停手臂） | 飞行/悬停中 | 召回中 |
 |------|:--:|:--:|:--:|
-| Weapon | Ignore | **Block** ← 怪物部位萃取判定 | Ignore |
+| Weapon | Ignore | **Overlap** ← 怪物部位萃取判定 | Ignore |
 | WorldStatic | Ignore | **Block** ← 碰撞世界几何体（墙壁/建筑）| Ignore |
 | MonsterAttack | Ignore | Ignore | Ignore |
 | Pawn | Ignore | Ignore（穿透玩家和怪物身体） | Ignore |
 | Visibility | Ignore | Ignore | Ignore |
 
 > **设计理由：**
-> - **Weapon = Block**：与怪物 `UMonsterHitzoneComponent`（Weapon=Block 常态）产生 Overlap → `OnHitMonsterHitzone` → 萃取。
+> - **Weapon = Overlap**：怪物 `UMonsterHitzoneComponent` 设 Weapon=Block。**Overlap vs Block 产生 Overlap 事件** → `OnHitMonsterHitzone` → 萃取。若用 Block vs Block 则产生 Hit 事件且 `UProjectileMovementComponent` 会在怪物表面反弹——猎虫无法穿透怪物身体萃取。
 > - **WorldStatic = Block**：飞行中撞到墙壁/建筑/地面时产生 Hit 事件 → `OnWorldCollision` → 立即停止飞行，就地悬停。防止猎虫穿透场景飞出地图。
 > - **Pawn = Ignore**：猎虫太小、非物理实体，穿透玩家和怪物身体；猎虫不可受击。
 
@@ -185,7 +185,7 @@ class AKinsect : public AActor
 | 碰撞体生命周期 | 仅在 NotifyBegin→NotifyEnd 窗口内存在，动态创建/销毁 | 常驻于 AKinsect，飞行期间 Enable，停手臂时 Disable |
 | 适用场景 | 固定时长的 Montage 播放中的瞬时判定（0.1-0.5s 窗口） | 持续数秒飞行过程中的不定时命中 |
 | 碰撞形状 | 可灵活配置（Sphere/Capsule/Box） | 固定胶囊体（猎虫形体近似） |
-| 移动方式 | 跟随骨骼动画——碰撞体固定在 Socket 上随动画运动 | 独立飞行移动——`UFloatingPawnMovement` 驱动 |
+| 移动方式 | 跟随骨骼动画——碰撞体固定在 Socket 上随动画运动 | 独立飞行移动——`UProjectileMovementComponent` 驱动 |
 
 ### 猎虫品种系统（UInsectGlaiveKinsectData）
 
@@ -281,9 +281,10 @@ class AKinsect : public AActor
 | 悬停放虫（LT+Y） | Hovering/Returning | 相机射线 → HitLocation；无命中→CameraMaxRange | `StartFlightToPoint(HitLocation)` |
 | 收刀直飞（RT） | Attached（收刀态） | PlayerForward × `StraightFlightDistance`（品种 DataAsset） | `StartFlightAlongRay(PlayerForward, StraightFlightDistance)` |
 
-**传递方式：** `URes_InsectGlaive::DeployKinsect()`（无参数——由 ResourceComponent 内部判断当前 State 后选择正确的 AKinsect 方法）
+**传递方式：** `URes_InsectGlaive::DeployKinsect()` — ResourceComponent 内部判断当前 State 后选择正确的 AKinsect 方法。提供两个重载：无参版本（瞄准送虫——沿相机方向）和带方向/距离参数版本（收刀 RT 直飞——沿玩家朝向）。
 
 ```cpp
+// ── 无参版本：瞄准送虫（LT+Y）——沿相机准心方向 ──
 void URes_InsectGlaive::DeployKinsect()
 {
     if (!KinsectActor) return;
@@ -310,9 +311,40 @@ void URes_InsectGlaive::DeployKinsect()
     }
 
     KinsectActor->EnableCollision();
+
+    // ★ I-2 修复：添加 Kinsect.Active Tag——供连招表匹配 GA_RecallKinsect
+    if (UAbilitySystemComponent* ASC = GetPlayerASC())
+    {
+        ASC->AddLooseGameplayTag(
+            FGameplayTag::RequestGameplayTag("WeaponResource.IG.Kinsect.Active"));
+    }
+
+    bKinsectDeployed = true;
+}
+
+// ── 带方向参数版本：收刀直飞（RT）——沿玩家朝向，不读相机 ──
+void URes_InsectGlaive::DeployKinsectAlongDirection(FVector Direction, float Distance)
+{
+    if (!KinsectActor) return;
+
+    if (bKinsectDeployed)
+        KinsectActor->Interrupt();
+
+    KinsectActor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+    KinsectActor->StartFlightAlongRay(Direction.GetSafeNormal(), Distance);
+    KinsectActor->EnableCollision();
+
+    if (UAbilitySystemComponent* ASC = GetPlayerASC())
+    {
+        ASC->AddLooseGameplayTag(
+            FGameplayTag::RequestGameplayTag("WeaponResource.IG.Kinsect.Active"));
+    }
+
     bKinsectDeployed = true;
 }
 ```
+
+> **★ GA 调用约定（I-5 修复）：** `GA_SendKinsect` / `GA_DrawAndSendKinsect` 在 `DeployKinsect()` 返回后、`EndAbility` 之前，**必须**调用 `Kinsect->SetDamageParams(DamageMode, MotionValue, Interval, ExtractMode)` 设置本次飞行的伤害与萃取参数。`DeployKinsect` 不负责设置伤害参数——伤害参数属于 GA 招式设计范畴（见 IG-12）。
 
 ### 猎虫生命周期
 
@@ -367,6 +399,8 @@ void URes_InsectGlaive::DeployKinsect()
     → ★ 每 Tick 读取 OwnerActor->GetActorLocation() 动态追踪玩家位置
     → 到达 → AttachToPlayer → State = Attached, Collision Disable
     → 若 PendingExtractColor 有效 → ResourceComponent->ApplyExtract(PendingExtractColor)
+    → ★ I-2 修复：移除 Kinsect.Active Tag
+      → ASC->RemoveLooseGameplayTag(WeaponResource.IG.Kinsect.Active)
     → ★ 耐力归零不会清空萃取——已萃取到的灯在召回后仍会 Apply
     → 若 PendingExtractColor 为空（飞行中未碰到怪物即召回）→ 萃取失败
     → bKinsectDeployed = false
@@ -534,6 +568,7 @@ GameplayCue.Hit.Kinsect              ← 猎虫命中反馈（小号火花+音�
     → Kinsect->StartReturn() → 每 Tick 追踪 OwnerActor 实时位置
     → 到达 → AttachToPlayer(ArmSocket) → State = Attached
     → 若 PendingExtractColor 有效 → ApplyExtract(PendingExtractColor)
+    → ★ ASC->RemoveLooseGameplayTag(WeaponResource.IG.Kinsect.Active)
     → bKinsectDeployed = false
     → Tick: KinsectStamina += StaminaRegenRate × DeltaTime
 
@@ -582,8 +617,10 @@ GameplayCue.Hit.Kinsect              ← 猎虫命中反馈（小号火花+音�
 
 ```
 ApplyExtract(Color)
+  0. ★ H-8 修复——若 ActiveExtractHandles[Color] 有效（同色灯已存在）→ ASC->RemoveActiveGameplayEffect(旧Handle)
+     → 防止旧 GE 到期时误删新 GE 正在维护的 Extract Tag（GE 泄露 + 标签提前消失 bug）
   1. ASC->ApplyGameplayEffectToSelf(GE_IG_{Color}Extract)
-     → 记录 ActiveExtractHandles[Color]
+     → 更新 ActiveExtractHandles[Color] = 新 Handle
   2. CheckAndActivateTripleUp()
      → 若 ASC 同时持有 White + Yellow + Red 三个 Extract Tag
        → 且 bTripleUpActive == false
@@ -1042,7 +1079,7 @@ class UMHGZAimComponent : public UActorComponent
   - **Tag 来源：** 不由 GA 添加——由本组件的 EnhancedInput 绑定回调直接调用 `ASC->AddLooseGameplayTag` / `RemoveLooseGameplayTag`。受击/击倒时 `TickComponent` 检测 `HasMatchingGameplayTag(Hitstun)` → 主动 `RemoveLooseGameplayTag(Aiming)`。
 
 - `FGameplayTag MapHitzoneToExtract(FGameplayTag HitzoneTag) const`
-  - 作用：部位→萃取颜色映射。与 `URes_InsectGlaive::MapHitzoneToExtract` 相同逻辑——共用静态工具函数或通过 ResourceComponent 代理调用，保证映射一致。
+  - 作用：部位→萃取颜色映射。**★ M-10 修复——必须与 `URes_InsectGlaive::MapHitzoneToExtract` 共用同一份静态工具函数** `UMHGZInsectGlaiveStatics::MapHitzoneToExtract(FGameplayTag)`——不得各自维护独立副本。保证准心预览颜色与实际萃取颜色永远一致。
 
 ### 瞄准→送虫数据流
 

@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright MHGZ Project. All Rights Reserved.
 
 #pragma once
 
@@ -8,37 +8,50 @@
 
 class UInputMappingContext;
 class UUserWidget;
+class UMHGZInputComponent;
+class UMHGZQuickBarComponent;
 
 /**
- *  Basic PlayerController class for a third person game
- *  Manages input mappings
+ * AMHGZPlayerController
+ * 管理 IMC、输入组件、快捷栏
  */
 UCLASS(abstract)
 class AMHGZPlayerController : public APlayerController
 {
 	GENERATED_BODY()
-	
-protected:
 
+protected:
 	/** Input Mapping Contexts */
 	UPROPERTY(EditAnywhere, Category ="Input|Input Mappings")
 	TArray<UInputMappingContext*> DefaultMappingContexts;
 
-	/** Input Mapping Contexts */
+	/** Mobile excluded */
 	UPROPERTY(EditAnywhere, Category="Input|Input Mappings")
 	TArray<UInputMappingContext*> MobileExcludedMappingContexts;
 
-	/** Mobile controls widget to spawn */
+	/** Mobile controls widget class */
 	UPROPERTY(EditAnywhere, Category="Input|Touch Controls")
 	TSubclassOf<UUserWidget> MobileControlsWidgetClass;
 
-	/** Pointer to the mobile controls widget */
+	UPROPERTY()
 	TObjectPtr<UUserWidget> MobileControlsWidget;
 
-	/** Gameplay initialization */
-	virtual void BeginPlay() override;
+	// ── MHGZ 组件 ──
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="MHGZ|Components")
+	TObjectPtr<UMHGZInputComponent> InputComponent_MHGZ;
 
-	/** Input mapping context setup */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="MHGZ|Components")
+	TObjectPtr<UMHGZQuickBarComponent> QuickBarComponent;
+
+public:
+	AMHGZPlayerController();
+
+	virtual void BeginPlay() override;
 	virtual void SetupInputComponent() override;
 
+	UFUNCTION(BlueprintCallable, Category="MHGZ|Input")
+	UMHGZInputComponent* GetMHGZInputComponent() const { return InputComponent_MHGZ; }
+
+	UFUNCTION(BlueprintCallable, Category="MHGZ|QuickBar")
+	UMHGZQuickBarComponent* GetQuickBarComponent() const { return QuickBarComponent; }
 };

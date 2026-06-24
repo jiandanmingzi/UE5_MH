@@ -53,6 +53,8 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 | `UMHGZInputComponent` | PlayerController | 管理 IMC 生命周期 |
 | `UMotionWarpingComponent` | Character | UE5 内置，动画驱动。需 SkeletalMeshComponent+AnimBP 管线（PlayerState 不具备）——构造函数 `CreateDefaultSubobject` 随 Character 创建，GA 在 ActivateAbility 中通过 `FindComponentByClass` 设 Warp Target，Montage 中 `AnimNotifyState_MotionWarping` 自动消费。单向交互，零耦合 |
 
+> **★ I-4 修复——PlayerState Tick 必须启用：** `AMHGZPlayerState` 构造函数中必须设 `PrimaryActorTick.bCanEverTick = true`。`URes_InsectGlaive`（WeaponResourceComponent 子类）依赖 Tick 驱动猎虫耐力扣减/回复和萃取剩余时间广播。UE 的 `APlayerState` 默认关闭 Actor Tick——不加此行则所有挂载到 PlayerState 的 Component Tick 都不会触发。
+
 ## 关卡切换——Seamless Travel + SaveGame 兜底
 
 **怪猎游玩模式：** 据点（接任务/工坊/吃饭）→ 选择任务 → 加载指定地图（天气/怪物分布/采集点由任务参数决定）→ 完成/失败/放弃 → 返回据点。玩家背包、装备、仓库在据点↔任务地图之间**全部保留**。

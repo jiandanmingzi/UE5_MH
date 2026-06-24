@@ -143,6 +143,7 @@
 | 125 | 连招协调器本质是有限状态机（FSM）——FComboNode 定义转移图 | CurrentState=状态、InputAction=转移条件、NextState=转移目标、ActivateAbility=转移动作。bAutoTransition=ε 转移 |
 | 126 | GA→GA 自动派生必须通过协调器的 OnAutoTransition（不走 TryActivateAbilityByTag） | 绕过协调器会导致：CurrentState 不同步、PreviousState 断裂、OnAttackFinished 误回 Idle、PendingGrantedTags 丢失 |
 | 127 | FComboNode 新增 bAutoTransition 字段区分自动转移与输入转移 | 两条路径共享同一状态变更流程，输入转移走 HandleWeaponInput（四级排序匹配），自动转移走 OnAutoTransition（按 StateName 直接查找） |
+| 127b | FComboNode 新增 BlockedStateNames（`TArray<FName>`），仅 `bMatchAnyState==true` 时生效 | `bMatchAnyState` 是"全匹配"开关，但现实中需要"匹配除了 X、Y 之外的所有状态"的语义（如太刀特殊纳刀不可从 Idle 起手、通用追击技排除特定招式）。黑名单模式——只需列出不允许的少数状态名，空数组=原行为。避免了为每个允许的源状态写一行 FComboNode 的爆炸 |
 | 128 | 空中动作次数限制用 Cant 模型（CantDodge/CantAttack）而非数字计数器或 Can 模型 | 默认全部可用，用过才加锁。GAS 原生 BlockedTags 处理，零 GA 覆写。容错优于 Can——加锁失败最多多用一次，不会误锁。不需要 Exhausted 汇总标签 |
 | 129 | 着陆重置协调器——`Coordinator→OnLanded()` 强制 `CurrentState="Idle"` | CMC OnLanded 是事件而非 GA——不产生伤害/消耗资源。落地后地面连招从 "Idle" 匹配起手 |
 | 130 | 瞄准不走 GAS——`UMHGZAimComponent` 直接绑定 EnhancedInput，`AddLooseGameplayTag`/`RemoveLooseGameplayTag` 管理 `Combat.State.Aiming` | 瞄准是输入状态而非招式——无动画、无前后摇、不消耗资源。GA_Aim 不存在。AimComponent 零 GAS 开销切换 Tag，连招表的 `RequiredTags={Aiming}` 照常匹配 |

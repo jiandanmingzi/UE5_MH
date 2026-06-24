@@ -1,35 +1,36 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
-
+// Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZPlayerController.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "InputMappingContext.h"
 #include "Blueprint/UserWidget.h"
-#include "MHGZ.h"
 #include "Widgets/Input/SVirtualJoystick.h"
+#include "InputSystem/MHGZInputComponent.h"
+#include "InputSystem/MHGZQuickBarComponent.h"
+#include "MHGZ.h"
+
+AMHGZPlayerController::AMHGZPlayerController()
+{
+	InputComponent_MHGZ = CreateDefaultSubobject<UMHGZInputComponent>(TEXT("MHGZInputComponent"));
+	QuickBarComponent = CreateDefaultSubobject<UMHGZQuickBarComponent>(TEXT("QuickBarComponent"));
+}
 
 void AMHGZPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// only spawn touch controls on local player controllers
 	if (SVirtualJoystick::ShouldDisplayTouchInterface() && IsLocalPlayerController())
 	{
-		// spawn the mobile controls widget
 		MobileControlsWidget = CreateWidget<UUserWidget>(this, MobileControlsWidgetClass);
-
 		if (MobileControlsWidget)
 		{
-			// add the controls to the player screen
 			MobileControlsWidget->AddToPlayerScreen(0);
-
-		} else {
-
-			UE_LOG(LogMHGZ, Error, TEXT("Could not spawn mobile controls widget."));
-
 		}
-
+		else
+		{
+			UE_LOG(LogMHGZ, Error, TEXT("Could not spawn mobile controls widget."));
+		}
 	}
 }
 
@@ -37,23 +38,21 @@ void AMHGZPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
 
-	// only add IMCs for local player controllers
 	if (IsLocalPlayerController())
 	{
-		// Add Input Mapping Contexts
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
+		if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
+			ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
 		{
-			for (UInputMappingContext* CurrentContext : DefaultMappingContexts)
+			for (UInputMappingContext* IMC : DefaultMappingContexts)
 			{
-				Subsystem->AddMappingContext(CurrentContext, 0);
+				Subsystem->AddMappingContext(IMC, 0);
 			}
 
-			// only add these IMCs if we're not using mobile touch input
 			if (!SVirtualJoystick::ShouldDisplayTouchInterface())
 			{
-				for (UInputMappingContext* CurrentContext : MobileExcludedMappingContexts)
+				for (UInputMappingContext* IMC : MobileExcludedMappingContexts)
 				{
-					Subsystem->AddMappingContext(CurrentContext, 0);
+					Subsystem->AddMappingContext(IMC, 0);
 				}
 			}
 		}

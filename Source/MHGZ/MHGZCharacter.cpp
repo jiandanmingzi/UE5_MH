@@ -1,6 +1,8 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZCharacter.h"
+#include "MHGZ.h"
+#include "MHGZPlayerState.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -10,101 +12,164 @@
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "InputActionValue.h"
-#include "MHGZ.h"
+#include "MotionWarpingComponent.h"
+#include "UI/MHGZAimComponent.h"
+#include "InputSystem/MHGZEdgeVaultComponent.h"
+#include "ActionSystem/MHGZAbilitySystemComponent.h"
+#include "ActionSystem/MHGZComboCoordinatorAbility.h"
+#include "AttributeSystem/MHGZAttributeSet.h"
 
 AMHGZCharacter::AMHGZCharacter()
 {
-	// Set size for collision capsule
+	// 碰撞胶囊体
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);
-		
-	// Don't rotate when the controller rotates. Let that just affect the camera.
+
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 
-	// Configure character movement
-	GetCharacterMovement()->bOrientRotationToMovement = true;
-	GetCharacterMovement()->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
+	// CMC 配置
+	UCharacterMovementComponent* CMC = GetCharacterMovement();
+	CMC->bOrientRotationToMovement = true;
+	CMC->RotationRate = FRotator(0.0f, 540.0f, 0.0f); // 540°/s 转向
+	CMC->bUseControllerDesiredRotation = false;
+	CMC->JumpZVelocity = 500.f;
+	CMC->AirControl = 0.15f;        // 低值——惯性主导，接近怪猎手感
+	CMC->MaxWalkSpeed = 500.f;
+	CMC->MinAnalogWalkSpeed = 20.f;
+	CMC->BrakingDecelerationWalking = 2000.f;
+	CMC->BrakingDecelerationFalling = 80.f; // 空中水平衰减
+	CMC->GravityScale = 1.8f;              // 空中重力倍率
 
-	// Note: For faster iteration times these variables, and many more, can be tweaked in the Character Blueprint
-	// instead of recompiling to adjust them
-	GetCharacterMovement()->JumpZVelocity = 500.f;
-	GetCharacterMovement()->AirControl = 0.35f;
-	GetCharacterMovement()->MaxWalkSpeed = 500.f;
-	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
-	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
-	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
+	// 缓存基础行走速度
+	BaseMaxWalkSpeed = CMC->MaxWalkSpeed;
 
-	// Create a camera boom (pulls in towards the player if there is a collision)
+	// CameraBoom
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
 	CameraBoom->TargetArmLength = 400.0f;
 	CameraBoom->bUsePawnControlRotation = true;
 
-	// Create a follow camera
+	// FollowCamera
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
 
-	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
-	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
+	// MotionWarping
+	MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
+
+	// AimComponent
+	AimComponent = CreateDefaultSubobject<UMHGZAimComponent>(TEXT("AimComponent"));
+
+	// EdgeVault
+	EdgeVaultComponent = CreateDefaultSubobject<UMHGZEdgeVaultComponent>(TEXT("EdgeVaultComponent"));
+}
+
+UAbilitySystemComponent* AMHGZCharacter::GetAbilitySystemComponent() const
+{
+	if (AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>())
+	{
+		return PS->GetMHGZAbilitySystemComponent();
+	}
+	return nullptr;
+}
+
+void AMHGZCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	// InitAbilityActorInfo（此时 PlayerState 已就绪）
+	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+	if (!PS) return;
+
+	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+	if (ensure(ASC))
+	{
+		ASC->InitAbilityActorInfo(PS, this);
+		// Owner = PlayerState（拥有这些 Ability 的逻辑实体）
+		// Avatar = Character（物理表现实体）
+		ASC->InitializeAbilitySystem();
+	}
+}
+
+void AMHGZCharacter::Landed(const FHitResult& Hit)
+{
+	Super::Landed(Hit);
+
+	// 着陆重置——强制协调器回 Idle
+	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+	if (!PS) return;
+
+	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+	if (!ASC) return;
+
+	// 移除空中 Tag
+	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial")));
+	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.Falling")));
+	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.CantDodge")));
+	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.CantAttack")));
+	// 添加地面 Tag
+	ASC->AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Grounded")));
+
+	// 通知协调器
+	if (UGA_WeaponComboCoordinator* Coord = ASC->GetActiveComboCoordinator())
+	{
+		Coord->OnLanded();
+	}
+}
+
+void AMHGZCharacter::UpdateMaxWalkSpeed()
+{
+	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+	if (!PS) return;
+
+	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+	if (!ASC) return;
+
+	const float Multiplier = ASC->GetNumericAttribute(
+		UMHGZAttributeSet::GetMoveSpeedMultiplierAttribute());
+	GetCharacterMovement()->MaxWalkSpeed = BaseMaxWalkSpeed * Multiplier;
 }
 
 void AMHGZCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-	// Set up action bindings
-	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
-		
-		// Jumping
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
-		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
-
+	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
+	{
 		// Moving
 		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Move);
-		EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look);
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look);
+		EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look);
 	}
 	else
 	{
-		UE_LOG(LogMHGZ, Error, TEXT("'%s' Failed to find an Enhanced Input component! This template is built to use the Enhanced Input system. If you intend to use the legacy system, then you will need to update this C++ file."), *GetNameSafe(this));
+		UE_LOG(LogMHGZ, Error, TEXT("Failed to find Enhanced Input component!"));
 	}
 }
 
 void AMHGZCharacter::Move(const FInputActionValue& Value)
 {
-	// input is a Vector2D
-	FVector2D MovementVector = Value.Get<FVector2D>();
-
-	// route the input
+	const FVector2D MovementVector = Value.Get<FVector2D>();
 	DoMove(MovementVector.X, MovementVector.Y);
 }
 
 void AMHGZCharacter::Look(const FInputActionValue& Value)
 {
-	// input is a Vector2D
-	FVector2D LookAxisVector = Value.Get<FVector2D>();
-
-	// route the input
+	const FVector2D LookAxisVector = Value.Get<FVector2D>();
 	DoLook(LookAxisVector.X, LookAxisVector.Y);
 }
 
 void AMHGZCharacter::DoMove(float Right, float Forward)
 {
-	if (GetController() != nullptr)
+	if (Controller)
 	{
-		// find out which way is forward
-		const FRotator Rotation = GetController()->GetControlRotation();
+		const FRotator Rotation = Controller->GetControlRotation();
 		const FRotator YawRotation(0, Rotation.Yaw, 0);
 
-		// get forward vector
 		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-
-		// get right vector 
 		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-		// add movement 
 		AddMovementInput(ForwardDirection, Forward);
 		AddMovementInput(RightDirection, Right);
 	}
@@ -112,9 +177,8 @@ void AMHGZCharacter::DoMove(float Right, float Forward)
 
 void AMHGZCharacter::DoLook(float Yaw, float Pitch)
 {
-	if (GetController() != nullptr)
+	if (Controller)
 	{
-		// add yaw and pitch input to controller
 		AddControllerYawInput(Yaw);
 		AddControllerPitchInput(Pitch);
 	}
@@ -122,12 +186,10 @@ void AMHGZCharacter::DoLook(float Yaw, float Pitch)
 
 void AMHGZCharacter::DoJumpStart()
 {
-	// signal the character to jump
 	Jump();
 }
 
 void AMHGZCharacter::DoJumpEnd()
 {
-	// signal the character to stop jumping
 	StopJumping();
 }

@@ -192,14 +192,17 @@ OnEquipmentChanged 内执行顺序：
 
 ## DT_WeaponResourceConfig — 武器种类资源映射
 
-DataTable，仅做 WeaponTypeTag → 资源 UI Widget 查找桥接。不含资源数值（各武器资源差异太大，不由统一 DataTable 管理）。
+DataTable，WeaponTypeTag → ResourceComponent 子类 + 资源 UI Widget 的查找桥接。不含资源数值（各武器资源差异太大，不由统一 DataTable 管理）。
 
 | 列名 | 类型 | 说明 |
 |------|------|------|
 | WeaponTypeTag | FGameplayTag | 武器种类（主键） |
+| ResourceComponentClass | TSubclassOf\<UMHGZWeaponResourceComponent\> | ★ H-7 修复——资源组件 C++ 子类。`EquipmentComponent::ApplyItemEffects` 据此创建对应子类实例（如 `Weapon.InsectGlaive` → `URes_InsectGlaive`） |
 | ResourceWidgetClass | TSoftClassPtr\<UUserWidget\> | 资源 UI Widget 类 |
 
-> 运行时通过 `UMHGZDataManager::FindWeaponResourceConfig(WeaponTypeTag)` 查表获取对应的 UI Widget。
+> 运行时通过 `UMHGZDataManager::FindWeaponResourceConfig(WeaponTypeTag)` 查表获取对应的 Component 类和 UI Widget。
+>
+> **Demo 配置：** 仅需一行——`WeaponTypeTag=Weapon.InsectGlaive`、`ResourceComponentClass=URes_InsectGlaive`、`ResourceWidgetClass=WBP_IG_ResourcePanel`。
 
 ## DT_WeaponComboConfig — 武器连招表映射
 

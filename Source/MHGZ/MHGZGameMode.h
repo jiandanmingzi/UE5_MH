@@ -1,4 +1,4 @@
-// Copyright Epic Games, Inc. All Rights Reserved.
+// Copyright MHGZ Project. All Rights Reserved.
 
 #pragma once
 
@@ -7,7 +7,8 @@
 #include "MHGZGameMode.generated.h"
 
 /**
- *  Simple GameMode for a third person game
+ * AMHGZGameMode — Demo GameMode
+ * 支持 Seamless Travel（据点↔任务地图）
  */
 UCLASS(abstract)
 class AMHGZGameMode : public AGameModeBase
@@ -15,10 +16,5 @@ class AMHGZGameMode : public AGameModeBase
 	GENERATED_BODY()
 
 public:
-	
-	/** Constructor */
 	AMHGZGameMode();
 };
-
-
-

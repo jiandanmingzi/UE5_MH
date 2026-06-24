@@ -182,40 +182,86 @@ UI/
 
 **完整配置（6 个节点——还原虫棍完整战斗流程：拔刀→瞄准→送虫→萃取→三灯→攻击→收虫→收刀直飞）：**
 
-| StateName | bMatchAnyState | AbilityClass | InputTag | RequiredTags | BlockedTags | Priority |
-|------|:--:|------|------|------|------|:--:|
-| — | ✅ | `GA_Unsheathe` | `Input.Weapon.Y` | `Combat.State.Sheathed` | — | 30 |
-| — | ✅ | `GA_SendKinsect` | `Input.Weapon.Y` | `Combat.State.Aiming` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 20 |
-| — | ✅ | `GA_RecallKinsect` | `Input.Weapon.B` | `WeaponResource.IG.Kinsect.Active` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 15 |
-| — | ✅ | `GA_DrawAndSendKinsect` | `Input.Modifier.Sheathed` | `Combat.State.Sheathed` | — | 10 |
-| Idle | ❌ | `GA_IG_RedSlash_01` | `Input.Weapon.Y` | `Combat.Branch.Extract.Red` | — | 10 |
-| Idle | ❌ | `GA_IG_Slash_01` | `Input.Weapon.Y` | — | — | 0 |
+| StateName | bMatchAnyState | BlockedStateNames | AbilityClass | InputTag | RequiredTags | BlockedTags | Priority |
+|------|:--:|------|------|------|------|------|:--:|
+| — | ✅ | `[]` | `GA_Unsheathe` | `Input.Weapon.Y` | `Combat.State.Sheathed` | — | 30 |
+| — | ✅ | `[]` | `GA_SendKinsect` | `Input.Weapon.Y` | `Combat.State.Aiming` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 20 |
+| — | ✅ | `[]` | `GA_RecallKinsect` | `Input.Weapon.B` | `WeaponResource.IG.Kinsect.Active` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 15 |
+| — | ✅ | `[]` | `GA_DrawAndSendKinsect` | `Input.Weapon.RT` | `Combat.State.Sheathed` | — | 10 |
+| Idle | ❌ | — | `GA_IG_RedSlash_01` | `Input.Weapon.Y` | `Combat.Branch.Extract.Red` | — | 10 |
+| Idle | ❌ | — | `GA_IG_Slash_01` | `Input.Weapon.Y` | — | — | 0 |
 
-> **节点 1（拔刀）：** `bMatchAnyState=true`, `Priority=30` 最高——收刀态（`Sheathed`）下按 Y 优先拔刀，不送虫也不攻击。拔刀成功后 ASC 持有 `Unsheathed` Tag，`Sheathed` Tag 被移除，后续 Y 键自然回退到攻击/送虫节点。
+> **节点 1（拔刀）：** `bMatchAnyState=true, BlockedStateNames=[]`——从任意招式状态（含 Idle）均可触发拔刀。`Priority=30` 最高，收刀态（`Sheathed`）下按 Y 优先拔刀。拔刀后 ASC 持有 `Unsheathed` Tag，后续 Y 键回退到攻击/送虫节点。
 >
-> **节点 2（送虫）：** 瞄准态（`Aiming`）下按 Y → 优先匹配（Priority 20 > 0）。非瞄准态 RequiredTags 不满足→跳过。
+> **节点 2（送虫）：** `bMatchAnyState=true, BlockedStateNames=[]`——从任意状态可送虫。瞄准态（`Aiming`）下按 Y → RequiredTags 满足 → 优先匹配（Priority 20）。
 >
-> **节点 3（召回）：** 有虫放出（`Kinsect.Active`）时按 B → 召回。
+> **节点 3（召回）：** `bMatchAnyState=true, BlockedStateNames=[]`——从任意状态可召回。有虫放出（`Kinsect.Active`）时按 B → 匹配成功。
 >
-> **节点 4（收刀直飞）：** 收刀态（`Sheathed`）按 RT → 单发普通萃取（`SingleHit / FirstHitOnly`）。
+> **节点 4（收刀直飞）：** `bMatchAnyState=true, BlockedStateNames=[]`——从任意状态可触发。收刀态（`Sheathed`）按 RT → 单发普通萃取。
 >
-> **节点 5/6（攻击）：** Idle 态按 Y。红灯存在→`GA_IG_RedSlash_01` 匹配（Priority 10 > 0）。无红灯→`GA_IG_Slash_01`。
+> **节点 5/6（攻击）：** `bMatchAnyState=false`，仅 `Idle` 态可触发。红灯存在→`GA_IG_RedSlash_01` 匹配（Priority 10）。无红灯→`GA_IG_Slash_01`。
 >
-> **协调器初始化：** `SetComboData` 时 `CurrentState = "Idle"`。每次 `OnAttackFinished` 回归 `"Idle"`。`bMatchAnyState=true` 的节点不依赖 CurrentState。
+> **★ `BlockedStateNames`（新增字段）：** 仅 `bMatchAnyState=true` 时生效——排除列表中的源状态。Demo 中送虫/收虫/拔刀/直飞均 `BlockedStateNames=[]`（空=匹配任意状态）。太刀特殊纳刀应设 `BlockedStateNames=["Idle","Sheathed"]`（任意派生但不可起手）。
+>
+> **★ M-7 修复——省略字段的默认值：** `NextState`（必填）对 `bMatchAnyState=true` 的节点填 `""`（空=不转移状态）；对 `bMatchAnyState=false` 的节点填 `"Idle"`（攻击结束后回归 Idle）。其他省略字段使用 C++ 默认值：`StaminaRequired=0`、`DirectionalInput=EDirectionalInput::None`、`bRequiresHitToGrantTags=false`、`bRequiresWindowOpen=false`、`bAutoTransition=false`。
+
+---
+
+### 4.5 DT_WeaponComboConfig（武器→连招表映射 ★ M-2 修复）
+
+**父类：** DataTable，RowStruct=`FWeaponComboConfigRow`
+
+| WeaponTypeTag | ComboDataAsset |
+|------|------|
+| `Weapon.InsectGlaive` | `DA_IG_ComboData` |
+
+> `EquipmentComponent::ApplyItemEffects` 通过此表查找武器对应的 ComboData Asset 并异步加载→注入已激活的 ComboCoordinator。
+
+### 4.6 DT_WeaponResourceConfig（武器→资源组件映射 ★ H-7 修复）
+
+**父类：** DataTable，RowStruct=`FWeaponResourceConfigRow`
+
+| WeaponTypeTag | ResourceComponentClass | ResourceWidgetClass |
+|------|------|------|
+| `Weapon.InsectGlaive` | `URes_InsectGlaive` | `WBP_IG_ResourcePanel` |
+
+> `EquipmentComponent::ApplyItemEffects` 通过 `ResourceComponentClass` 列创建对应的 C++ 子类实例（`NewObject<URes_InsectGlaive>()`）。`ResourceWidgetClass` 供 UMHGZUISubsystem 创建武器资源 UI。
 
 ---
 
 ## 五、编辑器资产创建——GameplayEffect 蓝图
 
-全部在 `Content/GameplayEffects/InsectGlaive/` 下创建。
+全部在 `Content/GameplayEffects/` 下创建。
+
+### 5.0 GE_InitStats（★ H-4 修复——角色初始属性）
+
+| 属性 | 值 |
+|------|------|
+| DurationPolicy | Infinite |
+| Modifiers | Health=100(Override), MaxHealth=100(Override), Stamina=100(Override), MaxStamina=100(Override), StaminaRegenRate=1.0(Override), StaminaDeductionRate=1.0(Override), StaminaConsumptionRate=1.0(Override) |
+| GameplayCueTags | —（无视觉反馈） |
+
+> **用途：** 在 `CoreAttributeEffects` 中应用，确保所有属性有明确的初始值，不依赖 C++ 构造函数默认值。Infinite 持续——角色死亡前始终生效。
 
 ### 5.1 GE_Damage（伤害 GE——通用）
 
 | 属性 | 值 |
 |------|------|
 | DurationPolicy | Instant |
-| Modifiers | Attribute=`Health`, Op=Add, Magnitude=`SetByCaller`（Tag=`Damage.Value`） |
+| Modifiers | — **留空**——所有数值由 `UExecCalc_Damage` 通过 `OutExecutionOutput` 写入 |
+| ExecCalc | `UExecCalc_Damage` |
 | GameplayCueTags | 由 `MakeDamageSpec` 动态注入——蓝图留空 |
+
+### 5.1b GE_KinsectDamage（★ I-7 修复——猎虫伤害 GE）
+
+| 属性 | 值 |
+|------|------|
+| DurationPolicy | Instant |
+| Modifiers | — 留空（复用同一 ExecCalc） |
+| ExecCalc | `UExecCalc_Damage` |
+| GameplayCueTags | 由 `ApplyKinsectDamage` 动态注入 `GameplayCue.Hit.Kinsect`——蓝图留空 |
+
+> **说明：** 猎虫伤害复用武器的 `UExecCalc_Damage`——通过 `SetByCaller` 的 `Damage.AttackPower` 覆写（传入猎虫攻击力）区分来源。伤害公式统一：`AttackPower × MotionValue × HitzoneDefense`。
 
 ### 5.2 GE_IG_WhiteExtract（白灯）
 
@@ -285,7 +331,9 @@ UI/
 
 > **激活方式：** 由协调器的 `HandleWeaponInput(Input.Weapon.Y)` → 匹配连招表中 `bMatchAnyState=true` 的送虫节点 → `RequiredTags={Combat.State.Aiming}` 满足时激活。**不在蓝图设 `InputTag` 或 `ActivationRequiredTags`**——这些由连招表的 `FComboNode` 统一管理。
 
-**Event Graph：** `ActivateAbility` → 读取 `UMHGZAimComponent` 当前相机朝向 → 获取 `URes_InsectGlaive`→ `DeployKinsect()` → `EndAbility`。
+**Event Graph：** `ActivateAbility` → 读取 `UMHGZAimComponent` 当前相机朝向 → 获取 `URes_InsectGlaive`→ `DeployKinsect()` → ★ `Kinsect->SetDamageParams(Piercing, 1.0, 0.12s, AlwaysOverwrite)` → `EndAbility`。
+
+> **★ H-3 修复：** `GA_SendKinsect` 连招节点 `bMatchAnyState=true`——协调器激活此 GA 后**不改变 CurrentState**（`NextState` 字段对 `bMatchAnyState` 节点无效）。因此即使此 GA 继承 `UMHGZGameplayAbility`（不含 `OnAttackFinished` 回调），协调器状态不受影响——仍保持在 `Idle`，后续攻击可正常匹配。
 
 ### 6.4 GA_RecallKinsect（召回——通过连招表匹配）
 
@@ -299,6 +347,8 @@ UI/
 
 **Event Graph：** `ActivateAbility` → 获取 `URes_InsectGlaive`→ `RecallKinsect()` → `EndAbility`。
 
+> **★ H-3 修复（同上）：** `bMatchAnyState=true`——协调器不改变 CurrentState。召回完成后猎虫异步返回——`AttachToPlayer` 回调中移除 `Kinsect.Active` Tag，此后 B 键将匹配攻击节点（而非召回节点）。
+
 ### 6.5 GA_Unsheathe（拔刀——通过连招表匹配）
 
 **父类：** `UMHGZGameplayAbility`
@@ -306,11 +356,17 @@ UI/
 | 成员 | 值 |
 |------|------|
 | StaminaCost | 0 |
-| GrantedTags | `Combat.State.Unsheathed`（激活后 GAS 自动移除互斥的 `Sheathed` Tag） |
+
+> **★ H-1 修复：** `FComboNode::GrantedTags` 仅在 `OnAttackHit()` 回调中生效——拔刀无攻击命中概念。因此**不在连招表中设 GrantedTags**，改为在 `GA_Unsheathe::ActivateAbility` 中直接操作 ASC Tag：
+> ```cpp
+> ASC->AddLooseGameplayTag(Combat.State.Unsheathed);
+> ASC->RemoveLooseGameplayTag(Combat.State.Sheathed);
+> ```
+> 这两个 Tag 声明为 `Categories="Combat.State"` 的互斥标签，GAS 自动处理互斥移除。
 
 > **激活方式：** 由协调器匹配连招表中 `bMatchAnyState=true` 的拔刀节点 → `RequiredTags={Combat.State.Sheathed}` 满足时激活，`Priority=30` 最高。不在蓝图设 `InputTag` 或 `ActivationRequiredTags`。
 
-**Event Graph：** `ActivateAbility` → 播放拔刀 Montage（若有）→ `EndAbility`。
+**Event Graph：** `ActivateAbility` → `AddLooseGameplayTag(Unsheathed)` + `RemoveLooseGameplayTag(Sheathed)` → 播放拔刀 Montage（若有）→ `EndAbility`。
 
 ### 6.6 GA_DrawAndSendKinsect（收刀直飞——通过连招表匹配）
 
@@ -409,13 +465,15 @@ Canvas Panel（根）
 - `IA_Y` → `Input.Weapon.Y`（Triggered + Completed）
 - `IA_B` → `Input.Weapon.B`
 - `IA_LT` → `Input.Modifier.Aiming`（Triggered + Completed）
-- `IA_RT` → `Input.Modifier.Sheathed`（Triggered + Completed）
+- `IA_RT` → `Input.Weapon.RT`（Triggered + Completed）
 
 打开 `BP_IG_Character` → `UMHGZAbilitySystemComponent` → `InputBindings` 数组：
 - [0] InputAction=`IA_Y`, AbilityTag=`Input.Weapon.Y`
 - [1] InputAction=`IA_B`, AbilityTag=`Input.Weapon.B`
-- [2] InputAction=`IA_RT`, AbilityTag=`Input.Modifier.Sheathed`
+- [2] InputAction=`IA_RT`, AbilityTag=`Input.Weapon.RT`
 
+> **★ I-3 修复：** RT 键使用 `Input.Weapon.RT`（而非 `Input.Modifier.Sheathed`）——确保匹配 `Input.Weapon.*` 命名空间，经 `OnInputActionTriggered` 正确路由到连招协调器。`Input.Modifier.*` 命名空间仅用于非武器输入（如 LT 瞄准的修饰键状态）。
+>
 > **注意：** `IA_LT` 不在 ASC 的 `InputBindings` 中——瞄准是输入状态而非招式。`UMHGZAimComponent::BeginPlay` 直接向 EnhancedInput Subsystem 绑定 `IA_LT` 的 Triggered/Completed，自行调用 `ASC->AddLooseGameplayTag(Combat.State.Aiming)` / `RemoveLooseGameplayTag`。不走 GAS 的 `OnInputActionTriggered` 分叉路由。
 
 ### 8.4 初始装备配置

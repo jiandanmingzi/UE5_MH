@@ -18,34 +18,29 @@ public class MHGZ : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
-			"Slate"
+			"Slate",
+			// GAS 核心模块
+			"GameplayAbilities",
+			"GameplayTags",
+			"GameplayTasks",
+			// MotionWarping
+			"MotionWarping"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
 		PublicIncludePaths.AddRange(new string[] {
 			"MHGZ",
-			"MHGZ/Variant_Platforming",
-			"MHGZ/Variant_Platforming/Animation",
-			"MHGZ/Variant_Combat",
-			"MHGZ/Variant_Combat/AI",
-			"MHGZ/Variant_Combat/Animation",
-			"MHGZ/Variant_Combat/Gameplay",
-			"MHGZ/Variant_Combat/Interfaces",
-			"MHGZ/Variant_Combat/UI",
-			"MHGZ/Variant_SideScrolling",
-			"MHGZ/Variant_SideScrolling/AI",
-			"MHGZ/Variant_SideScrolling/Gameplay",
-			"MHGZ/Variant_SideScrolling/Interfaces",
-			"MHGZ/Variant_SideScrolling/UI"
+			"MHGZ/ActionSystem",
+			"MHGZ/AttributeSystem",
+			"MHGZ/Inventory",
+			"MHGZ/Equipment",
+			"MHGZ/InputSystem",
+			"MHGZ/InsectGlaive",
+			"MHGZ/InsectGlaive/Kinsect",
+			"MHGZ/Monster",
+			"MHGZ/UI",
+			"MHGZ/Data"
 		});
-
-		// Uncomment if you are using Slate UI
-		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
-
-		// Uncomment if you are using online features
-		// PrivateDependencyModuleNames.Add("OnlineSubsystem");
-
-		// To include OnlineSubsystemSteam, add it to the plugins section in your uproject file with the Enabled attribute set to true
 	}
 }
