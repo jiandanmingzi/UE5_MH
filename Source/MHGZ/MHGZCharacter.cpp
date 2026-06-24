@@ -31,18 +31,20 @@ AMHGZCharacter::AMHGZCharacter()
 	// CMC 配置
 	UCharacterMovementComponent* CMC = GetCharacterMovement();
 	CMC->bOrientRotationToMovement = true;
-	CMC->RotationRate = FRotator(0.0f, 540.0f, 0.0f); // 540°/s 转向
+	CMC->RotationRate = FRotator(0.0f, 360.0f, 0.0f); // 360°/s 转向
 	CMC->bUseControllerDesiredRotation = false;
 	CMC->JumpZVelocity = 500.f;
-	CMC->AirControl = 0.15f;        // 低值——惯性主导，接近怪猎手感
-	CMC->MaxWalkSpeed = 500.f;
-	CMC->MinAnalogWalkSpeed = 20.f;
-	CMC->BrakingDecelerationWalking = 2000.f;
-	CMC->BrakingDecelerationFalling = 80.f; // 空中水平衰减
-	CMC->GravityScale = 1.8f;              // 空中重力倍率
+	CMC->AirControl = 0.10f;        // 低值——惯性主导，接近怪猎手感
 
-	// 缓存基础行走速度
-	BaseMaxWalkSpeed = CMC->MaxWalkSpeed;
+	// 初始用 WalkSpeed（非奔跑态）；Sprint 时 UpdateMaxWalkSpeed 切到 RunSpeed
+	CMC->MaxWalkSpeed = WalkSpeed;
+	CMC->MinAnalogWalkSpeed = 20.f;
+
+	// 持续移动阶段的加减速——响应灵敏即可，过渡阶段的位移由 RootMotion 蒙太奇驱动
+	CMC->MaxAcceleration = 2048.f;
+	CMC->BrakingDecelerationWalking = 2048.f;
+	CMC->BrakingDecelerationFalling = 80.f; // 空中水平衰减
+	CMC->GravityScale = 1.0f;              // 空中重力倍率
 
 	// CameraBoom
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -128,7 +130,14 @@ void AMHGZCharacter::UpdateMaxWalkSpeed()
 
 	const float Multiplier = ASC->GetNumericAttribute(
 		UMHGZAttributeSet::GetMoveSpeedMultiplierAttribute());
-	GetCharacterMovement()->MaxWalkSpeed = BaseMaxWalkSpeed * Multiplier;
+
+	// Sprint 状态决定基准速度：奔跑 500 / 行走 150
+	const bool bSprinting = ASC->HasMatchingGameplayTag(
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Sprinting")));
+	const float BaseSpeed = bSprinting ? RunSpeed : WalkSpeed;
+
+	const float TargetSpeed = BaseSpeed * Multiplier;
+	GetCharacterMovement()->MaxWalkSpeed = TargetSpeed;
 }
 
 void AMHGZCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
@@ -160,18 +169,69 @@ void AMHGZCharacter::Look(const FInputActionValue& Value)
 	DoLook(LookAxisVector.X, LookAxisVector.Y);
 }
 
+bool AMHGZCharacter::ShouldBlockMovement() const
+{
+	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+	if (!PS) return false;
+
+	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+	if (!ASC) return false;
+
+	// RootMotion 驱动位移的场景 → 屏蔽 CMC AddMovementInput，避免双重力叠加
+	//   - 攻击 Montage（Attacking）
+	//   - 起步 Montage（Movement.Starting）——RootMotion 从 0 加速到目标速度
+	//   - 停步 Montage（Movement.Stopping）——RootMotion 从目标速度减速到 0
+	//   - 受击硬直/击倒/死亡
+	static const FGameplayTagContainer BlockMovementTags = FGameplayTagContainer::CreateFromArray({
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")),
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Hitstun")),
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Knockdown")),
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Dead")),
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Movement.Starting")),
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Movement.Stopping")),
+	});
+
+	return ASC->HasAnyMatchingGameplayTag(BlockMovementTags);
+}
+
 void AMHGZCharacter::DoMove(float Right, float Forward)
 {
+	if (ShouldBlockMovement())
+	{
+		return;
+	}
+
 	if (Controller)
 	{
-		const FRotator Rotation = Controller->GetControlRotation();
-		const FRotator YawRotation(0, Rotation.Yaw, 0);
+		const bool bHasInput = !FMath::IsNearlyZero(Right) || !FMath::IsNearlyZero(Forward);
 
-		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+		if (bHasInput)
+		{
+			const FRotator Rotation = Controller->GetControlRotation();
+			const FRotator YawRotation(0, Rotation.Yaw, 0);
 
-		AddMovementInput(ForwardDirection, Forward);
-		AddMovementInput(RightDirection, Right);
+			const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+			const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+
+			AddMovementInput(ForwardDirection, Forward);
+			AddMovementInput(RightDirection, Right);
+		}
+		else
+		{
+			// 输入归零 + 速度仍高于阈值 → 进入停步过渡
+			AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+			if (PS)
+			{
+				UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+				static const FGameplayTag StoppingTag = FGameplayTag::RequestGameplayTag(
+					TEXT("Combat.State.Movement.Stopping"));
+				if (ASC && GetVelocity().Size2D() > MovementTransitionThreshold
+					&& !ASC->HasMatchingGameplayTag(StoppingTag))
+				{
+					ASC->AddLooseGameplayTag(StoppingTag);
+				}
+			}
+		}
 	}
 }
 
@@ -184,12 +244,62 @@ void AMHGZCharacter::DoLook(float Yaw, float Pitch)
 	}
 }
 
-void AMHGZCharacter::DoJumpStart()
+void AMHGZCharacter::Tick(float DeltaTime)
 {
-	Jump();
+	Super::Tick(DeltaTime);
+
+	const float CurrentSpeed = GetVelocity().Size2D();
+	UpdateMovementTransitionTags(CurrentSpeed);
+	LastTickSpeed = CurrentSpeed;
 }
 
-void AMHGZCharacter::DoJumpEnd()
+void AMHGZCharacter::UpdateMovementTransitionTags(const float CurrentSpeed)
 {
-	StopJumping();
+	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+	if (!PS) return;
+
+	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+	if (!ASC) return;
+
+	const float TargetSpeed = GetCharacterMovement()->MaxWalkSpeed;
+
+	// ── 起步检测：从静止 → 移动中 ──
+	const bool bWasStopped = LastTickSpeed <= MovementTransitionThreshold;
+	const bool bIsMoving = CurrentSpeed > MovementTransitionThreshold;
+
+	if (bWasStopped && bIsMoving)
+	{
+		// 触发起步动画
+		ASC->AddLooseGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Movement.Starting")));
+	}
+	else if (!bIsMoving)
+	{
+		// 已经完全停止——清除所有移动过渡 Tag
+		ASC->RemoveLooseGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Movement.Starting")));
+		ASC->RemoveLooseGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Movement.Stopping")));
+	}
+
+	// ── 起步完成检测：速度接近目标 → 进入持续移动态 ──
+	if (ASC->HasMatchingGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Movement.Starting")))
+		&& CurrentSpeed >= TargetSpeed * 0.90f)
+	{
+		ASC->RemoveLooseGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Movement.Starting")));
+	}
+
+	// ── 停步检测：从移动中 → 输入归零开始减速 ──
+	//   （由 DoMove 触发——当输入为 0 且速度 > 阈值时设 Stopping Tag）
+	const bool bIsDeceleratingToStop = ASC->HasMatchingGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Movement.Stopping")));
+	const bool bHasStopped = CurrentSpeed <= MovementTransitionThreshold;
+
+	if (bIsDeceleratingToStop && bHasStopped)
+	{
+		ASC->RemoveLooseGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Movement.Stopping")));
+	}
 }

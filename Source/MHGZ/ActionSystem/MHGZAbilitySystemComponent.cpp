@@ -17,30 +17,6 @@ UMHGZAbilitySystemComponent::UMHGZAbilitySystemComponent()
 void UMHGZAbilitySystemComponent::BeginPlay()
 {
 	Super::BeginPlay();
-
-	// 绑定 EnhancedInput（使用 lambda 捕获 FGameplayTag）
-	APawn* Pawn = Cast<APawn>(GetOwnerActor());
-	if (!Pawn) return;
-
-	APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
-	if (!PC) return;
-
-	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PC->InputComponent))
-	{
-		for (const FAbilityInputBinding& Binding : InputBindings)
-		{
-			if (!Binding.InputAction) continue;
-
-			// 构建 Action→Tag 映射，使用 FInputActionInstance 版 BindAction 以获取来源 Action
-			ActionToTag.Add(Binding.InputAction, Binding.AbilityTag);
-
-			EnhancedInput->BindAction(Binding.InputAction.Get(), ETriggerEvent::Triggered,
-				this, &UMHGZAbilitySystemComponent::OnInputActionTriggered);
-
-			EnhancedInput->BindAction(Binding.InputAction.Get(), ETriggerEvent::Completed,
-				this, &UMHGZAbilitySystemComponent::OnInputActionCompleted);
-		}
-	}
 }
 
 void UMHGZAbilitySystemComponent::InitializeAbilitySystem()
@@ -62,6 +38,37 @@ void UMHGZAbilitySystemComponent::InitializeAbilitySystem()
 		if (!EffectClass) continue;
 		FGameplayEffectContextHandle Context = MakeEffectContext();
 		ApplyGameplayEffectToSelf(EffectClass->GetDefaultObject<UGameplayEffect>(), 1.0f, Context);
+	}
+
+	// (4) 绑定 EnhancedInput → Tag 路由
+	// ★ 必须在 InitAbilityActorInfo 之后调用——通过 Avatar 获取 Character→Controller→EnhancedInput
+	if (bInputBound) return;  // 防止重复绑定（如复活后重新 PossessedBy）
+
+	AActor* Avatar = GetAvatarActor();
+	if (!Avatar) return;
+
+	APawn* Pawn = Cast<APawn>(Avatar);
+	if (!Pawn) return;
+
+	APlayerController* PC = Cast<APlayerController>(Pawn->GetController());
+	if (!PC) return;
+
+	if (UEnhancedInputComponent* EnhancedInput = Cast<UEnhancedInputComponent>(PC->InputComponent))
+	{
+		for (const FAbilityInputBinding& Binding : InputBindings)
+		{
+			if (!Binding.InputAction) continue;
+
+			ActionToTag.Add(Binding.InputAction, Binding.AbilityTag);
+
+			EnhancedInput->BindAction(Binding.InputAction.Get(), ETriggerEvent::Triggered,
+				this, &UMHGZAbilitySystemComponent::OnInputActionTriggered);
+
+			EnhancedInput->BindAction(Binding.InputAction.Get(), ETriggerEvent::Completed,
+				this, &UMHGZAbilitySystemComponent::OnInputActionCompleted);
+		}
+
+		bInputBound = true;
 	}
 }
 

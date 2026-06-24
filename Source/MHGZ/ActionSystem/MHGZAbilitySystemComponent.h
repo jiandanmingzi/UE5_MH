@@ -117,6 +117,9 @@ protected:
 	UPROPERTY()
 	TMap<TObjectPtr<UInputAction>, FGameplayTag> ActionToTag;
 
+	/** 是否已绑定 EnhancedInput（避免 PossessedBy 重新调用时重复绑定） */
+	bool bInputBound = false;
+
 private:
 	/** 已授予的武器 Ability Handle */
 	TArray<FGameplayAbilitySpecHandle> WeaponAbilityHandles;

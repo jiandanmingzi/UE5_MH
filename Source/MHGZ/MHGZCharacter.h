@@ -50,10 +50,6 @@ class AMHGZCharacter : public ACharacter, public IAbilitySystemInterface
 	UMHGZEdgeVaultComponent* EdgeVaultComponent;
 
 protected:
-	/** Jump Input Action */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
-	UInputAction* JumpAction;
-
 	/** Move Input Action */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* MoveAction;
@@ -78,7 +74,10 @@ public:
 	// ── 着陆重置 ──
 	virtual void Landed(const FHitResult& Hit) override;
 
-	/** UpdateMaxWalkSpeed——MoveSpeedMultiplier 变化时由 AttributeSet 回调 */
+	// ── 移动过渡检测 ──
+	virtual void Tick(float DeltaTime) override;
+
+	/** 刷新 CMC 速度——MoveSpeedMultiplier 变化时由 AttributeSet 回调，或 Sprint 状态变化时调用 */
 	void UpdateMaxWalkSpeed();
 
 	// ── 组件访问 ──
@@ -100,13 +99,24 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoLook(float Yaw, float Pitch);
 
-	UFUNCTION(BlueprintCallable, Category="Input")
-	virtual void DoJumpStart();
-
-	UFUNCTION(BlueprintCallable, Category="Input")
-	virtual void DoJumpEnd();
+	/** 检查当前是否应屏蔽移动输入（攻击/硬直/击倒/死亡中） */
+	bool ShouldBlockMovement() const;
 
 private:
-	/** 缓存的 CMC 基础行走速度 */
-	float BaseMaxWalkSpeed = 500.f;
+	/** 行走速度（cm/s）——对应混合空间 Walk 节点 */
+	UPROPERTY(EditDefaultsOnly, Category="Movement|Speed")
+	float WalkSpeed = 150.f;
+
+	/** 奔跑速度（cm/s）——对应混合空间 Run 节点 */
+	UPROPERTY(EditDefaultsOnly, Category="Movement|Speed")
+	float RunSpeed = 500.f;
+
+	/** 上次 Tick 的移动速度——用于检测起步/停步过渡 */
+	float LastTickSpeed = 0.f;
+
+	/** 起步/停步速度阈值——低于此值视为静止 */
+	static constexpr float MovementTransitionThreshold = 10.f;
+
+	/** 在 ASC 上管理移动过渡 Tag（StartingMovement / StoppingMovement），供 AnimBP 触发过渡蒙太奇 */
+	void UpdateMovementTransitionTags(float CurrentSpeed);
 };
