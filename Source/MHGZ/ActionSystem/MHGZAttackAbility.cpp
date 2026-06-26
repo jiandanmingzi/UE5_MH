@@ -3,6 +3,7 @@
 #include "MHGZAttackAbility.h"
 #include "MHGZAbilitySystemComponent.h"
 #include "MHGZComboCoordinatorAbility.h"
+#include "MHGZCharacter.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "AbilitySystemGlobals.h"
@@ -31,8 +32,9 @@ void UMHGZAttackAbility::ActivateAbility(
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (!ASC) return;
 
-	// 添加攻击状态 Tag
+	// 添加攻击状态 Tag + 阻断 CMC 移动输入
 	ASC->AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")));
+	ASC->AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
 
 	// 重置状态
 	HitTargets.Empty();
@@ -69,8 +71,9 @@ void UMHGZAttackAbility::EndAbility(
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (ASC)
 	{
-		// 移除攻击状态 Tag
+		// 移除攻击状态 Tag + 解除 CMC 移动阻断
 		ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")));
+		ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
 	}
 
 	// 关碰撞（幂等安全——清除 MultiHitTimer）
@@ -101,12 +104,12 @@ void UMHGZAttackAbility::ApplyDirectionCorrection()
 {
 	if (MaxCorrectionAngle <= 0.f) return;
 
-	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	AMHGZCharacter* Character = Cast<AMHGZCharacter>(GetAvatarActorFromActorInfo());
 	if (!Character) return;
 
-	// 读摇杆方向
-	FVector MovementInput = Character->GetLastMovementInputVector();
-	if (MovementInput.SizeSquared() < 0.01f) return; // 无输入
+	// 读摇杆方向——用 Character::LastMovementInputDir（不受 BlockMovement 影响，始终最新）
+	const FVector MovementInput = Character->GetLastMovementInputDir();
+	if (MovementInput.IsNearlyZero()) return; // 无输入
 
 	const FVector InputDir(MovementInput.X, MovementInput.Y, 0.f);
 	const FVector CharForward = Character->GetActorForwardVector();
