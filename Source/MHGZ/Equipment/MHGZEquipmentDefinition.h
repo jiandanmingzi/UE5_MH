@@ -47,6 +47,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TArray<FEquipmentSocket> Sockets;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Weapon|Visual")
+	TSoftObjectPtr<USkeletalMesh> Mesh;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Weapon|Visual")
+	FName AttachSocket = "Weapon_R";
+
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override
 	{
 		return FPrimaryAssetId(TEXT("EquipmentDef"), ItemID);

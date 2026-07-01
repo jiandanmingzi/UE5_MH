@@ -28,23 +28,17 @@ AMHGZCharacter::AMHGZCharacter()
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 
-	// CMC 配置
+	// CMC 配置 —— 碰撞壳子，位移由 AnimBP RootMotion 全权驱动
 	UCharacterMovementComponent* CMC = GetCharacterMovement();
-	CMC->bOrientRotationToMovement = true;
-	CMC->RotationRate = FRotator(0.0f, 360.0f, 0.0f); // 360°/s 转向
+	CMC->bOrientRotationToMovement = false;    // 旋转由 DoMove 手动 RInterpTo
 	CMC->bUseControllerDesiredRotation = false;
+	CMC->RotationRate = FRotator::ZeroRotator;
 	CMC->JumpZVelocity = 500.f;
-	CMC->AirControl = 0.10f;        // 低值——惯性主导，接近怪猎手感
-
-	// 初始用 WalkSpeed（非奔跑态）；Sprint 时 UpdateMaxWalkSpeed 切到 RunSpeed
-	CMC->MaxWalkSpeed = WalkSpeed;
-	CMC->MinAnalogWalkSpeed = 20.f;
-
-	// 常速移动段加减速——过渡段（起步/停步）的位移由 RootMotion 蒙太奇驱动
-	CMC->MaxAcceleration = 2048.f;
-	CMC->BrakingDecelerationWalking = 2048.f;
-	CMC->BrakingDecelerationFalling = 80.f; // 空中水平衰减
-	CMC->GravityScale = 1.0f;              // 空中重力倍率
+	CMC->AirControl = 0.01f;
+	CMC->BrakingDecelerationFalling = 80.f;
+	CMC->GravityScale = 1.0f;
+	// MaxWalkSpeed 设到足够大，防止 CMC 钳制 RootMotion 速度
+	CMC->MaxWalkSpeed = 1200.f;
 
 	// CameraBoom
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -80,7 +74,6 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 {
 	Super::PossessedBy(NewController);
 
-	// InitAbilityActorInfo（此时 PlayerState 已就绪）
 	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
 	if (!PS) return;
 
@@ -88,8 +81,6 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 	if (ensure(ASC))
 	{
 		ASC->InitAbilityActorInfo(PS, this);
-		// Owner = PlayerState（拥有这些 Ability 的逻辑实体）
-		// Avatar = Character（物理表现实体）
 		ASC->InitializeAbilitySystem();
 	}
 }
@@ -98,66 +89,137 @@ void AMHGZCharacter::Landed(const FHitResult& Hit)
 {
 	Super::Landed(Hit);
 
-	// 着陆重置——强制协调器回 Idle
 	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
 	if (!PS) return;
 
 	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
 	if (!ASC) return;
 
-	// 移除空中 Tag
 	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial")));
 	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.Falling")));
 	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.CantDodge")));
 	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.CantAttack")));
-	// 添加地面 Tag
 	ASC->AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Grounded")));
 
-	// 通知协调器
 	if (UGA_WeaponComboCoordinator* Coord = ASC->GetActiveComboCoordinator())
 	{
 		Coord->OnLanded();
 	}
 }
 
-void AMHGZCharacter::UpdateMaxWalkSpeed(float StickMagnitude)
-{
-	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
-	const float Multiplier = PS
-		? PS->GetMHGZAbilitySystemComponent()->GetNumericAttribute(
-			UMHGZAttributeSet::GetMoveSpeedMultiplierAttribute())
-		: 1.f;
+// ── Tick 兜底 ────────────────────────────────────────────────
+// 每帧必跑——无论 IA 是否在本帧触发了 DoMove，DesiredSpeed 的衰减都能正常执行
 
-	float Ceiling;
-	if (bSprintHeld)
+void AMHGZCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+
+	// 每帧更新拔刀态标记——AnimBP 读此值切换 Database_Armed / Database_Unarmed
 	{
-		// Sprint 按住 → 固定 SprintSpeed，无视摇杆幅度
-		Ceiling = SprintSpeed;
+		AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+		if (PS)
+		{
+			UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+			bUnsheathed = ASC && ASC->HasMatchingGameplayTag(
+				FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Unsheathed")));
+		}
+	}
+
+	if (ShouldBlockMovement()) {
+		TargetCruiseSpeed = 0.f;
+		DesiredSpeed = 0.f;
+		bForceMMIdle = true;
+		return;
+	}
+
+	const uint64 CurrentFrame = GFrameCounter;
+
+	// IA 漏帧兜底：本帧 DoMove 没跑 → DesiredSpeed 衰减
+	if (CurrentFrame != LastTheoryUpdateFrame)
+	{
+		TargetCruiseSpeed = 0.f;
+		DesiredSpeed = FMath::FInterpTo(DesiredSpeed, 0.f, DeltaTime, DesiredSpeedInterpSpeed);
+	}
+
+	// 旋转（每帧，在 Trajectory 生成之前）
+	if (bHasInput)
+	{
+		const float TargetYaw = LastMovementInputDir.Rotation().Yaw;
+		const float NewYaw = FMath::FInterpTo(
+			GetActorRotation().Yaw, TargetYaw, DeltaTime, TurnRate);
+		SetActorRotation(FRotator(0.0, NewYaw, 0.0));
+	}
+
+}
+
+// ── 巡航速度计算 ──────────────────────────────────────────────
+
+float AMHGZCharacter::CalcCruiseSpeed(float StickMagnitude) const
+{
+	if (StickMagnitude < MoveDeadzone) return 0.f;
+
+	// 拔刀态：走跑合一，单速
+	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+	if (PS)
+	{
+		UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+		if (ASC && ASC->HasMatchingGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Unsheathed"))))
+		{
+			return RunCruise_Unsheathed;
+		}
+	}
+
+	// 收刀态：摇杆幅度映射三档速度
+	// 0.1 ≤ 摇杆 < 0.5 → 线性映射 0 → WalkCruise_Sheathed
+	// 0.5 ≤ 摇杆 ≤ 1.0 → 线性映射 WalkCruise_Sheathed → RunCruise_Sheathed
+	if (StickMagnitude < 0.5f)
+	{
+		const float T = (StickMagnitude - MoveDeadzone) / (0.5f - MoveDeadzone);
+		return FMath::Lerp(0.f, WalkCruise_Sheathed, FMath::Clamp(T, 0.f, 1.f));
+	}
+	else if (StickMagnitude <= 0.9f)
+	{
+		const float T = (StickMagnitude - 0.5f) / 0.4f;
+		return FMath::Lerp(WalkCruise_Sheathed, RunCruise_Sheathed, FMath::Clamp(T, 0.f, 1.f));
 	}
 	else
 	{
-		// 摇杆幅度从 [Deadzone, 1.0] 线性映射到 [WalkSpeed, RunSpeed]
-		const float T = (StickMagnitude - MoveDeadzone) / (1.f - MoveDeadzone);
-		Ceiling = FMath::Lerp(WalkSpeed, RunSpeed, FMath::Clamp(T, 0.f, 1.f));
+		// 摇杆 > 0.9 且冲刺键按住 → SprintCruise
+		return bSprintHeld ? SprintCruise : RunCruise_Sheathed;
 	}
-
-	GetCharacterMovement()->MaxWalkSpeed = Ceiling * Multiplier;
 }
+
+// ── 输入 ────────────────────────────────────────────────────
 
 void AMHGZCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
 	{
 		// Moving
-		EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Move);
+		if (MoveAction)
+		{
+			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Move);
+			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &AMHGZCharacter::Move);
+		}
 
 		// Looking
-		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look);
-		EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look);
+		if (LookAction)
+		{
+			EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look);
+		}
+		if (MouseLookAction)
+		{
+			EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look);
+		}
 
 		// Sprint (LS/L3 hold)
-		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &AMHGZCharacter::SprintPressed);
-		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AMHGZCharacter::SprintReleased);
+		if (SprintAction)
+		{
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &AMHGZCharacter::SprintPressed);
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AMHGZCharacter::SprintReleased);
+			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Canceled, this, &AMHGZCharacter::SprintReleased);
+		}
 	}
 	else
 	{
@@ -192,54 +254,16 @@ void AMHGZCharacter::SprintPressed(const FInputActionValue& Value)
 	}
 
 	bSprintHeld = true;
-	UpdateMaxWalkSpeed();
 }
 
 void AMHGZCharacter::SprintReleased(const FInputActionValue& Value)
 {
 	bSprintHeld = false;
-	UpdateMaxWalkSpeed();
 }
 
 FVector AMHGZCharacter::GetLastMovementInputDir() const
 {
 	return LastMovementInputDir;
-}
-
-ETransitionState AMHGZCharacter::GetTransitionState() const
-{
-	return TransitionState;
-}
-
-void AMHGZCharacter::AddBlockMovementTag() const
-{
-	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
-	if (!PS) return;
-
-	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
-	if (!ASC) return;
-
-	ASC->AddLooseGameplayTag(
-		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
-}
-
-void AMHGZCharacter::RemoveBlockMovementTag() const
-{
-	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
-	if (!PS) return;
-
-	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
-	if (!ASC) return;
-
-	ASC->RemoveLooseGameplayTag(
-		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
-}
-
-void AMHGZCharacter::OnTransitionMontageEnded()
-{
-	TransitionState = ETransitionState::None;
-	RemoveBlockMovementTag();
-	// 此时 AnimBP 回到状态机 Idle/Moving，CMC 接管
 }
 
 bool AMHGZCharacter::ShouldBlockMovement() const
@@ -257,99 +281,41 @@ bool AMHGZCharacter::ShouldBlockMovement() const
 
 void AMHGZCharacter::DoMove(float Right, float Forward)
 {
-	if (!Controller)
-	{
-		return;
-	}
+	if (!Controller) return;
 
-	const FRotator Rotation = Controller->GetControlRotation();
-	const FRotator YawRotation(0, Rotation.Yaw, 0);
+	// 1. 计算世界方向 + 存储 LastMovementInputDir
+	const FRotator YawRotation(0, Controller->GetControlRotation().Yaw, 0);
 	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
 	const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-	// ★ 始终记录摇杆世界方向——供 MotionWarping/AnimBP 读取（不受 BlockMovement 影响）
 	const FVector InputVector = ForwardDirection * Forward + RightDirection * Right;
 	if (!InputVector.IsNearlyZero())
 	{
 		LastMovementInputDir = InputVector.GetSafeNormal();
 	}
 
-	// ── 死区判断 ──
-	const float InputMagnitude = FMath::Sqrt(Right * Right + Forward * Forward);
-	const bool bHasInput = InputMagnitude >= MoveDeadzone;
+	// 2. 更新 InputMagnitude 和 bHasInput（始终更新，供 AnimBP 读）
+	const float Mag = FMath::Sqrt(Right * Right + Forward * Forward);
+	bHasInput = Mag >= MoveDeadzone;
+	InputMagnitude = bHasInput ? Mag : 0.f;
 
-	// ═══════════════════════════════════════════════════════════════
-	// ★ 过渡状态中断处理 —— 在 BlockMovement 检查之前
-	//   起步中松手 → 立即切停步；停步中推摇杆 → 立即切起步
-	// ═══════════════════════════════════════════════════════════════
-
-	// 起步中松手 → 中断起步，切到停步
-	if (TransitionState == ETransitionState::Starting && !bHasInput)
+	// 3. BlockMovement → 全部归零，强制 MM 切 Idle
+	if (ShouldBlockMovement())
 	{
-		TransitionState = ETransitionState::Stopping;
-		bHasMovementInput = false;
-		GetCharacterMovement()->Velocity = FVector::ZeroVector;
-		// BlockMovement 保持（起步时已设），AnimBP 下一帧读到 Stopping → 切蒙太奇
+		TargetCruiseSpeed = 0.f;
+		DesiredSpeed = 0.f;
+		bForceMMIdle = true;
 		return;
 	}
+	bForceMMIdle = false;
 
-	// 停步中推摇杆 → 中断停步，切回起步（速度可能不同于上次）
-	if (TransitionState == ETransitionState::Stopping && bHasInput)
-	{
-		TransitionState = ETransitionState::Starting;
-		bHasMovementInput = true;
-		UpdateMaxWalkSpeed(InputMagnitude);
-		GetCharacterMovement()->Velocity = FVector::ZeroVector;
-		// BlockMovement 保持，AnimBP 下一帧读到 Starting → 切蒙太奇
-		return;
-	}
+	// 4. 计算目标巡航速度 + 平滑期望速度
+	const float DeltaTime = GetWorld()->GetDeltaSeconds();
+	TargetCruiseSpeed = CalcCruiseSpeed(InputMagnitude);
+	DesiredSpeed = FMath::FInterpTo(DesiredSpeed, TargetCruiseSpeed, DeltaTime, DesiredSpeedInterpSpeed);
 
-	// 攻击/翻滚等外部 GA 设的 BlockMovement，且没有我们自己的过渡蒙太奇在播
-	if (ShouldBlockMovement() && TransitionState == ETransitionState::None)
-	{
-		return;
-	}
-
-	// ═══════════════════════════════════════════════════════════════
-	// 正常边沿检测（TransitionState == None 时）
-	// ═══════════════════════════════════════════════════════════════
-
-	// 起步：摇杆从无到有
-	if (bHasInput && !bHasMovementInput)
-	{
-		TransitionState = ETransitionState::Starting;
-		bHasMovementInput = true;
-		UpdateMaxWalkSpeed(InputMagnitude);
-		AddBlockMovementTag();      // AnimBP 读到 Starting + BlockMovement → 播起步蒙太奇
-		return;
-	}
-
-	// 停步：摇杆从有到无 → 快照当前 Speed 供 AnimBP 选 Walk_Stop / Run_Stop
-	if (!bHasInput && bHasMovementInput)
-	{
-		TransitionState = ETransitionState::Stopping;
-		bHasMovementInput = false;
-		SnapSpeedAtRelease = GetVelocity().Size2D();  // ★ 快照松手瞬间速度
-		GetCharacterMovement()->Velocity = FVector::ZeroVector;
-		AddBlockMovementTag();      // AnimBP 读到 Stopping + BlockMovement → 播停步蒙太奇
-		return;
-	}
-
-	// 无输入且不在移动
-	if (!bHasInput)
-	{
-		return;
-	}
-
-	// ── 常速移动段：CMC 驱动 ──
-	const float InvMag = 1.f / InputMagnitude;
-	const float NormRight = Right * InvMag;
-	const float NormForward = Forward * InvMag;
-
-	UpdateMaxWalkSpeed(InputMagnitude);
-
-	AddMovementInput(ForwardDirection, NormForward);
-	AddMovementInput(RightDirection, NormRight);
+	// 5. 记录帧号——Tick 中不再重复计算速度
+	LastTheoryUpdateFrame = GFrameCounter;
 }
 
 void AMHGZCharacter::DoLook(float Yaw, float Pitch)

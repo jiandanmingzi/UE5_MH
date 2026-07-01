@@ -24,7 +24,9 @@ public class MHGZ : ModuleRules
 			"GameplayTags",
 			"GameplayTasks",
 			// MotionWarping
-			"MotionWarping"
+			"MotionWarping",
+			"PoseSearch", 
+			"MotionTrajectory"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });

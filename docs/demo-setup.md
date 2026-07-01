@@ -165,20 +165,57 @@ UI/
 
 ### 4.3 DA_IG_Weapon（虫棍武器定义）
 
-**父类：** `UMHGZWeaponDefinition`
+**创建步骤：**
+
+```
+Content/Weapons/InsectGlaive/Data/ 右键 → Miscellaneous → Data Asset
+  → 搜索 "WeaponDefinition" → 选中 UMHGZWeaponDefinition → 命名 "DA_IG_Weapon"
+```
+
+双击打开，填写：
 
 | 字段 | 值 | 说明 |
 |------|------|------|
-| ItemID | `IG_IronBlade` | |
-| DisplayName | "铁虫棍" | |
-| WeaponTypeTag | `Weapon.InsectGlaive` | ★ 关键——武器种类标识 |
+| ItemID | `IG_IronBlade` | 主资产 ID（`FPrimaryAssetId` 由此生成） |
+| DisplayName | "铁虫棍" | 物品显示名称 |
+| WeaponTypeTag | `Weapon.InsectGlaive` | ★ 关键——所有 DT 靠此 Tag 匹配 |
 | AttackPower | 50 | 基础攻击力 |
-| EquipmentSlotTag | `Equipment.Slot.Weapon` | |
-| Entries | 空（Demo 不配词条） | |
+| EquipmentSlotTag | `Equipment.Slot.Weapon` | 装备槽位 |
+| RarityLevel | 1 | Demo 白板 |
+| Entries | 空 | Demo 不配词条 |
+| Sockets | 空 | |
+| Mesh | `SKM_chong`（或留空） | 武器骨骼网格体，视觉显示用 |
+| AttachSocket | `Weapon_R` | 挂载到角色骨骼的 Socket 名 |
+| SwingSoundOverrides | 空 | Demo 不配武器音效覆盖 |
 
 ### 4.4 DA_IG_ComboData（虫棍连招表）
 
-**父类：** `UMHGZWeaponComboData`
+**创建步骤：**
+
+```
+Content/Weapons/InsectGlaive/Data/ 右键 → Miscellaneous → Data Asset
+  → 搜索 "WeaponComboData" → 选中 UMHGZWeaponComboData → 命名 "DA_IG_ComboData"
+```
+
+双击打开，设置 `GlobalComboTimeout = 10.0`，然后点击 `ComboTable` 旁边的 `+` 添加 **6 个元素**，逐行填入：
+
+| # | StateName | bMatchAnyState | AbilityClass | InputTag | RequiredTags | BlockedTags | Priority | NextState |
+|---|-----------|:---:|-------------|----------|--------------|-------------|:--------:|-----------|
+| 0 | *空* | ✅ | `GA_Unsheathe` | `Input.Weapon.Y` | `Combat.State.Sheathed` | — | 30 | *空* |
+| 1 | *空* | ✅ | `GA_SendKinsect` | `Input.Weapon.Y` | `Combat.State.Aiming` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 20 | *空* |
+| 2 | *空* | ✅ | `GA_RecallKinsect` | `Input.Weapon.B` | `WeaponResource.IG.Kinsect.Active` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 15 | *空* |
+| 3 | *空* | ✅ | `GA_DrawAndSendKinsect` | `Input.Weapon.RT` | `Combat.State.Sheathed` | — | 10 | *空* |
+| 4 | `Idle` | ❌ | `GA_IG_RedSlash_01` | `Input.Weapon.Y` | `Combat.Branch.Extract.Red` | — | 10 | `Idle` |
+| 5 | `Idle` | ❌ | `GA_IG_Slash_01` | `Input.Weapon.Y` | — | — | 0 | `Idle` |
+
+> **操作提示：**
+> - 点击 `ComboTable` 的 `+` → 展开新元素 → 逐字段填写
+> - `StateName` = `"Idle"` 是字符串，不是 Tag（直接输入 `Idle`）
+> - `InputTag` / `RequiredTags` / `BlockedTags` 是 GameplayTag——点击下拉搜索选择
+> - `AbilityClass` 先留空（选 `None`），等 GA 蓝图创建完毕后再回来选上
+> - `bMatchAnyState=true` 的行 `NextState` **必须留空**（不转移协调器状态）
+> - `bMatchAnyState=false` 的行 `NextState` 填 `"Idle"`（攻击结束后回归 Idle）
+> - 其他省略字段用默认值：`StaminaRequired=0`、`DirectionalInput=None`、`bRequiresHitToGrantTags=false`、`bRequiresWindowOpen=false`、`bAutoTransition=false`
 
 **完整配置（6 个节点——还原虫棍完整战斗流程：拔刀→瞄准→送虫→萃取→三灯→攻击→收虫→收刀直飞）：**
 
@@ -207,25 +244,39 @@ UI/
 
 ---
 
-### 4.5 DT_WeaponComboConfig（武器→连招表映射 ★ M-2 修复）
+### 4.5 DT_WeaponComboConfig（武器→连招表映射）
 
-**父类：** DataTable，RowStruct=`FWeaponComboConfigRow`
+**创建步骤：**
 
-| WeaponTypeTag | ComboDataAsset |
-|------|------|
-| `Weapon.InsectGlaive` | `DA_IG_ComboData` |
+```
+Content/Weapons/InsectGlaive/Data/ 右键 → Miscellaneous → Data Table
+  → Row Structure 搜索 "FWeaponComboConfigRow" → 选中 → 命名 "DT_WeaponComboConfig"
+```
 
-> `EquipmentComponent::ApplyItemEffects` 通过此表查找武器对应的 ComboData Asset 并异步加载→注入已激活的 ComboCoordinator。
+打开后点击 `+ Add`，仅需 **1 行**：
 
-### 4.6 DT_WeaponResourceConfig（武器→资源组件映射 ★ H-7 修复）
+| Row Name | WeaponTypeTag | ComboDataAsset |
+|----------|---------------|----------------|
+| `IG` | `Weapon.InsectGlaive` | `DA_IG_ComboData` |
 
-**父类：** DataTable，RowStruct=`FWeaponResourceConfigRow`
+> **操作提示：** Row Name 不支持 FGameplayTag——直接用纯字符串 `IG`。`ComboDataAsset` 字段点击下拉选取刚创建的 `DA_IG_ComboData`。
 
-| WeaponTypeTag | ResourceComponentClass | ResourceWidgetClass |
-|------|------|------|
-| `Weapon.InsectGlaive` | `URes_InsectGlaive` | `WBP_IG_ResourcePanel` |
+### 4.6 DT_WeaponResourceConfig（武器→资源组件映射）
 
-> `EquipmentComponent::ApplyItemEffects` 通过 `ResourceComponentClass` 列创建对应的 C++ 子类实例（`NewObject<URes_InsectGlaive>()`）。`ResourceWidgetClass` 供 UMHGZUISubsystem 创建武器资源 UI。
+**创建步骤：**
+
+```
+Content/Weapons/InsectGlaive/Data/ 右键 → Miscellaneous → Data Table
+  → Row Structure 搜索 "FWeaponResourceConfigRow" → 选中 → 命名 "DT_WeaponResourceConfig"
+```
+
+打开后点击 `+ Add`，仅需 **1 行**：
+
+| Row Name | WeaponTypeTag | ResourceComponentClass | ResourceWidgetClass |
+|----------|---------------|----------------------|---------------------|
+| `IG` | `Weapon.InsectGlaive` | `URes_InsectGlaive` | *留空*（Widget 蓝图创建后再补） |
+
+> **操作提示：** `ResourceComponentClass` 点击下拉 → 搜索 `Res_InsectGlaive` → 选中 C++ 类。`ResourceWidgetClass` 暂时留空——等 `WBP_IG_ResourcePanel` 创建后再回来补上。
 
 ---
 
@@ -438,11 +489,9 @@ Canvas Panel（根）
 
 ## 八、编辑器中集成
 
-### 8.1 DT_WeaponResourceConfig
+### 8.1 补填 ResourceWidgetClass
 
-| WeaponTypeTag | ResourceWidgetClass |
-|------|------|
-| `Weapon.InsectGlaive` | `WBP_IG_ResourcePanel` |
+创建 `WBP_IG_ResourcePanel` 后，回到 `DT_WeaponResourceConfig`（§4.6）把 `ResourceWidgetClass` 补填为 `WBP_IG_ResourcePanel`。
 
 ### 8.2 GameMode 配置
 
@@ -478,10 +527,37 @@ Canvas Panel（根）
 
 ### 8.4 初始装备配置
 
-在 `BP_IG_Character` 的 `BeginPlay` 或 GameMode 的 `StartPlay` 中：
-1. 从 `UMHGZDataManager` 获取 `DA_IG_Weapon`
-2. `EquipmentComponent->EquipItem(Equipment.Slot.Weapon, DA_IG_Weapon)`
-3. 这会触发 `OnEquipmentChanged` → 创建 `URes_InsectGlaive` → Spawn `AKinsect` → 授予连招协调器
+**前置条件：** `EquipItem` 必须在 `PossessedBy`（`InitAbilityActorInfo` + `InitializeAbilitySystem`）之后调用，否则协调器激活时 ASC 未就绪。
+
+在 `BP_IG_Character` 的 `Event BeginPlay` 中：
+
+```
+1. 创建 EquipmentInstance:
+     Instance = NewObject<UMHGZEquipmentInstance>(self)
+     Instance.Definition = DA_IG_Weapon
+
+2. 获取 EquipmentComponent（在 PlayerState 上）:
+     PS = GetPlayerState<AMHGZPlayerState>
+     EqComp = PS->GetComponentByClass<UMHGZEquipmentComponent>
+
+3. 调用 EquipItem:
+     EqComp->EquipItem(Equipment.Slot.Weapon, Instance)
+```
+
+> **调用后自动触发（C++ 内部链条）：**
+> ```
+> EquipItem
+>   → OnEquipmentChangedInternal
+>     → 清空旧装备 GE + 销毁旧 ResourceComponent
+>     → ApplyItemEffects
+>       → ① 查 DT_WeaponResourceConfig → 创建 URes_InsectGlaive
+>       → ② 查 DT_WeaponComboConfig → 加载 DA_IG_ComboData
+>       → ③ 激活 GA_WeaponComboCoordinator → InjectComboData
+>       → ④ GrantWeaponAbilities（从 ComboTable 收集）
+>     → OnEquipmentChanged.Broadcast（UI 刷新）
+> ```
+>
+> 此后按 Y = 协调器开始监听 `Input.Weapon.Y` → 匹配连招表 → 激活对应 GA。
 
 ### 8.5 木桩放置
 

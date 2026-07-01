@@ -97,14 +97,7 @@ void UMHGZAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallba
 	// 注意：这里遍历所有修改过的属性做 Clamp
 	FGameplayEffectContextHandle Context = Data.EffectSpec.GetContext();
 
-	// ── MoveSpeedMultiplier → CMC 同步 ──
-	if (Data.EvaluatedData.Attribute == GetMoveSpeedMultiplierAttribute())
-	{
-		if (AMHGZCharacter* Character = Cast<AMHGZCharacter>(Context.GetInstigator()))
-		{
-			Character->UpdateMaxWalkSpeed();
-		}
-	}
+		// ── MoveSpeedMultiplier：速度由 AnimBP RootMotion + 理论速度驱动，无需同步 CMC ──
 
 	// ── 硬直事件广播 ──
 	// ★ I-6 修复：在 PostGameplayEffectExecute 中广播，非 ExecCalc 中

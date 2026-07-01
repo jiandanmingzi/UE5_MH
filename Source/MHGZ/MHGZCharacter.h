@@ -18,24 +18,13 @@ class UMHGZAbilitySystemComponent;
 struct FInputActionValue;
 
 /**
- * ETransitionState — 起步/停步过渡蒙太奇的播放状态
- * AnimBP 每帧读取此枚举值驱动蒙太奇切换
- */
-UENUM(BlueprintType)
-enum class ETransitionState : uint8
-{
-	None		UMETA(DisplayName = "无过渡"),
-	Starting	UMETA(DisplayName = "起步中"),
-	Stopping	UMETA(DisplayName = "停步中"),
-};
-
-/**
  * AMHGZCharacter — MHGZ 玩家角色
  * - 实现 IAbilitySystemInterface
  * - 集成 MotionWarping
  * - 集成 UMHGZAimComponent（瞄准）
- * - 移动由 CMC + AddMovementInput 负责（非 GAS）
- * - ShouldBlockMovement 检查 Combat.State.BlockMovement ——单 Tag 控制所有移动屏蔽
+ * - 位移由 AnimBP RootMotion（Motion Matching）全权驱动；CMC 为碰撞壳
+ * - ShouldBlockMovement（BlockMovement Tag）仅外部 GA 使用——攻击/受击/翻滚冻结移动
+ * - C++ 暴露 DesiredSpeed / TargetCruiseSpeed 供 AnimBP 计算 Trajectory
  */
 UCLASS(abstract)
 class AMHGZCharacter : public ACharacter, public IAbilitySystemInterface
@@ -85,14 +74,14 @@ public:
 	// ── IAbilitySystemInterface ──
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
+	// ── 每帧兜底：IA 漏帧时 DesiredSpeed 仍正常衰减 ──
+	virtual void Tick(float DeltaTime) override;
+
 	// ── GAS 初始化 ──
 	virtual void PossessedBy(AController* NewController) override;
 
 	// ── 着陆重置 ──
 	virtual void Landed(const FHitResult& Hit) override;
-
-	/** 刷新 CMC 速度——MoveSpeedMultiplier 变化或 Sprint 状态变化时由外部回调，DoMove 每帧调用 */
-	void UpdateMaxWalkSpeed(float StickMagnitude = 1.0f);
 
 	// ── 组件访问 ──
 	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
@@ -118,54 +107,77 @@ public:
 	/** 检查是否应屏蔽移动输入——单一 Tag 控制：Combat.State.BlockMovement */
 	bool ShouldBlockMovement() const;
 
+	/** 当前帧摇杆输入幅度（0.0~1.0），低于死区时为 0——AnimBP 每帧读取 */
+	UPROPERTY(BlueprintReadOnly, Category="Input")
+	float InputMagnitude = 0.f;
+
+	/** 当前帧是否有有效输入（幅度 >= MoveDeadzone）——AnimBP 每帧读取 */
+	UPROPERTY(BlueprintReadOnly, Category="Input")
+	bool bHasInput = false;
+
 	/** 摇杆输入的世界方向（每帧更新，不受 BlockMovement 影响）——供 MotionWarping / AttackAbility / AnimBP 读取 */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	FVector GetLastMovementInputDir() const;
 
-	/** ★ 当前过渡蒙太奇播放状态——AnimBP 每帧读取以决定蒙太奇切换 */
-	UFUNCTION(BlueprintCallable, Category="Movement|Transition")
-	ETransitionState GetTransitionState() const;
+	// ── Motion Matching 期望速度 ────────────────────────────────
 
-	/** ★ 过渡蒙太奇正常播放完毕——由 AnimNotify 在起步/停步蒙太奇末帧调用 */
-	UFUNCTION(BlueprintCallable, Category="Movement|Transition")
-	void OnTransitionMontageEnded();
+	/** 当前期望速度（平滑插值后的值，cm/s）——AnimBP 拿此值喂 Trajectory */
+	UPROPERTY(BlueprintReadOnly, Category="Movement|MM")
+	float DesiredSpeed = 0.f;
 
-	/** 移除 BlockMovement Tag——AnimNotify 回调 */
-	UFUNCTION(BlueprintCallable, Category="Movement|Transition")
-	void RemoveBlockMovementTag() const;
+	/** 摇杆瞬时目标巡航速度（cm/s，无平滑）——AnimBP 可读此值做启停方向判断 */
+	UPROPERTY(BlueprintReadOnly, Category="Movement|MM")
+	float TargetCruiseSpeed = 0.f;
+
+	/** 强制 MM 输出 Idle Pose——BlockMovement 时切断 MM，防止 RM 和蒙太奇 RM 叠加 */
+	UPROPERTY(BlueprintReadOnly, Category="Movement|MM")
+	bool bForceMMIdle = false;
+
+	/** 是否拔刀态——AnimBP 读此值切换 Database_Unarmed / Database_Armed */
+	UPROPERTY(BlueprintReadOnly, Category="Movement|MM")
+	bool bUnsheathed = false;
 
 private:
-	/** 行走速度（cm/s）——对应混合空间 Walk 节点，摇杆刚过死区时的最低速度 */
-	UPROPERTY(EditDefaultsOnly, Category="Movement|Speed")
-	float WalkSpeed = 150.f;
+	// ── 速度计算 ────────────────────────────────────────────────
 
-	/** 奔跑速度（cm/s）——对应混合空间 Run 节点，摇杆推满时的最高速度 */
-	UPROPERTY(EditDefaultsOnly, Category="Movement|Speed")
-	float RunSpeed = 500.f;
+	float CalcCruiseSpeed(float StickMagnitude) const;
 
-	/** 冲刺速度（cm/s）——按住 Sprint 时无视摇杆幅度的固定速度，混合空间用 Run 动画加速播放 */
-	UPROPERTY(EditDefaultsOnly, Category="Movement|Speed")
-	float SprintSpeed = 650.f;
+	// ── 收刀态巡航速度常量 ─────────────────────────────────────
 
-	/** 摇杆死区——幅度低于此值不触发移动，防止轻微触碰触发起步动画 */
+	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed")
+	float WalkCruise_Sheathed = 150.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed")
+	float RunCruise_Sheathed = 500.f;
+
+	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed")
+	float SprintCruise = 650.f;
+
+	// ── 拔刀态巡航速度（单速，走跑合一）────────────────────────
+
+	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Unsheathed")
+	float RunCruise_Unsheathed = 450.f;
+
+	// ── 其他参数 ────────────────────────────────────────────────
+
+	/** 摇杆死区 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|Deadzone")
-	float MoveDeadzone = 0.2f;
+	float MoveDeadzone = 0.1f;
+
+	/** 期望速度平滑速率——DesiredSpeed 追踪 TargetCruiseSpeed 的 InterpSpeed（>1 时越大越灵敏） */
+	UPROPERTY(EditDefaultsOnly, Category="Movement|MM")
+	float DesiredSpeedInterpSpeed = 20.f;
+
+	/** 角色旋转速度（度/秒）——DoMove 每帧 RInterpTo 的目标朝向 */
+	UPROPERTY(EditDefaultsOnly, Category="Movement|Rotation")
+	float TurnRate = 360.f;
 
 	/** Sprint 是否按住中 */
 	bool bSprintHeld = false;
 
-	/** 上一帧是否处于常速移动中——用于检测起步/停步边沿，避免起步时 CMC 先滑一帧 */
-	bool bHasMovementInput = false;
-
-	/** 摇杆输入世界方向——每帧 DoMove 更新，不受 BlockMovement 影响，供 MotionWarping/AnimBP 读 */
+	/** 摇杆输入世界方向——每帧 DoMove 更新，不受 BlockMovement 影响 */
 	FVector LastMovementInputDir = FVector::ZeroVector;
 
-	/** ★ 当前过渡蒙太奇播放状态——AnimBP 每帧读取 */
-	ETransitionState TransitionState = ETransitionState::None;
-
-	/** ★ 松手瞬间的 Speed 快照——区分 Walk_Stop / Run_Stop */
-	float SnapSpeedAtRelease = 0.f;
-
-	/** 添加 BlockMovement Tag 以触发起步/停步蒙太奇 */
-	void AddBlockMovementTag() const;
+	/** 本帧已处理理论速度的帧号——防止 Tick 和 DoMove 同帧重复处理 */
+	uint64 LastTheoryUpdateFrame = 0;
 };

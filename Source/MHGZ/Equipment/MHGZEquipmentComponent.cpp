@@ -8,9 +8,8 @@
 #include "ActionSystem/MHGZWeaponComboData.h"
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
-#include "AttributeSystem/Res_InsectGlaive.h"
 #include "Data/MHGZDataManager.h"
-#include "InsectGlaive/Kinsect/InsectGlaiveKinsectData.h"
+#include "Inventory/MHGZItemTypes.h"
 #include "AbilitySystemComponent.h"
 #include "GameplayEffect.h"
 
@@ -117,26 +116,79 @@ void UMHGZEquipmentComponent::ApplyItemEffects(UMHGZEquipmentInstance* Item)
 {
 	if (!Item || !Item->Definition) return;
 
-	UAbilitySystemComponent* ASC = GetPlayerASC();
+	UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(GetPlayerASC());
 	if (!ASC) return;
 
 	// Apply 词条 GE
 	ApplyEntryGEs(ASC, Item->Definition->Entries);
 
-	// 检查是否为武器定义 → 创建 ResourceComponent
+	// 检查是否为武器定义
 	if (UMHGZWeaponDefinition* WeaponDef = Cast<UMHGZWeaponDefinition>(Item->Definition))
 	{
-		// 查 DT_WeaponResourceConfig 获取 ResourceComponent 类
-		// 简化：硬编码虫棍
-		if (WeaponDef->WeaponTypeTag.MatchesTag(
-			FGameplayTag::RequestGameplayTag(TEXT("Weapon.InsectGlaive"))))
+		AActor* Owner = GetOwner();
+		UMHGZDataManager* DataMgr = UMHGZDataManager::Get(this);
+
+		// ── ① 创建 ResourceComponent（查 DT_WeaponResourceConfig）──
+		if (DataMgr)
 		{
-			// 创建 URes_InsectGlaive 并注册
-			AActor* Owner = GetOwner();
-			if (Owner)
+			if (UDataTable* ResConfigDT = DataMgr->GetWeaponResourceConfig())
 			{
-				URes_InsectGlaive* IGComp = NewObject<URes_InsectGlaive>(Owner);
-				IGComp->RegisterComponent();
+				TArray<FWeaponResourceConfigRow*> ResRows;
+				ResConfigDT->GetAllRows<FWeaponResourceConfigRow>(TEXT("MHGZ"), ResRows);
+				for (const FWeaponResourceConfigRow* ResRow : ResRows)
+				{
+					if (ResRow && ResRow->WeaponTypeTag == WeaponDef->WeaponTypeTag
+						&& ResRow->ResourceComponentClass)
+					{
+						if (Owner)
+						{
+							UMHGZWeaponResourceComponent* RC = NewObject<UMHGZWeaponResourceComponent>(
+								Owner, ResRow->ResourceComponentClass);
+							RC->RegisterComponent();
+						}
+						break;
+					}
+				}
+			}
+		}
+
+		// ── ② 查连招表映射 → ③ 激活协调器 + 注入 → ④ 授予武器技能 ──
+		if (DataMgr)
+		{
+			if (UDataTable* ComboConfigDT = DataMgr->GetWeaponComboConfig())
+			{
+				TArray<FWeaponComboConfigRow*> ComboRows;
+				ComboConfigDT->GetAllRows<FWeaponComboConfigRow>(TEXT("MHGZ"), ComboRows);
+				for (const FWeaponComboConfigRow* ComboRow : ComboRows)
+				{
+					if (!ComboRow || ComboRow->WeaponTypeTag != WeaponDef->WeaponTypeTag
+						|| ComboRow->ComboDataAsset.IsNull())
+					{
+						continue;
+					}
+
+					UMHGZWeaponComboData* ComboData = ComboRow->ComboDataAsset.LoadSynchronous();
+					if (!ComboData) break;
+
+					// ③ 激活连招协调器 + 注入连招表
+					UGA_WeaponComboCoordinator* Coord = NewObject<UGA_WeaponComboCoordinator>(Owner);
+					FGameplayAbilitySpec CoordSpec(Coord, 1, INDEX_NONE, ASC);
+					ASC->GiveAbilityAndActivateOnce(CoordSpec);
+					Coord->InjectComboData(ComboData);
+
+					// ④ 授予所有武器 Ability（从 ComboTable 收集）
+					TArray<TSubclassOf<UGameplayAbility>> WeaponAbilities;
+					for (const FComboNode& Node : ComboData->ComboTable)
+					{
+						if (Node.AbilityClass)
+						{
+							WeaponAbilities.AddUnique(Node.AbilityClass);
+						}
+					}
+					ASC->GrantWeaponAbilities(WeaponAbilities);
+
+					break;  // 一个武器只匹配一行
+				}
 			}
 		}
 	}
