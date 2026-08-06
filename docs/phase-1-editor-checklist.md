@@ -85,7 +85,7 @@ IA_Y
 | `【已有，需配置】` | `/Game/Blueprints/Characters/ABP_MH_Character` | 确认 AnimGraph 中存在 `DefaultGroup.DefaultSlot` |
 | `【已有，需配置】` | `/Game/Blueprints/Monster/BP_TrainingDummy` | 确认父类并指定新建的 `DA_TrainingDummy_Phase1`；该资产不是 Codex 创建的 |
 | `【已有，需配置】` | `/Game/Input/Contexts/IMC_MHGZ_Demo` 和 `/Game/Input/Actions/MHGZ/IA_Y` | 确认按键映射，不需要重复创建 Input Action |
-| `【已有，需配置】` | `/Game/Weapons/InsectGlaive/Meshes/GUN/SKM_gun` 或你的实际虫棍网格 | 添加/校准 `IG_Base`、`IG_Tip` Socket |
+| `【已有，需配置】` | `/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_gun` 或你的实际虫棍网格 | 添加/校准 `IG_Base`、`IG_Tip` Socket |
 
 ### 2.4 已经由代码提供，不需要创建 UE 资产的内容
 
@@ -148,7 +148,7 @@ WeaponComboConfig=/Game/你的目录/DT_WeaponComboConfig.DT_WeaponComboConfig
 
 ### 4.1 武器 Skeleton 上创建 Socket
 
-1. 打开 `/Game/Weapons/InsectGlaive/Meshes/GUN/SKM_gun`。
+1. 打开 `/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_gun`。
 2. 在其 Skeleton Tree 的合适骨骼上创建两个 Socket：
    - `IG_Base`：靠近握持端；
    - `IG_Tip`：靠近棍尖。

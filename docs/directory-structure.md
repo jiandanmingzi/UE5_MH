@@ -60,8 +60,14 @@ Content/
         ├── Anims/Montage/          虫棍 Montage
         ├── Data/
         ├── Materials/
+        │   ├── Glaive/
+        │   └── Kinsect/
         ├── Meshes/
+        │   ├── Glaive/
+        │   └── Kinsect/
         ├── Textures/
+        │   ├── Glaive/
+        │   └── Kinsect/
         └── VFX/
 ```
 
