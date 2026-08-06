@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "batch": "phase2-input-domain",
+  "description": "Move MHGZ InputAction assets out of the misleading Triggers folder and place the demo mapping context under Contexts.",
+  "backup_directory": "Saved/AssetOrganizationBackup/phase2-input-pre-move",
+  "protected_paths": [
+    "/Game/ThirdPerson",
+    "/Game/Map",
+    "/Game/__ExternalActors__",
+    "/Game/__ExternalObjects__"
+  ],
+  "moves": [
+    {
+      "source": "/Game/Input/IMC_MHGZ_Demo",
+      "destination": "/Game/Input/Contexts/IMC_MHGZ_Demo",
+      "reason": "Separate Input Mapping Context assets from the Input root.",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/PlayerController/BP_MHGZ_PlayerController"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_A",
+      "destination": "/Game/Input/Actions/MHGZ/IA_A",
+      "expected_referencers_after_move": [
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_B",
+      "destination": "/Game/Input/Actions/MHGZ/IA_B",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_PlayerState",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_LB",
+      "destination": "/Game/Input/Actions/MHGZ/IA_LB"
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_Look",
+      "destination": "/Game/Input/Actions/MHGZ/IA_Look",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_IG_Character",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_LT",
+      "destination": "/Game/Input/Actions/MHGZ/IA_LT",
+      "expected_referencers_after_move": [
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_MouseLook_Demo",
+      "destination": "/Game/Input/Actions/MHGZ/IA_MouseLook_Demo",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_IG_Character",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_Move",
+      "destination": "/Game/Input/Actions/MHGZ/IA_Move",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_IG_Character",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_RB",
+      "destination": "/Game/Input/Actions/MHGZ/IA_RB",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_IG_Character",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_RT",
+      "destination": "/Game/Input/Actions/MHGZ/IA_RT",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_PlayerState",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_RTA",
+      "destination": "/Game/Input/Actions/MHGZ/IA_RTA",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_PlayerState",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_RTB",
+      "destination": "/Game/Input/Actions/MHGZ/IA_RTB",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_PlayerState",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_RTY",
+      "destination": "/Game/Input/Actions/MHGZ/IA_RTY",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_PlayerState",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_Y",
+      "destination": "/Game/Input/Actions/MHGZ/IA_Y",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_PlayerState",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    },
+    {
+      "source": "/Game/Input/Triggers/IA_YB",
+      "destination": "/Game/Input/Actions/MHGZ/IA_YB",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/BP_PlayerState",
+        "/Game/Input/Contexts/IMC_MHGZ_Demo"
+      ]
+    }
+  ]
+}

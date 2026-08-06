@@ -172,6 +172,7 @@ Temporary Items
 
 # Cache files for the editor to use
 /DerivedDataCache
+/Content/Developers/
 
 # Localization intermediate / export files
 /Content/Localization/**/*.csv

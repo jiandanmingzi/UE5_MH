@@ -1,0 +1,3 @@
+/Game/Blueprints/Characters/BP_IG_Character.BP_IG_Character
+/Game/Blueprints/Characters/BP_PlayerState.BP_PlayerState
+/Game/Blueprints/PlayerController/BP_MHGZ_PlayerController.BP_MHGZ_PlayerController

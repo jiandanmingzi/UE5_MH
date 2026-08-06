@@ -122,7 +122,7 @@ UI/
 
 **Mesh 设置：** `SK_Dummy` + `ABP_Dummy`
 
-### 3.3 BP_IG_GameMode（GameMode 蓝图）
+### 3.3 BP_Demo_GameMode（GameMode 蓝图）
 
 **父类：** `AMHGZGameMode`
 
@@ -495,7 +495,7 @@ Canvas Panel（根）
 
 ### 8.2 GameMode 配置
 
-打开 `BP_IG_GameMode`：
+打开 `BP_Demo_GameMode`：
 - `Default Pawn Class = BP_IG_Character`
 - `HUD Class = AMHGZHUD`
 

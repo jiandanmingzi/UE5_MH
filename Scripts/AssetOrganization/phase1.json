@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "batch": "phase1-low-risk",
+  "description": "Move the first low-risk MHGZ gameplay assets through Unreal AssetTools. Asset names remain unchanged.",
+  "backup_directory": "Saved/AssetOrganizationBackup/phase1-pre-move",
+  "protected_paths": [
+    "/Game/Data/DT_WeaponComboConfig",
+    "/Game/ThirdPerson",
+    "/Game/Map",
+    "/Game/__ExternalActors__",
+    "/Game/__ExternalObjects__",
+    "/Game/Characters/Mannequins"
+  ],
+  "moves": [
+    {
+      "source": "/Game/Characters/Abilities/GA_IG_BaDao",
+      "destination": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_BaDao",
+      "reason": "Place the Insect Glaive Gameplay Ability in the documented weapon ability domain."
+    },
+    {
+      "source": "/Game/Characters/Abilities/GA_IG_R_TuCI",
+      "destination": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_R_TuCI",
+      "reason": "Place the Insect Glaive Gameplay Ability in the documented weapon ability domain.",
+      "expected_referencers_after_move": [
+        "/Game/Data/DA_IG_Combo"
+      ]
+    },
+    {
+      "source": "/Game/Characters/Animations/AM_Shth_BaDao",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_Shth_BaDao",
+      "reason": "Keep weapon montages with the Insect Glaive feature instead of the generic character root.",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Ability/InsectGlaive/GA_IG_BaDao"
+      ]
+    },
+    {
+      "source": "/Game/Characters/Animations/AM_Shth_R_TuCi",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_Shth_R_TuCi",
+      "reason": "Keep weapon montages with the Insect Glaive feature instead of the generic character root.",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Ability/InsectGlaive/GA_IG_R_TuCI"
+      ]
+    },
+    {
+      "source": "/Game/Blueprints/enemy/BP_TrainingDummy",
+      "destination": "/Game/Blueprints/Monster/BP_TrainingDummy",
+      "reason": "Replace the lowercase generic enemy folder with the project's Monster system domain."
+    }
+  ]
+}
