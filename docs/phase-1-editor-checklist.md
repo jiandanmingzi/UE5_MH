@@ -79,7 +79,7 @@ IA_Y
 | 状态 | 已有内容 | 本阶段需要做什么 |
 |---|---|---|
 | `【已有，可复用】` | 你已经导入 UE5 的虫棍攻击 Anim Sequence | 任选一个 Skeleton 兼容的攻击动画，用它创建新的 `AM_IG_Phase1_Slash`；原动画本身不需要复制或重新导入 |
-| `【已有，可作示例】` | `/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_TuCi` | 仅是推荐示例，可以替换成你自己的攻击动画 |
+| `【已有，可作示例】` | `/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Shth_TuCi` | 仅是推荐示例，可以替换成你自己的攻击动画 |
 | `【已有，需配置】` | `/Game/Blueprints/Characters/BP_IG_Character` | 配置武器组件、`WeaponTrace` 标签和 `DefaultWeaponDefinition`，不要再新建同名角色蓝图 |
 | `【已有，需配置】` | `/Game/Blueprints/Characters/BP_PlayerState` | 在继承的 ASC 上增加 `IA_Y -> Input.Weapon.Y`，不要再新建 PlayerState |
 | `【已有，需配置】` | `/Game/Blueprints/Characters/ABP_MH_Character` | 确认 AnimGraph 中存在 `DefaultGroup.DefaultSlot` |
@@ -175,7 +175,7 @@ WeaponComboConfig=/Game/你的目录/DT_WeaponComboConfig.DT_WeaponComboConfig
 建议先使用已有动画：
 
 ```text
-/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_TuCi
+/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Shth_TuCi
 ```
 
 1. 右键该 Anim Sequence，选择 `Create -> Create AnimMontage`。

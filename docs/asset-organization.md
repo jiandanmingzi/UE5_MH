@@ -56,6 +56,14 @@
 
 迁移后新进程验证 6/6 资产和 4 条内部引用均指向新路径，全库无旧路径残留；MHGZ 输入继续独立位于 `/Game/Input/Actions/MHGZ` 和 `/Game/Input/Contexts`。迁移前备份位于 `Saved/AssetOrganizationBackup/phase6-third-person-input-pre-move`。
 
+第七批将剩余 137 个已确认来源的导入虫棍 AnimSequence 从角色模板域迁入 `/Game/Weapons/InsectGlaive/Anims/Sequences/Imported`。本批不按招式含义重命名，也不删除候选资产；原有处置分组映射为：
+
+- `unknown` → `Imported/Review/Unknown`
+- `useless` → `Imported/Review/UnusedCandidate`
+- `XianJie` → `Imported/Transitions`
+
+迁移后新进程验证 137/137 目标资产及 `AM_Shth_BaDao`、`AM_Shth_R_TuCi` 两条 Montage 引用。Asset Registry 不再包含旧目录依赖；`AS_Shth_BaDao` 的 Interchange 导入设置仍保留历史 `contentImportPath`，它属于重导入元数据，不是资产引用。迁移前 94.43 MiB 备份位于 `Saved/AssetOrganizationBackup/phase7-insect-glaive-imported-animations-pre-move`。
+
 ## 不可直接移动的内容
 
 - 不得在资源管理器中移动或重命名 `.uasset`、`.umap`。
@@ -71,5 +79,5 @@
 
 ## 后续批次
 
-1. 虫棍源动画分类：旧目录还剩 137 个动画；攻击、空中复合动作以及 `useless`、`unknown`、`XianJie` 下的 32 个数字命名动画继续保持原位，等待人工确认语义。
+1. 导入动画复审：`Imported/Review` 与 `Imported/Transitions` 只完成目录隔离，数字命名动作仍需人工预览后才能重命名或删除。
 2. 模板隔离：`LevelPrototyping`、其地图外部 Actor 和无对应地图的 Variant 外部数据必须作为整体单独审查。

@@ -63,7 +63,12 @@ Content/
         ├── Anims/
         │   ├── Montage/            虫棍 Montage
         │   └── Sequences/
-        │       └── Locomotion/     已确认的待机、行走与 Dash 动画
+        │       ├── Locomotion/     已确认的待机、行走与 Dash 动画
+        │       └── Imported/       导入的虫棍动作序列
+        │           ├── Review/
+        │           │   ├── Unknown/
+        │           │   └── UnusedCandidate/
+        │           └── Transitions/
         ├── Data/
         ├── Materials/
         │   ├── Glaive/
@@ -84,7 +89,7 @@ Content/
 - `ThirdPerson/`、`LevelPrototyping/` 是模板/原型内容。
 - `Map/` 和 `ThirdPerson/Lvl_ThirdPerson` 是地图批次；默认地图路径位于 `Config/DefaultEngine.ini`。
 - `__ExternalActors__/`、`__ExternalObjects__/` 由地图和 World Partition 管理，禁止手工移动。
-- `Characters/Mannequins/Anims/Armed/InsectGlaive` 仍有 137 个待分类源动画；名称或动作语义未确认前保持原位。
+- `Weapons/InsectGlaive/Anims/Sequences/Imported/Review` 中的数字命名动画仍需人工预览；未经确认不得删除或按猜测重命名。
 - ThirdPerson 模板 Input 已隔离至 `ThirdPerson/Input`，项目运行时输入保持在 `Input/Actions/MHGZ` 和 `Input/Contexts`；两者不得交叉引用。
 
 ## 资产移动规则
