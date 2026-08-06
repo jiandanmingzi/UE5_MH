@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "batch": "phase5-redirectors",
+  "description": "Remove the obsolete BP_IG_GameMode redirector after every project reference has moved to BP_Demo_GameMode.",
+  "backup_directory": "Saved/AssetOrganizationBackup/phase5-redirectors-pre-cleanup",
+  "redirectors": [
+    {
+      "path": "/Game/Blueprints/GameModes/BP_IG_GameMode",
+      "expected_destination": "/Game/Blueprints/GameModes/BP_Demo_GameMode"
+    }
+  ]
+}

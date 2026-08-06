@@ -45,7 +45,9 @@
 
 `AS_Shth_Idle` 与 3 个 `AS_Shth_Walk_*` 的 `PSD_MH_Shth_Move` 引用已由 AssetTools 重写并通过新进程验证；另外 7 个动画当前无引用。迁移没有修改资产名，全库未发现本批旧路径残留，资产总数仍为 954 个 `.uasset` 和 2 个 `.umap`。迁移前备份位于 `Saved/AssetOrganizationBackup/phase4-ig-anims-locomotion-pre-move`。
 
-默认地图 Windows 迭代 Cook 覆盖了 524 个包。首次 Cook 发现 `Config/DefaultEngine.ini` 的 `GlobalDefaultGameMode` 仍指向 `BP_IG_GameMode` Redirector；资产记录确认其最终目标为 `BP_Demo_GameMode`，配置已改为直接引用 `BP_Demo_GameMode_C`。修正后的 Cook 成功完成。Redirector 资产本身暂时保留，等待以后执行全项目 Fix Up Redirectors 时再删除。
+默认地图 Windows 迭代 Cook 覆盖了 524 个包。首次 Cook 发现 `Config/DefaultEngine.ini` 的 `GlobalDefaultGameMode` 仍指向 `BP_IG_GameMode` Redirector；资产记录确认其最终目标为 `BP_Demo_GameMode`，配置已改为直接引用 `BP_Demo_GameMode_C`。修正后的 Cook 成功完成。
+
+第五批完成 Redirector 收口。清理前确认 `BP_IG_GameMode` 是全库唯一的 `ObjectRedirector`，序列化目标为 `BP_Demo_GameMode`，目标资产存在且反向引用为 0。原包已备份至 `Saved/AssetOrganizationBackup/phase5-redirectors-pre-cleanup`，删除后由全新 UE 进程确认旧资产不存在、目标仍可加载，项目内 ObjectRedirector 数量为 0。清理后的基线为 953 个 `.uasset` 和 2 个 `.umap`。
 
 ## 不可直接移动的内容
 
@@ -58,7 +60,7 @@
 
 ## 执行方式
 
-迁移清单位于 `Scripts/AssetOrganization/phase*.json`。`organize_assets.py` 默认只执行检查；只有显式传入 `--apply` 才会调用 Unreal AssetTools 批量移动资产。存在待移动资产时，脚本还会检查清单中的 `backup_directory`，并要求每个源包与备份的 SHA-256 一致。`audit_animation_assets.py` 只读取动画属性和 Asset Registry 反向引用，报告写入 `Saved/AssetOrganization`。移动完成后还必须按受影响资产类型执行 Redirector、反向引用、蓝图编译、C++ 编译和地图 Cook 验证。
+迁移清单位于 `Scripts/AssetOrganization/phase*.json`。`organize_assets.py` 默认只执行检查；只有显式传入 `--apply` 才会调用 Unreal AssetTools 批量移动资产。存在待移动资产时，脚本还会检查清单中的 `backup_directory`，并要求每个源包与备份的 SHA-256 一致。`audit_animation_assets.py` 和 `audit_redirectors.py` 都是只读审计工具，报告写入 `Saved/AssetOrganization`。移动或清理完成后还必须按受影响资产类型执行 Redirector、反向引用、蓝图编译、C++ 编译和地图 Cook 验证。
 
 ## 后续批次
 
