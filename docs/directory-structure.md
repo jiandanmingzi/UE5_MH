@@ -48,11 +48,14 @@ Content/
 │   ├── Core/
 │   └── InsectGlaive/
 ├── Input/
-│   ├── Actions/                    模板 InputAction
-│   │   └── MHGZ/                  项目 InputAction
+│   ├── Actions/MHGZ/               项目 InputAction
 │   ├── Contexts/                   IMC_MHGZ_Demo
 │   └── Touch/
 ├── Kinsect/                        猎虫模型、动画和品种资产的规划目录
+├── ThirdPerson/
+│   └── Input/                      保留的模板输入资产
+│       ├── Actions/
+│       └── Contexts/
 ├── UI/
 │   └── InsectGlaive/
 └── Weapons/
@@ -82,7 +85,7 @@ Content/
 - `Map/` 和 `ThirdPerson/Lvl_ThirdPerson` 是地图批次；默认地图路径位于 `Config/DefaultEngine.ini`。
 - `__ExternalActors__/`、`__ExternalObjects__/` 由地图和 World Partition 管理，禁止手工移动。
 - `Characters/Mannequins/Anims/Armed/InsectGlaive` 仍有 137 个待分类源动画；名称或动作语义未确认前保持原位。
-- `Input/Actions` 与 `Input/Actions/MHGZ` 中暂时保留两套 `IA_Move`、`IA_Look`。当前运行时引用使用 MHGZ 版本，模板版及其 IMC 的删除留给独立批次。
+- ThirdPerson 模板 Input 已隔离至 `ThirdPerson/Input`，项目运行时输入保持在 `Input/Actions/MHGZ` 和 `Input/Contexts`；两者不得交叉引用。
 
 ## 资产移动规则
 

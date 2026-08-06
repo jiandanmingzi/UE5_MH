@@ -30,7 +30,7 @@
 - `IMC_MHGZ_Demo` → `/Game/Input/Contexts`
 - 原 `/Game/Input/Triggers` 下 14 个 MHGZ InputAction → `/Game/Input/Actions/MHGZ`
 
-两套同名 `IA_Move`、`IA_Look` 都被保留，未做合并。迁移后 15 个资产及其来自 `IMC_MHGZ_Demo`、角色、PlayerState 和 PlayerController 的反向引用全部通过新进程校验；3 个受影响蓝图编译为 0 error / 0 warning。迁移前输入资产备份位于 `Saved/AssetOrganizationBackup/phase2-input-pre-move`。
+两套同名 `IA_Move`、`IA_Look` 当时都被保留，未做合并。迁移后 15 个资产及其来自 `IMC_MHGZ_Demo`、角色、PlayerState 和 PlayerController 的反向引用全部通过新进程校验；3 个受影响蓝图编译为 0 error / 0 warning。迁移前输入资产备份位于 `Saved/AssetOrganizationBackup/phase2-input-pre-move`。
 
 第三批虫棍美术目录整理已完成：
 
@@ -49,6 +49,13 @@
 
 第五批完成 Redirector 收口。清理前确认 `BP_IG_GameMode` 是全库唯一的 `ObjectRedirector`，序列化目标为 `BP_Demo_GameMode`，目标资产存在且反向引用为 0。原包已备份至 `Saved/AssetOrganizationBackup/phase5-redirectors-pre-cleanup`，删除后由全新 UE 进程确认旧资产不存在、目标仍可加载，项目内 ObjectRedirector 数量为 0。清理后的基线为 953 个 `.uasset` 和 2 个 `.umap`。
 
+第六批隔离 ThirdPerson 模板输入资产。引用审计确认 `IMC_Default`、`IMC_MouseLook` 没有项目运行时引用，4 个模板 InputAction 只被这两个 IMC 内部引用，因此保留资产但迁入：
+
+- `/Game/ThirdPerson/Input/Contexts`
+- `/Game/ThirdPerson/Input/Actions`
+
+迁移后新进程验证 6/6 资产和 4 条内部引用均指向新路径，全库无旧路径残留；MHGZ 输入继续独立位于 `/Game/Input/Actions/MHGZ` 和 `/Game/Input/Contexts`。迁移前备份位于 `Saved/AssetOrganizationBackup/phase6-third-person-input-pre-move`。
+
 ## 不可直接移动的内容
 
 - 不得在资源管理器中移动或重命名 `.uasset`、`.umap`。
@@ -65,5 +72,4 @@
 ## 后续批次
 
 1. 虫棍源动画分类：旧目录还剩 137 个动画；攻击、空中复合动作以及 `useless`、`unknown`、`XianJie` 下的 32 个数字命名动画继续保持原位，等待人工确认语义。
-2. 输入去重：目录已归位。当前引用审计显示模板 IMC/InputAction 只在模板簇内部互相引用，项目运行时使用 MHGZ 版本；是否删除模板簇仍作为独立批次处理。
-3. 模板隔离：`LevelPrototyping`、ThirdPerson 模板和无对应地图的 Variant 外部数据单独审查。
+2. 模板隔离：`LevelPrototyping`、其地图外部 Actor 和无对应地图的 Variant 外部数据必须作为整体单独审查。
