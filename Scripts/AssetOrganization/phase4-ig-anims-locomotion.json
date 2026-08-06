@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "batch": "phase4-ig-anims-locomotion",
+  "description": "Move the unambiguously named Insect Glaive locomotion AnimSequences into the weapon animation domain without renaming assets.",
+  "backup_directory": "Saved/AssetOrganizationBackup/phase4-ig-anims-locomotion-pre-move",
+  "protected_paths": [
+    "/Game/ThirdPerson",
+    "/Game/Map",
+    "/Game/__ExternalActors__",
+    "/Game/__ExternalObjects__"
+  ],
+  "moves": [
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_Dash_Air",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_Dash_Air"
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_Dash_Back",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_Dash_Back"
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_Dash_Forward",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_Dash_Forward"
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_Dash_Left",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_Dash_Left"
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_Dash_Right",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_Dash_Right"
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_Idle",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_Idle",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/PSD_MH_Shth_Move"
+      ]
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_ShouDao_Idle",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_ShouDao_Idle"
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_ShouDao_Walk",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_ShouDao_Walk"
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_Walk_Loop",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_Walk_Loop",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/PSD_MH_Shth_Move"
+      ]
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_Walk_Start",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_Walk_Start",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/PSD_MH_Shth_Move"
+      ]
+    },
+    {
+      "source": "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive/AS_Shth_Walk_Stop",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_Shth_Walk_Stop",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Characters/PSD_MH_Shth_Move"
+      ]
+    }
+  ]
+}

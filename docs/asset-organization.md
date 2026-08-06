@@ -39,6 +39,12 @@
 
 本批仅规范 26 个资产的目录名，没有修改资产名。迁移后新进程验证了材质、纹理、网格、骨架、PhysicsAsset、`DA_IG_HuoLongGun` 和骨架预览网格之间的反向引用；全库扫描未发现旧路径残留，资产数量保持为 954 个 `.uasset` 和 2 个 `.umap`，默认地图 Windows 增量 Cook 为 0 error / 0 warning。迁移前备份位于 `Saved/AssetOrganizationBackup/phase3-insect-glaive-art-pre-move`。
 
+第四批开始整理虫棍 AnimSequence。UE 只读审计确认旧目录共有 148 个 AnimSequence，其中仅 6 个当前存在反向引用。为避免按拼音或数字编号误判动作语义，本批仅采用精确白名单，将 11 个名称明确的待机、行走和 Dash 动画迁移至：
+
+`/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion`
+
+`AS_Shth_Idle` 与 3 个 `AS_Shth_Walk_*` 的 `PSD_MH_Shth_Move` 引用已由 AssetTools 重写并通过新进程验证；另外 7 个动画当前无引用。迁移没有修改资产名，全库未发现本批旧路径残留，资产总数仍为 954 个 `.uasset` 和 2 个 `.umap`。迁移前备份位于 `Saved/AssetOrganizationBackup/phase4-ig-anims-locomotion-pre-move`。
+
 默认地图 Windows 迭代 Cook 覆盖了 524 个包。首次 Cook 发现 `Config/DefaultEngine.ini` 的 `GlobalDefaultGameMode` 仍指向 `BP_IG_GameMode` Redirector；资产记录确认其最终目标为 `BP_Demo_GameMode`，配置已改为直接引用 `BP_Demo_GameMode_C`。修正后的 Cook 成功完成。Redirector 资产本身暂时保留，等待以后执行全项目 Fix Up Redirectors 时再删除。
 
 ## 不可直接移动的内容
@@ -52,10 +58,10 @@
 
 ## 执行方式
 
-迁移清单位于 `Scripts/AssetOrganization/phase*.json`。`organize_assets.py` 默认只执行检查；只有显式传入 `--apply` 才会调用 Unreal AssetTools 批量移动资产。存在待移动资产时，脚本还会检查清单中的 `backup_directory`，并要求每个源包与备份的 SHA-256 一致。移动完成后还必须按受影响资产类型执行 Redirector、反向引用、蓝图编译、C++ 编译和地图 Cook 验证。
+迁移清单位于 `Scripts/AssetOrganization/phase*.json`。`organize_assets.py` 默认只执行检查；只有显式传入 `--apply` 才会调用 Unreal AssetTools 批量移动资产。存在待移动资产时，脚本还会检查清单中的 `backup_directory`，并要求每个源包与备份的 SHA-256 一致。`audit_animation_assets.py` 只读取动画属性和 Asset Registry 反向引用，报告写入 `Saved/AssetOrganization`。移动完成后还必须按受影响资产类型执行 Redirector、反向引用、蓝图编译、C++ 编译和地图 Cook 验证。
 
 ## 后续批次
 
-1. 虫棍源动画分类：先区分正式动画、`useless`、`unknown`、`XianJie`，再决定是否移动。
-2. 输入去重：目录已归位，但 `IA_Move`、`IA_Look` 的模板版和 MHGZ 版仍分别有效，后续如需合并必须先重新绑定两个 IMC。
+1. 虫棍源动画分类：旧目录还剩 137 个动画；攻击、空中复合动作以及 `useless`、`unknown`、`XianJie` 下的 32 个数字命名动画继续保持原位，等待人工确认语义。
+2. 输入去重：目录已归位。当前引用审计显示模板 IMC/InputAction 只在模板簇内部互相引用，项目运行时使用 MHGZ 版本；是否删除模板簇仍作为独立批次处理。
 3. 模板隔离：`LevelPrototyping`、ThirdPerson 模板和无对应地图的 Variant 外部数据单独审查。

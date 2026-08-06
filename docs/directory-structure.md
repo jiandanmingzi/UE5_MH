@@ -57,7 +57,10 @@ Content/
 │   └── InsectGlaive/
 └── Weapons/
     └── InsectGlaive/
-        ├── Anims/Montage/          虫棍 Montage
+        ├── Anims/
+        │   ├── Montage/            虫棍 Montage
+        │   └── Sequences/
+        │       └── Locomotion/     已确认的待机、行走与 Dash 动画
         ├── Data/
         ├── Materials/
         │   ├── Glaive/
@@ -78,8 +81,8 @@ Content/
 - `ThirdPerson/`、`LevelPrototyping/` 是模板/原型内容。
 - `Map/` 和 `ThirdPerson/Lvl_ThirdPerson` 是地图批次；默认地图路径位于 `Config/DefaultEngine.ini`。
 - `__ExternalActors__/`、`__ExternalObjects__/` 由地图和 World Partition 管理，禁止手工移动。
-- `Characters/Mannequins/Anims/Armed/InsectGlaive` 有大量源动画并被 PoseSearch、AnimBP 和 Montage 交叉引用，分类前保持原位。
-- `Input/Actions` 与 `Input/Actions/MHGZ` 中保留两套有效的 `IA_Move`、`IA_Look`；前者属于模板 IMC，后者属于 MHGZ，不要按同名资产删除。
+- `Characters/Mannequins/Anims/Armed/InsectGlaive` 仍有 137 个待分类源动画；名称或动作语义未确认前保持原位。
+- `Input/Actions` 与 `Input/Actions/MHGZ` 中暂时保留两套 `IA_Move`、`IA_Look`。当前运行时引用使用 MHGZ 版本，模板版及其 IMC 的删除留给独立批次。
 
 ## 资产移动规则
 
