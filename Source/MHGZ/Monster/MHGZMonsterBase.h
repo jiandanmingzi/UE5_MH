@@ -9,6 +9,7 @@
 
 class UAbilitySystemComponent;
 class UMHGZMonsterHitzoneComponent;
+class UMHGZAttributeSet;
 
 /**
  * AMHGZMonsterBase — 怪物基类
@@ -25,6 +26,9 @@ public:
 	// ── IAbilitySystemInterface ──
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
+	UFUNCTION(BlueprintCallable, Category = "MHGZ|Monster")
+	UMHGZAttributeSet* GetAttributeSet() const { return AttributeSet; }
+
 	/** 强制恢复所有部位通道 */
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Monster")
 	void ForceRestoreAllChannels();
@@ -38,4 +42,7 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
+	TObjectPtr<UMHGZAttributeSet> AttributeSet;
 };

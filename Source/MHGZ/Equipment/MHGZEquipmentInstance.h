@@ -19,6 +19,12 @@ class UMHGZEquipmentInstance : public UObject
 	GENERATED_BODY()
 
 public:
+	/** 创建一个具有有效 ID 和定义引用的运行时装备实例。 */
+	UFUNCTION(BlueprintCallable, Category = "MHGZ|Equipment",
+		meta = (DefaultToSelf = "Outer"))
+	static UMHGZEquipmentInstance* CreateEquipmentInstance(
+		UObject* Outer, UMHGZEquipmentDefinition* InDefinition);
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FGuid InstanceID;
 

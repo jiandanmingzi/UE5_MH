@@ -84,7 +84,7 @@ FGameplayEffectSpecHandle UMHGZInsectGlaiveAbility::MakeDamageSpec(
 		if (Spec.IsValid())
 		{
 			Spec.Data->AddDynamicAssetTag(
-				FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.IG.TripleUp")));
+				FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.IG.TripleUpActivated")));
 		}
 	}
 

@@ -80,7 +80,7 @@ void UMHGZAimComponent::PerformAimTrace()
 	FCollisionQueryParams QueryParams;
 	QueryParams.AddIgnoredActor(Character);
 
-	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, ECC_GameTraceChannel1, QueryParams))
+	if (GetWorld()->LineTraceSingleByChannel(Hit, Start, End, AimChannel, QueryParams))
 	{
 		// 命中——检查是否怪物部位
 		UMHGZMonsterHitzoneComponent* Hitzone = Cast<UMHGZMonsterHitzoneComponent>(Hit.Component.Get());

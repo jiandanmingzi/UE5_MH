@@ -103,6 +103,9 @@ protected:
 	/** 按四级排序获取最佳匹配节点 */
 	const FComboNode* FindBestMatch(const TArray<const FComboNode*>& Candidates) const;
 
+	/** 每次有效输入后重置安全超时。 */
+	void ResetComboTimeout();
+
 private:
 	UPROPERTY()
 	TObjectPtr<UMHGZWeaponComboData> ComboData;

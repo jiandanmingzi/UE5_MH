@@ -18,6 +18,9 @@
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
+#include "Equipment/MHGZEquipmentComponent.h"
+#include "Equipment/MHGZEquipmentDefinition.h"
+#include "Equipment/MHGZEquipmentInstance.h"
 
 AMHGZCharacter::AMHGZCharacter()
 {
@@ -82,6 +85,26 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 	{
 		ASC->InitAbilityActorInfo(PS, this);
 		ASC->InitializeAbilitySystem();
+		EquipDefaultWeaponIfConfigured();
+	}
+}
+
+void AMHGZCharacter::EquipDefaultWeaponIfConfigured()
+{
+	if (!DefaultWeaponDefinition) return;
+
+	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+	if (!PS || !PS->GetEquipmentComponent()) return;
+
+	const FGameplayTag WeaponSlot =
+		FGameplayTag::RequestGameplayTag(TEXT("Equipment.Slot.Weapon"));
+	if (PS->GetEquipmentComponent()->GetEquippedItem(WeaponSlot)) return;
+
+	UMHGZEquipmentInstance* Instance =
+		UMHGZEquipmentInstance::CreateEquipmentInstance(PS, DefaultWeaponDefinition);
+	if (Instance)
+	{
+		PS->GetEquipmentComponent()->EquipItem(WeaponSlot, Instance);
 	}
 }
 
@@ -220,10 +243,28 @@ void AMHGZCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompo
 			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AMHGZCharacter::SprintReleased);
 			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Canceled, this, &AMHGZCharacter::SprintReleased);
 		}
+
+		if (AimAction)
+		{
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Started,
+				this, &AMHGZCharacter::AimPressed);
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed,
+				this, &AMHGZCharacter::AimReleased);
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Canceled,
+				this, &AMHGZCharacter::AimReleased);
+		}
 	}
 	else
 	{
 		UE_LOG(LogMHGZ, Error, TEXT("Failed to find Enhanced Input component!"));
+	}
+
+	// PossessedBy 可能早于 PlayerController::InputComponent 创建。此处输入组件已确定就绪，
+	// 再执行一次幂等初始化，保证 ASC 的 IA -> GameplayTag 路由实际完成绑定。
+	if (UMHGZAbilitySystemComponent* ASC =
+		Cast<UMHGZAbilitySystemComponent>(GetAbilitySystemComponent()))
+	{
+		ASC->InitializeAbilitySystem();
 	}
 }
 
@@ -259,6 +300,24 @@ void AMHGZCharacter::SprintPressed(const FInputActionValue& Value)
 void AMHGZCharacter::SprintReleased(const FInputActionValue& Value)
 {
 	bSprintHeld = false;
+}
+
+void AMHGZCharacter::AimPressed()
+{
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		ASC->AddLooseGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aiming")));
+	}
+}
+
+void AMHGZCharacter::AimReleased()
+{
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	{
+		ASC->RemoveLooseGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aiming")));
+	}
 }
 
 FVector AMHGZCharacter::GetLastMovementInputDir() const

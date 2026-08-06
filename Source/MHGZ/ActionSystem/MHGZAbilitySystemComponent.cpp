@@ -21,23 +21,28 @@ void UMHGZAbilitySystemComponent::BeginPlay()
 
 void UMHGZAbilitySystemComponent::InitializeAbilitySystem()
 {
-	// (1) 设置初始 GameplayTag
-	AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Sheathed")));
-	AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Grounded")));
-
-	// (2) 授予核心 Ability
-	for (const TSubclassOf<UGameplayAbility>& AbilityClass : CoreAbilities)
+	if (!bAbilitySystemInitialized)
 	{
-		if (!AbilityClass) continue;
-		GiveAbility(FGameplayAbilitySpec(AbilityClass, 1, INDEX_NONE, this));
-	}
+		// (1) 设置初始 GameplayTag
+		AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Sheathed")));
+		AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Grounded")));
 
-	// (3) Apply 核心 GE
-	for (const TSubclassOf<UGameplayEffect>& EffectClass : CoreAttributeEffects)
-	{
-		if (!EffectClass) continue;
-		FGameplayEffectContextHandle Context = MakeEffectContext();
-		ApplyGameplayEffectToSelf(EffectClass->GetDefaultObject<UGameplayEffect>(), 1.0f, Context);
+		// (2) 授予核心 Ability
+		for (const TSubclassOf<UGameplayAbility>& AbilityClass : CoreAbilities)
+		{
+			if (!AbilityClass) continue;
+			GiveAbility(FGameplayAbilitySpec(AbilityClass, 1, INDEX_NONE, this));
+		}
+
+		// (3) Apply 核心 GE
+		for (const TSubclassOf<UGameplayEffect>& EffectClass : CoreAttributeEffects)
+		{
+			if (!EffectClass) continue;
+			FGameplayEffectContextHandle Context = MakeEffectContext();
+			ApplyGameplayEffectToSelf(EffectClass->GetDefaultObject<UGameplayEffect>(), 1.0f, Context);
+		}
+
+		bAbilitySystemInitialized = true;
 	}
 
 	// (4) 绑定 EnhancedInput → Tag 路由
@@ -61,7 +66,7 @@ void UMHGZAbilitySystemComponent::InitializeAbilitySystem()
 
 			ActionToTag.Add(Binding.InputAction, Binding.AbilityTag);
 
-			EnhancedInput->BindAction(Binding.InputAction.Get(), ETriggerEvent::Triggered,
+			EnhancedInput->BindAction(Binding.InputAction.Get(), ETriggerEvent::Started,
 				this, &UMHGZAbilitySystemComponent::OnInputActionTriggered);
 
 			EnhancedInput->BindAction(Binding.InputAction.Get(), ETriggerEvent::Completed,
@@ -87,11 +92,28 @@ void UMHGZAbilitySystemComponent::GrantWeaponAbilities(const TArray<TSubclassOf<
 
 void UMHGZAbilitySystemComponent::RemoveWeaponAbilities()
 {
+	if (ActiveComboCoordinator)
+	{
+		ActiveComboCoordinator->K2_CancelAbility();
+		ActiveComboCoordinator = nullptr;
+	}
+
 	for (const FGameplayAbilitySpecHandle& Handle : WeaponAbilityHandles)
 	{
 		ClearAbility(Handle);
 	}
 	WeaponAbilityHandles.Empty();
+}
+
+FGameplayAbilitySpecHandle UMHGZAbilitySystemComponent::FindWeaponAbilityHandle(
+	TSubclassOf<UGameplayAbility> AbilityClass)
+{
+	if (!AbilityClass) return FGameplayAbilitySpecHandle();
+	if (FGameplayAbilitySpec* Spec = FindAbilitySpecFromClass(AbilityClass))
+	{
+		return Spec->Handle;
+	}
+	return FGameplayAbilitySpecHandle();
 }
 
 UGA_WeaponComboCoordinator* UMHGZAbilitySystemComponent::GetActiveComboCoordinator() const

@@ -68,3 +68,30 @@ void UAnimNotifyState_AttackCollision::NotifyEnd(USkeletalMeshComponent* MeshCom
 		}
 	}
 }
+
+void UAnimNotifyState_AttackCollision::NotifyTick(USkeletalMeshComponent* MeshComp,
+	UAnimSequenceBase* Animation, float FrameDeltaTime,
+	const FAnimNotifyEventReference& EventReference)
+{
+	if (!MeshComp) return;
+
+	ACharacter* Character = Cast<ACharacter>(MeshComp->GetOwner());
+	if (!Character) return;
+
+	AMHGZPlayerState* PS = Character->GetPlayerState<AMHGZPlayerState>();
+	if (!PS) return;
+
+	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+	if (!ASC) return;
+
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		if (Spec.IsActive())
+		{
+			if (UMHGZAttackAbility* AttackGA = Cast<UMHGZAttackAbility>(Spec.GetPrimaryInstance()))
+			{
+				AttackGA->TickCollision(FrameDeltaTime);
+			}
+		}
+	}
+}

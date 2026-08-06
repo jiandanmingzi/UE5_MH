@@ -15,6 +15,7 @@ class UMotionWarpingComponent;
 class UMHGZAimComponent;
 class UMHGZEdgeVaultComponent;
 class UMHGZAbilitySystemComponent;
+class UMHGZWeaponDefinition;
 struct FInputActionValue;
 
 /**
@@ -68,6 +69,14 @@ protected:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* SprintAction;
 
+	/** LT/L2 瞄准输入；Started/Completed 维护 Combat.State.Aiming。 */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
+	UInputAction* AimAction;
+
+	/** Demo 固定武器；ASC 初始化完成后自动装备。留空则由背包/装备 UI 决定。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Equipment|Demo")
+	TObjectPtr<UMHGZWeaponDefinition> DefaultWeaponDefinition;
+
 public:
 	AMHGZCharacter();
 
@@ -96,6 +105,9 @@ protected:
 	void Look(const FInputActionValue& Value);
 	void SprintPressed(const FInputActionValue& Value);
 	void SprintReleased(const FInputActionValue& Value);
+	void AimPressed();
+	void AimReleased();
+	void EquipDefaultWeaponIfConfigured();
 
 public:
 	UFUNCTION(BlueprintCallable, Category="Input")

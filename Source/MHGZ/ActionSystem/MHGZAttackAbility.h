@@ -11,6 +11,9 @@ class USoundBase;
 class UCameraShakeBase;
 class UAnimMontage;
 class UMotionWarpingComponent;
+class UAbilityTask_PlayMontageAndWait;
+class UMHGZMonsterHitzoneComponent;
+class USkeletalMeshComponent;
 
 /**
  * 碰撞形状枚举
@@ -31,9 +34,23 @@ struct FAttackCollisionConfig
 {
 	GENERATED_BODY()
 
+	/**
+	 * 用于定位武器 SkeletalMeshComponent 的组件 Tag。
+	 * 默认 WeaponTrace；找不到时回退到角色主 Mesh，再回退到任意含目标 Socket 的骨骼网格。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FName TraceMeshComponentTag = FName(TEXT("WeaponTrace"));
+
 	/** 碰撞体挂载的骨骼 Socket */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FName AttachSocketName;
+
+	/**
+	 * 轨迹起点 Socket。留空时只扫 AttachSocketName；配置后会在起点和终点之间
+	 * 采样多条轨迹，适合虫棍这类长武器。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FName TraceStartSocketName;
 
 	/** 碰撞形状 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -50,6 +67,14 @@ struct FAttackCollisionConfig
 	/** 限定碰撞仅检测带此 Tag 的组件 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag HitzoneQueryTag;
+
+	/** 长武器横截面采样数，1=仅 AttachSocket，3=根/中/尖 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "8"))
+	int32 TraceSampleCount = 3;
+
+	/** PIE 中绘制本段 Sweep，便于校准 Socket 和半径 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bDrawDebug = false;
 };
 
 /**
@@ -207,6 +232,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Attack")
 	void DisableCollision();
 
+	/** 碰撞窗口内由 AnimNotifyState::NotifyTick 每帧调用 */
+	void TickCollision(float DeltaSeconds);
+
 	// ═══════════════════════════════════════════
 	// 伤害构造与 Apply
 	// ═══════════════════════════════════════════
@@ -267,9 +295,9 @@ protected:
 	TObjectPtr<UAnimMontage> ActiveAttackMontage;
 
 private:
-	/** 创建的碰撞体 */
+	/** GAS Montage 任务——统一处理完成、取消和被其他 Montage 打断 */
 	UPROPERTY()
-	TObjectPtr<class UShapeComponent> ActiveCollisionComponent;
+	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
 
 	/** 多跳伤害 Timer */
 	FTimerHandle MultiHitTimer;
@@ -277,17 +305,32 @@ private:
 	/** 多跳已跳次数 */
 	int32 MultiHitCurrentCount = 0;
 
-	/** 执行一次 Sweep 检测 */
+	/** 执行一次 Socket Sweep 检测 */
 	void PerformSweepCheck();
 
-	/** Overlap 回调 */
-	UFUNCTION()
-	void OnAttackOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
-		UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult);
+	/** 处理单个 Sweep 命中 */
+	void ProcessSweepHit(const FHitResult& Hit);
+
+	/** 首次命中后启动多跳 Timer */
+	void StartMultiHitTimerIfNeeded();
 
 	/** 一次多跳伤害 */
 	void OnMultiHitTick();
 
 	/** 查找怪物 HitzoneComponent */
-	class UMHGZMonsterHitzoneComponent* FindHitzoneComponent(AActor* Target, FName BoneName) const;
+	UMHGZMonsterHitzoneComponent* FindHitzoneComponent(AActor* Target, FName BoneName) const;
+
+	/** 根据组件 Tag 和 Socket 配置找到实际参与武器轨迹检测的骨骼网格。 */
+	USkeletalMeshComponent* FindTraceMeshComponent(const FAttackCollisionConfig& Collision) const;
+
+	UFUNCTION()
+	void OnMontageCompleted();
+
+	UFUNCTION()
+	void OnMontageInterrupted();
+
+	FVector PreviousTraceStart = FVector::ZeroVector;
+	FVector PreviousTraceEnd = FVector::ZeroVector;
+	bool bCollisionActive = false;
+	bool bIsEndingAbility = false;
 };

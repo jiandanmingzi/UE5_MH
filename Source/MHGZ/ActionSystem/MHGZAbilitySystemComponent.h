@@ -84,6 +84,10 @@ public:
 	/** 移除所有武器授予的 Ability */
 	void RemoveWeaponAbilities();
 
+	/** 查找装备阶段已经授予的武器 Ability Handle。 */
+	FGameplayAbilitySpecHandle FindWeaponAbilityHandle(
+		TSubclassOf<UGameplayAbility> AbilityClass);
+
 	/** 获取当前激活的连招协调器 */
 	UGA_WeaponComboCoordinator* GetActiveComboCoordinator() const;
 
@@ -119,6 +123,9 @@ protected:
 
 	/** 是否已绑定 EnhancedInput（避免 PossessedBy 重新调用时重复绑定） */
 	bool bInputBound = false;
+
+	/** 是否已经授予初始能力并应用初始 GE。 */
+	bool bAbilitySystemInitialized = false;
 
 private:
 	/** 已授予的武器 Ability Handle */

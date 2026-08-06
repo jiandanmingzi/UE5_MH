@@ -12,9 +12,10 @@ void UMHGZMonsterHitzoneComponent::OnRegister()
 {
 	Super::OnRegister();
 
-	// 碰撞初始化在 OnRegister 中完成——此时组件已注册，CDO 已就绪
-	SetSphereRadius(30.f);
+	// 碰撞初始化在 OnRegister 中完成——半径由蓝图或 DummyConfig 决定。
 	SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+	SetCollisionObjectType(ECC_WorldDynamic);
+	SetGenerateOverlapEvents(false);
 	SetCollisionResponseToAllChannels(ECR_Ignore);
 	SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Block);  // Weapon → Block
 	SetCollisionResponseToChannel(ECC_GameTraceChannel2, ECR_Ignore); // MonsterAttack → Ignore

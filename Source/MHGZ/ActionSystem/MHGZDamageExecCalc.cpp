@@ -166,6 +166,11 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 	// 至少 1 点伤害
 	const float FinalDamage = FMath::Max(1.0f, RawDamage);
 
+	UE_LOG(LogTemp, Log,
+		TEXT("[Damage] Source=%s Target=%s Attack=%.2f Motion=%.2f Hitzone=%.2f Final=%.2f"),
+		*GetNameSafe(SourceASC->GetAvatarActor()), *GetNameSafe(TargetActor),
+		AttackPower, MotionValue, HitzoneDefense, FinalDamage);
+
 	// ── 6. 写入扣血 ──
 	OutExecutionOutput.AddOutputModifier(
 		FGameplayModifierEvaluatedData(

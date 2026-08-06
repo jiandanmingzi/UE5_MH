@@ -15,7 +15,7 @@ class UCurveTable;
  * GameInstanceSubsystem，生命周期与 GameInstance 相同
  * 策划一处配置，所有系统通过 GetSubsystem 获取
  */
-UCLASS()
+UCLASS(Config = Game, DefaultConfig)
 class UMHGZDataManager : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
@@ -29,27 +29,27 @@ public:
 	// ═══════════════════════════════════════════
 
 	/** 词条目录 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
 	TSoftObjectPtr<UDataTable> EntryCatalog;
 
 	/** 武器→连招表映射 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
 	TSoftObjectPtr<UDataTable> WeaponComboConfig;
 
 	/** 武器→资源组件映射 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
 	TSoftObjectPtr<UDataTable> WeaponResourceConfig;
 
 	/** Ability 标量曲线表 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
 	TSoftObjectPtr<UCurveTable> AbilityScalars;
 
 	/** 词条数值曲线表 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
 	TSoftObjectPtr<UCurveTable> EntryMagnitudes;
 
 	/** 武器翻滚配置 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
+	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
 	TSoftObjectPtr<UDataTable> DodgeConfig;
 
 	// ═══════════════════════════════════════════

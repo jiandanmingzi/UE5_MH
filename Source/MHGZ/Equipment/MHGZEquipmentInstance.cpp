@@ -3,6 +3,18 @@
 #include "MHGZEquipmentInstance.h"
 #include "MHGZEquipmentDefinition.h"
 
+UMHGZEquipmentInstance* UMHGZEquipmentInstance::CreateEquipmentInstance(
+	UObject* Outer, UMHGZEquipmentDefinition* InDefinition)
+{
+	if (!Outer || !InDefinition) return nullptr;
+
+	UMHGZEquipmentInstance* Instance = NewObject<UMHGZEquipmentInstance>(Outer);
+	Instance->InstanceID = FGuid::NewGuid();
+	Instance->Definition = InDefinition;
+	Instance->Status = EEquipmentStatus::InStorage;
+	return Instance;
+}
+
 void UMHGZEquipmentInstance::SocketAccessory(UMHGZEquipmentInstance* Accessory, FName SocketName)
 {
 	if (!Accessory || !CanSocketAccessory(Accessory, SocketName)) return;

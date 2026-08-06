@@ -7,13 +7,13 @@
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "AbilitySystemGlobals.h"
+#include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "MotionWarpingComponent.h"
-#include "Components/SphereComponent.h"
-#include "Components/CapsuleComponent.h"
-#include "Components/BoxComponent.h"
+#include "DrawDebugHelpers.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Camera/CameraShakeBase.h"
+#include "Components/SkeletalMeshComponent.h"
 
 UMHGZAttackAbility::UMHGZAttackAbility()
 {
@@ -41,24 +41,32 @@ void UMHGZAttackAbility::ActivateAbility(
 	CurrentSegmentIndex = 0;
 	bHasHitThisActivation = false;
 	bHasActiveRootMotionTask = false;
+	bCollisionActive = false;
+	bIsEndingAbility = false;
 
 	// 方向修正
 	ApplyDirectionCorrection();
 
-	// 播放 Montage
-	if (AttackMontage)
+	// 由 GAS AbilityTask 播放并等待 Montage，确保正常完成、取消和被打断都能 EndAbility。
+	if (!AttackMontage)
 	{
-		ACharacter* Character = Cast<ACharacter>(ActorInfo->AvatarActor.Get());
-		if (Character)
-		{
-			UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance();
-			if (AnimInstance)
-			{
-				ActiveAttackMontage = AttackMontage;
-				AnimInstance->Montage_Play(AttackMontage);
-			}
-		}
+		EndAbility(Handle, ActorInfo, ActivationInfo, false, true);
+		return;
 	}
+
+	ActiveAttackMontage = AttackMontage;
+	MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+		this, FName(TEXT("AttackMontage")), AttackMontage, 1.0f);
+	if (!MontageTask)
+	{
+		EndAbility(Handle, ActorInfo, ActivationInfo, false, true);
+		return;
+	}
+
+	MontageTask->OnCompleted.AddDynamic(this, &UMHGZAttackAbility::OnMontageCompleted);
+	MontageTask->OnInterrupted.AddDynamic(this, &UMHGZAttackAbility::OnMontageInterrupted);
+	MontageTask->OnCancelled.AddDynamic(this, &UMHGZAttackAbility::OnMontageInterrupted);
+	MontageTask->ReadyForActivation();
 }
 
 void UMHGZAttackAbility::EndAbility(
@@ -68,6 +76,12 @@ void UMHGZAttackAbility::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
+	if (bIsEndingAbility)
+	{
+		return;
+	}
+	bIsEndingAbility = true;
+
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (ASC)
 	{
@@ -82,22 +96,27 @@ void UMHGZAttackAbility::EndAbility(
 	// 通知协调器
 	NotifyCoordinatorAttackFinished();
 
-	// 停止 Montage
-	if (ActiveAttackMontage)
-	{
-		ACharacter* Character = Cast<ACharacter>(ActorInfo->AvatarActor.Get());
-		if (Character)
-		{
-			UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance();
-			if (AnimInstance)
-			{
-				AnimInstance->Montage_Stop(0.1f, ActiveAttackMontage);
-			}
-		}
-		ActiveAttackMontage = nullptr;
-	}
+	// AbilityTask 会在 Ability 结束时负责停止 Montage 并解绑委托。
+	MontageTask = nullptr;
+	ActiveAttackMontage = nullptr;
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+void UMHGZAttackAbility::OnMontageCompleted()
+{
+	if (IsActive() && !bIsEndingAbility)
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+	}
+}
+
+void UMHGZAttackAbility::OnMontageInterrupted()
+{
+	if (IsActive() && !bIsEndingAbility)
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, true);
+	}
 }
 
 void UMHGZAttackAbility::ApplyDirectionCorrection()
@@ -152,79 +171,34 @@ void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)
 	HitTargets.Empty();
 	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
 
-	// 销毁旧碰撞体
-	if (ActiveCollisionComponent)
-	{
-		ActiveCollisionComponent->DestroyComponent();
-		ActiveCollisionComponent = nullptr;
-	}
-
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (!Character) return;
-
-	// 获取挂载 Socket 的骨骼位置
-	const FVector SocketLocation = Character->GetMesh()->GetSocketLocation(Seg.Collision.AttachSocketName);
-
-	// 创建碰撞体
-	switch (Seg.Collision.Shape)
+	USkeletalMeshComponent* Mesh = FindTraceMeshComponent(Seg.Collision);
+	if (!Mesh || Seg.Collision.AttachSocketName.IsNone() ||
+		!Mesh->DoesSocketExist(Seg.Collision.AttachSocketName))
 	{
-	case EAttackCollisionShape::Sphere:
-		{
-			USphereComponent* Sphere = NewObject<USphereComponent>(Character);
-			Sphere->SetSphereRadius(Seg.Collision.ShapeExtent.X);
-			ActiveCollisionComponent = Sphere;
-		}
-		break;
-	case EAttackCollisionShape::Capsule:
-		{
-			UCapsuleComponent* Capsule = NewObject<UCapsuleComponent>(Character);
-			Capsule->SetCapsuleRadius(Seg.Collision.ShapeExtent.X);
-			Capsule->SetCapsuleHalfHeight(Seg.Collision.ShapeExtent.Z);
-			ActiveCollisionComponent = Capsule;
-		}
-		break;
-	case EAttackCollisionShape::Box:
-		{
-			UBoxComponent* Box = NewObject<UBoxComponent>(Character);
-			Box->SetBoxExtent(Seg.Collision.ShapeExtent);
-			ActiveCollisionComponent = Box;
-		}
-		break;
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Attack] Missing trace mesh/socket. ComponentTag='%s' Socket='%s' Mesh='%s'"),
+			*Seg.Collision.TraceMeshComponentTag.ToString(),
+			*Seg.Collision.AttachSocketName.ToString(), *GetNameSafe(Mesh));
+		return;
 	}
 
-	if (ActiveCollisionComponent)
-	{
-		ActiveCollisionComponent->SetWorldLocation(SocketLocation);
-		ActiveCollisionComponent->AttachToComponent(
-			Character->GetMesh(),
-			FAttachmentTransformRules::SnapToTargetIncludingScale,
-			Seg.Collision.AttachSocketName);
-		ActiveCollisionComponent->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-		ActiveCollisionComponent->SetCollisionObjectType(Seg.Collision.CollisionChannel);
-		ActiveCollisionComponent->SetCollisionResponseToAllChannels(ECR_Ignore);
-		ActiveCollisionComponent->SetCollisionResponseToChannel(Seg.Collision.CollisionChannel, ECR_Overlap);
-		ActiveCollisionComponent->RegisterComponent();
+	PreviousTraceEnd = Mesh->GetSocketLocation(Seg.Collision.AttachSocketName);
+	PreviousTraceStart = (!Seg.Collision.TraceStartSocketName.IsNone() &&
+		Mesh->DoesSocketExist(Seg.Collision.TraceStartSocketName))
+		? Mesh->GetSocketLocation(Seg.Collision.TraceStartSocketName)
+		: PreviousTraceEnd;
 
-		// 绑定 Overlap 回调
-		ActiveCollisionComponent->OnComponentBeginOverlap.AddDynamic(this, &UMHGZAttackAbility::OnAttackOverlap);
-
-		// 首帧 Sweep
-		PerformSweepCheck();
-
-		// 启动多跳 Timer
-		if (Seg.MultiHitCount > 1)
-		{
-			MultiHitCurrentCount = 1; // 首帧已算一跳
-			Character->GetWorldTimerManager().SetTimer(
-				MultiHitTimer,
-				this, &UMHGZAttackAbility::OnMultiHitTick,
-				Seg.MultiHitInterval, true);
-		}
-	}
+	MultiHitCurrentCount = 0;
+	bCollisionActive = true;
+	PerformSweepCheck(); // 首帧零距离 Sweep，防止窗口开启时已经与部位相交。
 }
 
 void UMHGZAttackAbility::DisableCollision()
 {
+	bCollisionActive = false;
+
 	// 清除多跳 Timer
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (Character)
@@ -233,7 +207,7 @@ void UMHGZAttackAbility::DisableCollision()
 	}
 
 	// 空挥截断
-	if (AttackSegments.IsValidIndex(CurrentSegmentIndex))
+	if (!bIsEndingAbility && AttackSegments.IsValidIndex(CurrentSegmentIndex))
 	{
 		const FAttackSegmentConfig& Seg = AttackSegments[CurrentSegmentIndex];
 		if (Seg.Damage.bRequiresHitToContinue && HitTargets.IsEmpty())
@@ -245,39 +219,99 @@ void UMHGZAttackAbility::DisableCollision()
 			}
 		}
 	}
+}
 
-	// 销毁碰撞体
-	if (ActiveCollisionComponent)
+void UMHGZAttackAbility::TickCollision(float DeltaSeconds)
+{
+	if (bCollisionActive)
 	{
-		ActiveCollisionComponent->OnComponentBeginOverlap.RemoveAll(this);
-		ActiveCollisionComponent->DestroyComponent();
-		ActiveCollisionComponent = nullptr;
+		PerformSweepCheck();
 	}
 }
 
 void UMHGZAttackAbility::PerformSweepCheck()
 {
-	// 从武器上一帧位置扫到当前帧，取首个命中
-	// 简化版：依赖 Overlap 事件
+	if (!bCollisionActive || !AttackSegments.IsValidIndex(CurrentSegmentIndex)) return;
+
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Character || !GetWorld()) return;
+
+	const FAttackCollisionConfig& Collision = AttackSegments[CurrentSegmentIndex].Collision;
+	USkeletalMeshComponent* Mesh = FindTraceMeshComponent(Collision);
+	if (!Mesh || !Mesh->DoesSocketExist(Collision.AttachSocketName)) return;
+	const FVector CurrentEnd = Mesh->GetSocketLocation(Collision.AttachSocketName);
+	const FVector CurrentStart = (!Collision.TraceStartSocketName.IsNone() &&
+		Mesh->DoesSocketExist(Collision.TraceStartSocketName))
+		? Mesh->GetSocketLocation(Collision.TraceStartSocketName)
+		: CurrentEnd;
+
+	FCollisionShape QueryShape = FCollisionShape::MakeSphere(FMath::Max(1.f, Collision.ShapeExtent.X));
+	switch (Collision.Shape)
+	{
+	case EAttackCollisionShape::Capsule:
+		QueryShape = FCollisionShape::MakeCapsule(
+			FMath::Max(1.f, Collision.ShapeExtent.X),
+			FMath::Max(Collision.ShapeExtent.X, Collision.ShapeExtent.Z));
+		break;
+	case EAttackCollisionShape::Box:
+		QueryShape = FCollisionShape::MakeBox(Collision.ShapeExtent.GetAbs().ComponentMax(FVector(1.f)));
+		break;
+	case EAttackCollisionShape::Sphere:
+	default:
+		break;
+	}
+
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MHGZWeaponSweep), false, Character);
+	QueryParams.AddIgnoredActor(Character);
+
+	const bool bHasSpan = !Collision.TraceStartSocketName.IsNone() &&
+		!CurrentStart.Equals(CurrentEnd, 0.1f);
+	const int32 SampleCount = bHasSpan ? FMath::Clamp(Collision.TraceSampleCount, 1, 8) : 1;
+	for (int32 SampleIndex = 0; SampleIndex < SampleCount; ++SampleIndex)
+	{
+		const float Alpha = SampleCount == 1 ? 1.f :
+			static_cast<float>(SampleIndex) / static_cast<float>(SampleCount - 1);
+		const FVector SweepFrom = FMath::Lerp(PreviousTraceStart, PreviousTraceEnd, Alpha);
+		const FVector SweepTo = FMath::Lerp(CurrentStart, CurrentEnd, Alpha);
+
+		TArray<FHitResult> Hits;
+		GetWorld()->SweepMultiByChannel(
+			Hits, SweepFrom, SweepTo, Character->GetActorQuat(),
+			Collision.CollisionChannel, QueryShape, QueryParams);
+
+		for (const FHitResult& Hit : Hits)
+		{
+			ProcessSweepHit(Hit);
+		}
+
+		if (Collision.bDrawDebug)
+		{
+			DrawDebugLine(GetWorld(), SweepFrom, SweepTo, FColor::Red, false, 0.15f, 0, 1.5f);
+			DrawDebugSphere(GetWorld(), SweepTo, Collision.ShapeExtent.X, 12,
+				Hits.IsEmpty() ? FColor::Yellow : FColor::Green, false, 0.15f);
+		}
+	}
+
+	PreviousTraceStart = CurrentStart;
+	PreviousTraceEnd = CurrentEnd;
 }
 
-void UMHGZAttackAbility::OnAttackOverlap(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
-	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
+void UMHGZAttackAbility::ProcessSweepHit(const FHitResult& Hit)
 {
-	if (!OtherActor || OtherActor == GetAvatarActorFromActorInfo()) return;
+	AActor* OtherActor = Hit.GetActor();
+	if (!OtherActor || OtherActor == GetAvatarActorFromActorInfo() || HitTargets.Contains(OtherActor))
+	{
+		return;
+	}
 
-	// 已在 HitTargets 中 → 跳过
-	if (HitTargets.Contains(OtherActor)) return;
-
-	// 查找 HitzoneComponent
-	UMHGZMonsterHitzoneComponent* Hitzone = FindHitzoneComponent(OtherActor, NAME_None);
+	UMHGZMonsterHitzoneComponent* Hitzone = Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
 	if (!Hitzone) return;
 
 	// 如果有 HitzoneQueryTag，检查匹配
 	if (AttackSegments.IsValidIndex(CurrentSegmentIndex))
 	{
 		const FGameplayTag& QueryTag = AttackSegments[CurrentSegmentIndex].Collision.HitzoneQueryTag;
-		if (QueryTag.IsValid() && Hitzone->HitzoneTag != QueryTag)
+		if (QueryTag.IsValid() && !Hitzone->HitzoneTag.MatchesTagExact(QueryTag))
 		{
 			return;
 		}
@@ -285,6 +319,22 @@ void UMHGZAttackAbility::OnAttackOverlap(UPrimitiveComponent* OverlappedComp, AA
 
 	HitTargets.Add(OtherActor, Hitzone->BoneName);
 	ApplyDamage(OtherActor, Hitzone->BoneName, CurrentSegmentIndex);
+	StartMultiHitTimerIfNeeded();
+}
+
+void UMHGZAttackAbility::StartMultiHitTimerIfNeeded()
+{
+	if (!AttackSegments.IsValidIndex(CurrentSegmentIndex)) return;
+	const FAttackSegmentConfig& Seg = AttackSegments[CurrentSegmentIndex];
+	if (Seg.MultiHitCount <= 1 || MultiHitCurrentCount > 0) return;
+
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Character) return;
+
+	MultiHitCurrentCount = 1; // 首次接触已立即结算第一跳。
+	Character->GetWorldTimerManager().SetTimer(
+		MultiHitTimer, this, &UMHGZAttackAbility::OnMultiHitTick,
+		FMath::Max(0.01f, Seg.MultiHitInterval), true);
 }
 
 void UMHGZAttackAbility::OnMultiHitTick()
@@ -323,11 +373,12 @@ void UMHGZAttackAbility::ApplyDamage(AActor* Target, FName HitzoneBoneName, int3
 		{
 			Character->CustomTimeDilation = 0.05f;
 			FTimerHandle HitStopTimer;
-			Character->GetWorldTimerManager().SetTimer(HitStopTimer, [Character]()
+			TWeakObjectPtr<ACharacter> WeakCharacter(Character);
+			Character->GetWorldTimerManager().SetTimer(HitStopTimer, [WeakCharacter]()
 			{
-				if (Character)
+				if (ACharacter* ValidCharacter = WeakCharacter.Get())
 				{
-					Character->CustomTimeDilation = 1.0f;
+					ValidCharacter->CustomTimeDilation = 1.0f;
 				}
 			}, HitStop, false);
 		}
@@ -407,7 +458,7 @@ FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
 
 	// 部位 HitzoneTag
 	UMHGZMonsterHitzoneComponent* Hitzone = FindHitzoneComponent(Target, HitzoneBoneName);
-	if (Hitzone && Hitzone->HitzoneTag.IsValid())
+	if (Seg.Damage.bUseHitzoneDefense && Hitzone && Hitzone->HitzoneTag.IsValid())
 	{
 		Spec.Data->AddDynamicAssetTag(Hitzone->HitzoneTag);
 	}
@@ -499,6 +550,49 @@ UMHGZMonsterHitzoneComponent* UMHGZAttackAbility::FindHitzoneComponent(
 		if (BoneName == NAME_None || HZ->BoneName == BoneName)
 		{
 			return HZ;
+		}
+	}
+
+	return nullptr;
+}
+
+USkeletalMeshComponent* UMHGZAttackAbility::FindTraceMeshComponent(
+	const FAttackCollisionConfig& Collision) const
+{
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Character || Collision.AttachSocketName.IsNone()) return nullptr;
+
+	TArray<USkeletalMeshComponent*> MeshComponents;
+	Character->GetComponents<USkeletalMeshComponent>(MeshComponents);
+
+	// 显式标记的武器组件优先，避免角色主 Mesh 上的同名 Socket 被误选。
+	if (!Collision.TraceMeshComponentTag.IsNone())
+	{
+		for (USkeletalMeshComponent* Mesh : MeshComponents)
+		{
+			if (Mesh && Mesh->ComponentHasTag(Collision.TraceMeshComponentTag) &&
+				Mesh->DoesSocketExist(Collision.AttachSocketName))
+			{
+				return Mesh;
+			}
+		}
+	}
+
+	// 兼容旧配置：优先尝试角色主骨骼网格。
+	if (USkeletalMeshComponent* CharacterMesh = Character->GetMesh())
+	{
+		if (CharacterMesh->DoesSocketExist(Collision.AttachSocketName))
+		{
+			return CharacterMesh;
+		}
+	}
+
+	// 最后回退到任意拥有目标 Socket 的骨骼网格组件。
+	for (USkeletalMeshComponent* Mesh : MeshComponents)
+	{
+		if (Mesh && Mesh->DoesSocketExist(Collision.AttachSocketName))
+		{
+			return Mesh;
 		}
 	}
 

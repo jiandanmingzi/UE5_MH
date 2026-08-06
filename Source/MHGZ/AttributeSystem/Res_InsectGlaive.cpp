@@ -267,7 +267,8 @@ FGameplayTag URes_InsectGlaive::StaticMapHitzoneToExtract(FGameplayTag HitzoneTa
 		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
 	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Torso"))))
 		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"));
-	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Wings"))))
+	if (HitzoneTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.LeftWing"))) ||
+		HitzoneTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.RightWing"))))
 		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"));
 	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Back"))))
 		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"));

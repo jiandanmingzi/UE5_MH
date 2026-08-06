@@ -31,21 +31,7 @@ void UGA_WeaponComboCoordinator::ActivateAbility(
 		MHGZASC->SetActiveComboCoordinator(this);
 	}
 
-	// 启动全局超时 Timer
-	if (ComboData && ComboData->GlobalComboTimeout > 0.f)
-	{
-		AActor* Owner = GetOwningActorFromActorInfo();
-		if (Owner)
-		{
-			Owner->GetWorldTimerManager().SetTimer(
-				ComboTimeoutTimer, [this]()
-				{
-					CurrentState = FName(TEXT("Idle"));
-					PendingGrantedTags.Reset();
-				},
-				ComboData->GlobalComboTimeout, false);
-		}
-	}
+	ResetComboTimeout();
 }
 
 void UGA_WeaponComboCoordinator::EndAbility(
@@ -75,6 +61,24 @@ void UGA_WeaponComboCoordinator::InjectComboData(UMHGZWeaponComboData* Data)
 {
 	ComboData = Data;
 	BuildStateIndex();
+	ResetComboTimeout();
+}
+
+void UGA_WeaponComboCoordinator::ResetComboTimeout()
+{
+	AActor* Owner = GetOwningActorFromActorInfo();
+	if (!Owner) return;
+
+	Owner->GetWorldTimerManager().ClearTimer(ComboTimeoutTimer);
+	if (!ComboData || ComboData->GlobalComboTimeout <= 0.f) return;
+
+	Owner->GetWorldTimerManager().SetTimer(
+		ComboTimeoutTimer, [this]()
+		{
+			CurrentState = FName(TEXT("Idle"));
+			PendingGrantedTags.Reset();
+		},
+		ComboData->GlobalComboTimeout, false);
 }
 
 void UGA_WeaponComboCoordinator::BuildStateIndex()
@@ -184,12 +188,18 @@ void UGA_WeaponComboCoordinator::HandleWeaponInput(FGameplayTag InInputTag)
 	// 激活 Ability
 	if (Best->AbilityClass)
 	{
-		UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+		UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(
+			GetAbilitySystemComponentFromActorInfo());
 		if (!ASC) return;
 
-		// 通过 ASC 激活 Ability（由协调器管理）
-		FGameplayAbilitySpec Spec(Best->AbilityClass, 1, INDEX_NONE, ASC);
-		ASC->GiveAbilityAndActivateOnce(Spec);
+		// 激活装备时已授予的 Spec，避免每次按键重复 GiveAbility。
+		const FGameplayAbilitySpecHandle AbilityHandle =
+			ASC->FindWeaponAbilityHandle(Best->AbilityClass);
+		if (!AbilityHandle.IsValid() || !ASC->TryActivateAbility(AbilityHandle))
+		{
+			return;
+		}
+		ActiveAttackHandle = AbilityHandle;
 
 		// 更新状态
 		if (!Best->bMatchAnyState && !Best->NextState.IsNone())
@@ -203,11 +213,14 @@ void UGA_WeaponComboCoordinator::HandleWeaponInput(FGameplayTag InInputTag)
 		{
 			PendingGrantedTags = Best->GrantedTags;
 		}
+
+		ResetComboTimeout();
 	}
 }
 
 void UGA_WeaponComboCoordinator::OnAttackFinished()
 {
+	ActiveAttackHandle = FGameplayAbilitySpecHandle();
 	// 兜底——若当前 State 不在 StateIndex 中，回 Idle
 	if (!StateIndex.Contains(CurrentState) && CurrentState != FName(TEXT("Idle")))
 	{

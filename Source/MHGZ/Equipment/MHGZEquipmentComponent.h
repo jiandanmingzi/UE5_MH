@@ -40,6 +40,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Equipment")
 	void UnequipItem(FGameplayTag SlotTag);
 
+	UFUNCTION(BlueprintPure, Category = "MHGZ|Equipment")
+	UMHGZEquipmentInstance* GetEquippedItem(FGameplayTag SlotTag) const;
+
 	/** 镶嵌饰品 */
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Equipment")
 	void SocketAccessory(UMHGZEquipmentInstance* HostItem, UMHGZEquipmentInstance* Accessory, FName SocketName);
@@ -63,6 +66,9 @@ protected:
 
 	/** Apply 装备的 GE */
 	void ApplyItemEffects(UMHGZEquipmentInstance* Item);
+
+	/** 将所有已装备物品的基础数值写入 GAS Attribute Base。 */
+	void RecalculateEquipmentBaseAttributes(UAbilitySystemComponent* ASC);
 
 	/** Apply 词条 GE */
 	void ApplyEntryGEs(UAbilitySystemComponent* ASC, const TArray<FEntryReference>& Entries);

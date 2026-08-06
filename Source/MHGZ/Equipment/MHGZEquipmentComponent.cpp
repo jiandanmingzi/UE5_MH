@@ -8,6 +8,7 @@
 #include "ActionSystem/MHGZWeaponComboData.h"
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
+#include "AttributeSystem/MHGZAttributeSet.h"
 #include "Data/MHGZDataManager.h"
 #include "Inventory/MHGZItemTypes.h"
 #include "AbilitySystemComponent.h"
@@ -64,6 +65,15 @@ void UMHGZEquipmentComponent::UnequipItem(FGameplayTag SlotTag)
 	}
 }
 
+UMHGZEquipmentInstance* UMHGZEquipmentComponent::GetEquippedItem(FGameplayTag SlotTag) const
+{
+	if (const TObjectPtr<UMHGZEquipmentInstance>* Found = EquippedItems.Find(SlotTag))
+	{
+		return Found->Get();
+	}
+	return nullptr;
+}
+
 void UMHGZEquipmentComponent::SocketAccessory(UMHGZEquipmentInstance* HostItem,
 	UMHGZEquipmentInstance* Accessory, FName SocketName)
 {
@@ -81,8 +91,11 @@ void UMHGZEquipmentComponent::RemoveAccessory(UMHGZEquipmentInstance* HostItem, 
 
 void UMHGZEquipmentComponent::OnEquipmentChangedInternal()
 {
-	UAbilitySystemComponent* ASC = GetPlayerASC();
+	UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(GetPlayerASC());
 	if (!ASC) return;
+
+	// 先取消旧协调器并移除旧武器能力，随后再按新装备重建。
+	ASC->RemoveWeaponAbilities();
 
 	FGameplayTagContainer EquipmentTags;
 	EquipmentTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Effect.Source.Equipment")));
@@ -109,7 +122,34 @@ void UMHGZEquipmentComponent::OnEquipmentChangedInternal()
 		ApplyItemEffects(Pair.Value);
 	}
 
+	RecalculateEquipmentBaseAttributes(ASC);
+
 	OnEquipmentChanged.Broadcast();
+}
+
+void UMHGZEquipmentComponent::RecalculateEquipmentBaseAttributes(UAbilitySystemComponent* ASC)
+{
+	if (!ASC) return;
+
+	float TotalAttackPower = 0.f;
+	float TotalDefense = 0.f;
+	float TotalCriticalRate = 0.f;
+	for (const auto& Pair : EquippedItems)
+	{
+		const UMHGZEquipmentInstance* Instance = Pair.Value;
+		if (!Instance || !Instance->Definition) continue;
+
+		TotalAttackPower += Instance->Definition->AttackPower;
+		TotalDefense += Instance->Definition->Defense;
+		TotalCriticalRate += Instance->Definition->CriticalRate;
+	}
+
+	ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetAttackPowerAttribute(), TotalAttackPower);
+	ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetDefenseAttribute(), TotalDefense);
+	ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetCriticalRateAttribute(), TotalCriticalRate);
+
+	UE_LOG(LogTemp, Log, TEXT("[Equipment] Base stats Attack=%.1f Defense=%.1f Crit=%.1f"),
+		TotalAttackPower, TotalDefense, TotalCriticalRate);
 }
 
 void UMHGZEquipmentComponent::ApplyItemEffects(UMHGZEquipmentInstance* Item)
@@ -170,13 +210,7 @@ void UMHGZEquipmentComponent::ApplyItemEffects(UMHGZEquipmentInstance* Item)
 					UMHGZWeaponComboData* ComboData = ComboRow->ComboDataAsset.LoadSynchronous();
 					if (!ComboData) break;
 
-					// ③ 激活连招协调器 + 注入连招表
-					UGA_WeaponComboCoordinator* Coord = NewObject<UGA_WeaponComboCoordinator>(Owner);
-					FGameplayAbilitySpec CoordSpec(Coord, 1, INDEX_NONE, ASC);
-					ASC->GiveAbilityAndActivateOnce(CoordSpec);
-					Coord->InjectComboData(ComboData);
-
-					// ④ 授予所有武器 Ability（从 ComboTable 收集）
+					// ③ 授予所有武器 Ability（从 ComboTable 收集）
 					TArray<TSubclassOf<UGameplayAbility>> WeaponAbilities;
 					for (const FComboNode& Node : ComboData->ComboTable)
 					{
@@ -186,6 +220,12 @@ void UMHGZEquipmentComponent::ApplyItemEffects(UMHGZEquipmentInstance* Item)
 						}
 					}
 					ASC->GrantWeaponAbilities(WeaponAbilities);
+
+					// ④ 激活连招协调器并注入连招表。协调器输入只激活上一步的 Handle。
+					UGA_WeaponComboCoordinator* Coord = NewObject<UGA_WeaponComboCoordinator>(Owner);
+					FGameplayAbilitySpec CoordSpec(Coord, 1, INDEX_NONE, ASC);
+					ASC->GiveAbilityAndActivateOnce(CoordSpec);
+					Coord->InjectComboData(ComboData);
 
 					break;  // 一个武器只匹配一行
 				}
