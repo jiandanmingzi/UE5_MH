@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 import unreal
 
 
-DEFAULT_ROOT = "/Game/Characters/Mannequins/Anims/Armed/InsectGlaive"
+DEFAULT_ROOT = "/Game/Weapons/InsectGlaive/Anims"
 
 
 def _argument_value(prefix: str, default: str) -> str:
