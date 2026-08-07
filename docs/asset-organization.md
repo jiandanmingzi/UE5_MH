@@ -64,13 +64,25 @@
 
 迁移后新进程验证 137/137 目标资产及 `AM_Shth_BaDao`、`AM_Shth_R_TuCi` 两条 Montage 引用。Asset Registry 不再包含旧目录依赖；`AS_Shth_BaDao` 的 Interchange 导入设置仍保留历史 `contentImportPath`，它属于重导入元数据，不是资产引用。迁移前 94.43 MiB 备份位于 `Saved/AssetOrganizationBackup/phase7-insect-glaive-imported-animations-pre-move`。
 
+第八阶段的数字动画语义复审按项目决定跳过。第九阶段删除了 Body 下 3 个历史备份资产，并将 Demo Body、Hair、Head 的 SkeletalMesh、Skeleton、PhysicsAsset 统一为 `Demo` 命名。新进程确认虫棍目录中的 150 个动画资产全部引用 `SK_Demo_Body`；该阶段独立提交为 `aa8d33f`。
+
+第十阶段完成 Demo 美术命名、模板隔离和地图替换：
+
+- 99 个 Demo/虫棍资产统一使用 `SKM/SK/PA/M/MI/T` 类型前缀、`Demo` 或 `IG_Glaive/IG_Kinsect` 主体名及 PascalCase 部位名；贴图保留 `ALBD/NRMR/NRRT` 等原始通道后缀。
+- Demo 收刀移动动画及角色模型、材质、纹理迁入 `/Game/Characters/Demo`；虫棍和猎虫美术保持在 `/Game/Weapons/InsectGlaive`。
+- 128 个 UE Mannequin 模板资产和 7 个 ThirdPerson 支持资产归档到 `/Game/系统自带`，新进程幂等验证为 135/135。
+- 新建 `/Game/Maps/L_DemoArena`：10×10 个 2 米地砖组成 20m×20m 平台，四周为 3 米围墙，包含 PlayerStart、`BP_TrainingDummy` 和基础天空光照，共 110 个 Actor。
+- `GameDefaultMap`、`EditorStartupMap` 和 `SimpleMapName` 均已切换到 `L_DemoArena`；旧 `NewMap`、`Lvl_ThirdPerson` 以及 507 个旧 External Actor/Object 包已删除。
+
+三个 Variant 的 440 个 External 包因宿主地图早已不存在，UE 无法加载其外部容器；这些包在逐文件 SHA-256 对照备份后，按 6 个精确目录从文件系统清除。地图删除批次共 511 个文件，备份位于 `Saved/AssetOrganizationBackup/phase10-map-cleanup-pre-delete`。当前基线为 443 个 `.uasset`、1 个 `.umap`，地图审计结果为旧地图 0、外部包 0、源端残留 0。
+
 ## 不可直接移动的内容
 
 - 不得在资源管理器中移动或重命名 `.uasset`、`.umap`。
 - `__ExternalActors__`、`__ExternalObjects__` 和地图必须作为独立批次处理。
 - `/Game/Data/DT_WeaponComboConfig` 被 `Config/DefaultGame.ini` 直接引用，当前保持原位。
-- `/Game/ThirdPerson/Lvl_ThirdPerson` 是默认地图，当前保持原位。
-- `/Game/Characters/Mannequins` 同时包含模板、角色和虫棍源动画，第一批不移动。
+- `/Game/Maps/L_DemoArena` 是当前唯一默认地图，删除或改名时必须同步三个配置路径。
+- `/Game/系统自带` 只用于模板资产；项目自有运行时资产不得回流该目录。
 - 资产移动不自动修复 C++ 或 INI 中的字符串路径；每一批必须单独扫描并同步修改。
 
 ## 执行方式
@@ -79,5 +91,5 @@
 
 ## 后续批次
 
-1. 导入动画复审：`Imported/Review` 与 `Imported/Transitions` 只完成目录隔离，数字命名动作仍需人工预览后才能重命名或删除。
-2. 模板隔离：`LevelPrototyping`、其地图外部 Actor 和无对应地图的 Variant 外部数据必须作为整体单独审查。
+1. 导入动画复审目前跳过；`Imported/Review` 与 `Imported/Transitions` 的数字命名动作继续保留，不自动删除。
+2. 后续工作回到虫棍战斗系统实现与 Demo 演示验证；`LevelPrototyping` 仅作为训练平台环境依赖保留。

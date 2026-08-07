@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "batch": "phase10-template-system-assets",
+  "description": "Archive stock UE mannequin content and ThirdPerson support assets under /Game/系统自带.",
+  "backup_directory": "Saved/AssetOrganizationBackup/phase10-template-system-assets-pre-move",
+  "root_moves": [
+    {
+      "source_root": "/Game/Characters/Mannequins",
+      "destination_root": "/Game/系统自带/Characters/Mannequins",
+      "expected_asset_count": 128
+    },
+    {
+      "source_root": "/Game/ThirdPerson",
+      "destination_root": "/Game/系统自带/ThirdPerson",
+      "expected_asset_count": 7,
+      "exclude_packages": [
+        "/Game/ThirdPerson/Lvl_ThirdPerson"
+      ]
+    }
+  ]
+}

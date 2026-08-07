@@ -184,7 +184,7 @@ Content/Weapons/InsectGlaive/Data/ 右键 → Miscellaneous → Data Asset
 | RarityLevel | 1 | Demo 白板 |
 | Entries | 空 | Demo 不配词条 |
 | Sockets | 空 | |
-| Mesh | `SKM_chong`（或留空） | 武器骨骼网格体，视觉显示用 |
+| Mesh | `SKM_IG_Kinsect`（或留空） | 猎虫骨骼网格体，视觉显示用 |
 | AttachSocket | `Weapon_R` | 挂载到角色骨骼的 Socket 名 |
 | SwingSoundOverrides | 空 | Demo 不配武器音效覆盖 |
 
@@ -561,8 +561,8 @@ Canvas Panel（根）
 
 ### 8.5 木桩放置
 
-在关卡 `Lvl_ThirdPerson`（或新建 `Lvl_IG_Demo`）中：
-- 拖入 `BP_TrainingDummy` → 位置 (X=1000, Y=0, Z=0)
+默认关卡 `/Game/Maps/L_DemoArena` 已包含演示木桩：
+- `Arena_TrainingDummy` 位于平台中央偏前位置
 - `DA_DummyConfig` 设为其 Config 资产
 - 运行 `ApplyConfig` 生成 Hitzone 碰撞体
 

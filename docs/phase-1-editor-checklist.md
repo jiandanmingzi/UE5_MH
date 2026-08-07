@@ -85,7 +85,7 @@ IA_Y
 | `【已有，需配置】` | `/Game/Blueprints/Characters/ABP_MH_Character` | 确认 AnimGraph 中存在 `DefaultGroup.DefaultSlot` |
 | `【已有，需配置】` | `/Game/Blueprints/Monster/BP_TrainingDummy` | 确认父类并指定新建的 `DA_TrainingDummy_Phase1`；该资产不是 Codex 创建的 |
 | `【已有，需配置】` | `/Game/Input/Contexts/IMC_MHGZ_Demo` 和 `/Game/Input/Actions/MHGZ/IA_Y` | 确认按键映射，不需要重复创建 Input Action |
-| `【已有，需配置】` | `/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_gun` 或你的实际虫棍网格 | 添加/校准 `IG_Base`、`IG_Tip` Socket |
+| `【已有，需配置】` | `/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_IG_Glaive` 或你的实际虫棍网格 | 添加/校准 `IG_Base`、`IG_Tip` Socket |
 
 ### 2.4 已经由代码提供，不需要创建 UE 资产的内容
 
@@ -148,21 +148,21 @@ WeaponComboConfig=/Game/你的目录/DT_WeaponComboConfig.DT_WeaponComboConfig
 
 ### 4.1 武器 Skeleton 上创建 Socket
 
-1. 打开 `/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_gun`。
+1. 打开 `/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_IG_Glaive`。
 2. 在其 Skeleton Tree 的合适骨骼上创建两个 Socket：
    - `IG_Base`：靠近握持端；
    - `IG_Tip`：靠近棍尖。
 3. 在预览窗口调整两个 Socket，保证 `IG_Base -> IG_Tip` 覆盖主要棍身。
 4. 保存 Skeleton/武器资产。
 
-如果 `SKM_gun` 不是最终使用的虫棍网格，就在实际武器网格上创建同名 Socket。
+如果 `SKM_IG_Glaive` 不是最终使用的虫棍网格，就在实际武器网格上创建同名 Socket。
 
 ### 4.2 角色蓝图中的武器组件
 
 打开 `/Game/Blueprints/Characters/BP_IG_Character`：
 
 1. 如果蓝图已经有虫棍 `SkeletalMeshComponent`，直接选择它；否则新增一个，命名 `IGWeapon`。
-2. 将 Skeletal Mesh 设置为 `SKM_gun`。
+2. 将 Skeletal Mesh 设置为 `SKM_IG_Glaive`。
 3. 把该组件附加到角色 `Mesh` 的握持 Socket（项目当前约定为 `Weapon_R`；若实际骨架名称不同，以能正确握持为准）。
 4. 调整相对位置和旋转，让虫棍与手对齐。
 5. 在组件 Details 的 `Tags -> Component Tags` 中添加：`WeaponTrace`。
@@ -288,7 +288,7 @@ WeaponComboConfig=/Game/你的目录/DT_WeaponComboConfig.DT_WeaponComboConfig
 | `Defense` | `0` |
 | `Critical Rate` | `0` |
 | `Weapon Type Tag` | `Weapon.InsectGlaive` |
-| `Mesh` | `SKM_gun` |
+| `Mesh` | `SKM_IG_Glaive` |
 | `Attach Socket` | `Weapon_R` |
 
 打开 `BP_IG_Character -> Class Defaults`，把 `Equipment -> Demo -> Default Weapon Definition` 设置为 `DA_IG_Phase1_Weapon`。角色被 PlayerController Possess 后，C++ 会自动创建武器实例并装备；装备过程会把攻击力写入玩家 GAS Attribute，并授予连招表内的攻击 GA。

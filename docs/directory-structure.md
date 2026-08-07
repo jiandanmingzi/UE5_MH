@@ -35,7 +35,11 @@ Content/
 │   ├── Monster/                    BP_TrainingDummy
 │   └── PlayerController/
 ├── Characters/
-│   └── Mannequins/                 角色模型与源动画；模板和项目资源仍有混合
+│   └── Demo/
+│       ├── Anims/                  Demo 自有收刀移动动画
+│       ├── Materials/              M_Demo_*、MI_Demo_*
+│       ├── Meshes/                 SKM_Demo_*、SK_Demo_*、PA_Demo_*
+│       └── Textures/               T_Demo_*
 ├── Data/                           全局 DA/DT；DT_WeaponComboConfig 固定在此
 ├── GameplayCues/
 │   ├── InsectGlaive/
@@ -52,10 +56,12 @@ Content/
 │   ├── Contexts/                   IMC_MHGZ_Demo
 │   └── Touch/
 ├── Kinsect/                        猎虫模型、动画和品种资产的规划目录
-├── ThirdPerson/
-│   └── Input/                      保留的模板输入资产
-│       ├── Actions/
-│       └── Contexts/
+├── Maps/
+│   └── L_DemoArena                 10×10 格封闭训练平台；项目唯一地图
+├── 系统自带/
+│   ├── Characters/Mannequins/      UE 模板模型、材质、纹理、动作与 Control Rig
+│   └── ThirdPerson/
+│       └── Input/                  模板 InputAction 与 Mapping Context
 ├── UI/
 │   └── InsectGlaive/
 └── Weapons/
@@ -84,13 +90,13 @@ Content/
 
 统一原则是“系统域顶层、武器类型作为次级目录”：GA 归 Ability，GE 归 GameplayEffects，GC 归 GameplayCues，Montage 和美术资源归武器目录。全局映射表继续放在 `/Game/Data`。
 
-## Content：暂不整理的边界
+## Content：当前边界
 
-- `ThirdPerson/`、`LevelPrototyping/` 是模板/原型内容。
-- `Map/` 和 `ThirdPerson/Lvl_ThirdPerson` 是地图批次；默认地图路径位于 `Config/DefaultEngine.ini`。
-- `__ExternalActors__/`、`__ExternalObjects__/` 由地图和 World Partition 管理，禁止手工移动。
+- `LevelPrototyping/` 继续作为训练平台的原型环境资源，不与角色模板资产混放。
+- `/Game/Maps/L_DemoArena` 是唯一地图，也是编辑器启动与游戏默认地图。
+- 当前地图不使用 World Partition，项目中不再保留 `__ExternalActors__/` 或 `__ExternalObjects__/` 资产。
 - `Weapons/InsectGlaive/Anims/Sequences/Imported/Review` 中的数字命名动画仍需人工预览；未经确认不得删除或按猜测重命名。
-- ThirdPerson 模板 Input 已隔离至 `ThirdPerson/Input`，项目运行时输入保持在 `Input/Actions/MHGZ` 和 `Input/Contexts`；两者不得交叉引用。
+- ThirdPerson 模板 Input 已隔离至 `系统自带/ThirdPerson/Input`，项目运行时输入保持在 `Input/Actions/MHGZ` 和 `Input/Contexts`；两者不得交叉引用。
 
 ## 资产移动规则
 
