@@ -1,5 +1,17 @@
 # GameplayCue 系统
 
+> **实施状态说明（以源码、配置和 Content 为准）：** 当前只完成 GameplayCue Tag 注册以及 `+GameplayCueNotifyPaths=/Game/GameplayCues` 配置。源码中没有自定义 GameplayCueManager、Cue 基类或伤害数字对象池，Content 中也没有 GC 资产；攻击代码目前使用 `AddDynamicAssetTag` 保存 Cue Tag，尚未形成 GameplayCue 自动触发链路。本文其余内容全部作为详细实现方案保留。
+
+## 当前实现
+
+| 项目 | 当前状态 |
+|------|----------|
+| 配置 | `/Game/GameplayCues` 扫描路径已配置；没有 `GlobalGameplayCueManagerClass`。 |
+| Tag | Slash/Blunt/Fire/Crit/DamageNumber/Kinsect、IG 三灯反馈、Monster.Roar、Weapon.Trail 等部分 Tag 已注册；本文其他 Tag 是规划。 |
+| C++ | `UMHGZGameplayCueManager`、`UMHGZCue_HitBase`、`UMHGZCue_BuffBase`、`UMHGZDamageNumberPool` 均未创建。 |
+| 资产 | `Content/GameplayCues` 只有目录占位文件，没有任何 GameplayCueNotify 或伤害数字 Widget。 |
+| 模块 | Build.cs 已有 GameplayAbilities/GameplayTags/UMG，尚未添加 Niagara。 |
+
 > **设计原则：** 统一 GameplayCue 标签触发全部命中反馈（火花/音效/震屏/伤害数字）和状态驱动视觉（Buff 光环/死亡/翻滚），按语义分类创建 C++ 基类封装通用逻辑，伤害数字用 WorldSubsystem 管理对象池。
 
 > **适用范围：** 当前版本仅单机。GameplayCue 在单机模式下等价于本地函数调用，零网络开销。
@@ -12,7 +24,7 @@
 
 ---
 
-## GameplayCue Tag 完整层级
+## GameplayCue Tag 目标层级（是否已注册以 DefaultGameplayTags.ini 为准）
 
 ### 命中反馈（Execute——瞬时触发）
 
@@ -55,7 +67,7 @@ GameplayCue.Monster.Stagger     ← 怪物硬直
 
 ---
 
-## 架构总览
+## 架构总览（规划）
 
 ```mermaid
 flowchart TB
@@ -90,7 +102,7 @@ flowchart TB
 
 ---
 
-## 基础设施
+## 基础设施（规划，当前均未创建）
 
 ### UMHGZGameplayCueManager — 自定义 GC 管理器
 
@@ -114,6 +126,7 @@ flowchart TB
 
 ```ini
 [/Script/GameplayAbilities.AbilitySystemGlobals]
+; 规划：实现类后再启用
 GlobalGameplayCueManagerClass=/Script/MHGZ.MHGZGameplayCueManager
 +GameplayCueNotifyPaths=/Game/GameplayCues
 ```
@@ -196,7 +209,7 @@ OnBurst(Parameters)
 
 ---
 
-## Buff/Debuff 视觉集成
+## Buff/Debuff 视觉集成（规划）
 
 ### Buff GE 配置
 
@@ -222,7 +235,7 @@ OnBurst(Parameters)
 
 ---
 
-## Build.cs 模块依赖
+## Build.cs 目标模块依赖（Niagara 当前尚未添加）
 
 在 `Source/MHGZ/MHGZ.Build.cs` 中确认/新增：
 

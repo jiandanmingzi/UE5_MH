@@ -1,5 +1,7 @@
 # GAS 基础设施
 
+> **实施状态说明：** ASC/AttributeSet/装备/背包/仓库的挂载位置和 `InitAbilityActorInfo` 已按本文实现；背包、仓库仍是桩组件，武器资源组件只会在装备表配置匹配行时动态创建。Seamless Travel、SaveGame 与 QuestManager 均为保留的后续方案，当前项目没有对应实现。
+
 > 以下三节为 GAS 初始化必须明确的架构决策，是先决条件而非可选设计。
 
 ## ASC 挂载位置——PlayerState
@@ -10,7 +12,7 @@
 |------|------|
 | 跨 Character 生命周期 | PlayerState 不随 Character 销毁而丢失——猫车/关卡切换时 ASC 和属性持续存在 |
 | 官方推荐模式 | Epic 的 Lyra、ShooterGame 等官方项目均将 ASC 放在 PlayerState |
-| 组件集中管理 | `EquipmentComponent`、`BackpackComponent`、`WeaponResourceComponent`、`WarehouseComponent` 全部挂载到 PlayerState——全部在同一 Actor 上，无跨 Actor 引用。`QuickBarComponent`、`InputComponent` 挂载到 PlayerController（输入/反馈层职责） |
+| 组件集中管理 | `EquipmentComponent`、`BackpackComponent`、`WarehouseComponent` 挂载到 PlayerState；`WeaponResourceComponent` 由装备系统按配置动态创建在 PlayerState。`QuickBarComponent`、`InputComponent` 挂载到 PlayerController。 |
 | 未来网络扩展 | 无需迁移 ASC——PlayerState 本身就是网络同步的载体 |
 
 > **注意：** ASC 放 PlayerState 后，AnimNotifyState 的 `MeshComp→GetOwner()` 链路变为 `MeshComp→GetOwner()→GetPlayerState()→GetAbilitySystemComponent()`，多一次跳转。对性能影响可忽略（指针跳转 < 1ns），且 AnimNotifyState 仅在 Montage 播放期间触发，频率可控。
@@ -36,7 +38,7 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 }
 ```
 
-## 组件归属——全部挂载到 PlayerState
+## 组件归属
 
 > 以下组件统一挂载到 `AMHGZPlayerState`，消除跨 Actor 引用。`EdgeVaultComponent` 和 `InputComponent` 除外——前者需要 CMC 访问，后者管理 EnhancedInput IMC。
 
@@ -53,9 +55,9 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 | `UMHGZInputComponent` | PlayerController | 管理 IMC 生命周期 |
 | `UMotionWarpingComponent` | Character | UE5 内置，动画驱动。需 SkeletalMeshComponent+AnimBP 管线（PlayerState 不具备）——构造函数 `CreateDefaultSubobject` 随 Character 创建，GA 在 ActivateAbility 中通过 `FindComponentByClass` 设 Warp Target，Montage 中 `AnimNotifyState_MotionWarping` 自动消费。单向交互，零耦合 |
 
-> **★ I-4 修复——PlayerState Tick 必须启用：** `AMHGZPlayerState` 构造函数中必须设 `PrimaryActorTick.bCanEverTick = true`。`URes_InsectGlaive`（WeaponResourceComponent 子类）依赖 Tick 驱动猎虫耐力扣减/回复和萃取剩余时间广播。UE 的 `APlayerState` 默认关闭 Actor Tick——不加此行则所有挂载到 PlayerState 的 Component Tick 都不会触发。
+> **★ I-4 修复——PlayerState Tick 必须启用：** `AMHGZPlayerState` 构造函数中已设置 `PrimaryActorTick.bCanEverTick = true`。`URes_InsectGlaive` 依赖 Tick 驱动猎虫耐力扣减/回复；萃取剩余时间 Delegate 已声明但广播逻辑尚未实现。
 
-## 关卡切换——Seamless Travel + SaveGame 兜底
+## 关卡切换——Seamless Travel + SaveGame 兜底（规划，当前未实现）
 
 **怪猎游玩模式：** 据点（接任务/工坊/吃饭）→ 选择任务 → 加载指定地图（天气/怪物分布/采集点由任务参数决定）→ 完成/失败/放弃 → 返回据点。玩家背包、装备、仓库在据点↔任务地图之间**全部保留**。
 
@@ -92,7 +94,7 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 - 新关卡 BeginPlay → 从 SaveGame 恢复 → 重建 PlayerState 状态
 - `InstanceID`（FGuid）在 SaveGame 中保留，确保装备实例一致性
 
-> **当前阶段：** Seamless Travel 是优先方案（符合"ASC 放 PlayerState"的架构优势）。若调试/开发期间用 OpenLevel 更方便，则搭配 SaveGame 兜底。两种方式在组件接口层无差异——Backpack/Warehouse/Equipment 的读写接口不变。
+> **规划状态：** Seamless Travel、SaveGame 兜底和以下 QuestManager 流程尚未实现；本节保留为后续架构方案。
 
 **任务参数传递——GameInstanceSubsystem：**
 - 创建 `UMHGZQuestManager`（GameInstanceSubsystem），存储当前任务配置

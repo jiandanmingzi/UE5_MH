@@ -1,5 +1,7 @@
 # 存储系统
 
+> **实施状态说明（以源码为准）：** `UMHGZBackpackComponent` 和 `UMHGZWarehouseComponent` 当前都是无数据、无接口的 Demo 桩组件。`FStorageSlot`、堆叠、转移、分类、搜索、整理和仓库 UI 均为下文保留的详细方案，尚未实现。
+
 **设计原则：** 背包有限格（默认 30）、不可分类、堆叠上限跟随物品定义。仓库无限格、统一 99999 堆叠、可分类浏览（GameplayTag 标签页）。一键整理 = 堆叠合并 + 三级排序（品类→稀有度降序→名称升序）。
 
 ## FStorageSlot — 存储槽位

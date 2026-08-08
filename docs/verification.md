@@ -1,5 +1,7 @@
 # 验证方案
 
+> **状态说明：** 下列编号是完整目标系统的验收用例，不是“已经通过”的测试报告。当前只有虫棍单次地面攻击、Socket Sweep、原生伤害 GE/ExecCalc、木桩生命值和 Motion Matching 等基础链路具备实现；背包/仓库/使用、词条 ExecCalc、GameplayCue、完整猎虫萃取/UI、死亡复活及多数武器招式仍需实现后再执行对应条目。
+
 1. 创建 r5 武器、r3 饰品 DataAsset，验证 RarityLevel 和 Tag 自动生成
 2. 孔位 Lv3→镶 Lv2 饰品 ✅，孔位 Lv2→镶 Lv3 饰品 ❌
 3. 背包/仓库：堆叠、转移、一键整理

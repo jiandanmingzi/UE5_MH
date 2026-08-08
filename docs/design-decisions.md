@@ -1,5 +1,7 @@
 # 一键整理排序表
 
+> **状态说明：** 本文记录目标设计决策，不等同于实现清单。当前实施状态应查阅对应系统文档顶部的“当前实现”校准以及源码；尚未落地的决策继续保留，供后续实现使用。
+
 | 优先级 | 品类 | 匹配标签 | 二级键 | 三级键 |
 |:--:|------|------|:--:|------|
 | 0 | 武器 | `Item.Type.Weapon` | RarityLevel 降序 | Name 升序 |
@@ -26,7 +28,7 @@
 | 9 | 快捷栏切换选中→触发 | 适配手柄，减少按键占用 |
 | 10 | UseAction/SpecialAction 通过 GAS Ability | 与动作系统统一 |
 | 11 | 词条目录 + SimpleStat/Complex 分流 | 集中管理 + 80% 词条无需各自 GE 蓝图 |
-| 12 | 装备 GE 打 Tag 批量移除 | RemoveActiveEffectsWithTags 一行清空，不存 Handle |
+| 12 | 装备 GE 打 Tag 批量移除 | 当前使用 RemoveActiveEffectsWithAppliedTags，不存 Handle |
 | 13 | EquipmentInstance::Status 替代 O(n) 查询 | 由 EquipmentComponent 维护，UI 直接读 O(1) |
 | 14 | 全量重算非增量 | 不维护中间状态，正确性保证。装备变更仅在非战斗期触发 |
 | 15 | CurveTable 驱动词条数值 | 支持非线性、多属性、跨级突变 |
@@ -51,7 +53,7 @@
 | 33 | 出招表为平面数组 + StateIndex 索引，非树状嵌套 | 匹配时 O(1) 查候选行 → 遍历匹配条件 |
 | 34 | 地面/空中/拔刀态由 GameplayTag 显式管理，协调器只读 ASC Tag 状态 | 协调器不主动判断状态——只做 Tag 匹配过滤 |
 | 35 | 所有 IA 统一绑定到 ASC 的 OnInputActionTriggered，按 AbilityTag 类别分叉路由 | 单一 EnhancedInput 绑定点，Tag 做路由中介 |
-| 36 | UI 由 GameplayTag/Attribute 变化驱动，Ability 不直接操作 UI | GA_Aim 激活 → ASC 持有 Combat.State.Aiming → UI 订阅 Tag 事件响应 |
+| 36 | UI 由 GameplayTag/Attribute 变化驱动，Ability 不直接操作 UI | Character 输入维护 Combat.State.Aiming，AimComponent 订阅 Tag；Widget 接线仍待实现 |
 | 37 | 翻滚不进连招表——独立 GA_Dodge + DT_WeaponDodgeConfig 参数化 | 翻滚是取消/中断动作，非连招的一环 |
 | 38 | 受击判断 = GE Execute 时被动检查；霸体通过 GameplayTag + AnimNotifyState_PoiseWindow | 不需要 Tick 轮询、不需要"受击监听组件" |
 | 39 | VFX/SFX/镜头三层分工——不设独立系统 | 帧同步（AnimNotify）/ 状态驱动（GameplayCue）/ 镜头（Ability 内 CameraModifier） |
@@ -75,13 +77,13 @@
 | 57 | 翻滚窗口=ASC Tag 方案（Combat.State.Attacking/DodgeAcceptOpen） | AnimNotifyState_DodgeAcceptWindow 直接操作 Tag，不耦合协调器 |
 | 58 | FComboNode.bRequiresWindowOpen=false + DodgeAcceptOpen Tag = 统一取消窗口 | 与翻滚共用取消窗口 |
 | 59 | UMHGZDataManager (GameInstanceSubsystem) 集中管理全局 DataTable/CurveTable | 策划一处配置，所有系统通过 GetSubsystem 获取 |
-| 60 | MoveSpeedMultiplier → CMC.MaxWalkSpeed 用 Tick 同步 | GAS Attribute 与 CMC 属性不在同一系统，Tick 一行代码保证永远同步 |
-| 61 | 持刀不可奔跑用 Unsheathed Tag 阻塞 GA_Sprint | 不新增专用 Tag |
+| 60 | MoveSpeedMultiplier 已定义但尚未接入移动速度；CMC.MaxWalkSpeed 固定 1200 | 当前位移由 Motion Matching Root Motion 驱动，后续应在巡航速度层消费倍率 |
+| 61 | 持刀不可奔跑由 Character 的 SprintPressed 检查 Unsheathed Tag | 当前没有 GA_Sprint，不新增专用阻塞 Tag |
 | 62 | 受击硬直用 GameplayEvent 替代 Tag Trigger | 每次调用独立触发，InstancedPerExecution 支持受击连打 |
 | 63 | FComboNode::StaminaRequired（门槛）与 GA::StaminaCost（消耗）分离 | 语义独立，策划可设 Required > Cost 保留耐力余量 |
-| 64 | 持续耗耐用 Tick × DeltaTime + ApplyModToAttribute | 帧率无关（30/60/120 FPS 1 秒总扣除一致） |
+| 64 | 持续耗耐当前使用 0.1s Timer + 固定 0.1s 步长 | 10Hz 调用 ApplyModToAttribute；改为真实 DeltaTime 属于后续优化 |
 | 65 | 蓄力攻击在 GA 内部闭环，不进连招表路由 | 蓄力是 GA 内部多阶段状态机。Completed 事件通过检查 `Combat.State.Charging` Tag → 发送 `Combat.Event.ChargeReleased` GameplayEvent 触发释放 |
-| 66 | EnhancedInput 同时绑定 Triggered + Completed | Triggered→连招匹配/标准 Ability 激活；Completed→检查 `Combat.State.Charging` Tag → 若存在则 `HandleGameplayEvent(Combat.Event.ChargeReleased)` |
+| 66 | EnhancedInput 同时绑定 Started + Completed | Started→连招匹配/标准 Ability 激活；Completed→检查 `Combat.State.Charging` Tag 后发送 `Combat.Event.ChargeReleased` |
 | 67 | 无敌帧 = Weapon 通道 Ignore + Invincible Tag 双层保障 | Pawn 通道始终 Block——玩家不可穿过怪物身体 |
 | 68 | 怪物部位胶囊体复用 + MonsterAttack 通道窗口切换 | 收招自动 Ignore——不误伤 |
 | 69 | 怪物攻击首帧 Sweep 防高速穿透 | 龙车等高速攻击不会穿透玩家 |
@@ -106,11 +108,11 @@
 | 88 | 预输入 Chord Trigger 天然正确，单槽足够 | Chord 回调总是最后到达，后覆盖前 |
 | 89 | QuickBar 挂载到 PlayerController | 输入/反馈层组件，通过 GetPlayerState() 一次跳转访问 Backpack |
 | 90 | QuickBar 音效与执行分离 | 切换选中/使用选中时无条件播放音效 |
-| 91 | DT_WeaponResourceConfig 仅做 UI Widget 桥接 | 资源数值由各 WeaponResourceComponent 子类自行管理 |
+| 91 | DT_WeaponResourceConfig 映射 ResourceComponentClass + ResourceWidgetClass | 资源数值仍由各 WeaponResourceComponent 子类自行管理；当前资产尚未创建 |
 | 92 | 仓库 UI 仅显示 InStorage 物品 | 仓库只管存储——已装备/已镶嵌物品不出现在仓库列表中 |
 | 93 | EquippedItems/SocketedAccessories 存指针 | 对象本体始终在 WarehouseComponent::Slots 中 |
-| 94 | WeaponComboData 异步加载 + 回调注入 | 加载期间 StateIndex 为空，武器输入静默忽略 |
-| 95 | EComboDirection 在 HandleWeaponInput 时快照 | 保证方向是玩家按键时的意图 |
+| 94 | WeaponComboData 当前同步加载并通过 InjectComboData 注入 | RequestID 异步竞态保护是保留的后续方案 |
+| 95 | EDirectionalInput 字段已定义但协调器尚未消费 | 方向快照与象限匹配是保留的后续方案 |
 | 96 | AnimNotifyState_ForesightJudge 协作模式 | NotifyState 管理窗口 + GA 管理事件委托 |
 | 97 | 关卡切换——Seamless Travel 为主 | 据点↔任务地图，PlayerState 保留，ASC/背包/仓库无缝衔接 |
 | 98 | MultiHitTimer 清理——三重保障 | `DisableCollision` 正常路径 + `EndAbility` 取消路径 + `BeginDestroy` 销毁兜底均有清除 |
@@ -146,8 +148,8 @@
 | 127b | FComboNode 新增 BlockedStateNames（`TArray<FName>`），仅 `bMatchAnyState==true` 时生效 | `bMatchAnyState` 是"全匹配"开关，但现实中需要"匹配除了 X、Y 之外的所有状态"的语义（如太刀特殊纳刀不可从 Idle 起手、通用追击技排除特定招式）。黑名单模式——只需列出不允许的少数状态名，空数组=原行为。避免了为每个允许的源状态写一行 FComboNode 的爆炸 |
 | 128 | 空中动作次数限制用 Cant 模型（CantDodge/CantAttack）而非数字计数器或 Can 模型 | 默认全部可用，用过才加锁。GAS 原生 BlockedTags 处理，零 GA 覆写。容错优于 Can——加锁失败最多多用一次，不会误锁。不需要 Exhausted 汇总标签 |
 | 129 | 着陆重置协调器——`Coordinator→OnLanded()` 强制 `CurrentState="Idle"` | CMC OnLanded 是事件而非 GA——不产生伤害/消耗资源。落地后地面连招从 "Idle" 匹配起手 |
-| 130 | 瞄准不走 GAS——`UMHGZAimComponent` 直接绑定 EnhancedInput，`AddLooseGameplayTag`/`RemoveLooseGameplayTag` 管理 `Combat.State.Aiming` | 瞄准是输入状态而非招式——无动画、无前后摇、不消耗资源。GA_Aim 不存在。AimComponent 零 GAS 开销切换 Tag，连招表的 `RequiredTags={Aiming}` 照常匹配 |
-| IG-17 | 猎虫移动用 `UProjectileMovementComponent`（`bAutoActivate=false`），不继承 APawn | `UFloatingPawnMovement` 依赖 APawn 接口，与 `AActor` 不兼容。`UProjectileMovementComponent` 的 `HomingTargetComponent` 天然支持回归追踪，手动控制 Velocity 更灵活且零 Pawn 负担 |
+| 130 | 瞄准不走 GA——Character 绑定 EnhancedInput 并维护 `Combat.State.Aiming`，AimComponent 只订阅 | GA_Aim 不存在；Tag 仍可供连招条件与 UI 使用 |
+| IG-17 | 猎虫移动用 `UProjectileMovementComponent`（`bAutoActivate=false`），不继承 APawn | 当前 Returning Tick 手动追踪 OwnerActor 并更新 Velocity，不使用 HomingTargetComponent |
 | IG-18 | 送虫/收虫 GA 进连招表（`bMatchAnyState=true`），不设独立激活路径 | 单一输入路由消除双路径竞态。`bMatchAnyState` 使任意连招节点均可送/收虫。瞄准态分流由 `RequiredTags` + `Priority` 在出招表中可视化控制 |
 | ED-0 | 单一 ExecCalc 处理全部伤害来源 | 武器攻击与猎虫伤害复用同一公式，通过 SetByCaller 覆写区分攻击力来源 |
 | ED-4 | 硬直走 `HandleGameplayEvent` 而非 Tag Trigger | 每次调用独立触发，InstancedPerExecution 支持受击连打 |

@@ -1,24 +1,37 @@
 # 伤害执行计算（ExecCalc）
 
-> **设计原则：** 单一 `UExecCalc_Damage` 处理全部伤害来源（武器攻击 + 猎虫伤害），通过 `SetByCaller` 区分来源参数。伤害公式 = `AttackPower × MotionValue × HitzoneDefense × CritMultiplier`。硬直公式独立计算后通过 `GameplayEvent` 广播。
+> **实施状态说明（以源码与 Content 为准）：** 单一 `UMHGZDamageExecCalc` 和原生 `UMHGZDamageGameplayEffect` 已实现武器伤害；硬直输出、暴击 GameplayCue、伤害数字和猎虫伤害资产尚未接通。本文保留这些模块的完整目标方案，规划伪代码不表示当前已经运行。
+
+## 当前实现
+
+| 项目 | 当前状态 |
+|------|----------|
+| 伤害公式 | `max(1, AttackPower × MotionValue × HitzoneDefense × (暴击?1.25:1))`，已输出到 Target Health。 |
+| 输入 | 已读取 `Damage.MotionValue`、`Damage.BaseStagger`、`Damage.AttackPower`、`Damage.CritOverride`；Hitzone 通过 DynamicAssetTags 查目标部位组件。 |
+| 硬直 | `BaseStagger`、`StaggerMultiplier`、`StaggerRate` 会被读取，但没有产生 Output/Event；等级映射函数也未被 Execute 调用。 |
+| GameplayCue | Attack/Kinsect 代码把 Cue Tag 加入 DynamicAssetTags；ExecCalc 不触发暴击 Cue，当前没有 GC 资产或对象池。 |
+| GameplayEffect | 通用伤害是 C++ 类 `UMHGZDamageGameplayEffect`（Instant + `UMHGZDamageExecCalc`），不是 `GE_Damage.uasset`。 |
+| 猎虫伤害 | 代码硬编码加载 `/Game/GameplayEffects/Core/GE_KinsectDamage`，但资产不存在，因此该路径当前无法结算。 |
+
+> **设计原则：** 全部伤害来源复用 `UMHGZDamageExecCalc`，通过 `SetByCaller` 区分来源参数；硬直和 GameplayCue 继续按下文方案补齐。
 
 ---
 
-## 零、架构定位
+## 零、目标完整架构（伤害已实现；硬直与 GC 未实现）
 
 ```
 攻击链路
   MakeDamageSpec (GA 侧)
     → 注入 SetByCaller: Damage.MotionValue, Damage.BaseStagger
     → 注入 DynamicAssetTags: Hitzone.* (部位信息)
-    → 注入 DynamicGameplayCueTags: GameplayCue.Hit.* (命中反馈)
+    → 当前把 GameplayCue.Hit.* 加入 DynamicAssetTags（尚未形成 GC 自动路由）
     → ASC::ApplyGameplayEffectSpecToTarget
-      → UExecCalc_Damage::Execute ← 本文档
-        → 计算最终伤害 + 硬直
+      → UMHGZDamageExecCalc::Execute ← 本文档
+        → 当前计算最终伤害；硬直仍是规划
         → 暴击判定
         → OutExecutionOutput: Health -= FinalDamage
-        → HandleGameplayEvent: Combat.Event.HitStagger
-      → ASC 自动触发 GameplayCue (火花/音效/伤害数字)
+        → [规划] HandleGameplayEvent: Combat.Event.HitStagger
+      → [规划] ASC 触发 GameplayCue (火花/音效/伤害数字)
 ```
 
 ---
@@ -89,7 +102,7 @@ $$\text{FinalDamage} = \text{RawDamage} \times \begin{cases} 1.25 & \text{if bCr
 | HitzoneDefense | Target 的 `UMonsterHitzoneComponent::DefenseMultiplier` | (0, ∞)，典型值 0.2~1.5 |
 | CriticalRate | `Damage.CritOverride` >= 0 ? 覆写 : 读 Source ASC 的 `CriticalRate` | [-100, 100] |
 
-### 3.2 硬直值
+### 3.2 硬直值（规划，当前未输出）
 
 $$\text{Stagger} = \text{BaseStaggerValue} \times \text{StaggerMultiplier} \times \text{HitzoneStaggerRate}$$
 
@@ -101,10 +114,10 @@ $$\text{Stagger} = \text{BaseStaggerValue} \times \text{StaggerMultiplier} \time
 
 ---
 
-## 四、执行步骤（伪代码）
+## 四、目标执行步骤（伪代码；硬直/GC 部分未实现）
 
 ```cpp
-void UExecCalc_Damage::Execute_Implementation(
+void UMHGZDamageExecCalc::Execute_Implementation(
     const FGameplayEffectCustomExecutionParameters& ExecutionParams,
     FGameplayEffectCustomExecutionOutput& OutExecutionOutput) const
 {
@@ -227,7 +240,7 @@ void UExecCalc_Damage::Execute_Implementation(
 
 ---
 
-## 五、GameplayCue 联动
+## 五、GameplayCue 联动（规划，当前未接通）
 
 ### 5.1 GC Tag 注入时机
 
@@ -253,59 +266,60 @@ float DamageValue = FMath::Abs(Parameters.RawMagnitude);
 
 ---
 
-## 六、GE 蓝图配置
+## 六、GameplayEffect 配置状态
 
-### GE_Damage（通用伤害 GE）
+### UMHGZDamageGameplayEffect（当前原生通用伤害 GE）
 
 | 属性 | 值 | 说明 |
 |------|------|------|
 | DurationPolicy | Instant | 即时生效 |
 | Modifiers | — | **留空**——所有数值由 ExecCalc 通过 `OutExecutionOutput` 写入 |
-| ExecCalc | `UExecCalc_Damage` | |
-| GameplayCueTags | — | **留空**——由 `MakeDamageSpec` 动态注入 |
+| ExecCalc | `UMHGZDamageExecCalc` | 构造函数中加入 Execution |
+| GameplayCueTags | — | 当前无自动路由；MakeDamageSpec 只添加 DynamicAssetTags |
 
-### GE_KinsectDamage（猎虫伤害 GE）
+### GE_KinsectDamage（规划，资产未创建）
 
 | 属性 | 值 | 说明 |
 |------|------|------|
 | DurationPolicy | Instant | 即时生效 |
 | Modifiers | — | 留空 |
-| ExecCalc | `UExecCalc_Damage` | **复用同一个 ExecCalc**——通过 `Damage.AttackPower` 覆写区分来源 |
+| ExecCalc | `UMHGZDamageExecCalc` | **复用同一个 ExecCalc**——通过 `Damage.AttackPower` 覆写区分来源 |
 | GameplayCueTags | — | 留空——由 `ApplyKinsectDamage` 构造 Spec 时注入 `GameplayCue.Hit.Kinsect` |
 
 ---
 
-## 七、与现有系统的接口
+## 七、接口方案（当前签名已校准；GC 注入仍待实现）
 
 ### 7.1 AttackAbility → MakeDamageSpec
 
 ```cpp
 // UMHGZAttackAbility::MakeDamageSpec
 FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
-    const FAttackDamageConfig& DamageConfig,
-    const FGameplayTag HitzoneTag)
+    AActor* Target, FName HitzoneBoneName, int32 SegmentIndex)
 {
-    FGameplayEffectSpecHandle Spec = MakeOutgoingGameplayEffectSpec(GE_Damage);
+    const FAttackSegmentConfig& Segment = AttackSegments[SegmentIndex];
+    FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(
+        Segment.Damage.DamageEffectClass, 1.f, ASC->MakeEffectContext());
 
     // 动作值
     Spec.Data->SetSetByCallerMagnitude(
         FGameplayTag::RequestGameplayTag("Damage.MotionValue"),
-        DamageConfig.MotionValue);
+        Segment.Damage.MotionValue.GetValueAtLevel(GetAbilityLevel()));
 
     // 基础破坏值
     Spec.Data->SetSetByCallerMagnitude(
         FGameplayTag::RequestGameplayTag("Damage.BaseStagger"),
-        DamageConfig.BaseStaggerValue);
+        Segment.Damage.BaseStaggerValue.GetValueAtLevel(GetAbilityLevel()));
 
     // 部位信息
-    if (HitzoneTag.IsValid())
+    if (Hitzone && Hitzone->HitzoneTag.IsValid())
     {
-        Spec.Data->DynamicAssetTags.AddTag(HitzoneTag);
+        Spec.Data->AddDynamicAssetTag(Hitzone->HitzoneTag);
     }
 
-    // GameplayCue——命中反馈
-    Spec.Data->DynamicGameplayCueTags.AddTag(DamageConfig.HitCueTag);
-    Spec.Data->DynamicGameplayCueTags.AddTag(
+    // 当前实现仍使用 AddDynamicAssetTag；要自动路由 GC 需后续改造。
+    Spec.Data->AddDynamicAssetTag(Segment.Damage.HitCueTag);
+    Spec.Data->AddDynamicAssetTag(
         FGameplayTag::RequestGameplayTag("GameplayCue.Hit.DamageNumber"));
 
     return Spec;
@@ -338,9 +352,9 @@ void URes_InsectGlaive::ApplyKinsectDamage(
     Spec.Data->DynamicAssetTags.AddTag(Hitzone->HitzoneTag);
 
     // GameplayCue——猎虫命中反馈
-    Spec.Data->DynamicGameplayCueTags.AddTag(
+    Spec.Data->AddDynamicAssetTag(
         FGameplayTag::RequestGameplayTag("GameplayCue.Hit.Kinsect"));
-    Spec.Data->DynamicGameplayCueTags.AddTag(
+    Spec.Data->AddDynamicAssetTag(
         FGameplayTag::RequestGameplayTag("GameplayCue.Hit.DamageNumber"));
 
     PlayerASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, MonsterASC);
@@ -355,25 +369,25 @@ void URes_InsectGlaive::ApplyKinsectDamage(
 |------|:--:|------|
 | ExecCalc `Execute` 被调用 | ❌ | 无论 Target 有无 AttributeSet，ExecCalc 都会执行 |
 | `OutExecutionOutput.AddOutputModifier(Health, …)` | ⚠️ | 若 Target 无 Health Attribute→产生 Warning 日志，不崩溃。扣血跳过 |
-| `HandleGameplayEvent(HitStagger)` | ❌ | GameplayEvent 独立于 AttributeModifier，始终触发 |
-| `DynamicGameplayCueTags` 路由 GC | ❌ | GC 由 ASC 在 ApplyGE 后自动触发，不依赖 AttributeSet |
-| 伤害数字 Widget 显示 | ❌ | 从 `Damage.DisplayValue` SetByCaller 读取，不依赖 Attribute |
+| `HandleGameplayEvent(HitStagger)` | ✅ | 当前只可能由 Target `UMHGZAttributeSet::PostGameplayEffectExecute` 广播，且 DamageSpec 尚未自动添加 `Combat.Event.HitStagger` |
+| GameplayCue 路由 | — | 当前未接通；代码使用 DynamicAssetTags，且 GC 资产不存在 |
+| 伤害数字 Widget 显示 | — | 当前未实现 |
 
-> **木桩场景：** 木桩 ASC 无 AttributeSet→伤害 GE Apply 成功、GC 触发（火花+伤害数字弹出）、硬直事件广播、属性扣血跳过（Warning 日志）。需要血条时挂载 `UMHGZAttributeSet` 即可。
+> **木桩场景：** 当前木桩拥有 `UMHGZAttributeSet`，默认最大生命与生命均为 1000，通用伤害会实际扣血；GameplayCue、伤害数字和硬直反馈尚未接通。
 
 ---
 
-## 九、目录结构
+## 九、目录结构（源码项已存在；Content 项为规划）
 
 ```
 Source/MHGZ/
 ├── ActionSystem/
-│   └── MHGZDamageExecCalc.h/cpp      ← UExecCalc_Damage 实现
+│   ├── MHGZDamageExecCalc.h/cpp      ← UMHGZDamageExecCalc 实现
+│   └── MHGZDamageGameplayEffect.h/cpp ← 当前原生通用伤害 GE
 
 Content/
 ├── GameplayEffects/
-│   ├── GE_Damage.uasset              ← 通用伤害 GE（Instant）
-│   └── GE_KinsectDamage.uasset       ← 猎虫伤害 GE（Instant，复用同一 ExecCalc）
+│   └── GE_KinsectDamage.uasset       ← 规划；当前未创建
 
 Content/GameplayCues/Hit/
 ├── GC_Hit_Slash.uasset               ← 斩击命中
@@ -392,7 +406,7 @@ Content/GameplayCues/Hit/
 | ED-0 | 单一 ExecCalc 处理全部伤害来源 | 伤害公式统一、维护一处；武器 vs 猎虫通过 SetByCaller 覆写区分 |
 | ED-1 | SetByCaller 键名统一为 `Damage.*` 命名空间 | 废弃 `Damage.Value` 和 `Damage.Kinsect.*` 旧名，避免混淆 |
 | ED-2 | `Damage.AttackPower` 为可选覆写（-1=读 ASC） | 猎虫伤害传入猎虫攻击力覆写；武器攻击留空让 ExecCalc 读 Source ASC |
-| ED-3 | 暴击 Tag（`GameplayCue.Hit.Crit`）在 ExecCalc 中动态注入 | 暴击判定在 ExecCalc 中完成，需要同时注入 GC Tag。唯一合规方式——ExecCalc 中 `const_cast` 修改 Spec |
+| ED-3 | 暴击 GameplayCue 尚未实现 | 暴击判定已在 ExecCalc 中完成，后续应通过受支持的 GameplayCue 输出路径接入，不使用 `const_cast` 修改 Spec |
 | ED-4 | 硬直走 `HandleGameplayEvent` 而非 Tag Trigger | 遵循决策 #62——每次调用独立触发，InstancedPerExecution 支持受击连打 |
 | ED-5 | 至少 1 点伤害 | 0 伤害攻击无视觉反馈→玩家困惑。1 点伤害 = 最低限度"命中确认" |
 | ED-6 | HitzoneComponent 查找用遍历而非 Map 缓存 | 怪物部位数 ≤ 20，O(n) 遍历成本 < 1μs。Map 缓存需要维护增删同步逻辑→不值得 |

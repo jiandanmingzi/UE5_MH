@@ -1,12 +1,25 @@
 # UI 系统
 
+> **实施状态说明（以源码与 Content 为准）：** 当前完成的是 UI C++ 接口骨架和 AimComponent；主 HUD 创建/绑定、血条/耐力条、资源 Widget 工厂、准心蓝图和虫棍资源 UI 尚未接通。`Content/UI` 目前只有目录占位文件，因此下文的 Widget 蓝图和完整生命周期均作为详细方案保留。
+
+## 当前实现
+
+| 模块 | 当前状态 |
+|------|----------|
+| `AMHGZHUD` | 类已存在，`BeginPlay` 为空，不创建主 HUD。 |
+| `UMHGZUISubsystem` | 只有静态 `Get`，没有 Active Widget 状态或创建/切换/销毁接口。 |
+| `UMHGZUserWidget` | 只保存 Bound ASC，并提供可覆写的 `OnValueUpdated`；没有自动注册 Attribute/Tag 委托。 |
+| `UMHGZWeaponResourceWidget` | `BindToResourceComponent` 只保存指针，没有 Unbind 或具体 Delegate 绑定。 |
+| `UMHGZCrosshairWidget` | 只有蓝图事件接口；当前无对应 WBP 资产。 |
+| `UMHGZAimComponent` | 已实现：订阅 `Combat.State.Aiming`，以 20Hz 射线检测 Hitzone，映射萃取颜色并在目标变化时广播。Aiming Tag 由 Character 输入维护。 |
+
 **设计原则：** UI 由 GameplayTag/Attribute/Delegate 驱动，GAS Ability 不直接操作 UI。数据层（GAS / ResourceComponent / AimComponent）提供数据，表现层（UMG Widget）订阅变化。武器资源 UI 通过 `UMHGZUISubsystem`（GameInstanceSubsystem）工厂模式按武器种类动态创建/销毁。准心系统由 `UMHGZAimComponent`（Character 端）提供瞄准目标数据。
 
-> **当前阶段：** 主 HUD 容器 + 血条 + 耐力条 + 准心 + 武器资源插槽。小地图等后续扩展。所有 Widget 蓝图由策划创建，C++ 只提供数据绑定接口。
+> **目标阶段：** 主 HUD 容器 + 血条 + 耐力条 + 准心 + 武器资源插槽。小地图等后续扩展。所有 Widget 蓝图由策划创建，C++ 提供数据绑定接口。
 
 ---
 
-## 架构总览
+## 架构总览（目标方案）
 
 ```
 数据层（不依赖 UI）
@@ -33,7 +46,7 @@
 
 ---
 
-## 一、AMHGZHUD — 主 HUD
+## 一、AMHGZHUD — 主 HUD（当前为空壳；以下成员/流程为规划）
 
 ```
 UCLASS()
@@ -125,7 +138,7 @@ class AMHGZHUD : public AHUD
 
 ---
 
-## 二、WBP_HealthBar / WBP_StaminaBar — 血条与耐力条
+## 二、WBP_HealthBar / WBP_StaminaBar — 血条与耐力条（规划）
 
 两个 Widget 设计相同（ProgressBar + 数值文本 + 颜色渐变），仅数据源不同。均继承 `UMHGZUserWidget`。
 
@@ -160,7 +173,7 @@ class AMHGZHUD : public AHUD
 
 ---
 
-## 三、UMHGZUISubsystem — 武器资源 Widget 工厂
+## 三、UMHGZUISubsystem — 武器资源 Widget 工厂（规划；当前只有 Get）
 
 ```
 UCLASS()
@@ -208,7 +221,7 @@ UUserWidget（UE 原生）
 
 > **WBP_HUD** 不需要 C++ 基类——主 HUD 的职责是容器布局（Canvas Panel 层级）+ 委托 `UMHGZUISubsystem` 做 Widget 生命周期，纯蓝图实现即可。
 
-### UMHGZUserWidget — 项目基类
+### UMHGZUserWidget — 项目基类（当前仅 BindToASC/BoundASC/OnValueUpdated；其余为规划）
 
 ```
 UCLASS(Abstract, Blueprintable)
@@ -229,7 +242,7 @@ class UMHGZUserWidget : public UUserWidget
 
 > **设计理由：** 蓝图 `RegisterGameplayTagEvent` 返回的 DelegateHandle 需要手动缓存并在析构时取消——纯蓝图经常遗漏导致悬空回调。基类封装后子类只需 `ListenForGameplayTag(Tag, [this](auto Tag, int32 Count) { ... })`——一行调用，零泄漏风险。
 
-### UMHGZWeaponResourceWidget — 武器资源基类
+### UMHGZWeaponResourceWidget — 武器资源基类（当前只保存 ResourceComponent；Unbind 为规划）
 
 ```
 UCLASS(Abstract, Blueprintable)
@@ -286,18 +299,19 @@ class UMHGZCrosshairWidget : public UMHGZUserWidget
 | bIsAiming | bool | "Aim\|State" | false | 当前是否瞄准中（订阅 `Combat.State.Aiming` Tag） |
 | CurrentAimTarget | TWeakObjectPtr\<AActor\> | "Aim\|State" | nullptr | 准心当前指向的 Actor |
 | CurrentAimHitzoneTag | FGameplayTag | "Aim\|State" | 空 | 准心指向的怪物部位 Tag |
+| CurrentAimExtractColor | FGameplayTag | "Aim\|State" | 空 | 当前部位映射出的虫棍萃取颜色 |
 | AimMaxDistance | float | "Aim\|Config" | 3000 | 瞄准射线最大距离（cm） |
 | AimChannel | TEnumAsByte\<ECollisionChannel\> | "Aim\|Config" | GameTraceChannel1 | 碰撞通道（Weapon——检测怪物 HitzoneComponent） |
-| AimInputAction | TObjectPtr\<UInputAction\> | "Aim\|Config" | nullptr | `IA_LT` 资产——`BeginPlay` 时直接绑定 EnhancedInput 的 Triggered/Completed |
+| AimInputAction | — | — | — | 当前组件没有该字段；`IA_LT` 由 Character 绑定 |
 
 | Delegate | 签名 | 说明 |
 |------|------|------|
-| OnAimTargetChanged | `(AActor* Target, FGameplayTag HitzoneTag)` | 准心指向变化时广播。Target 为 nullptr 表示瞄空/场景 |
+| OnAimTargetChanged | `(AActor* Target, FGameplayTag HitzoneTag, FGameplayTag ExtractColor)` | 准心指向变化时广播。Target 为 nullptr 表示瞄空/场景 |
 
 ### 关键方法
 
 - `void BeginPlay() override`
-  - 作用：获取 ASC → 订阅 `RegisterGameplayTagEvent(Combat.State.Aiming)` → `OnAimingTagChanged`。直接向 EnhancedInput Subsystem 绑定 `AimInputAction` 的 Triggered/Completed——按下 LT → `ASC->AddLooseGameplayTag(Combat.State.Aiming)`；松开 → `RemoveLooseGameplayTag`。不走 GAS 分叉路由（瞄准是输入状态，非 Ability）。
+  - 作用：获取 ASC → 订阅 `RegisterGameplayTagEvent(Combat.State.Aiming)` → `OnAimingTagChanged`。Character 的 `AimPressed/AimReleased` 负责在 Started/Completed/Canceled 时增删 Tag；AimComponent 不直接绑定 EnhancedInput。
 
 - `void TickComponent(float DeltaTime) override`
   - 作用：若 `bIsAiming` → `LineTraceSingleByChannel(AimChannel)` → 命中 `UMonsterHitzoneComponent` → 读 HitzoneTag → 若与上一帧不同 → 广播 `OnAimTargetChanged(Monster, HitzoneTag)`。命中其他 → 广播 `OnAimTargetChanged(nullptr, 空)`。**仅在目标变化时广播**——避免每帧重复触发 UI。
@@ -307,11 +321,11 @@ class UMHGZCrosshairWidget : public UMHGZUserWidget
 
 ### 虫棍扩展
 
-虫棍在基类上扩展了 `CurrentAimExtractColor` 字段和 `OnAimTargetChanged` 的 Delegate 签名增加 `ExtractColor` 参数。若其他武器不需要萃取预览，使用基类版本的 Delegate（不含 ExtractColor）即可。**建议用虚函数 `GetAimTargetData` 让子类覆写返回扩展数据**——避免不同武器用不同 Delegate 签名导致 HUD 需要分支处理。
+当前 `UMHGZAimComponent` 本身包含 `CurrentAimExtractColor`，`OnAimTargetChanged` 固定为 Target/HitzoneTag/ExtractColor 三参数；`UMHGZCrosshairWidget::OnAimTargetUpdated` 也已是三参数。拆分通用 Aim 基类和虚函数 `GetAimTargetData` 是后续解耦方案，当前不存在该 API。
 
 ---
 
-## 六、Widget 数据绑定模式
+## 六、Widget 数据绑定模式（目标方案）
 
 三种驱动方式，按数据特征选择：
 
@@ -372,7 +386,7 @@ Widget::NativeConstruct()
 
 ---
 
-## 七、目录结构
+## 七、目标目录结构（当前 Content/UI 只有占位文件）
 
 ```
 Source/MHGZ/
@@ -409,13 +423,13 @@ Content/UI/
 | UI-2 | 武器资源 Widget 工厂模式——UMHGZUISubsystem 按 WeaponTypeTag 创建/销毁 | 装备切换时一行调用完成 UI 重建。各武器 UI 独立开发，不互相耦合 |
 | UI-3 | AIMComponent 挂载到 Character——每帧射线检测仅在 bIsAiming==true 时执行 | Character 有相机访问、随 Character 销毁自然清理。非瞄准时不 Tick——零开销 |
 | UI-4 | AIMComponent 仅在目标变化时广播——不每帧触发 UI 动画 | 准心样式是离散状态（红/黄/白/灰），不是连续渐变。变化时触发一次动画即可——避免每帧重复播放 |
-| UI-5 | 虫棍萃取颜色预览由 AIMComponent 扩展——基类不耦合武器特有逻辑 | 其他武器复用 AIMComponent 做弱点高亮，虫棍额外扩展萃取颜色映射。通过虚函数 `GetAimTargetData` 返回扩展数据 |
+| UI-5 | 当前 AimComponent 直接包含虫棍萃取颜色；后续再拆通用扩展接口 | `GetAimTargetData` 尚不存在，保留为多武器 UI 解耦方案 |
 | UI-6 | WBP_HUD 预留武器资源插槽——武器切换时动态替换子 Widget | 血条/耐力条跨武器通用（始终可见），武器资源随武器切换。用 Canvas 插槽 + 动态 Add/Remove Child 实现 |
 | UI-7 | 血条/耐力条由 HUD 订阅 ASC Attribute——Widget 不直接绑定 GAS | Widget 纯蓝图只处理视觉——HUD 是数据中介，收到 Attribute 变化后调用 `OnValueUpdated(Current, Max)`。Widget 零 GAS 耦合，换皮只需改蓝图 |
 
 ---
 
-## 九、验证清单
+## 九、规划验收清单（Widget 创建并接线后执行）
 
 | # | 测试项 | 预期结果 |
 |:--:|------|------|

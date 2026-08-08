@@ -180,7 +180,7 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM")
 	float DesiredSpeedInterpSpeed = 20.f;
 
-	/** 角色旋转速度（度/秒）——DoMove 每帧 RInterpTo 的目标朝向 */
+	/** 角色最大旋转速度（度/秒）——Tick 每帧沿最短角度路径转向输入方向 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|Rotation")
 	float TurnRate = 360.f;
 

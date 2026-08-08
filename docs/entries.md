@@ -1,10 +1,21 @@
 # 词条系统
 
+> **实施状态说明（以源码为准）：** 本文中的目录、曲线、通用 GE、ExecCalc 和异步竞态保护是保留的完整方案。当前只实现了词条相关结构体、DataManager 的 SoftObjectPtr 配置字段及部分同步 Getter；尚未形成可用的词条 Apply 链路。
+
+## 当前实现
+
+| 项目 | 当前状态 |
+|------|----------|
+| 数据结构 | `FEntryReference`、`FEntryDefinition`、`FEntryModifier`、`EEntryEffectType` 已存在。当前 `FEntryDefinition` 仍包含 `EntryID` 字段。 |
+| DataManager | `Initialize` 不预加载资产；`GetEntryCatalog/GetWeaponComboConfig/GetWeaponResourceConfig/GetAbilityScalars` 使用 `LoadSynchronous`。 |
+| 查询接口 | `FindEntryDefinition`、`GetEntryMagnitude`、ComboData 异步请求和 RequestID 机制尚未实现。 |
+| 应用链 | `UMHGZEquipmentComponent::ApplyEntryGEs` 是空实现；`GE_EntryStat`、`UExecCalc_EntryStat` 及对应 DataTable/CurveTable 资产未创建。 |
+
 **设计原则：** 目录集中定义 + 装备仅存 ID 引用。DT_EntryCatalog（DataTable）登记所有词条的完整信息（名称、描述、最大等级、效果类型、修饰器或 GE 类）。装备/饰品只存 `{EntryID, EntryLevel}`。80% 词条为 SimpleStat——通过 CurveTable 曲线 + 通用 GE_EntryStat + UExecCalc_EntryStat 参数化处理，无需各自创建 GE 蓝图。20% 为 Complex——各自创建自定义 GE 蓝图。所有 SimpleStat 词条的等级→数值曲线集中在 CT_EntryMagnitudes 一个 CurveTable。
 
-## DT_EntryCatalog — 词条目录
+## DT_EntryCatalog — 词条目录（规划，资产未创建）
 
-DataTable，RowStruct = `FEntryDefinition`（见 [items.md](items.md) 1.4 节）。**RowName 即 EntryID**——装备中存储的 `FEntryReference::EntryID` 直接对应 DT_EntryCatalog 的行名，无需在 struct 内部冗余存储 EntryID 字段。
+规划中的 DataTable，RowStruct = `FEntryDefinition`（见 [items.md](items.md) 1.4 节）。目标约定是 **RowName 即 EntryID**；当前 C++ 结构体仍保留 `FEntryDefinition::EntryID` 字段，待实现目录资产时再决定是否去重。
 
 示例行：
 
@@ -15,9 +26,9 @@ DataTable，RowStruct = `FEntryDefinition`（见 [items.md](items.md) 1.4 节）
 | AttackMaster | 5 | SimpleStat | [{ Attr=AttackPower, Op=Add, Curve=Curve_AtkMas_Atk }, { Attr=CriticalRate, Op=Add, Curve=Curve_AtkMas_Crit }] | — |
 | LifeSteal | 3 | Complex | — | GE_LifeSteal |
 
-> 运行时查询通过 `UMHGZDataManager::FindEntryDefinition(EntryID)`，内部调用 `DT_EntryCatalog→FindRow<FEntryDefinition>(EntryID)`。
+> 规划中的运行时查询通过 `UMHGZDataManager::FindEntryDefinition(EntryID)`；当前没有该方法。
 
-## CT_EntryMagnitudes — 词条数值曲线表
+## CT_EntryMagnitudes — 词条数值曲线表（规划，资产未创建）
 
 CurveTable，每行一条 FRichCurve，X=词条等级，Y=该等级数值。策划在编辑器中拖拽曲线节点，支持任意非线性形状——可配置平滑递增、阶梯突变、高等级解锁新属性等复杂数值模型。
 
@@ -32,7 +43,7 @@ CurveTable，每行一条 FRichCurve，X=词条等级，Y=该等级数值。策�
 
 > Curve_CritBoost：非均匀——Lv1=20%, Lv2=50%, Lv3=100%。Curve_AtkMas_Crit：Lv4 才出现会心加成——多属性+突变。
 
-## 三种 EffectType 实现流程
+## 三种 EffectType 实现流程（规划；ApplyEntryGEs 当前为空）
 
 ### SimpleStat（80% 词条）——纯数值修改
 
@@ -82,7 +93,7 @@ CurveTable，每行一条 FRichCurve，X=词条等级，Y=该等级数值。策�
 ## UMHGZDataManager — 全局数据管理器
 
 ```
-UCLASS()
+UCLASS(Config=Game, DefaultConfig)
 class UMHGZDataManager : public UGameInstanceSubsystem
 ```
 
@@ -92,17 +103,21 @@ GameInstanceSubsystem，全局单例。统一持有所有全局 DataTable/CurveT
 
 | 成员 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| DT_EntryCatalog | TSoftObjectPtr\<UDataTable\> | nullptr | 词条目录（RowStruct=FEntryDefinition，RowName=EntryID） |
-| CT_EntryMagnitudes | TSoftObjectPtr\<UCurveTable\> | nullptr | 词条数值曲线（X=等级, Y=数值） |
-| DT_AbilityScalars | TSoftObjectPtr\<UCurveTable\> | nullptr | Ability FScalableFloat 全局曲线表 |
-| DT_WeaponResourceConfig | TSoftObjectPtr\<UDataTable\> | nullptr | 武器种类→资源 UI Widget 桥接 |
-| DT_WeaponComboConfig | TSoftObjectPtr\<UDataTable\> | nullptr | 武器种类→连招表桥接 |
-| DT_WeaponDodgeConfig | TSoftObjectPtr\<UDataTable\> | nullptr | 武器种类→翻滚参数 |
+| EntryCatalog | TSoftObjectPtr\<UDataTable\> | nullptr | 词条目录配置字段；当前未配置资产 |
+| EntryMagnitudes | TSoftObjectPtr\<UCurveTable\> | nullptr | 词条数值曲线配置字段；当前无 Getter |
+| AbilityScalars | TSoftObjectPtr\<UCurveTable\> | nullptr | Ability FScalableFloat 全局曲线表 |
+| WeaponResourceConfig | TSoftObjectPtr\<UDataTable\> | nullptr | 武器种类→资源组件类和 UI 类映射；当前未配置 |
+| WeaponComboConfig | TSoftObjectPtr\<UDataTable\> | nullptr | 武器种类→连招表映射；当前已在 Ini 配置 |
+| DodgeConfig | TSoftObjectPtr\<UDataTable\> | nullptr | 武器种类→翻滚参数；当前无 Getter |
 
-### 重要方法
+### 当前方法与规划方法
 
 - `virtual void Initialize(FSubsystemCollectionBase& Collection) override`
-  - 作用：同步加载所有 SoftObjectPtr 引用的 DataTable/CurveTable 资产。在 GameInstance 初始化阶段完成，确保首次查询前所有资产已就绪。
+  - 当前为空实现，不预加载资产。
+
+- 当前 Getter：`GetEntryCatalog()`、`GetWeaponComboConfig()`、`GetWeaponResourceConfig()`、`GetAbilityScalars()`，调用时各自 `LoadSynchronous()`。
+
+以下查询、异步加载与竞态保护 API 均为保留方案，尚未实现：
 
 > **为何用同步加载而非异步：** `DT_EntryCatalog`（~100-500 行）、`CT_EntryMagnitudes`（~100-200 条曲线）等均为轻量资产，合计 < 1MB，`LoadSynchronous` 阻塞时间 < 50ms（编辑器开发模式下资产已驻留内存，近乎零开销）。这些数据被所有系统依赖（装备组件、ExecCalc、UI），异步加载反而要求每个调用方处理"尚未就绪"的情况——判空成本 > 50ms 启动延迟。仅在启动时加载一次，后续 `FindEntryDefinition` 等查询均 O(1)。
 
@@ -138,7 +153,7 @@ GameInstanceSubsystem，全局单例。统一持有所有全局 DataTable/CurveT
 
 > **访问方式：** 任意需要这些数据的代码（ExecCalc、EquipmentComponent、GA_Dodge 等）通过 `GetWorld()->GetGameInstance()->GetSubsystem<UMHGZDataManager>()` 获取。策划只需在 DataManager 蓝图或 Ini 中配置一次资产引用，无需在多处重复设置。
 
-### 竞态保护——RequestID 机制
+### 竞态保护——RequestID 机制（规划）
 
 玩家快速连续换装时可能存在多个并发异步加载请求。`RequestWeaponComboData` 返回 `FGuid` RequestID（由 DataManager 内部 `FGuid::NewGuid()` 唯一生成）。
 

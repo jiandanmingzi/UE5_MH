@@ -1,8 +1,22 @@
 # MHGZ Motion Matching 移动系统设计文档
 
+> **实施状态说明（以源码和当前 AnimBP 资产为准）：** Motion Matching 主链路已经接入；附录脚步 IK 和本文中仍以“修改/实施步骤”描述的扩展内容继续作为详细方案保留。若示例代码与当前源码不同，以 `MHGZCharacter` 为准。
+
+## 当前实现快照
+
+| 项目 | 当前值/状态 |
+|------|-------------|
+| Pose Search | `PSS_MH_Move`、`PSD_MH_Shth_Move`、`PSD_MH_UnSh_Move` 已存在，AnimBP 使用收刀/拔刀双数据库。 |
+| 巡航速度 | `WalkCruise_Sheathed=150`、`RunCruise_Sheathed=500`、`SprintCruise=650`、`RunCruise_Unsheathed=450`。 |
+| 速度平滑 | `DesiredSpeedInterpSpeed=20`；`DoMove` 与无输入帧的 `Tick` 使用 `FMath::FInterpTo`。 |
+| 转向 | CMC 的 `bOrientRotationToMovement=false`、`RotationRate=0`；Character `Tick` 使用最短角差并把每帧转角限制为 `TurnRate × DeltaTime`，默认 `TurnRate=360°/s`。 |
+| CMC | `MaxWalkSpeed=1200`、`JumpZVelocity=500`、`AirControl=0.01`、`BrakingDecelerationFalling=80`、`GravityScale=1`。 |
+| 移速倍率 | `MoveSpeedMultiplier` Attribute 已存在，但当前 `CalcCruiseSpeed` 尚未乘该倍率。 |
+| 脚步 IK | 尚未实现；附录 A 保留为后续方案。 |
+
 ## 1. 概述
 
-本系统替代当前的 BlendSpace + 状态机方案，使用 **UE5 Pose Search（Motion Matching）** 驱动角色移动。适用于从怪猎崛起解包获得的**仅向前移动**动画资产。
+当前系统已使用 **UE5 Pose Search（Motion Matching）** 替代旧 BlendSpace + 状态机方案，适用于从怪猎崛起解包获得的**仅向前移动**动画资产。
 
 **核心特性：**
 
@@ -11,11 +25,11 @@
 - 摄像头自由旋转，角色朝向独立跟随摇杆方向平滑旋转
 - 通过摇杆幅度映射 walk / run / sprint，配合按键冲刺自动选择起步类型和循环速度
 - 无转向动画时依靠平滑旋转和脚步 IK 减少滑步感
-- 与 GAS 配合：`Combat.State.BlockMovement` Tag 冻结移动，`MoveSpeedMultiplier` 属性缩放期望速度
+- 与 GAS 配合：`Combat.State.BlockMovement` Tag 冻结移动；`MoveSpeedMultiplier` 缩放期望速度仍是待接入方案
 
 ---
 
-## 2. 与当前系统的对应关系
+## 2. 与旧移动系统的对应关系
 
 | 当前系统 | Motion Matching 替代 |
 |---------|---------------------|
@@ -24,7 +38,7 @@
 | `bWalkStart`/`bRunStart`/`bWalkStop`/`bRunStop` bool 分支 | **不需要**——MM 自动处理起步/停步的类型选择 |
 | `CurrentTheorySpeed` → BlendSpace | → `DesiredSpeed` → Trajectory → MM 查询 |
 | `MaxTheorySpeed` → AnimBP 边沿检测 | → `TargetCruiseSpeed`（摇杆瞬时映射值），AnimBP 仍可读此值判断启停方向 |
-| `SteerVelocity()` 等腰三角形法 | → 直接 `RInterpTo` 旋转 Actor，绕 Yaw 轴 |
+| `SteerVelocity()` 等腰三角形法 | → 按 `TurnRate × DeltaTime` 限制最大 Yaw 步长，沿最短角差旋转 Actor |
 | `bHasInput` / `InputMagnitude` | **保留**——C++ 仍暴露给 AnimBP 读取 |
 | C++ `DoMove` / `Tick` 理论速度更新 | → 简化为只计算 DesiredSpeed + 旋转，不再需要 UpdateTheorySpeed |
 
@@ -45,7 +59,7 @@
 | `AS_UnSh_Walk_Stop` | walk 停步 | — | 低速减速至静止 |
 | `AS_UnSh_Run_Stop` | run 停步 | — | 高速减速至静止 |
 
-**注意：** 收刀态资产以 `AS_UnSh_` 命名，拔刀态资产以 `AS_Shth_` 命名（如 `AS_Shth_Walk_Loop`）。两套动画放入**不同的** Pose Search Database（见 §9）。
+**注意：** 当前数据库按 `Shth`（收刀）与 `UnSh`（拔刀）区分：`PSD_MH_Shth_Move`、`PSD_MH_UnSh_Move`。两套动画放入**不同的** Pose Search Database（见 §9）。
 
 ### 3.2 帧率修正
 
@@ -103,7 +117,7 @@ CMC->MaxWalkSpeed = 1200.f;
 | `MaxAcceleration` | 保留原值 | 影响 AddMovementInput 但不调它，无实际作用 |
 | `BrakingDecelerationWalking` | 保留原值 | 同上 |
 | `bOrientRotationToMovement` | `false` | 已有手动旋转 |
-| `RotationRate` | 不动 | 手动旋转不用此值 |
+| `RotationRate` | `FRotator::ZeroRotator` | 手动旋转不用此值 |
 | `JumpZVelocity` | 保留 | 跳跃仍可能用到 |
 | `AirControl` | 保留 | 空中摇杆微调 |
 | `GravityScale` | 保留 | 滞空/下落/落地检测全依赖 |
@@ -139,17 +153,20 @@ float TargetCruiseSpeed = 0.f;
 // ── MM 巡航速度常量 ──────────────────────────────────────────
 
 UPROPERTY(EditDefaultsOnly, Category="Movement|MM")
-float WalkCruise = 150.f;
+float WalkCruise_Sheathed = 150.f;
 
 UPROPERTY(EditDefaultsOnly, Category="Movement|MM")
-float RunCruise = 500.f;
+float RunCruise_Sheathed = 500.f;
 
 UPROPERTY(EditDefaultsOnly, Category="Movement|MM")
 float SprintCruise = 650.f;
 
+UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Unsheathed")
+float RunCruise_Unsheathed = 450.f;
+
 /** 期望速度平滑速率——DesiredSpeed 追踪 TargetCruiseSpeed 的 InterpSpeed */
 UPROPERTY(EditDefaultsOnly, Category="Movement|MM")
-float DesiredSpeedInterpSpeed = 5.f;
+float DesiredSpeedInterpSpeed = 20.f;
 
 /** 强制 MM 输出 Idle——BlockMovement 时切断 MM，防止 RM 和蒙太奇 RM 叠加 */
 UPROPERTY(BlueprintReadOnly, Category="Movement|MM")
@@ -164,7 +181,7 @@ bool bForceMMIdle = false;
 TargetCruiseSpeed:
   摇杆 < 0.1   → 0
   0.1 ≤ 摇杆 < 0.5 → Lerp(0, WalkCruise, (Stick - 0.1) / 0.4)
-  0.5 ≤ 摇杆 ≤ 1.0 → Lerp(WalkCruise, RunCruise, (Stick - 0.5) / 0.5)
+  0.5 ≤ 摇杆 ≤ 0.9 → Lerp(WalkCruise_Sheathed, RunCruise_Sheathed, (Stick - 0.5) / 0.4)
   Sprint 按下 且 摇杆 > 0.9 → SprintCruise
 ```
 
@@ -208,16 +225,7 @@ void AMHGZCharacter::DoMove(float Right, float Forward)
     const float DeltaTime = GetWorld()->GetDeltaSeconds();
     DesiredSpeed = FMath::FInterpTo(DesiredSpeed, TargetCruiseSpeed, DeltaTime, DesiredSpeedInterpSpeed);
 
-    // 6. 角色旋转（有输入时平滑转向）
-    if (bHasInput)
-    {
-        const float TargetYaw = InputVector.Rotation().Yaw;
-        const float NewYaw = FMath::RInterpTo(
-            GetActorRotation().Yaw, TargetYaw, DeltaTime, TurnRate);
-        SetActorRotation(FRotator(0.0, NewYaw, 0.0));
-    }
-
-    // 7. 记录帧号，防止 Tick 重复
+    // 6. 记录帧号；旋转统一在 Tick 中按最大角速度执行
     LastTheoryUpdateFrame = GFrameCounter;
 }
 ```
@@ -238,6 +246,17 @@ void AMHGZCharacter::Tick(float DeltaTime)
     // IA 漏帧兜底：期望速度衰减
     TargetCruiseSpeed = 0.f;  // 没输入 → 速度为 0
     DesiredSpeed = FMath::FInterpTo(DesiredSpeed, 0.f, DeltaTime, DesiredSpeedInterpSpeed);
+
+    if (bHasInput)
+    {
+        const float CurrentYaw = GetActorRotation().Yaw;
+        const float TargetYaw = LastMovementInputDir.Rotation().Yaw;
+        const float DeltaYaw = FMath::FindDeltaAngleDegrees(CurrentYaw, TargetYaw);
+        const float MaxYawStep = FMath::Max(0.f, TurnRate) * DeltaTime;
+        const float NewYaw = FMath::UnwindDegrees(
+            CurrentYaw + FMath::Clamp(DeltaYaw, -MaxYawStep, MaxYawStep));
+        SetActorRotation(FRotator(0.f, NewYaw, 0.f));
+    }
 }
 ```
 
@@ -331,12 +350,14 @@ void AMHGZCharacter::Tick(float DeltaTime)
 
 ### 7.1 核心逻辑
 
-角色 Yaw 由 C++ `DoMove` 每帧计算（已包含 `RInterpTo` 平滑），不经过 AnimBP，不依赖动画根骨骼旋转。
+角色 Yaw 由 C++ `Tick` 每帧计算，不经过 AnimBP，不依赖动画根骨骼旋转。实现按最短角差转向，并限制每帧最大转角，避免 180° 瞬转。
 
 ```
-TargetYaw = 摇杆世界方向的 Yaw
-SmoothedYaw = FMath::RInterpTo(CurrentYaw, TargetYaw, DeltaTime, TurnRate)
-SetActorRotation(FRotator(0, SmoothedYaw, 0))
+TargetYaw = LastMovementInputDir.Rotation().Yaw
+DeltaYaw = FMath::FindDeltaAngleDegrees(CurrentYaw, TargetYaw)
+MaxYawStep = TurnRate * DeltaTime
+NewYaw = CurrentYaw + Clamp(DeltaYaw, -MaxYawStep, MaxYawStep)
+SetActorRotation(FRotator(0, UnwindDegrees(NewYaw), 0))
 ```
 
 ### 7.2 角速度记录
@@ -351,7 +372,7 @@ AnimBP 通过 Actor Yaw 的帧间差计算 `AngularVelocity`（度/秒），填�
 
 由于所有动画都是向前位移，转向时可能脚底滑动。缓解措施（按优先级排序）：
 
-1. **TurnSpeed 降低**：540 → 360，转向更柔
+1. **限制最大转速**：当前 `TurnRate=360°/s`，可继续按动画观感调低
 2. **惯性化混合**：MM 节点 Blend Time = 0.1s + 开启 Inertialization
 3. **脚步 IK**：完整方案见 [附录 A](#附录-a脚步-ik-系统低优先级滑步严重时再实施)（低优先级，滑步严重时再实施）
 
@@ -371,7 +392,7 @@ AnimBP 通过 Actor Yaw 的帧间差计算 `AngularVelocity`（度/秒），填�
 
 ### 8.2 MoveSpeedMultiplier
 
-GAS `MoveSpeedMultiplier` 属性（来自 `UMHGZAttributeSet`）：
+GAS `MoveSpeedMultiplier` 属性已存在，但以下消费方式尚未接入：
 
 - 在 `CalcCruiseSpeed` 中乘以 `Multiplier`
 - 例如减速 debuff 30% → Multiplier = 0.7 → WalkCruise = 150×0.7 = 105
@@ -455,7 +476,7 @@ DoMove() / Tick()  ← 每帧必跑
   ├─ bHasInput, InputMagnitude, LastMovementInputDir（始终更新）
   ├─ TargetCruiseSpeed = CalcCruiseSpeed(InputMagnitude)（摇杆→巡航速度）
   ├─ DesiredSpeed = FInterpTo(DesiredSpeed, TargetCruiseSpeed, dt)（平滑）
-  ├─ SetActorRotation(RInterpTo(Current, Target))（平滑转向）
+  ├─ Tick: 按 TurnRate×dt 限制最大 Yaw 步长（平滑转向）
   └─ BlockMovement? → DesiredSpeed=0, bForceMMIdle=true
   │
   ▼

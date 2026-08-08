@@ -1,5 +1,7 @@
 # 使用系统
 
+> **实施状态说明（以源码为准）：** 当前只有挂载到 PlayerController 的空 `UMHGZQuickBarComponent` 桩组件。`EQuickBarSlotType`、`FQuickBarSlot`、`UMHGZUseAction`、`UMHGZSpecialAction`、自动登记、分级阻塞和收刀后使用流程均为下文保留方案，尚未实现。
+
 **设计原则：** 与物品系统完全解耦。快捷栏自动登记背包中所有 `bIsUsable` 物品 + 少量手动分配的特殊动作。交互模式：切换键（滚轮/Q/E）循环选中 → 触发键（鼠标左键/F）执行当前选中项。UseAction 和 SpecialAction 均通过 GAS Ability 触发。常规动作（攻击/闪避）由 GAS 直接绑定输入，不经过快捷栏。
 
 ## EQuickBarSlotType

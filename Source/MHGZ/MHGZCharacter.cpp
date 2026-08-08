@@ -33,7 +33,7 @@ AMHGZCharacter::AMHGZCharacter()
 
 	// CMC 配置 —— 碰撞壳子，位移由 AnimBP RootMotion 全权驱动
 	UCharacterMovementComponent* CMC = GetCharacterMovement();
-	CMC->bOrientRotationToMovement = false;    // 旋转由 DoMove 手动 RInterpTo
+	CMC->bOrientRotationToMovement = false;    // 旋转由 Tick 按最大角速度手动更新
 	CMC->bUseControllerDesiredRotation = false;
 	CMC->RotationRate = FRotator::ZeroRotator;
 	CMC->JumpZVelocity = 500.f;
@@ -168,8 +168,11 @@ void AMHGZCharacter::Tick(float DeltaTime)
 	if (bHasInput)
 	{
 		const float TargetYaw = LastMovementInputDir.Rotation().Yaw;
-		const float NewYaw = FMath::FInterpTo(
-			GetActorRotation().Yaw, TargetYaw, DeltaTime, TurnRate);
+		const float CurrentYaw = GetActorRotation().Yaw;
+		const float DeltaYaw = FMath::FindDeltaAngleDegrees(CurrentYaw, TargetYaw);
+		const float MaxYawStep = FMath::Max(0.f, TurnRate) * DeltaTime;
+		const float NewYaw = FMath::UnwindDegrees(
+			CurrentYaw + FMath::Clamp(DeltaYaw, -MaxYawStep, MaxYawStep));
 		SetActorRotation(FRotator(0.0, NewYaw, 0.0));
 	}
 
