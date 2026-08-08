@@ -385,21 +385,18 @@ Source/MHGZ/
 │   └── MHGZUISubsystem.h/cpp            ← 武器资源 Widget 工厂（GameInstanceSubsystem）
 
 Content/UI/
-├── WBP_HUD.uasset                       ← 主 HUD 面板
-│   ├── Canvas_HealthBar                 ← 血条容器
-│   ├── Canvas_StaminaBar                ← 耐力条容器
-│   ├── Canvas_WeaponResource（插槽）    ← 武器资源 Widget 挂载点
-│   ├── Canvas_Crosshair                 ← 准心容器
-│   └── Canvas_MiniMap                   ← 小地图容器（后续）
-├── WBP_Crosshair.uasset                 ← 通用准心 Widget
-├── WBP_HealthBar.uasset                 ← 血条 Widget（ProgressBar + 颜色渐变）
-├── WBP_StaminaBar.uasset                ← 耐力条 Widget（ProgressBar + 颜色渐变）
+├── HUD/
+│   ├── WBP_HUD.uasset                   ← 主 HUD 面板
+│   └── WBP_Crosshair.uasset             ← 通用准心 Widget
+├── Common/
+│   ├── WBP_HealthBar.uasset             ← 血条 Widget（ProgressBar + 颜色渐变）
+│   └── WBP_StaminaBar.uasset            ← 耐力条 Widget（ProgressBar + 颜色渐变）
+├── Feedback/
+│   └── WBP_DamageNumber.uasset          ← 伤害数字浮空反馈
 ├── InsectGlaive/
 │   ├── WBP_IG_ResourcePanel.uasset      ← 虫棍资源面板（容器）
 │   ├── WBP_IG_KinsectStamina.uasset     ← 猎虫耐力条
 │   └── WBP_IG_ExtractDisplay.uasset     ← 三灯圆盘
-└── LongSword/
-    └── WBP_LS_SpiritGauge.uasset        ← 太刀气刃槽（后续）
 ```
 
 ---

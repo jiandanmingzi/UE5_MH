@@ -1,617 +1,819 @@
-# Demo 搭建指南——虫棍打木桩
+# Demo 搭建与验收指南——虫棍打木桩
 
-**目标：** 用固定装备的虫棍角色对木桩完成"LT 瞄准→Y 送虫萃取→三灯→Y 攻击→血条扣减"的完整流程。
+> 适用版本：UE 5.6，项目 `MHGZ`。
+>
+> 本文是 Demo 的唯一执行指南。第 1～13 节使用当前已有资产完成单次攻击闭环；第 14～22 节保留完整 Demo 的猎虫、萃取、三灯和 UI 扩展方案。
+>
+> **首次配置从“步骤 1”开始，按编号依次执行到“步骤 11”。** 本标题下方的目标、完成标准和文件表只是开始前说明，不属于操作步骤。
 
-**资产来源：** 动画 Montage 和骨骼模型通过**解包**获得（虫棍攻击动画 + 猎虫模型 + 木桩模型）。GameplayCue 粒子和音效先用引擎自带临时资产替代，后续替换。
+资产目录已于 2026-08-06 通过 UE 5.6 AssetTools 完成第一批整理。本文只使用当前正式资产名，不再使用旧的 `Phase1` 示例名。不要另外创建 `AM_IG_Phase1_Slash`、`GA_IG_Phase1_Slash`、`DA_IG_Phase1_Combo`、`DA_IG_Phase1_Weapon` 或 `DA_TrainingDummy_Phase1`。
 
----
+**本阶段目标（开始前说明）**
 
-## 零、前提条件
+建立以下最小战斗闭环：
 
-| 条件 | 说明 |
-|------|------|
-| C++ 全部编译通过 | 所有 Source/MHGZ/ 下的类无编译错误 |
-| GameplayTag 已创建 | `Combat.State.Aiming`、`WeaponResource.IG.*`、`Combat.Branch.*`、`UI.Aim.*` 等全部 Tag 在 Project Settings 中注册 |
-| 碰撞通道已配置 | `DefaultEngine.ini` 中 Weapon (GameTraceChannel1) + MonsterAttack (GameTraceChannel2) 已定义 |
-| GameplayCue 路径已配置 | `DefaultGame.ini` 中 `+GameplayCueNotifyPaths=/Game/GameplayCues` |
-
----
-
-## 一、C++ 编译顺序
-
-按依赖从底向上逐批编译：
-
-### 第 1 批：基础设施（无项目内依赖）
-
-```
-Source/MHGZ/
-├── MHGZPlayerState.h/cpp
-├── MHGZCharacter.h/cpp
-├── MHGZPlayerController.h/cpp
-├── Inventory/MHGZItemTypes.h          ← FEquipmentSocket 等结构体
-├── AttributeSystem/MHGZAttributeSet.h/cpp
-└── AttributeSystem/MHGZWeaponResourceComponent.h/cpp  ← 武器资源基类
+```text
+IA_Y
+  -> Input.Weapon.Y
+  -> 虫棍连招协调器
+  -> GA_IG_R_TuCI
+  -> AM_Shth_R_TuCi 中的 Attack Collision Notify State
+  -> IG_Base / IG_Tip 武器轨迹 Sweep
+  -> 木桩 Hitzone
+  -> MHGZDamageGameplayEffect / MHGZDamageExecCalc
+  -> 木桩 Health 下降并输出日志
 ```
 
-### 第 2 批：GAS 核心（依赖第 1 批）
+**最终完成标准（开始前说明）**
 
+- 按一次 Y（或映射的键盘键）只播放一次攻击 Montage；
+- 虫棍接触木桩时只结算一次伤害；
+- 木桩初始生命为 `1000`，命中后下降；
+- Output Log 中能看到 `[Damage]` 和 `[TrainingDummy]`；
+- Montage 完成后可以再次攻击；
+- 空挥或 Montage 被打断后，不会永久残留 `Combat.State.Attacking` 或 `Combat.State.BlockMovement`。
+
+**开始前的文件准备情况（开始前说明）**
+
+当前工作区已经存在第一阶段需要的所有 UE 资产，**当前需创建资产：无**。接下来只需打开并配置这些现有资产：
+
+| 当前状态 | 正式资产 | Content Browser 路径 | 在哪个步骤配置 |
+|---|---|---|---|
+| `【已存在，需配置】` | 攻击 Montage `AM_Shth_R_TuCi` | `/Game/Weapons/InsectGlaive/Anims/Montage/AM_Shth_R_TuCi` | 步骤 3 |
+| `【已存在，需配置】` | 攻击 GA `GA_IG_R_TuCI` | `/Game/Blueprints/Ability/InsectGlaive/GA_IG_R_TuCI` | 步骤 4 |
+| `【已存在，需配置】` | 连招数据 `DA_IG_Combo` | `/Game/Weapons/InsectGlaive/Data/DA_IG_Combo` | 步骤 5 |
+| `【已存在，需配置】` | 连招映射表 `DT_WeaponComboConfig` | `/Game/Data/DT_WeaponComboConfig` | 步骤 6 |
+| `【已存在，需配置】` | 武器定义 `DA_IG_HuoLongGun` | `/Game/Weapons/InsectGlaive/Data/DA_IG_HuoLongGun` | 步骤 7 |
+| `【已存在，需配置】` | 木桩配置 `DA_TrainingDummy` | `/Game/Monster/TrainingDummy/Data/DA_TrainingDummy` | 步骤 9 |
+| `【已存在，需配置】` | 虫棍角色 `BP_IG_Character` | `/Game/Blueprints/Characters/Demo/BP_IG_Character` | 步骤 2、7 |
+| `【已存在，需配置】` | 玩家状态 `BP_PlayerState` | `/Game/Blueprints/Characters/Demo/BP_PlayerState` | 步骤 8 |
+| `【已存在，需配置】` | 角色动画蓝图 `ABP_MH_Character` | `/Game/Blueprints/Characters/Demo/Animation/ABP_MH_Character` | 步骤 3 |
+| `【已存在，需配置】` | 木桩蓝图 `BP_TrainingDummy` | `/Game/Blueprints/Monster/TrainingDummy/BP_TrainingDummy` | 步骤 9 |
+| `【已存在，需配置】` | 输入映射 `IMC_MHGZ_Demo` | `/Game/Input/Contexts/IMC_MHGZ_Demo` | 步骤 8 |
+| `【已存在，需配置】` | 输入动作 `IA_Y` | `/Game/Input/Actions/MHGZ/IA_Y` | 步骤 8 |
+| `【已存在，需配置】` | 虫棍网格 `SKM_IG_Glaive` | `/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_IG_Glaive` | 步骤 2 |
+
+如果你的 Content Browser 中确实缺少某个文件，才按下表创建。创建后仍使用上表中的正式名称和路径：
+
+| 缺失时状态 | 资产 | 创建方式 |
+|---|---|---|
+| `【需创建（仅缺失时）】` | `AM_Shth_R_TuCi` | 右键兼容角色 Skeleton 的攻击 Anim Sequence，选择 `Create AnimMontage` |
+| `【需创建（仅缺失时）】` | `GA_IG_R_TuCI` | 新建 Blueprint Class，父类选择 `MHGZInsectGlaiveAbility` |
+| `【需创建（仅缺失时）】` | `DA_IG_Combo` | `Miscellaneous -> Data Asset`，类型选择 `MHGZWeaponComboData` |
+| `【需创建（仅缺失时）】` | `DT_WeaponComboConfig` | `Miscellaneous -> Data Table`，Row Structure 选择 `WeaponComboConfigRow` |
+| `【需创建（仅缺失时）】` | `DA_IG_HuoLongGun` | `Miscellaneous -> Data Asset`，类型选择 `MHGZWeaponDefinition` |
+| `【需创建（仅缺失时）】` | `DA_TrainingDummy` | `Miscellaneous -> Data Asset`，类型选择 `MHGZDummyConfig` |
+
+不要在 Windows 资源管理器中手工创建空 `.uasset`。资产必须由 UE5 Content Browser 创建。
+
+**路径写法（开始前说明）**
+
+Unreal 的 `/Game` 就是项目的 `Content` 根目录，不是与 `Content` 同级的文件夹：
+
+```text
+/Game/Data/DT_WeaponComboConfig
+    对应
+D:\study\MH\MHGZ\Content\Data\DT_WeaponComboConfig.uasset
 ```
-ActionSystem/
-├── MHGZAbilitySystemComponent.h/cpp
-├── MHGZGameplayAbility.h/cpp
-├── MHGZAttackAbility.h/cpp            ← 碰撞+伤害基类
-├── MHGZWeaponComboData.h/cpp          ← FComboNode + 协调器
-└── MHGZComboCoordinatorAbility.h/cpp
+
+`DefaultGame.ini` 使用完整对象路径：
+
+```ini
+[/Script/MHGZ.MHGZDataManager]
+WeaponComboConfig=/Game/Data/DT_WeaponComboConfig.DT_WeaponComboConfig
 ```
 
-### 第 3 批：虫棍 + 怪物（依赖第 1-2 批）
+只有 `DT_WeaponComboConfig` 的路径被配置文件直接引用。若移动或改名，必须同步修改 `Config/DefaultGame.ini`。
 
-```
-InsectGlaive/Kinsect/
-├── KinsectCollisionComponent.h/cpp
-├── InsectGlaiveKinsectData.h/cpp
-└── Kinsect.h/cpp                      ← AKinsect Actor
+**已经由 C++ 提供的类型（开始前说明）**
 
-AttributeSystem/
-└── Res_InsectGlaive.h/cpp             ← 依赖 Kinsect.h + MHGZWeaponResourceComponent
+以下内容不需要创建蓝图资产：
 
-ActionSystem/
-└── MHGZInsectGlaiveAbility.h/cpp      ← 依赖 Res_InsectGlaive
+| 状态 | C++ 类型 | 使用方式 |
+|---|---|---|
+| `【已有代码，无需创建】` | `MHGZDamageGameplayEffect` | 在 GA 的 `Damage Effect Class` 中直接选择 |
+| `【已有代码，无需创建】` | `Attack Collision` Notify State | 直接添加到攻击 Montage 时间轴 |
+| `【已有配置，无需创建】` | `Weapon`、`MonsterAttack` Collision Channel | 重启编辑器后在 Project Settings 中确认 |
+| `【已有配置，无需创建】` | `Weapon.InsectGlaive` GameplayTag | 在 Gameplay Tag 下拉框中直接选择 |
 
-Monster/
-├── MHGZMonsterHitzoneComponent.h/cpp
-├── MHGZDummyConfig.h/cpp
-├── MHGZMonsterBase.h/cpp
-└── MHGZTrainingDummy.h/cpp
-```
+不要额外创建 `GE_Damage` 或 `BP_AttackCollisionNotify`。
 
-### 第 4 批：UI（依赖第 1-3 批）
+## 1. 关闭 UE5、编译项目并确认基础类型已经加载
 
-```
-UI/
-├── MHGZUserWidget.h/cpp
-├── MHGZWeaponResourceWidget.h/cpp
-├── MHGZCrosshairWidget.h/cpp
-├── MHGZAimComponent.h/cpp
-├── MHGZUISubsystem.h/cpp
-└── MHGZHUD.h/cpp
+1. 如果 UE5 编辑器正在运行，先关闭编辑器。
+2. 使用 IDE 编译：
+
+```text
+MHGZEditor / Win64 / Development
 ```
 
----
+3. 编译成功后重新打开项目。不要依赖 Live Coding 刷新本阶段新增的 `UCLASS`、`USTRUCT` 和 `UPROPERTY`。
+4. 打开 `Project Settings -> Collision`，确认存在：
+   - `Weapon`：Trace Channel，默认 `Block`；
+   - `MonsterAttack`：Trace Channel，默认 `Block`。
+5. 打开 Gameplay Tags，确认能够搜索到：
 
-## 二、解包资产准备
+```text
+Weapon.InsectGlaive
+Input.Weapon.Y
+Equipment.Slot.Weapon
+Hitzone.Torso
+```
 
-### 从游戏解包获取的最小集合
+6. 在任意相关 Class 下拉框中确认可以找到 `MHGZDamageGameplayEffect`。
 
-| 用途 | 资产类型 | 解包目标 | 导入后命名 |
-|------|------|------|------|
-| 虫棍纵斩动画 | AnimSequence/Montage | 虫棍 △ 攻击动画（1 个即可） | `A_IG_Slash_01` → 制作 Montage `Montage_IG_Slash_01` |
-| 猎虫模型 | SkeletalMesh | 任意昆虫/猎虫骨骼模型 | `SK_Kinsect_Speed` |
-| 猎虫飞行动画 | AnimSequence | 猎虫翅膀扇动循环 | `A_Kinsect_Fly` → 制作 Montage `Montage_Kinsect_Fly` |
-| 木桩模型 | SkeletalMesh | 人形靶/木桩骨骼模型 | `SK_Dummy` |
-| 木桩闲置动画 | AnimSequence | 木桩呼吸/待机循环 | `A_Dummy_Idle` → 制作 Montage `Montage_Dummy_Idle` |
-| 虫棍武器模型（可选） | StaticMesh/SkeletalMesh | 虫棍武器模型 | `SM_IG_Weapon` |
+本步骤完成标准：编辑器能识别上述碰撞通道、Tag 和 C++ 类型。如果全部已经可见，不需要再次重复编译。
 
-> **若解包不到：** 猎虫模型可以用 UE 自带 Cube/Sphere 缩放代替（验证碰撞逻辑）；木桩用引擎自带 Mannequin 代替；攻击动画用 Mixamo 免费动画临时替代。**先跑通逻辑，再换正式资产。**
+## 2. 在虫棍网格上配置轨迹 Socket，并标记角色的武器组件
 
-### 导入后处理
+攻击代码优先查找带组件标签 `WeaponTrace` 的 `SkeletalMeshComponent`，再从该组件读取棍身两端的 Socket。
 
-1. **制作 Montage：** 在编辑器中右键 AnimSequence → Create AnimMontage。攻击 Montage 中需要加 `AnimNotifyState_AttackCollision` 区间（~0.2-0.5s），配置碰撞形状和 Socket。
-2. **猎虫动画蓝图：** 创建 `ABP_Kinsect`（继承 `AnimInstance`）→ 添加默认 Slot 节点播放 `Montage_Kinsect_Fly`。
-3. **木桩动画蓝图：** 创建 `ABP_Dummy` → 默认播放 `Montage_Dummy_Idle`（Loop）。
+### 2.1 在虫棍网格上配置 Socket
 
----
+1. 打开：
 
-## 三、编辑器资产创建——C++ 类蓝图
+```text
+/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_IG_Glaive
+```
 
-### 3.1 BP_IG_Character（虫棍角色蓝图）
+2. 在 Skeleton Tree 的合适骨骼上确认或创建两个 Socket：
+   - `IG_Base`：放在靠近握持端的位置；
+   - `IG_Tip`：放在棍尖位置。
+3. 在预览窗口调整 Socket Transform，保证 `IG_Base -> IG_Tip` 覆盖主要棍身。
+4. 保存 Skeleton/武器资产。
 
-**父类：** `AMHGZCharacter`
+### 2.2 在角色蓝图中标记武器组件
 
-**Components 添加：**
-- `UMHGZAimComponent`（瞄准检测——必须手动 Add）
+1. 打开：
 
-**Class Defaults 设置：**
-- `Auto Possess Player = Player 0`
+```text
+/Game/Blueprints/Characters/Demo/BP_IG_Character
+```
 
-### 3.2 BP_TrainingDummy（木桩蓝图）
+2. 选择已有虫棍 `SkeletalMeshComponent`。如果确实没有，才新增一个并命名为 `IGWeapon`。
+3. 设置 `Skeletal Mesh = SKM_IG_Glaive`。
+4. 将组件附加到角色 `Mesh` 的握持 Socket；项目约定名为 `Weapon_R`，实际骨架不同时以正确握持位置为准。
+5. 调整相对位置和旋转，让虫棍与手对齐。
+6. 在 `Tags -> Component Tags` 中添加：
 
-**父类：** `AMHGZTrainingDummy`
+```text
+WeaponTrace
+```
 
-**Components：** 按 `DA_DummyConfig` 的 `Hitzones` 数组自动生成——创建 DataAsset 后再回来配置。
+7. 将武器组件碰撞设置为 `NoCollision`。实际攻击检测由 C++ Sweep 完成。
 
-**Mesh 设置：** `SK_Dummy` + `ABP_Dummy`
+本步骤完成标准：角色预览中能正确持握虫棍，武器组件带有 `WeaponTrace`，网格上存在 `IG_Base` 和 `IG_Tip`。
 
-### 3.3 BP_Demo_GameMode（GameMode 蓝图）
+## 3. 在现有攻击 Montage 中配置 Slot 和有效攻击窗口
 
-**父类：** `AMHGZGameMode`
+1. 打开现有 Montage：
 
-**Class Defaults 设置：**
-- `Default Pawn Class = BP_IG_Character`
-- `HUD Class = AMHGZHUD`
-- `bUseSeamlessTravel = false`（Demo 用 OpenLevel）
+```text
+/Game/Weapons/InsectGlaive/Anims/Montage/AM_Shth_R_TuCi
+```
 
----
+2. 确认 Montage 使用 `DefaultGroup.DefaultSlot`。
+3. 第一阶段暂时只保留一次攻击，不增加多 Section、Motion Warping 或多段伤害逻辑。
+4. 在棍身真正产生有效攻击的时间段添加 Notify State：
 
-## 四、编辑器资产创建——DataAsset
+```text
+Attack Collision
+```
 
-### 4.1 DA_DummyConfig（木桩配置）
+5. 选中 Notify State，设置 `Config Index = 0`。
+6. Notify 开始点放在棍尖开始快速运动前，结束点放在有效挥击结束后；不要覆盖整段 Montage。
+7. 第一阶段先关闭该攻击动画的 Root Motion，优先验证输入、碰撞和伤害闭环。
+8. 打开：
 
-**父类：** `UMHGZDummyConfig`
+```text
+/Game/Blueprints/Characters/Demo/Animation/ABP_MH_Character
+```
 
-| 字段 | 值 | 说明 |
-|------|------|------|
-| DisplayMesh | `SK_Dummy` | 木桩骨骼模型 |
-| LoopingMontage | `Montage_Dummy_Idle` | 待机循环 |
-| Hitzones[0] | BoneName=`Head`, HitzoneTag=`Hitzone.Head`, Shape=Sphere, HalfExtent=(30,30,30), DefenseMultiplier=0.8 | 头部——红灯 |
-| Hitzones[1] | BoneName=`Spine`, HitzoneTag=`Hitzone.Torso`, Shape=Capsule, HalfExtent=(40,40,60), DefenseMultiplier=0.5 | 躯干——黄灯 |
-| Hitzones[2] | BoneName=`Leg_L`, HitzoneTag=`Hitzone.LeftLeg`, Shape=Capsule, HalfExtent=(20,20,40), DefenseMultiplier=0.3 | 腿——白灯 |
+9. 确认 AnimGraph 最终输出 Pose 之前经过 `Slot (DefaultGroup.DefaultSlot)`。
 
-### 4.2 DA_Kinsect_Speed（猎虫品种）
+本步骤完成标准：Montage 可以通过 `DefaultSlot` 输出，并且时间轴中有一个 `Config Index = 0` 的 `Attack Collision` 窗口。
 
-**父类：** `UInsectGlaiveKinsectData`
+## 4. 在现有攻击 GA 中填写 Montage、Sweep 和伤害参数
+
+1. 打开：
+
+```text
+/Game/Blueprints/Ability/InsectGlaive/GA_IG_R_TuCI
+```
+
+2. 确认父类是 `MHGZInsectGlaiveAbility`。
+3. 第一阶段不需要编写 Event Graph，使用 C++ 父类逻辑。
+4. 在 Class Defaults 中填写基础字段：
 
 | 字段 | 值 |
-|------|------|
-| KinsectDisplayName | "速度型猎虫" |
-| KinsectMesh | `SK_Kinsect_Speed` |
-| FlyMontage | `Montage_Kinsect_Fly` |
-| FlightSpeed | 2000 |
-| StraightFlightDistance | 1500 |
-| StaminaPool | 100 |
-| StaminaRegenRate | 15 |
-| HoverDrainRate | 3 |
-| FlightDrainRate | 8 |
+|---|---|
+| `Input Tag` | `Input.Weapon.Y` |
+| `Stamina Cost` | `0` |
+| `Max Correction Angle` | `30` |
+| `Attack Montage` | `AM_Shth_R_TuCi` |
 
-### 4.3 DA_IG_Weapon（虫棍武器定义）
+5. 确认 `Attack Segments` 只有一个用于本次测试的元素，并填写 `Attack Segments[0]`：
 
-**创建步骤：**
+| 字段 | 值 |
+|---|---|
+| `Collision.Trace Mesh Component Tag` | `WeaponTrace` |
+| `Collision.Attach Socket Name` | `IG_Tip` |
+| `Collision.Trace Start Socket Name` | `IG_Base` |
+| `Collision.Shape` | `Sphere` |
+| `Collision.Shape Extent` | `(14, 14, 14)` |
+| `Collision.Collision Channel` | `Weapon` |
+| `Collision.Hitzone Query Tag` | 留空 |
+| `Collision.Trace Sample Count` | `5` |
+| `Collision.Draw Debug` | 首次测试设为 `true`，验收后改为 `false` |
+| `Damage.Damage Effect Class` | `MHGZDamageGameplayEffect` |
+| `Damage.Motion Value` | `0.30` |
+| `Damage.Base Stagger Value` | `10` |
+| `Damage.Use Hitzone Defense` | `true` |
+| `Damage.Requires Hit To Continue` | `false` |
+| `Damage.Hit Stop Base` | `0` |
+| `Multi Hit Count` | `1` |
+| `Multi Hit Interval` | `0.10` |
+| `Max Warp Angle` | `0` |
 
-```
-Content/Weapons/InsectGlaive/Data/ 右键 → Miscellaneous → Data Asset
-  → 搜索 "WeaponDefinition" → 选中 UMHGZWeaponDefinition → 命名 "DA_IG_Weapon"
-```
+6. 音效、GameplayCue、震屏、元素和 OnHitSelfEffect 第一阶段先留空。
+7. 编译并保存 GA 蓝图。
 
-双击打开，填写：
+本步骤完成标准：GA 引用了正确 Montage，只有一个攻击段，伤害类为原生 `MHGZDamageGameplayEffect`。
 
-| 字段 | 值 | 说明 |
-|------|------|------|
-| ItemID | `IG_IronBlade` | 主资产 ID（`FPrimaryAssetId` 由此生成） |
-| DisplayName | "铁虫棍" | 物品显示名称 |
-| WeaponTypeTag | `Weapon.InsectGlaive` | ★ 关键——所有 DT 靠此 Tag 匹配 |
-| AttackPower | 50 | 基础攻击力 |
-| EquipmentSlotTag | `Equipment.Slot.Weapon` | 装备槽位 |
-| RarityLevel | 1 | Demo 白板 |
-| Entries | 空 | Demo 不配词条 |
-| Sockets | 空 | |
-| Mesh | `SKM_IG_Kinsect`（或留空） | 猎虫骨骼网格体，视觉显示用 |
-| AttachSocket | `Weapon_R` | 挂载到角色骨骼的 Socket 名 |
-| SwingSoundOverrides | 空 | Demo 不配武器音效覆盖 |
+## 5. 在现有虫棍连招数据中添加 Y 键攻击节点
 
-### 4.4 DA_IG_ComboData（虫棍连招表）
+1. 打开：
 
-**创建步骤：**
-
-```
-Content/Weapons/InsectGlaive/Data/ 右键 → Miscellaneous → Data Asset
-  → 搜索 "WeaponComboData" → 选中 UMHGZWeaponComboData → 命名 "DA_IG_ComboData"
+```text
+/Game/Weapons/InsectGlaive/Data/DA_IG_Combo
 ```
 
-双击打开，设置 `GlobalComboTimeout = 10.0`，然后点击 `ComboTable` 旁边的 `+` 添加 **6 个元素**，逐行填入：
+2. 设置：
 
-| # | StateName | bMatchAnyState | AbilityClass | InputTag | RequiredTags | BlockedTags | Priority | NextState |
-|---|-----------|:---:|-------------|----------|--------------|-------------|:--------:|-----------|
-| 0 | *空* | ✅ | `GA_Unsheathe` | `Input.Weapon.Y` | `Combat.State.Sheathed` | — | 30 | *空* |
-| 1 | *空* | ✅ | `GA_SendKinsect` | `Input.Weapon.Y` | `Combat.State.Aiming` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 20 | *空* |
-| 2 | *空* | ✅ | `GA_RecallKinsect` | `Input.Weapon.B` | `WeaponResource.IG.Kinsect.Active` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 15 | *空* |
-| 3 | *空* | ✅ | `GA_DrawAndSendKinsect` | `Input.Weapon.RT` | `Combat.State.Sheathed` | — | 10 | *空* |
-| 4 | `Idle` | ❌ | `GA_IG_RedSlash_01` | `Input.Weapon.Y` | `Combat.Branch.Extract.Red` | — | 10 | `Idle` |
-| 5 | `Idle` | ❌ | `GA_IG_Slash_01` | `Input.Weapon.Y` | — | — | 0 | `Idle` |
+```text
+Weapon Type Tag = Weapon.InsectGlaive
+Global Combo Timeout = 10.0
+```
 
-> **操作提示：**
-> - 点击 `ComboTable` 的 `+` → 展开新元素 → 逐字段填写
-> - `StateName` = `"Idle"` 是字符串，不是 Tag（直接输入 `Idle`）
-> - `InputTag` / `RequiredTags` / `BlockedTags` 是 GameplayTag——点击下拉搜索选择
-> - `AbilityClass` 先留空（选 `None`），等 GA 蓝图创建完毕后再回来选上
-> - `bMatchAnyState=true` 的行 `NextState` **必须留空**（不转移协调器状态）
-> - `bMatchAnyState=false` 的行 `NextState` 填 `"Idle"`（攻击结束后回归 Idle）
-> - 其他省略字段用默认值：`StaminaRequired=0`、`DirectionalInput=None`、`bRequiresHitToGrantTags=false`、`bRequiresWindowOpen=false`、`bAutoTransition=false`
+3. 在 `Combo Table` 中确认存在以下测试节点；不存在时添加一个：
 
-**完整配置（6 个节点——还原虫棍完整战斗流程：拔刀→瞄准→送虫→萃取→三灯→攻击→收虫→收刀直飞）：**
+| 字段 | 值 |
+|---|---|
+| `State Name` | `Idle` |
+| `Match Any State` | `false` |
+| `Input Tag` | `Input.Weapon.Y` |
+| `Ability Class` | `GA_IG_R_TuCI` |
+| `Next State` | `IG_R_TuCi` |
+| `Priority` | `100` |
+| `Stamina Required` | `0` |
+| `Directional Input` | `None` |
+| `Requires Hit To Grant Tags` | `false` |
+| `Requires Window Open` | `false` |
+| `Auto Transition` | `false` |
 
-| StateName | bMatchAnyState | BlockedStateNames | AbilityClass | InputTag | RequiredTags | BlockedTags | Priority |
-|------|:--:|------|------|------|------|------|:--:|
-| — | ✅ | `[]` | `GA_Unsheathe` | `Input.Weapon.Y` | `Combat.State.Sheathed` | — | 30 |
-| — | ✅ | `[]` | `GA_SendKinsect` | `Input.Weapon.Y` | `Combat.State.Aiming` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 20 |
-| — | ✅ | `[]` | `GA_RecallKinsect` | `Input.Weapon.B` | `WeaponResource.IG.Kinsect.Active` | `Combat.State.Hitstun`, `Combat.State.Knockdown` | 15 |
-| — | ✅ | `[]` | `GA_DrawAndSendKinsect` | `Input.Weapon.RT` | `Combat.State.Sheathed` | — | 10 |
-| Idle | ❌ | — | `GA_IG_RedSlash_01` | `Input.Weapon.Y` | `Combat.Branch.Extract.Red` | — | 10 |
-| Idle | ❌ | — | `GA_IG_Slash_01` | `Input.Weapon.Y` | — | — | 0 |
+4. `Required Tags`、`Blocked Tags` 和 `Granted Tags` 第一阶段全部留空。
+5. 保存 Data Asset。
 
-> **节点 1（拔刀）：** `bMatchAnyState=true, BlockedStateNames=[]`——从任意招式状态（含 Idle）均可触发拔刀。`Priority=30` 最高，收刀态（`Sheathed`）下按 Y 优先拔刀。拔刀后 ASC 持有 `Unsheathed` Tag，后续 Y 键回退到攻击/送虫节点。
->
-> **节点 2（送虫）：** `bMatchAnyState=true, BlockedStateNames=[]`——从任意状态可送虫。瞄准态（`Aiming`）下按 Y → RequiredTags 满足 → 优先匹配（Priority 20）。
->
-> **节点 3（召回）：** `bMatchAnyState=true, BlockedStateNames=[]`——从任意状态可召回。有虫放出（`Kinsect.Active`）时按 B → 匹配成功。
->
-> **节点 4（收刀直飞）：** `bMatchAnyState=true, BlockedStateNames=[]`——从任意状态可触发。收刀态（`Sheathed`）按 RT → 单发普通萃取。
->
-> **节点 5/6（攻击）：** `bMatchAnyState=false`，仅 `Idle` 态可触发。红灯存在→`GA_IG_RedSlash_01` 匹配（Priority 10）。无红灯→`GA_IG_Slash_01`。
->
-> **★ `BlockedStateNames`（新增字段）：** 仅 `bMatchAnyState=true` 时生效——排除列表中的源状态。Demo 中送虫/收虫/拔刀/直飞均 `BlockedStateNames=[]`（空=匹配任意状态）。太刀特殊纳刀应设 `BlockedStateNames=["Idle","Sheathed"]`（任意派生但不可起手）。
->
-> **★ M-7 修复——省略字段的默认值：** `NextState`（必填）对 `bMatchAnyState=true` 的节点填 `""`（空=不转移状态）；对 `bMatchAnyState=false` 的节点填 `"Idle"`（攻击结束后回归 Idle）。其他省略字段使用 C++ 默认值：`StaminaRequired=0`、`DirectionalInput=EDirectionalInput::None`、`bRequiresHitToGrantTags=false`、`bRequiresWindowOpen=false`、`bAutoTransition=false`。
+本步骤完成标准：`Idle + Input.Weapon.Y` 能唯一匹配到 `GA_IG_R_TuCI`。
+
+## 6. 在现有武器连招映射表中绑定虫棍连招数据
+
+1. 打开：
+
+```text
+/Game/Data/DT_WeaponComboConfig
+```
+
+2. 确认 Row Structure 是 `WeaponComboConfigRow`，C++ 名称为 `FWeaponComboConfigRow`。
+3. 确认存在 Row Name 为 `IG` 的行；不存在时添加一行。
+4. 填写：
+
+```text
+Weapon Type Tag = Weapon.InsectGlaive
+Combo Data Asset = DA_IG_Combo
+```
+
+5. 保存 Data Table。
+6. 确认 `Config/DefaultGame.ini` 仍然指向：
+
+```ini
+WeaponComboConfig=/Game/Data/DT_WeaponComboConfig.DT_WeaponComboConfig
+```
+
+本步骤完成标准：`Weapon.InsectGlaive` 能从 Data Table 映射到 `DA_IG_Combo`。
+
+## 7. 在现有武器定义中填写属性，并设为角色默认武器
+
+1. 打开：
+
+```text
+/Game/Weapons/InsectGlaive/Data/DA_IG_HuoLongGun
+```
+
+2. 配置：
+
+| 字段 | 值 |
+|---|---|
+| `Item ID` | `IG_HuoLongGun` |
+| `Display Name` | 可填写实际武器显示名 |
+| `Rarity Level` | `1` |
+| `Item Type Tag` | `Item.Type.Weapon.Staff` |
+| `Equipment Slot Tag` | `Equipment.Slot.Weapon` |
+| `Attack Power` | `100` |
+| `Defense` | `0` |
+| `Critical Rate` | `0` |
+| `Weapon Type Tag` | `Weapon.InsectGlaive` |
+| `Mesh` | `SKM_IG_Glaive` |
+| `Attach Socket` | `Weapon_R` |
+
+3. 保存武器 Data Asset。
+4. 打开 `/Game/Blueprints/Characters/Demo/BP_IG_Character`。
+5. 在 Class Defaults 中设置：
+
+```text
+Equipment -> Demo -> Default Weapon Definition = DA_IG_HuoLongGun
+```
+
+6. 编译并保存角色蓝图。
+
+本步骤完成标准：角色被 Possess 后自动装备 `DA_IG_HuoLongGun`，装备系统能够把 `Attack Power = 100` 写入 GAS Attribute。
+
+## 8. 在输入映射和 PlayerState ASC 中绑定 Y 键攻击
+
+### 8.1 在 Input Mapping Context 中确认按键
+
+1. 打开：
+
+```text
+/Game/Input/Contexts/IMC_MHGZ_Demo
+```
+
+2. 确认其中引用 `/Game/Input/Actions/MHGZ/IA_Y`。
+3. 为 `IA_Y` 映射一个测试键，例如鼠标左键或手柄 Face Button Top。
+4. 第一阶段不要给该映射增加 Chord Trigger。
+
+### 8.2 在 PlayerState 的 ASC 中绑定 GameplayTag
+
+1. 打开：
+
+```text
+/Game/Blueprints/Characters/Demo/BP_PlayerState
+```
+
+2. 选择继承的 `AbilitySystemComponent`。
+3. 在 `Input -> Input Bindings` 中确认存在：
+
+```text
+Input Action = IA_Y
+Ability Tag = Input.Weapon.Y
+Consume Input = true
+```
+
+4. 如果不存在则添加；如果已有完全相同的项，不要重复添加。
+5. 编译并保存 PlayerState 蓝图。
+6. 确认当前 PlayerController 已通过 Local Player Subsystem 添加 `IMC_MHGZ_Demo`。移动输入已经正常时，这项通常已经完成。
+
+本步骤完成标准：按下 `IA_Y` 时，ASC 能收到 `Input.Weapon.Y`，并把它转发给虫棍连招协调器。
+
+## 9. 在木桩数据和木桩蓝图中配置生命值与受击部位
+
+### 9.1 配置现有木桩 Data Asset
+
+1. 打开：
+
+```text
+/Game/Monster/TrainingDummy/Data/DA_TrainingDummy
+```
+
+2. `Display Mesh` 选择一个已知骨骼名称的 Skeletal Mesh。
+3. `Looping Montage` 第一阶段可以留空。
+4. `Hitzones` 先只配置一个元素，避免多个球体重叠影响肉质判断：
+
+| 字段 | 示例值 |
+|---|---|
+| `Bone Name` | `spine_03`，必须替换为所选网格真实存在的躯干骨骼 |
+| `Hitzone Tag` | `Hitzone.Torso` |
+| `Defense Multiplier` | `1.0` |
+| `Stagger Rate` | `1.0` |
+| `Half Extent` | `(50, 50, 50)` |
+
+当前 Hitzone 是球体，代码使用 `Half Extent.X` 作为半径，Y/Z 暂不参与计算。
+
+### 9.2 配置现有木桩蓝图
+
+1. 打开：
+
+```text
+/Game/Blueprints/Monster/TrainingDummy/BP_TrainingDummy
+```
+
+2. 确认父类为 `MHGZTrainingDummy`；不是时执行 Reparent。
+3. 在 Class Defaults 中设置：
+
+```text
+Dummy Config = DA_TrainingDummy
+Dummy Max Health = 1000
+```
+
+4. 不要在蓝图中另外创建 Hitzone Component；BeginPlay 会根据 `DA_TrainingDummy` 动态生成。
+5. 编译并保存木桩蓝图。
+6. 把木桩放入测试关卡，距离玩家约 150～250 cm。
+
+本步骤完成标准：木桩启动时拥有 `1000` 生命，并生成至少一个响应 `Weapon` Trace 的 Hitzone。
+
+## 10. 在 Demo GameMode 和测试关卡中指定正确的玩家类
+
+1. 打开当前 Demo GameMode。
+2. 确认：
+
+```text
+Default Pawn Class = BP_IG_Character
+Player State Class = BP_PlayerState
+Player Controller Class = BP_MHGZ_PlayerController
+```
+
+3. 打开测试关卡的 World Settings。
+4. 确认 `GameMode Override` 使用上述 Demo GameMode。
+5. 确认关卡中已经放置 `BP_TrainingDummy`，并且玩家出生点面向木桩。
+6. 保存 GameMode 和关卡。
+
+本步骤完成标准：PIE 时生成正确角色、PlayerState 和 PlayerController，场景中存在可攻击木桩。
+
+## 11. 运行 PIE 并按日志完成第一阶段验收
+
+1. 打开 `Output Log`，过滤：
+
+```text
+Equipment
+Damage
+TrainingDummy
+Attack
+```
+
+2. 启动 PIE，先确认出现类似日志：
+
+```text
+[Equipment] Base stats Attack=100.0 Defense=0.0 Crit=0.0
+```
+
+3. 按攻击键，确认 `AM_Shth_R_TuCi` 播放一次。
+4. 观察调试球和线是否沿 `IG_Base -> IG_Tip` 移动。
+5. 命中木桩。攻击力 `100`、Motion Value `0.30`、肉质 `1.0` 时，预期约为：
+
+```text
+[Damage] ... Attack=100.00 Motion=0.30 Hitzone=1.00 Final=30.00
+[TrainingDummy] ... Health 970.0 / 1000.0
+```
+
+6. 等 Montage 自然结束，再次攻击；连续命中三次后木桩应约为 `910 / 1000`。
+7. 对空气攻击一次，确认 Montage 结束后角色恢复移动且可以再次攻击。
+8. 验收通过后回到 `GA_IG_R_TuCI`，将 `Collision.Draw Debug` 改为 `false`，编译并保存蓝图。
+
+只有同时满足本文开头的全部完成标准，第一阶段才算完成。
+
+## 12. 按现象逐项排查未通过的验收项
+
+### 12.1 排查按键没有反应
+
+- `IMC_MHGZ_Demo` 是否已被 Local Player 添加；
+- `BP_PlayerState.AbilitySystemComponent.InputBindings` 是否有 `IA_Y -> Input.Weapon.Y`；
+- `BP_IG_Character.DefaultWeaponDefinition` 是否为 `DA_IG_HuoLongGun`；
+- `DT_WeaponComboConfig` 的路径和 Row Structure 是否正确；
+- `DA_IG_Combo` 与 `DA_IG_HuoLongGun` 的 WeaponTypeTag 是否都为 `Weapon.InsectGlaive`。
+
+### 12.2 排查 GA 激活但没有动画
+
+- `GA_IG_R_TuCI.AttackMontage` 是否为 `AM_Shth_R_TuCi`；
+- AnimBP 是否包含 `DefaultGroup.DefaultSlot`；
+- Montage Skeleton 是否与角色 Mesh 兼容。
+
+### 12.3 排查有动画但没有 Sweep 调试线
+
+- Montage 上添加的是否为 Notify **State** `Attack Collision`；
+- `Config Index` 是否为 `0`；
+- `Attack Segments` 是否至少有一个元素；
+- 武器 SkeletalMeshComponent 是否有 `WeaponTrace` Component Tag；
+- 武器网格是否真的存在 `IG_Base` 和 `IG_Tip` Socket。
+
+如果日志出现：
+
+```text
+[Attack] Missing trace mesh/socket ...
+```
+
+说明组件标签、网格或 Socket 至少有一项不匹配。
+
+### 12.4 排查 Sweep 穿过木桩但不扣血
+
+- Project Settings 中 `Weapon` 是否是 Trace Channel；
+- 是否在修改 `DefaultEngine.ini` 后关闭并重新打开过编辑器；
+- 木桩父类是否为 `MHGZTrainingDummy`；
+- `DA_TrainingDummy.Hitzones` 的 Bone Name 是否真实存在；
+- GA 的 `Damage Effect Class` 是否为 `MHGZDamageGameplayEffect`。
+
+### 12.5 排查每次只造成 1 点伤害
+
+这通常说明攻击力仍然是 `0`。检查是否出现 `[Equipment] Base stats Attack=100.0`，再检查默认武器、DT 映射和 `Equipment.Slot.Weapon`。
+
+### 12.6 排查第一次攻击后不能再次攻击
+
+检查 Montage 是否能自然到达结尾，以及是否有其他 Montage 持续打断它。C++ 会在 Completed、Interrupted 和 Cancelled 三条路径中结束 GA 并清理攻击状态。
+
+## 13. 需要撤销时按资产类型执行对应恢复操作
+
+### 13.1 撤销编辑器资产配置
+
+当前正式资产都已经存在，不要为了撤销配置而直接删除它们。使用源码管理还原对应 `.uasset`，或者在编辑器中手工改回字段。
+
+第一批目录整理曾移动并重存部分 `.uasset`，同时重存了引用它们的 `DA_IG_Combo`。如需撤销目录整理，必须通过 UE AssetTools 反向移动；不要在 Windows 资源管理器中直接复制或覆盖。迁移记录见 [asset-organization.md](asset-organization.md)。
+
+### 13.2 撤销代码和文本配置
+
+先查看：
+
+```powershell
+git diff
+git status --short
+```
+
+没有混入个人修改时，可对明确文件执行 `git restore <文件>`；已经混入个人修改时，使用 `git restore -p <文件>` 逐块选择。不要对整个仓库执行恢复。
 
 ---
 
-### 4.5 DT_WeaponComboConfig（武器→连招表映射）
+## 14. 完整 Demo 扩展范围与编译顺序
 
-**创建步骤：**
+完成第 1～11 节后，项目已经具备“输入 → GA → Montage → Sweep → 木桩伤害”的最小闭环。完整演示再逐步加入：LT 瞄准、Y 送虫、萃取三色灯、红灯招式分流、三灯强化、资源 UI 和命中反馈。
 
-```
-Content/Weapons/InsectGlaive/Data/ 右键 → Miscellaneous → Data Table
-  → Row Structure 搜索 "FWeaponComboConfigRow" → 选中 → 命名 "DT_WeaponComboConfig"
-```
+扩展功能按依赖从底向上编译；这不是要求逐个文件单独构建，而是发生编译错误时的排查顺序。
 
-打开后点击 `+ Add`，仅需 **1 行**：
+### 14.1 基础设施
 
-| Row Name | WeaponTypeTag | ComboDataAsset |
-|----------|---------------|----------------|
-| `IG` | `Weapon.InsectGlaive` | `DA_IG_ComboData` |
-
-> **操作提示：** Row Name 不支持 FGameplayTag——直接用纯字符串 `IG`。`ComboDataAsset` 字段点击下拉选取刚创建的 `DA_IG_ComboData`。
-
-### 4.6 DT_WeaponResourceConfig（武器→资源组件映射）
-
-**创建步骤：**
-
-```
-Content/Weapons/InsectGlaive/Data/ 右键 → Miscellaneous → Data Table
-  → Row Structure 搜索 "FWeaponResourceConfigRow" → 选中 → 命名 "DT_WeaponResourceConfig"
+```text
+Source/MHGZ/
+├── MHGZPlayerState.*
+├── MHGZCharacter.*
+├── MHGZPlayerController.*
+├── Inventory/MHGZItemTypes.h
+├── AttributeSystem/MHGZAttributeSet.*
+└── AttributeSystem/MHGZWeaponResourceComponent.*
 ```
 
-打开后点击 `+ Add`，仅需 **1 行**：
+### 14.2 GAS 核心
+
+```text
+Source/MHGZ/ActionSystem/
+├── MHGZAbilitySystemComponent.*
+├── MHGZGameplayAbility.*
+├── MHGZAttackAbility.*
+├── MHGZWeaponComboData.*
+└── MHGZComboCoordinatorAbility.*
+```
+
+### 14.3 虫棍与训练木桩
+
+```text
+Source/MHGZ/InsectGlaive/Kinsect/
+├── KinsectCollisionComponent.*
+├── InsectGlaiveKinsectData.h
+└── Kinsect.*
+
+Source/MHGZ/AttributeSystem/
+└── Res_InsectGlaive.*
+
+Source/MHGZ/ActionSystem/
+└── MHGZInsectGlaiveAbility.*
+
+Source/MHGZ/Monster/
+├── MHGZMonsterHitzoneComponent.*
+├── MHGZDummyConfig.h
+├── MHGZMonsterBase.*
+└── MHGZTrainingDummy.*
+```
+
+### 14.4 UI
+
+```text
+Source/MHGZ/UI/
+├── MHGZUserWidget.*
+├── MHGZWeaponResourceWidget.*
+├── MHGZCrosshairWidget.*
+├── MHGZAimComponent.*
+├── MHGZUISubsystem.*
+└── MHGZHUD.*
+```
+
+## 15. 外部资产准备与导入
+
+当前项目已经有虫棍角色、武器、猎虫、攻击动画和封闭训练场；只有资产缺失或需要替换时才重新导入。不要重复创建与当前正式资产同义的旧示例文件。
+
+| 用途 | 最小来源 | 当前目标或建议命名 | 缺失时回退 |
+|---|---|---|---|
+| 虫棍纵斩 | 1 个可用 AnimSequence | 复用 `AS_Shth_R_TuCi` 与 `AM_Shth_R_TuCi` | 临时使用兼容 `SK_Demo_Body` 的攻击动画 |
+| 猎虫模型 | 任意猎虫骨骼模型 | 复用 `SKM_IG_Kinsect` | Sphere/Cube 缩放后只验证飞行和碰撞 |
+| 猎虫飞行 | 翅膀循环动画 | 计划创建专用 Fly Sequence/Montage | 先只移动 Mesh，不播放动画 |
+| 木桩模型 | 人形靶或木桩 | 放入 `Monster/TrainingDummy/Meshes` | 临时使用 `TemplateAssets` Mannequin |
+| 木桩待机 | 待机循环动画 | 放入 `Monster/TrainingDummy/Anims` | 不播放动画也可验证 Hitzone |
+| 虫棍模型 | SkeletalMesh | 复用 `SKM_IG_Glaive` | 保留现有模型 |
+
+导入后按以下顺序处理：
+
+1. 动画必须使用 `SK_Demo_Body` 或明确完成重定向，不要混用模板 Skeleton。
+2. 攻击 AnimSequence 制作 Montage，并在有效挥击区间放置 `Attack Collision` Notify State。
+3. 猎虫需要动画时，在 `Weapons/InsectGlaive/Anims/Blueprints` 创建专用 AnimBP，通过 Slot 播放 Fly Montage。
+4. 木桩需要动画时，在 `Monster/TrainingDummy/Anims` 创建专用 AnimBP；纯逻辑木桩可以没有动画。
+5. 正式资源就绪前可以使用引擎基础形状或模板 Mannequin，先跑通逻辑，再替换视觉资产。
+
+## 16. 猎虫品种与资源映射
+
+### 16.1 猎虫 DataAsset
+
+在 `/Game/Weapons/InsectGlaive/Data` 创建 `UInsectGlaiveKinsectData` 类型的 DataAsset，建议命名 `DA_IG_Kinsect_Speed`。旧文档使用过 `DA_Kinsect_Speed`，不要同时保留两个同义资产。
+
+| 字段 | Demo 值 |
+|---|---|
+| KinsectDisplayName | `速度型猎虫` |
+| KinsectMesh | `SKM_IG_Kinsect` |
+| FlyMontage | 专用猎虫 Fly Montage；尚未制作时留空 |
+| FlightSpeed | `2000` |
+| StraightFlightDistance | `1500` |
+| StaminaPool | `100` |
+| StaminaRegenRate | `15` |
+| HoverDrainRate | `3` |
+| FlightDrainRate | `8` |
+
+### 16.2 武器资源映射表
+
+如果当前装备链需要按武器类型创建资源组件，在 `/Game/Data` 创建跨领域映射表 `DT_WeaponResourceConfig`，Row Structure 使用 `FWeaponResourceConfigRow`：
 
 | Row Name | WeaponTypeTag | ResourceComponentClass | ResourceWidgetClass |
-|----------|---------------|----------------------|---------------------|
-| `IG` | `Weapon.InsectGlaive` | `URes_InsectGlaive` | *留空*（Widget 蓝图创建后再补） |
+|---|---|---|---|
+| `IG` | `Weapon.InsectGlaive` | `URes_InsectGlaive` | `WBP_IG_ResourcePanel`；UI 尚未创建时留空 |
 
-> **操作提示：** `ResourceComponentClass` 点击下拉 → 搜索 `Res_InsectGlaive` → 选中 C++ 类。`ResourceWidgetClass` 暂时留空——等 `WBP_IG_ResourcePanel` 创建后再回来补上。
+`ResourceWidgetClass` 在第 20 节完成 Widget 后补填。映射表属于跨领域数据，保持在 `/Game/Data`，不要放回虫棍领域目录。
 
----
+## 17. 从单次攻击扩展为完整虫棍流程
 
-## 五、编辑器资产创建——GameplayEffect 蓝图
+继续使用现有 `/Game/Weapons/InsectGlaive/Data/DA_IG_Combo`，不要创建旧名 `DA_IG_ComboData`。在第 5 节单节点基线通过后，再增加以下节点：
 
-全部在 `Content/GameplayEffects/` 下创建。
+| StateName | Match Any State | AbilityClass | InputTag | RequiredTags | BlockedTags | Priority | NextState |
+|---|:---:|---|---|---|---|:---:|---|
+| 留空 | 是 | `GA_Unsheathe` | `Input.Weapon.Y` | `Combat.State.Sheathed` | 留空 | 30 | 留空 |
+| 留空 | 是 | `GA_SendKinsect` | `Input.Weapon.Y` | `Combat.State.Aiming` | `Combat.State.Hitstun`、`Combat.State.Knockdown` | 20 | 留空 |
+| 留空 | 是 | `GA_RecallKinsect` | `Input.Weapon.B` | `WeaponResource.IG.Kinsect.Active` | `Combat.State.Hitstun`、`Combat.State.Knockdown` | 15 | 留空 |
+| 留空 | 是 | `GA_DrawAndSendKinsect` | `Input.Weapon.RT` | `Combat.State.Sheathed` | 留空 | 10 | 留空 |
+| `Idle` | 否 | 红灯攻击 GA | `Input.Weapon.Y` | `Combat.Branch.Extract.Red` | 留空 | 10 | `Idle` |
+| `Idle` | 否 | `GA_IG_R_TuCI` | `Input.Weapon.Y` | 留空 | 留空 | 0 | `Idle` |
 
-### 5.0 GE_InitStats（★ H-4 修复——角色初始属性）
+配置规则：
 
-| 属性 | 值 |
-|------|------|
-| DurationPolicy | Infinite |
-| Modifiers | Health=100(Override), MaxHealth=100(Override), Stamina=100(Override), MaxStamina=100(Override), StaminaRegenRate=1.0(Override), StaminaDeductionRate=1.0(Override), StaminaConsumptionRate=1.0(Override) |
-| GameplayCueTags | —（无视觉反馈） |
+- `Match Any State=true` 的送虫、召回、拔刀和收刀直飞不改变协调器状态，`NextState` 必须留空。
+- 普通攻击和红灯攻击只从 `Idle` 匹配，并在结束后回到 `Idle`。
+- `BlockedStateNames` 只对任意状态节点生效；本 Demo 默认留空。
+- 其余字段保持：`StaminaRequired=0`、`DirectionalInput=None`、`RequiresHitToGrantTags=false`、`RequiresWindowOpen=false`、`AutoTransition=false`。
+- 红灯攻击资产尚未创建时可以临时复用 `GA_IG_R_TuCI`，但最终应使用独立 GA 或独立 Montage Section 表达强化动作。
 
-> **用途：** 在 `CoreAttributeEffects` 中应用，确保所有属性有明确的初始值，不依赖 C++ 构造函数默认值。Infinite 持续——角色死亡前始终生效。
+`DT_WeaponComboConfig` 仍只需要 `IG` 一行：`WeaponTypeTag=Weapon.InsectGlaive`，`ComboDataAsset=DA_IG_Combo`。
 
-### 5.1 GE_Damage（伤害 GE——通用）
+## 18. GameplayEffect 扩展
 
-| 属性 | 值 |
-|------|------|
-| DurationPolicy | Instant |
-| Modifiers | — **留空**——所有数值由 `UExecCalc_Damage` 通过 `OutExecutionOutput` 写入 |
-| ExecCalc | `UExecCalc_Damage` |
-| GameplayCueTags | 由 `MakeDamageSpec` 动态注入——蓝图留空 |
+当前单次攻击使用原生 `MHGZDamageGameplayEffect` 与 `MHGZDamageExecCalc`。旧方案中的蓝图 `GE_Damage` 已废弃，不要再创建。以下是完整 Demo 仍需补齐的效果资产：
 
-### 5.1b GE_KinsectDamage（★ I-7 修复——猎虫伤害 GE）
+### 18.1 初始属性
 
-| 属性 | 值 |
-|------|------|
-| DurationPolicy | Instant |
-| Modifiers | — 留空（复用同一 ExecCalc） |
-| ExecCalc | `UExecCalc_Damage` |
-| GameplayCueTags | 由 `ApplyKinsectDamage` 动态注入 `GameplayCue.Hit.Kinsect`——蓝图留空 |
+`GE_InitStats` 放在 `/Game/GameplayEffects/Core`，Duration Policy 为 Infinite。Demo 可用 Override 初始化：Health/MaxHealth=`100`、Stamina/MaxStamina=`100`，三个耐力倍率=`1.0`。如果 C++ 或角色初始化流程已经提供同一组初值，只保留一个权威来源，避免重复叠加。
 
-> **说明：** 猎虫伤害复用武器的 `UExecCalc_Damage`——通过 `SetByCaller` 的 `Damage.AttackPower` 覆写（传入猎虫攻击力）区分来源。伤害公式统一：`AttackPower × MotionValue × HitzoneDefense`。
+### 18.2 猎虫伤害
 
-### 5.2 GE_IG_WhiteExtract（白灯）
+猎虫可以直接复用 `MHGZDamageGameplayEffect` 和同一 ExecCalc，通过 SetByCaller 传入猎虫攻击力、动作值和肉质倍率，并动态注入 `GameplayCue.Hit.Kinsect`。只有需要不同 Duration/Modifier 策略时才创建 `GE_KinsectDamage` 蓝图。
 
-| 属性 | 值 |
-|------|------|
-| DurationPolicy | HasDuration |
-| Duration | `DurationMagnitude=90, DurationMultiplier=1.0` |
-| GrantedTags | `WeaponResource.IG.Extract.White` |
-| Modifiers | Attribute=`MoveSpeedMultiplier`, Op=Multiply, Magnitude=1.15 |
+### 18.3 三色萃取与三灯
 
-### 5.3 GE_IG_YellowExtract（黄灯）
+萃取效果放入 `/Game/GameplayEffects/InsectGlaive`：
 
-| DurationPolicy | HasDuration |
-| Duration | `90`（Demo 统一时长，后续分 90/120/60） |
-| GrantedTags | `WeaponResource.IG.Extract.Yellow` |
-| Modifiers | Attribute=`Defense`, Op=Multiply, Magnitude=1.1 |
-| 额外 GrantedTags | `Combat.Poise.Light`（在 GE 的 GrantedTags 数组中添加） |
+| 资产 | Duration | Granted Tags | Demo Modifier |
+|---|---:|---|---|
+| `GE_IG_WhiteExtract` | 90s | `WeaponResource.IG.Extract.White` | MoveSpeedMultiplier × 1.15 |
+| `GE_IG_YellowExtract` | 90s | `WeaponResource.IG.Extract.Yellow`、`Combat.Poise.Light` | Defense × 1.10 |
+| `GE_IG_RedExtract` | 90s | `WeaponResource.IG.Extract.Red`、`Combat.Branch.Extract.Red` | AttackPower × 1.20 |
+| `GE_IG_TripleUp` | 90s | `WeaponResource.IG.TripleUp`、`Combat.Branch.TripleUp`、`Combat.Poise.Medium` | AttackPower × 1.25、MoveSpeedMultiplier × 1.15、Defense × 1.15 |
 
-### 5.4 GE_IG_RedExtract（红灯）
+先统一 90 秒便于验收；需要还原不同灯时长时再拆成正式数值。GameplayCue 粒子与音效可以先用引擎临时资产，但 Tag 和目录从一开始使用正式命名。
 
-| DurationPolicy | HasDuration |
-| Duration | `90` |
-| GrantedTags | `WeaponResource.IG.Extract.Red`, `Combat.Branch.Extract.Red` |
-| Modifiers | Attribute=`AttackPower`, Op=Multiply, Magnitude=1.2 |
+## 19. 完整流程所需 Ability
 
-### 5.5 GE_IG_TripleUp（三灯）
+新增 GA 统一放在 `/Game/Blueprints/Ability/InsectGlaive`。
 
-| DurationPolicy | HasDuration |
-| Duration | `90` |
-| GrantedTags | `WeaponResource.IG.TripleUp`, `Combat.Branch.TripleUp`, `Combat.Poise.Medium` |
-| Modifiers | AttackPower×1.25, MoveSpeedMultiplier×1.15, Defense×1.15 |
+### 19.1 红灯攻击
 
----
+红灯攻击父类仍使用 `MHGZInsectGlaiveAbility`。第一版可复制普通攻击参数并复用同一个 Montage，只验证 `Combat.Branch.Extract.Red` 的优先级分流；之后再换强化 Montage 或 Section。
 
-## 六、编辑器资产创建——GameplayAbility 蓝图
+### 19.2 送虫
 
-全部在 `Content/Blueprints/Ability/InsectGlaive/` 下创建。
+`GA_SendKinsect` 使用 `MHGZGameplayAbility`。由连招表匹配 `Input.Weapon.Y + Combat.State.Aiming` 后激活：读取 `MHGZAimComponent` 的相机射线，获取 `URes_InsectGlaive`，调用 `DeployKinsect()`，设置穿透/动作值/重复命中间隔，再结束 Ability。输入 Tag 和激活条件由连招节点管理，不在 GA 中重复配置。
 
-### 6.1 GA_IG_Slash_01（标准纵斩——无红灯）
+### 19.3 召回
 
-**父类：** `UMHGZInsectGlaiveAbility`
+`GA_RecallKinsect` 使用 `MHGZGameplayAbility`。由 `Input.Weapon.B + WeaponResource.IG.Kinsect.Active` 匹配，调用 `RecallKinsect()` 后结束；猎虫真正回到角色时再移除 Active Tag。
 
-| 成员 | 值 |
-|------|------|
-| InputTag | `Input.Weapon.Y` |
-| StaminaCost | 0（Demo 不扣耐） |
-| AttackSegments[0].Collision | AttachSocket=`weapon_tip`, Shape=Sphere, Extent=(30,30,30) |
-| AttackSegments[0].Damage | DamageEffectClass=`GE_Damage`, MotionValue=1.0, HitCueTag=`GameplayCue.Hit.Slash` |
-| Montage | `Montage_IG_Slash_01` |
-| MaxCorrectionAngle | 30 |
+### 19.4 拔刀
 
-> **Montage 中必须添加 `AnimNotifyState_AttackCollision`**——区间 ~0.2-0.5s，`ConfigIndex=0`。
+`GA_Unsheathe` 使用 `MHGZGameplayAbility`。激活时直接添加 `Combat.State.Unsheathed`、移除 `Combat.State.Sheathed`，可选播放拔刀 Montage，然后结束。不要依赖攻击命中回调授予拔刀 Tag。
 
-### 6.2 GA_IG_RedSlash_01（红灯纵斩——Demo 先用同一蓝图）
+### 19.5 收刀直飞
 
-**父类：** `UMHGZInsectGlaiveAbility`
+`GA_DrawAndSendKinsect` 先执行拔刀状态切换，再让猎虫沿角色前方或瞄准射线直飞，使用 SingleHit/FirstHitOnly 策略，最后结束 Ability。
 
-暂时和 `GA_IG_Slash_01` 完全相同的配置（包括同一个 Montage）——先验证红灯 Tag 分流逻辑，再替换强化 Montage。
+## 20. Widget 与 HUD
 
-### 6.3 GA_SendKinsect（送虫——通过连招表匹配，非直接ASC激活）
+### 20.1 WBP_HUD
 
-**父类：** `UMHGZGameplayAbility`（不受击碰撞——不需要继承 `UMHGZInsectGlaiveAbility`）
+主面板建议使用以下插槽：
 
-| 成员 | 值 |
-|------|------|
-| StaminaCost | 0 |
-
-> **激活方式：** 由协调器的 `HandleWeaponInput(Input.Weapon.Y)` → 匹配连招表中 `bMatchAnyState=true` 的送虫节点 → `RequiredTags={Combat.State.Aiming}` 满足时激活。**不在蓝图设 `InputTag` 或 `ActivationRequiredTags`**——这些由连招表的 `FComboNode` 统一管理。
-
-**Event Graph：** `ActivateAbility` → 读取 `UMHGZAimComponent` 当前相机朝向 → 获取 `URes_InsectGlaive`→ `DeployKinsect()` → ★ `Kinsect->SetDamageParams(Piercing, 1.0, 0.12s, AlwaysOverwrite)` → `EndAbility`。
-
-> **★ H-3 修复：** `GA_SendKinsect` 连招节点 `bMatchAnyState=true`——协调器激活此 GA 后**不改变 CurrentState**（`NextState` 字段对 `bMatchAnyState` 节点无效）。因此即使此 GA 继承 `UMHGZGameplayAbility`（不含 `OnAttackFinished` 回调），协调器状态不受影响——仍保持在 `Idle`，后续攻击可正常匹配。
-
-### 6.4 GA_RecallKinsect（召回——通过连招表匹配）
-
-**父类：** `UMHGZGameplayAbility`
-
-| 成员 | 值 |
-|------|------|
-| StaminaCost | 0 |
-
-> **激活方式：** 由协调器的 `HandleWeaponInput(Input.Weapon.B)` → 匹配连招表中 `bMatchAnyState=true` 的召回节点 → `RequiredTags={WeaponResource.IG.Kinsect.Active}` 满足时激活。同样不在蓝图设 `InputTag`。
-
-**Event Graph：** `ActivateAbility` → 获取 `URes_InsectGlaive`→ `RecallKinsect()` → `EndAbility`。
-
-> **★ H-3 修复（同上）：** `bMatchAnyState=true`——协调器不改变 CurrentState。召回完成后猎虫异步返回——`AttachToPlayer` 回调中移除 `Kinsect.Active` Tag，此后 B 键将匹配攻击节点（而非召回节点）。
-
-### 6.5 GA_Unsheathe（拔刀——通过连招表匹配）
-
-**父类：** `UMHGZGameplayAbility`
-
-| 成员 | 值 |
-|------|------|
-| StaminaCost | 0 |
-
-> **★ H-1 修复：** `FComboNode::GrantedTags` 仅在 `OnAttackHit()` 回调中生效——拔刀无攻击命中概念。因此**不在连招表中设 GrantedTags**，改为在 `GA_Unsheathe::ActivateAbility` 中直接操作 ASC Tag：
-> ```cpp
-> ASC->AddLooseGameplayTag(Combat.State.Unsheathed);
-> ASC->RemoveLooseGameplayTag(Combat.State.Sheathed);
-> ```
-> 这两个 Tag 声明为 `Categories="Combat.State"` 的互斥标签，GAS 自动处理互斥移除。
-
-> **激活方式：** 由协调器匹配连招表中 `bMatchAnyState=true` 的拔刀节点 → `RequiredTags={Combat.State.Sheathed}` 满足时激活，`Priority=30` 最高。不在蓝图设 `InputTag` 或 `ActivationRequiredTags`。
-
-**Event Graph：** `ActivateAbility` → `AddLooseGameplayTag(Unsheathed)` + `RemoveLooseGameplayTag(Sheathed)` → 播放拔刀 Montage（若有）→ `EndAbility`。
-
-### 6.6 GA_DrawAndSendKinsect（收刀直飞——通过连招表匹配）
-
-**父类：** `UMHGZGameplayAbility`
-
-| 成员 | 值 |
-|------|------|
-| StaminaCost | 0 |
-
-> **激活方式：** 由协调器匹配连招表中 `bMatchAnyState=true` 的收刀直飞节点 → `RequiredTags={Combat.State.Sheathed}` 满足时激活。不在蓝图设 `InputTag`。
-
-**Event Graph：** `ActivateAbility` → 先调用 `GA_Unsheathe` 逻辑拔刀 → 获取 `URes_InsectGlaive`→ `DeployKinsect()`（内部自动走 `StartFlightAlongRay(PlayerForward, StraightFlightDistance)` + `SetDamageParams(SingleHit, 0.8, 0, FirstHitOnly)`）→ `EndAbility`。
-
----
-
-## 七、编辑器资产创建——Widget 蓝图
-
-### 7.1 WBP_HUD（主 HUD 面板）
-
-**父类：** `UUserWidget`（纯蓝图）
-
-**设计器布局：**
-```
-Canvas Panel（根）
-├── Canvas_HealthBar（左上角，勾选 Is Variable = "HealthBarSlot"）
-├── Canvas_StaminaBar（血条下方，勾选 Is Variable = "StaminaBarSlot"）
-├── Canvas_WeaponResource（中下方，勾选 Is Variable = "WeaponResourceSlot"）
-└── Canvas_Crosshair（屏幕中央，勾选 Is Variable = "CrosshairSlot"）
+```text
+Canvas Panel
+├── HealthBarSlot          左上角
+├── StaminaBarSlot         血条下方
+├── WeaponResourceSlot     中下方
+└── CrosshairSlot          屏幕中央
 ```
 
-### 7.2 WBP_Crosshair（准心）
+### 20.2 WBP_Crosshair
 
-**父类：** `UMHGZCrosshairWidget`
+父类使用 `MHGZCrosshairWidget`，包含可变量 `CrosshairImage`。`OnAimTargetUpdated` 中：无目标显示灰色；红/黄/白部位分别切换对应颜色；需要时播放轻量 ZoomPulse。
 
-**设计器：** `Image` 控件（勾选 Is Variable = "CrosshairImage"）。
+### 20.3 血量与耐力条
 
-**Event Graph：** 覆写 `OnAimTargetUpdated`：
-- Target==nullptr → CrosshairImage 灰色小点
-- ExtractColor==Red → 红色 + PlayAnimation(ZoomPulse)
-- ExtractColor==Yellow → 黄色 + ZoomPulse
-- ExtractColor==White → 白色 + ZoomPulse
+`WBP_HealthBar`、`WBP_StaminaBar` 使用 `MHGZUserWidget`，包含 ProgressBar 和 TextBlock。`OnValueUpdated(Current, Max)` 更新百分比与文本；百分比大于 0.6 为绿、0.3～0.6 为黄、小于 0.3 为红。
 
-### 7.3 WBP_HealthBar / WBP_StaminaBar
+### 20.4 虫棍资源面板
 
-**父类：** `UMHGZUserWidget`
+`WBP_IG_ResourcePanel` 使用 `MHGZWeaponResourceWidget`，容纳猎虫耐力条和三色萃取显示。父类负责绑定资源组件的 Delegate 和 GameplayTag；蓝图只实现视觉响应。可拆分为：
 
-**设计器：** `ProgressBar` + `TextBlock`。
+- `WBP_IG_KinsectStamina`：ProgressBar；
+- `WBP_IG_ExtractDisplay`：红、白、黄三个 Image 与三灯状态；
+- 三灯齐聚时可显示统一光环，Demo 初版只切换颜色和可见性。
 
-**Event Graph：** 覆写 `OnValueUpdated(Current, Max)`：
-- `ProgressBar.SetPercent(Current/Max)`
-- `TextBlock.SetText("{Current} / {Max}")`
-- Current/Max > 0.6 → 绿色
-- 0.3~0.6 → 黄色
-- < 0.3 → 红色
+资源面板创建后，回到 `DT_WeaponResourceConfig` 将 `ResourceWidgetClass` 指向 `WBP_IG_ResourcePanel`。所有 Widget 按 [directory-structure.md](directory-structure.md) 放入 `/Game/UI` 对应领域目录。
 
-### 7.4 WBP_IG_ResourcePanel（虫棍资源面板）
+## 21. 扩展集成与完整 PIE 验收
 
-**父类：** `UMHGZWeaponResourceWidget`
+### 21.1 角色与 GameMode
 
-**设计器：** 两个子 Widget 容器——`WBP_IG_KinsectStamina` + `WBP_IG_ExtractDisplay`（直接拖入或预留 Named Slot）。
+- `BP_IG_Character` 添加 `MHGZAimComponent`，并保持默认武器为 `DA_IG_HuoLongGun`。
+- `BP_Demo_GameMode` 使用 `BP_IG_Character`、`BP_PlayerState`、`BP_MHGZ_PlayerController` 和 `MHGZHUD`。
+- 默认地图继续使用 `/Game/Maps/L_DemoArena`，不要创建第二张演示地图。
 
-**C++ 绑定（自动）：** 父类 `BindToResourceComponent` 已处理 Delegate 和 Tag 订阅——蓝图只需实现响应函数。
+### 21.2 输入
 
-### 7.5 WBP_IG_KinsectStamina + WBP_IG_ExtractDisplay
+在现有 `IMC_MHGZ_Demo` 中复用或补齐：
 
-同 `insect-glaive.md §六` 设计——`ProgressBar` + 三个 `Image`（灯图标）。Demo 阶段最简实现即可。
+| InputAction | GameplayTag/用途 |
+|---|---|
+| `IA_Y` | `Input.Weapon.Y`，攻击/送虫/拔刀 |
+| `IA_B` | `Input.Weapon.B`，召回 |
+| `IA_LT` | `Input.Modifier.Aiming`，由 AimComponent 管理状态 |
+| `IA_RT` | `Input.Weapon.RT`，收刀直飞 |
 
----
+ASC 的武器输入绑定放在 `BP_PlayerState`；`IA_LT` 是瞄准状态输入，不作为攻击 Ability 直接激活。不要再创建旧名 `IMC_IG` 形成第二套映射。
 
-## 八、编辑器中集成
+### 21.3 完整功能验收
 
-### 8.1 补填 ResourceWidgetClass
+| 步骤 | 操作 | 预期 |
+|:---:|---|---|
+| 1 | 启动 PIE | HUD、血量、耐力和准心正常显示 |
+| 2 | 收刀态按 Y | 拔刀并持有 `Combat.State.Unsheathed` |
+| 3 | 按住 LT | 准心启用，AimComponent 开始检测 |
+| 4 | 瞄准不同 Hitzone | 准心按红/黄/白萃取类型变色 |
+| 5 | 瞄准时按 Y | 猎虫离手、命中目标并返回 |
+| 6 | 猎虫回手 | 对应萃取 Tag 与 UI 点亮，持续时间开始计算 |
+| 7 | 非瞄准态按 Y | 播放攻击 Montage，对木桩结算一次伤害 |
+| 8 | 木桩受击 | 血量下降并显示临时或正式命中反馈 |
+| 9 | 获取三种萃取 | 三灯 Tag、强化效果和资源 UI 同步生效 |
+| 10 | 红灯/三灯后按 Y | 连招表优先匹配强化攻击分支 |
 
-创建 `WBP_IG_ResourcePanel` 后，回到 `DT_WeaponResourceConfig`（§4.6）把 `ResourceWidgetClass` 补填为 `WBP_IG_ResourcePanel`。
+任何一步失败时，先回到第 12 节验证最小攻击闭环，再分别检查猎虫状态、萃取 GE、资源映射和 UI；不要同时改动所有层。
 
-### 8.2 GameMode 配置
+## 22. Demo 简化边界与相关文档
 
-打开 `BP_Demo_GameMode`：
-- `Default Pawn Class = BP_IG_Character`
-- `HUD Class = AMHGZHUD`
+| 完整功能 | Demo 初版允许的简化 |
+|---|---|
+| 多招式连招 | 先保留 1 个普通攻击和 1 个红灯分支 |
+| 红灯动作 | 临时复用普通攻击 GA/Montage |
+| 消耗灯特殊技 | 暂不实现 |
+| 装备词条 | 使用固定白板虫棍 |
+| GameplayCue 粒子 | 使用引擎临时资源 |
+| 猎虫动画 | 只移动 Mesh，不播放翅膀动画 |
+| 三灯音效 | 使用临时提示音 |
+| UI 动画 | 只做颜色、百分比与可见性变化 |
 
-打开 `BP_IG_Character` → Class Defaults：
-- `Auto Possess Player = Player 0`
-
-### 8.3 Input 配置
-
-创建 InputAction 资产：
-- `IA_Y`（轻攻击/送虫）
-- `IA_B`（重攻击/召回）
-- `IA_LT`（瞄准——由 `UMHGZAimComponent` 直接绑定，不走 ASC）
-- `IA_RT`（收刀直飞）
-
-创建 InputMappingContext `IMC_IG`：
-- `IA_Y` → `Input.Weapon.Y`（Triggered + Completed）
-- `IA_B` → `Input.Weapon.B`
-- `IA_LT` → `Input.Modifier.Aiming`（Triggered + Completed）
-- `IA_RT` → `Input.Weapon.RT`（Triggered + Completed）
-
-打开 `BP_IG_Character` → `UMHGZAbilitySystemComponent` → `InputBindings` 数组：
-- [0] InputAction=`IA_Y`, AbilityTag=`Input.Weapon.Y`
-- [1] InputAction=`IA_B`, AbilityTag=`Input.Weapon.B`
-- [2] InputAction=`IA_RT`, AbilityTag=`Input.Weapon.RT`
-
-> **★ I-3 修复：** RT 键使用 `Input.Weapon.RT`（而非 `Input.Modifier.Sheathed`）——确保匹配 `Input.Weapon.*` 命名空间，经 `OnInputActionTriggered` 正确路由到连招协调器。`Input.Modifier.*` 命名空间仅用于非武器输入（如 LT 瞄准的修饰键状态）。
->
-> **注意：** `IA_LT` 不在 ASC 的 `InputBindings` 中——瞄准是输入状态而非招式。`UMHGZAimComponent::BeginPlay` 直接向 EnhancedInput Subsystem 绑定 `IA_LT` 的 Triggered/Completed，自行调用 `ASC->AddLooseGameplayTag(Combat.State.Aiming)` / `RemoveLooseGameplayTag`。不走 GAS 的 `OnInputActionTriggered` 分叉路由。
-
-### 8.4 初始装备配置
-
-**前置条件：** `EquipItem` 必须在 `PossessedBy`（`InitAbilityActorInfo` + `InitializeAbilitySystem`）之后调用，否则协调器激活时 ASC 未就绪。
-
-在 `BP_IG_Character` 的 `Event BeginPlay` 中：
-
-```
-1. 创建 EquipmentInstance:
-     Instance = NewObject<UMHGZEquipmentInstance>(self)
-     Instance.Definition = DA_IG_Weapon
-
-2. 获取 EquipmentComponent（在 PlayerState 上）:
-     PS = GetPlayerState<AMHGZPlayerState>
-     EqComp = PS->GetComponentByClass<UMHGZEquipmentComponent>
-
-3. 调用 EquipItem:
-     EqComp->EquipItem(Equipment.Slot.Weapon, Instance)
-```
-
-> **调用后自动触发（C++ 内部链条）：**
-> ```
-> EquipItem
->   → OnEquipmentChangedInternal
->     → 清空旧装备 GE + 销毁旧 ResourceComponent
->     → ApplyItemEffects
->       → ① 查 DT_WeaponResourceConfig → 创建 URes_InsectGlaive
->       → ② 查 DT_WeaponComboConfig → 加载 DA_IG_ComboData
->       → ③ 激活 GA_WeaponComboCoordinator → InjectComboData
->       → ④ GrantWeaponAbilities（从 ComboTable 收集）
->     → OnEquipmentChanged.Broadcast（UI 刷新）
-> ```
->
-> 此后按 Y = 协调器开始监听 `Input.Weapon.Y` → 匹配连招表 → 激活对应 GA。
-
-### 8.5 木桩放置
-
-默认关卡 `/Game/Maps/L_DemoArena` 已包含演示木桩：
-- `Arena_TrainingDummy` 位于平台中央偏前位置
-- `DA_DummyConfig` 设为其 Config 资产
-- 运行 `ApplyConfig` 生成 Hitzone 碰撞体
-
----
-
-## 九、PIE 测试流程
-
-按顺序逐项验证：
-
-| 步骤 | 操作 | 预期 | 验证文档章节 |
-|:--:|------|------|:--:|
-| 1 | 启动 PIE | WBP_HUD 显示；血条满 100/100 绿色；耐力条满 100/100 绿色；准心可见 | `ui-system.md §九·1` |
-| 2 | 按 Y | 拔刀（ASC 持有 Unsheathed Tag） | `actions.md` |
-| 3 | 按住 LT | 准心出现；AimComponent Tick 启动 | `ui-system.md §九·5` |
-| 4 | LT 瞄准木桩头部 | 准心变红 + 缩放动画 | `insect-glaive.md §十二·UI-1` |
-| 5 | 瞄头时按 Y | 猎虫从手臂 Detach → 沿准心飞出 → 碰到木桩 Head → 自动返回 | `insect-glaive.md §十一·0g/0c` |
-| 6 | 猎虫回手 | 红灯图标亮起 + 倒计时；ASC 持有 `Extract.Red` + `Branch.Extract.Red` | `insect-glaive.md §十一·3` |
-| 7 | 不瞄时按 Y | 打出纵斩 Montage；碰撞窗口检测到木桩 → ApplyDamage → 木桩受击 | `insect-glaive.md §十一·9` |
-| 8 | 木桩受击 | 伤害数字浮空（木桩无 AttributeSet，仅显示伤害数字） | `monster-system.md` |
-| 9 | 三灯萃取完毕 | 三个灯逐一亮起 → 自动三灯齐聚 → UI 三灯合一光环 | `insect-glaive.md §十一·6` |
-| 10 | 三灯后按 Y | 攻击激活 → `PlaySound2D(TripleUpSwingSound)` | `insect-glaive.md §十一·11` |
-
----
-
-## 十、Demo 简化策略
-
-| 复杂功能 | Demo 做法 |
-|------|------|
-| 连招表多招式 | 只需 1 招 Idle→Slash（+ 红灯版复用） |
-| 红灯版招式 | 复用同一 GA 蓝图——先验证 Tag 分流 |
-| 消耗灯特殊技 | 不做——只验证萃取+三灯+红灯连招 |
-| 装备词条 | 不做——固定白板铁虫棍 |
-| GameplayCue 粒子 | 引擎自带粒子临时替代 |
-| 猎虫动画 | 不做——纯 Mesh 飞行，无翅膀扇动 |
-| 三灯攻击音效 | 用引擎自带提示音临时替代 |
-| UI 动画（缩放/消散等） | 不做——只做颜色切换 |
-
----
-
-## 十一、依赖文档索引
-
-| 需要查阅的文档 | 场景 |
-|------|------|
-| `gas-infrastructure.md` | ASC 初始化、PlayerState 组件架构 |
-| `attributes.md` | Health/Stamina Attribute + Clamp 约束 |
-| `actions.md` | AttackAbility 配置、InputBinding、连招表结构 |
-| `insect-glaive.md` | 虫棍全部系统设计（猎虫/萃取/消耗/UI） |
-| `monster-system.md` | 木桩配置、HitzoneComponent |
-| `gameplay-cue.md` | GameplayCue 注册路径、GC_HitBase 配置 |
-| `ui-system.md` | HUD/Widget/数据绑定模式 |
-| `gameplay-tags.md` | Tag 完整层级 |
-| `design-decisions.md` | 所有决策编号引用 |
+| 文档 | 用途 |
+|---|---|
+| [gas-infrastructure.md](gas-infrastructure.md) | ASC 初始化与 PlayerState 组件架构 |
+| [attributes.md](attributes.md) | Health、Stamina、装备与属性约束 |
+| [actions.md](actions.md) | AttackAbility、输入绑定与连招协调器 |
+| [insect-glaive.md](insect-glaive.md) | 猎虫、萃取、消耗和虫棍完整设计 |
+| [monster-system.md](monster-system.md) | 木桩和 Hitzone |
+| [gameplay-cue.md](gameplay-cue.md) | 命中反馈与 GameplayCue |
+| [ui-system.md](ui-system.md) | HUD、Widget 与数据绑定 |
+| [gameplay-tags.md](gameplay-tags.md) | GameplayTag 层级 |
+| [design-decisions.md](design-decisions.md) | 关键架构决策 |

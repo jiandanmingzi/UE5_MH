@@ -1,3 +1,0 @@
-/Game/Blueprints/Ability/InsectGlaive/GA_IG_BaDao.GA_IG_BaDao
-/Game/Blueprints/Ability/InsectGlaive/GA_IG_R_TuCI.GA_IG_R_TuCI
-/Game/Blueprints/Monster/BP_TrainingDummy.BP_TrainingDummy

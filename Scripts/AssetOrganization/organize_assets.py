@@ -1,8 +1,9 @@
 """Dry-run or apply an Unreal asset migration manifest.
 
 Run from UnrealEditor-Cmd with PythonScriptPlugin and
-EditorScriptingUtilities enabled. The default mode is read-only. Pass
-``--apply`` to invoke AssetTools.RenameAssets after all preflight checks pass.
+EditorScriptingUtilities enabled. Pass ``--manifest=<path>`` for the migration
+plan. The default mode is read-only; pass ``--apply`` only after all preflight
+checks pass.
 """
 
 from __future__ import annotations
@@ -17,8 +18,6 @@ from datetime import datetime, timezone
 import unreal
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_MANIFEST = os.path.join(SCRIPT_DIR, "phase1.json")
 APPLY = "--apply" in sys.argv
 
 
@@ -29,7 +28,10 @@ def _argument_value(prefix: str, default: str) -> str:
     return default
 
 
-MANIFEST_PATH = os.path.abspath(_argument_value("--manifest=", DEFAULT_MANIFEST))
+MANIFEST_ARGUMENT = _argument_value("--manifest=", "")
+if not MANIFEST_ARGUMENT:
+    raise RuntimeError("Pass an explicit --manifest=<path> migration manifest")
+MANIFEST_PATH = os.path.abspath(MANIFEST_ARGUMENT)
 
 
 def _log(message: str) -> None:
@@ -77,15 +79,30 @@ def _asset_class(asset_path: str) -> str | None:
     return asset.get_class().get_name()
 
 
+def _source_is_redirector_only(asset_path: str) -> bool:
+    registry = unreal.AssetRegistryHelpers.get_asset_registry()
+    asset_data = registry.get_assets_by_package_name(asset_path)
+    return bool(asset_data) and all(
+        str(item.asset_class_path.asset_name) == "ObjectRedirector"
+        for item in asset_data
+    )
+
+
 def _inspect_move(move: dict) -> dict:
     source = move["source"]
     destination = move["destination"]
     source_exists = unreal.EditorAssetLibrary.does_asset_exist(source)
     destination_exists = unreal.EditorAssetLibrary.does_asset_exist(destination)
 
+    source_redirector = False
     if source_exists and destination_exists:
-        status = "collision"
-        inspected_path = source
+        source_redirector = _source_is_redirector_only(source)
+        if source_redirector:
+            status = "already_moved"
+            inspected_path = destination
+        else:
+            status = "collision"
+            inspected_path = source
     elif source_exists:
         status = "pending"
         inspected_path = source
@@ -110,6 +127,7 @@ def _inspect_move(move: dict) -> dict:
         "destination": destination,
         "reason": move.get("reason", ""),
         "status": status,
+        "source_redirector": source_redirector,
         "asset_class": _asset_class(inspected_path),
         "referencers": referencers,
         "expected_referencers_after_move": move.get(
@@ -209,7 +227,12 @@ def _rename_pending(inspections: list[dict]) -> None:
     for item in pending:
         source_exists = unreal.EditorAssetLibrary.does_asset_exist(item["source"])
         destination_exists = unreal.EditorAssetLibrary.does_asset_exist(item["destination"])
-        if source_exists or not destination_exists:
+        source_redirector = (
+            source_exists
+            and destination_exists
+            and _source_is_redirector_only(item["source"])
+        )
+        if (source_exists and not source_redirector) or not destination_exists:
             failures.append(
                 f"{item['source']} -> {item['destination']} "
                 f"(source_exists={source_exists}, destination_exists={destination_exists})"
@@ -243,10 +266,41 @@ def _write_report(manifest: dict, inspections: list[dict], outcome: str) -> str:
 
 
 def main() -> None:
+    manifest = _load_manifest()
     registry = unreal.AssetRegistryHelpers.get_asset_registry()
     registry.wait_for_completion()
-
-    manifest = _load_manifest()
+    # Commandlet startup may reuse a CachedAssetRegistry generated before a
+    # previous AssetTools rename. Force-rescan only the source/destination
+    # package directories so a fresh idempotent verification sees new files.
+    scan_paths = sorted(
+        {
+            package_path.rsplit("/", 1)[0]
+            for move in manifest["moves"]
+            for package_path in (move["source"], move["destination"])
+        }
+    )
+    registry.scan_paths_synchronous(scan_paths, True, False)
+    content_dir = os.path.abspath(unreal.Paths.project_content_dir())
+    asset_files = sorted(
+        {
+            os.path.join(
+                content_dir,
+                package_path[len("/Game/") :].replace("/", os.sep) + extension,
+            )
+            for move in manifest["moves"]
+            for package_path in (move["source"], move["destination"])
+            for extension in (".uasset", ".umap")
+            if os.path.isfile(
+                os.path.join(
+                    content_dir,
+                    package_path[len("/Game/") :].replace("/", os.sep) + extension,
+                )
+            )
+        }
+    )
+    if asset_files:
+        registry.scan_files_synchronous(asset_files, True)
+    registry.wait_for_completion()
     inspections = [_inspect_move(move) for move in manifest["moves"]]
     invalid = [
         item for item in inspections if item["status"] in ("collision", "missing")

@@ -892,8 +892,9 @@ Source/MHGZ/
 │       └── InsectGlaiveKinsectData.h/cpp   ← 猎虫品种 DataAsset（模型/速度/耐力/飞行距离 + ★ KinsectAttackPower）
 
 Content/
+├── GameplayEffects/Core/
+│   └── GE_KinsectDamage.uasset              ← 猎虫伤害 GE（Instant——SetByCaller 接收 MotionValue + AttackPower）
 ├── GameplayEffects/InsectGlaive/
-│   ├── GE_KinsectDamage.uasset              ← 猎虫伤害 GE（Instant——SetByCaller 接收 MotionValue + AttackPower）
 │   ├── GE_IG_WhiteExtract.uasset            ← 白灯 Duration GE
 │   ├── GE_IG_YellowExtract.uasset           ← 黄灯 Duration GE
 │   ├── GE_IG_RedExtract.uasset              ← 红灯 Duration GE
@@ -913,24 +914,28 @@ Content/
 │   ├── WBP_IG_ResourcePanel.uasset          ← 虫棍资源面板（耐力条+三灯圆盘）
 │   ├── WBP_IG_KinsectStamina.uasset         ← 猎虫耐力条
 │   └── WBP_IG_ExtractDisplay.uasset         ← 三灯圆盘
-├── GameplayCues/InsectGlaive/
+├── GameplayCues/Hit/
 │   ├── GC_Hit_Kinsect.uasset               ← 猎虫命中反馈（小号火花+音效——复用 GC_HitBase 基类）
-│   ├── GC_Hit_IG_DivingWyvern.uasset        ← 降龙命中特效
+│   └── GC_Hit_IG_DivingWyvern.uasset        ← 降龙命中特效
+├── GameplayCues/InsectGlaive/
 │   ├── GC_IG_ExtractGained.uasset           ← 萃取成功
 │   ├── GC_IG_TripleUpActivated.uasset       ← 三灯齐聚瞬间
 │   └── GC_IG_ExtractExpired.uasset          ← 灯到期消散
-├── Kinsect/
-│   ├── SK_Kinsect_Speed.uasset              ← 速度型猎虫骨骼模型
-│   ├── SK_Kinsect_Power.uasset              ← 力量型猎虫骨骼模型
-│   ├── SK_Kinsect_Heal.uasset               ← 回复型猎虫骨骼模型
-│   ├── ABP_Kinsect.uasset                   ← 猎虫动画蓝图（单 Slot 节点播放 FlyMontage）
-│   ├── Montage_Kinsect_Fly.uasset           ← 唯一飞行动画（翅膀扇动循环，PlayRate 控制快慢）
-│   ├── DA_Kinsect_Speed.uasset              ← 速度型品种 DataAsset
-│   ├── DA_Kinsect_Power.uasset              ← 力量型品种 DataAsset
-│   └── DA_Kinsect_Heal.uasset               ← 回复型品种 DataAsset
+├── Weapons/InsectGlaive/
+│   ├── Anims/Blueprints/
+│   │   └── ABP_IG_Kinsect.uasset            ← 猎虫动画蓝图（单 Slot 节点播放 FlyMontage）
+│   ├── Anims/Montage/
+│   │   └── AM_IG_Kinsect_Fly.uasset         ← 唯一飞行动画（PlayRate 控制快慢）
+│   ├── Data/
+│   │   ├── DA_IG_Combo.uasset               ← 虫棍连招表（红灯/非红灯双分支）
+│   │   ├── DA_IG_HuoLongGun.uasset          ← Demo 虫棍定义
+│   │   └── DA_IG_Kinsect_Speed.uasset       ← 速度型猎虫品种
+│   ├── Meshes/Kinsect/
+│   │   └── SKM_IG_Kinsect.uasset            ← Demo 猎虫骨骼模型
+│   ├── Audio/                               ← 挥棍、猎虫、萃取与三灯音效
+│   └── VFX/                                 ← 武器拖尾、猎虫和萃取特效
 └── Data/
-    ├── DA_IG_ComboData.uasset               ← 虫棍连招表（红灯/非红灯双分支）
-    └── DT_WeaponResourceConfig (追加行)      ← Weapon.InsectGlaive → WBP_IG_ResourcePanel
+    └── DT_WeaponComboConfig.uasset           ← 跨武器映射表；保持全局路径
 ```
 
 ---

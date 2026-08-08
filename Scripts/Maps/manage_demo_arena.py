@@ -1,13 +1,11 @@
-"""Create and verify the Demo arena, then remove superseded template maps.
+"""Create or verify the current Demo arena.
 
-Default execution is read-only. Use ``--create`` to create the arena and
-``--delete-old`` only after DefaultEngine.ini points at the new map and the
-delete backup has been prepared.
+Default execution is read-only. Use ``--create`` to create or rebuild the
+10 x 10 enclosed training platform after reviewing the script constants.
 """
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sys
@@ -18,37 +16,12 @@ import unreal
 
 
 TARGET_MAP = "/Game/Maps/L_DemoArena"
-GAME_MODE = "/Game/Blueprints/GameModes/BP_Demo_GameMode"
-TRAINING_DUMMY = "/Game/Blueprints/Monster/BP_TrainingDummy"
+GAME_MODE = "/Game/Blueprints/GameModes/Demo/BP_Demo_GameMode"
+TRAINING_DUMMY = "/Game/Blueprints/Monster/TrainingDummy/BP_TrainingDummy"
 CUBE_MESH = "/Engine/BasicShapes/Cube.Cube"
-FLOOR_MATERIAL = "/Game/LevelPrototyping/Materials/MI_PrototypeGrid_Gray"
-WALL_MATERIAL = "/Game/LevelPrototyping/Materials/MI_PrototypeGrid_TopDark"
-BACKUP_DIRECTORY = "Saved/AssetOrganizationBackup/phase10-map-cleanup-pre-delete"
-
-OLD_MAPS = [
-    "/Game/Map/NewMap",
-    "/Game/ThirdPerson/Lvl_ThirdPerson",
-]
-EXTERNAL_ROOTS = [
-    "/Game/__ExternalActors__/ThirdPerson/Lvl_ThirdPerson",
-    "/Game/__ExternalActors__/Variant_Combat/Lvl_Combat",
-    "/Game/__ExternalActors__/Variant_Platforming/Lvl_Platforming",
-    "/Game/__ExternalActors__/Variant_SideScrolling/Lvl_SideScrolling",
-    "/Game/__ExternalObjects__/ThirdPerson/Lvl_ThirdPerson",
-    "/Game/__ExternalObjects__/Variant_Combat/Lvl_Combat",
-    "/Game/__ExternalObjects__/Variant_Platforming/Lvl_Platforming",
-    "/Game/__ExternalObjects__/Variant_SideScrolling/Lvl_SideScrolling",
-]
-EXPECTED_EXTERNAL_PACKAGE_COUNT = 507
-SPECIAL_CLEANUP = [
-    "/Game/Characters/Mannequins/Meshes/SKM_Quinn_Simple",
-    "/Game/ThirdPerson/MI_ThirdPersonColWay",
-]
-
+FLOOR_MATERIAL = "/Game/Environment/DemoArena/Materials/MI_PrototypeGrid_Gray"
+WALL_MATERIAL = "/Game/Environment/DemoArena/Materials/MI_PrototypeGrid_TopDark"
 CREATE = "--create" in sys.argv
-DELETE_OLD = "--delete-old" in sys.argv
-if CREATE and DELETE_OLD:
-    raise RuntimeError("Use --create and --delete-old in separate editor runs")
 
 
 def _log(message: str) -> None:
@@ -250,153 +223,16 @@ def _create_arena() -> None:
     _log(f"Arena created: actors={inventory['actor_count']}")
 
 
-def _package_files_for_delete() -> list[str]:
-    project_dir = os.path.abspath(unreal.Paths.project_dir())
-    content_dir = os.path.join(project_dir, "Content")
-    files = []
-    for map_path in OLD_MAPS:
-        files.append(
-            os.path.join(content_dir, map_path[len("/Game/") :].replace("/", os.sep) + ".umap")
-        )
-    for root in EXTERNAL_ROOTS:
-        root_dir = os.path.join(content_dir, root[len("/Game/") :].replace("/", os.sep))
-        if os.path.isdir(root_dir):
-            for current_root, _, names in os.walk(root_dir):
-                for name in names:
-                    if name.endswith(".uasset"):
-                        files.append(os.path.join(current_root, name))
-    for asset_path in SPECIAL_CLEANUP:
-        files.append(
-            os.path.join(content_dir, asset_path[len("/Game/") :].replace("/", os.sep) + ".uasset")
-        )
-    return sorted(set(os.path.abspath(path) for path in files))
-
-
-def _sha256(path: str) -> str:
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def _verify_delete_backup(files: list[str]) -> None:
-    project_dir = os.path.abspath(unreal.Paths.project_dir())
-    content_dir = os.path.abspath(unreal.Paths.project_content_dir())
-    backup_root = os.path.abspath(os.path.join(project_dir, BACKUP_DIRECTORY, "Content"))
-    failures = []
-    for source_file in files:
-        if not os.path.isfile(source_file):
-            failures.append(f"Missing delete source: {source_file}")
-            continue
-        relative = os.path.relpath(source_file, content_dir)
-        backup_file = os.path.join(backup_root, relative)
-        if not os.path.isfile(backup_file):
-            failures.append(f"Missing delete backup: {backup_file}")
-        elif _sha256(source_file) != _sha256(backup_file):
-            failures.append(f"Delete backup hash mismatch: {source_file}")
-    if failures:
-        raise RuntimeError("Delete backup verification failed:\n" + "\n".join(failures))
-
-
-def _external_package_count() -> int:
-    return sum(
-        len(unreal.EditorAssetLibrary.list_assets(root, recursive=True, include_folder=False))
-        for root in EXTERNAL_ROOTS
+def _audit_state() -> dict:
+    config_path = os.path.join(
+        os.path.abspath(unreal.Paths.project_config_dir()), "DefaultEngine.ini"
     )
-
-
-def _delete_old_content() -> None:
-    if not _asset_exists(TARGET_MAP):
-        raise RuntimeError("Target Demo arena does not exist")
-    config_path = os.path.join(os.path.abspath(unreal.Paths.project_config_dir()), "DefaultEngine.ini")
     with open(config_path, "r", encoding="utf-8-sig") as handle:
         config_text = handle.read()
     expected_config_path = f"{TARGET_MAP}.{TARGET_MAP.rsplit('/', 1)[1]}"
-    if expected_config_path not in config_text:
-        raise RuntimeError("DefaultEngine.ini does not point to the Demo arena")
-
-    external_count = _external_package_count()
-    if external_count != EXPECTED_EXTERNAL_PACKAGE_COUNT:
-        raise RuntimeError(
-            f"External package count changed: expected={EXPECTED_EXTERNAL_PACKAGE_COUNT}, actual={external_count}"
-        )
-    files = _package_files_for_delete()
-    if len(files) != EXPECTED_EXTERNAL_PACKAGE_COUNT + len(OLD_MAPS) + len(SPECIAL_CLEANUP):
-        raise RuntimeError(f"Unexpected delete file count: {len(files)}")
-    _verify_delete_backup(files)
-
-    level_subsystem = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
-    if not level_subsystem.load_level(TARGET_MAP):
-        raise RuntimeError("Failed to load the target map before deletion")
-
-    failures = []
-    for root in EXTERNAL_ROOTS:
-        if unreal.EditorAssetLibrary.does_directory_exist(root):
-            if not unreal.EditorAssetLibrary.delete_directory(root):
-                failures.append(f"Failed to delete external root: {root}")
-    for map_path in OLD_MAPS:
-        if _asset_exists(map_path) and not unreal.EditorAssetLibrary.delete_asset(map_path):
-            failures.append(f"Failed to delete old map: {map_path}")
-    for asset_path in SPECIAL_CLEANUP:
-        if _asset_exists(asset_path) and not unreal.EditorAssetLibrary.delete_asset(asset_path):
-            failures.append(f"Failed to delete cleanup asset: {asset_path}")
-    if failures:
-        raise RuntimeError("Old content deletion failed:\n" + "\n".join(failures))
-
-    remaining = [
-        path
-        for path in OLD_MAPS + SPECIAL_CLEANUP
-        if _asset_exists(path)
-    ]
-    remaining_external = _external_package_count()
-    if remaining or remaining_external:
-        raise RuntimeError(
-            f"Delete verification failed: remaining={remaining}, external={remaining_external}"
-        )
-    _log(f"Deleted old maps and external packages: files={len(files)}")
-
-
-def _audit_state(registry) -> dict:
-    old_maps = []
-    for path in OLD_MAPS:
-        old_maps.append(
-            {
-                "path": path,
-                "exists": _asset_exists(path),
-                "referencers": sorted(
-                    str(value)
-                    for value in unreal.EditorAssetLibrary.find_package_referencers_for_asset(
-                        path, False
-                    )
-                )
-                if _asset_exists(path)
-                else [],
-            }
-        )
-    special = []
-    for path in SPECIAL_CLEANUP:
-        asset_data = registry.get_assets_by_package_name(path)
-        special.append(
-            {
-                "path": path,
-                "exists": bool(asset_data),
-                "asset_classes": [str(item.asset_class_path.asset_name) for item in asset_data],
-                "referencers": sorted(
-                    str(value)
-                    for value in unreal.EditorAssetLibrary.find_package_referencers_for_asset(
-                        path, False
-                    )
-                )
-                if asset_data
-                else [],
-            }
-        )
     return {
         "target_map": _arena_actor_inventory(True),
-        "old_maps": old_maps,
-        "external_package_count": _external_package_count(),
-        "special_cleanup": special,
+        "is_default_map": expected_config_path in config_text,
     }
 
 
@@ -405,7 +241,7 @@ def _write_report(state: dict, mode: str, outcome: str) -> str:
         os.path.abspath(unreal.Paths.project_dir()), "Saved", "AssetOrganization"
     )
     os.makedirs(report_dir, exist_ok=True)
-    report_path = os.path.join(report_dir, f"phase10-demo-arena-{mode}.json")
+    report_path = os.path.join(report_dir, f"demo-arena-{mode}.json")
     report = {
         "mode": mode,
         "outcome": outcome,
@@ -434,11 +270,7 @@ def main() -> None:
         mode = "create"
         _create_arena()
         outcome = "created"
-    elif DELETE_OLD:
-        mode = "delete-old"
-        _delete_old_content()
-        outcome = "deleted"
-    state = _audit_state(registry)
+    state = _audit_state()
     report_path = _write_report(state, mode, outcome)
     _log(f"Result={outcome}; report={report_path}")
 

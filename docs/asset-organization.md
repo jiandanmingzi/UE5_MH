@@ -11,7 +11,9 @@
 | 虫棍 Gameplay Ability | `/Game/Blueprints/Ability/InsectGlaive` |
 | 虫棍 Anim Montage | `/Game/Weapons/InsectGlaive/Anims/Montage` |
 | 木桩蓝图 | `/Game/Blueprints/Monster` |
-| 全局 Data Asset / Data Table | `/Game/Data` |
+| 跨领域映射 DataTable | `/Game/Data` |
+| 虫棍定义、连招与猎虫 DataAsset | `/Game/Weapons/InsectGlaive/Data` |
+| 训练木桩配置 | `/Game/Monster/TrainingDummy/Data` |
 
 ## 第一批执行结果
 
@@ -76,20 +78,39 @@
 
 三个 Variant 的 440 个 External 包因宿主地图早已不存在，UE 无法加载其外部容器；这些包在逐文件 SHA-256 对照备份后，按 6 个精确目录从文件系统清除。地图删除批次共 511 个文件，备份位于 `Saved/AssetOrganizationBackup/phase10-map-cleanup-pre-delete`。当前基线为 443 个 `.uasset`、1 个 `.umap`，地图审计结果为旧地图 0、外部包 0、源端残留 0。
 
+第十一阶段补齐完成虫棍战斗 Demo 所需的目录骨架，并收紧 Data 归属边界：
+
+- `DA_IG_Combo`、`DA_IG_HuoLongGun` 迁入 `/Game/Weapons/InsectGlaive/Data`。
+- `DA_TrainingDummy` 迁入 `/Game/Monster/TrainingDummy/Data`。
+- `/Game/Data/DT_WeaponComboConfig` 继续作为跨武器映射表保持原位，并已由 AssetTools 重存为新 `DA_IG_Combo` 路径。
+- 新增 GameplayEffect、GameplayCue、UI、音频、通用命中特效、训练木桩美术和虫棍专属表现资源目录，共 18 个 Demo 必需目录。
+- 暂无 Unreal 资产的目录用 `.gitkeep` 纳入版本控制；加入首个资产后删除占位文件。
+
+迁移前 3 个源包已逐文件 SHA-256 备份到 `Saved/AssetOrganizationBackup/phase11-demo-structure-pre-move`。全新 UE 进程对目标文件执行精确 Asset Registry 扫描后，幂等结果为 3/3 `already_moved`，`DT_WeaponComboConfig` 的反向引用验证通过，0 error / 0 warning。当前目录骨架与关键 DataAsset 位置由 `Scripts/AssetOrganization/verify_demo_structure.py` 持续验证。
+
+第十二阶段处理结构规范的剩余三项，动画语义复审与拼音资产重命名继续跳过：
+
+- 135 个模板资产从 `/Game/系统自带` 迁入 ASCII 路径 `/Game/TemplateAssets`，消除 UE 5.6 UBT 在脏 Git 工作区解析 Unicode 路径时的兼容风险。
+- 26 个训练场环境 `.uasset` 从 `/Game/LevelPrototyping` 迁入 `/Game/Environment/DemoArena`；10 个被 Git 忽略的原始 `.fbx` 在哈希核对后同步保持相同相对层级。
+- 9 个 Demo 蓝图、AnimBP 与 PoseSearch 资产细分到 `Characters/Demo`、`GameModes/Demo`、`Monster/TrainingDummy` 和 `PlayerController/Demo`。
+- 唯一地图重存后直接引用新 GameMode、木桩蓝图和训练场材质；4 个中间 Redirector 均在零引用确认后清除。
+
+迁移前备份分别位于 `Saved/AssetOrganizationBackup/phase12-root-layout-pre-move` 和 `Saved/AssetOrganizationBackup/phase12-blueprint-domains-pre-move`；两个多对象蓝图 Redirector 删除前另存于 `Saved/AssetOrganizationBackup/phase12-redirectors-pre-delete`。阶段清单在完成新进程验证后不再作为日常工具保留，详细变更仍可通过本文件与 Git 历史追溯。
+
 ## 不可直接移动的内容
 
 - 不得在资源管理器中移动或重命名 `.uasset`、`.umap`。
 - `__ExternalActors__`、`__ExternalObjects__` 和地图必须作为独立批次处理。
 - `/Game/Data/DT_WeaponComboConfig` 被 `Config/DefaultGame.ini` 直接引用，当前保持原位。
 - `/Game/Maps/L_DemoArena` 是当前唯一默认地图，删除或改名时必须同步三个配置路径。
-- `/Game/系统自带` 只用于模板资产；项目自有运行时资产不得回流该目录。
+- `/Game/TemplateAssets` 只用于模板资产；项目自有运行时资产不得回流该目录。
 - 资产移动不自动修复 C++ 或 INI 中的字符串路径；每一批必须单独扫描并同步修改。
 
 ## 执行方式
 
-迁移清单位于 `Scripts/AssetOrganization/phase*.json`。`organize_assets.py` 默认只执行检查；只有显式传入 `--apply` 才会调用 Unreal AssetTools 批量移动资产。存在待移动资产时，脚本还会检查清单中的 `backup_directory`，并要求每个源包与备份的 SHA-256 一致。`audit_animation_assets.py` 和 `audit_redirectors.py` 都是只读审计工具，报告写入 `Saved/AssetOrganization`。移动或清理完成后还必须按受影响资产类型执行 Redirector、反向引用、蓝图编译、C++ 编译和地图 Cook 验证。
+可重复使用的工具见 `Scripts/README.md`。`organize_assets.py` 与 `organize_asset_roots.py` 必须显式传入 `--manifest=<path>`，默认只执行检查；只有额外传入 `--apply` 才会调用 Unreal AssetTools。存在待移动资产时，脚本会检查清单中的 `backup_directory`，并要求源包与备份的 SHA-256 一致。`audit_animation_assets.py` 和 `audit_asset_paths.py` 是只读审计工具，项目级 Redirector 检查由 `verify_project_assets.py` 完成。移动或清理后仍须按资产类型执行反向引用、蓝图编译、C++ 编译和地图 Cook 验证。
 
 ## 后续批次
 
 1. 导入动画复审目前跳过；`Imported/Review` 与 `Imported/Transitions` 的数字命名动作继续保留，不自动删除。
-2. 后续工作回到虫棍战斗系统实现与 Demo 演示验证；`LevelPrototyping` 仅作为训练平台环境依赖保留。
+2. 后续工作回到虫棍战斗系统实现与 Demo 演示验证；训练场环境依赖统一位于 `/Game/Environment/DemoArena`。

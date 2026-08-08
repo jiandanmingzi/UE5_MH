@@ -1,8 +1,8 @@
 """Move complete Unreal asset roots with count and backup safeguards.
 
 The manifest records root-to-root rules rather than hundreds of repetitive
-package entries. Dry-run is the default. Pass ``--apply`` only after the
-generated report and backup have been reviewed.
+package entries. Pass ``--manifest=<path>`` for the migration plan. Dry-run is
+the default; pass ``--apply`` only after the report and backup are reviewed.
 """
 
 from __future__ import annotations
@@ -17,8 +17,6 @@ from datetime import datetime, timezone
 import unreal
 
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_MANIFEST = os.path.join(SCRIPT_DIR, "phase10-template-system-assets.json")
 APPLY = "--apply" in sys.argv
 
 
@@ -29,7 +27,10 @@ def _argument_value(prefix: str, default: str) -> str:
     return default
 
 
-MANIFEST_PATH = os.path.abspath(_argument_value("--manifest=", DEFAULT_MANIFEST))
+MANIFEST_ARGUMENT = _argument_value("--manifest=", "")
+if not MANIFEST_ARGUMENT:
+    raise RuntimeError("Pass an explicit --manifest=<path> root migration manifest")
+MANIFEST_PATH = os.path.abspath(MANIFEST_ARGUMENT)
 
 
 def _load_manifest() -> dict:
@@ -76,6 +77,12 @@ def _expand_rules(manifest: dict, registry) -> tuple[list[dict], list[dict]]:
         destination_root = rule["destination_root"]
         expected = rule["expected_asset_count"]
         excluded = set(rule.get("exclude_packages", []))
+        excluded.update(
+            item["source"]
+            for item in manifest.get("source_cleanup", [])
+            if item["source"] == source_root
+            or item["source"].startswith(source_root + "/")
+        )
         source_assets = _assets_under(registry, source_root, excluded)
         destination_assets = _assets_under(registry, destination_root, set())
 
@@ -200,6 +207,36 @@ def _apply_moves(moves: list[dict]) -> None:
         raise RuntimeError("AssetTools.RenameAssets reported failure")
 
 
+def _cleanup_redundant_sources(manifest: dict) -> None:
+    for item in manifest.get("source_cleanup", []):
+        source = item["source"]
+        destination = item["destination"]
+        expected_class = item["expected_source_class"]
+        if not unreal.EditorAssetLibrary.does_asset_exist(source):
+            continue
+        if not unreal.EditorAssetLibrary.does_asset_exist(destination):
+            raise RuntimeError(f"Cleanup destination is missing: {destination}")
+        asset_data = unreal.EditorAssetLibrary.find_asset_data(source)
+        actual_class = str(asset_data.asset_class_path.asset_name)
+        if actual_class != expected_class:
+            raise RuntimeError(
+                f"Cleanup class mismatch for {source}: "
+                f"expected={expected_class}, actual={actual_class}"
+            )
+        referencers = sorted(
+            str(value)
+            for value in unreal.EditorAssetLibrary.find_package_referencers_for_asset(
+                source, False
+            )
+        )
+        if referencers:
+            raise RuntimeError(
+                f"Cleanup source still has referencers: {source}: {referencers}"
+            )
+        if not unreal.EditorAssetLibrary.delete_asset(source):
+            raise RuntimeError(f"Failed to delete redundant cleanup source: {source}")
+
+
 def _write_report(manifest: dict, moves: list[dict], rules: list[dict], outcome: str) -> str:
     report_dir = os.path.join(
         os.path.abspath(unreal.Paths.project_dir()), "Saved", "AssetOrganization"
@@ -240,6 +277,7 @@ def main() -> None:
         had_pending = any(item["status"] == "pending" for item in moves)
         _verify_backups(manifest, moves)
         _apply_moves(moves)
+        _cleanup_redundant_sources(manifest)
         registry.scan_paths_synchronous(
             [rule["destination_root"] for rule in manifest["root_moves"]], True
         )

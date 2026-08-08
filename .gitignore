@@ -195,6 +195,7 @@ Backup/*
 # Raw Content file types
 ## Models
 *.fbx
+!Content/Environment/DemoArena/**/*.fbx
 *.3ds
 *.blend
 *.blend1

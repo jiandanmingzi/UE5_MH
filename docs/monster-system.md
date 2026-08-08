@@ -150,10 +150,17 @@ Source/MHGZ/Monster/
 ├── MHGZMonsterHitzoneComponent.h/cpp   ← 部位碰撞体
 
 Content/Blueprints/Monster/
-├── BP_TrainingDummy.uasset
-├── DA_DummyHuman.uasset                ← 配置：人形靶
-├── DA_DummyPillar.uasset               ← 配置：木桩/石柱
-└── DA_DummyBarrel.uasset               ← 配置：桶/壶
+└── BP_TrainingDummy.uasset
+
+Content/Monster/TrainingDummy/
+├── Anims/                              ← 木桩 AnimSequence、Montage、AnimBP
+├── Data/
+│   ├── DA_TrainingDummy.uasset         ← 当前 Demo 配置
+│   ├── DA_DummyPillar.uasset           ← 后续配置：木桩/石柱
+│   └── DA_DummyBarrel.uasset           ← 后续配置：桶/壶
+├── Materials/
+├── Meshes/
+└── Textures/
 
 Content/GameplayCues/Hit/
 ├── GC_Hit_Slash.uasset                 ← 斩击命中火花
