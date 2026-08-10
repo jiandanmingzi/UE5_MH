@@ -7,7 +7,7 @@
 #include "MHGZComboCoordinatorAbility.generated.h"
 
 class UMHGZWeaponComboData;
-struct FComboNode;
+struct FComboTransition;
 
 /**
  * UGA_WeaponComboCoordinator — 连招协调器
@@ -92,16 +92,16 @@ public:
 
 protected:
 	/** 匹配并激活符合条件的 GA */
-	bool TryMatchAndActivate(const FComboNode& Node);
+	bool TryMatchAndActivate(const FComboTransition& Transition);
 
-	/** 构建 StateIndex（按 StateName 建索引） */
+	/** 构建 StateIndex（按 SourceState 建索引） */
 	void BuildStateIndex();
 
 	/** 检查节点是否匹配当前状态 */
-	bool DoesNodeMatchState(const FComboNode& Node) const;
+	bool DoesTransitionMatchState(const FComboTransition& Transition) const;
 
 	/** 按四级排序获取最佳匹配节点 */
-	const FComboNode* FindBestMatch(const TArray<const FComboNode*>& Candidates) const;
+	const FComboTransition* FindBestMatch(const TArray<const FComboTransition*>& Candidates) const;
 
 	/** 每次有效输入后重置安全超时。 */
 	void ResetComboTimeout();
@@ -110,7 +110,7 @@ private:
 	UPROPERTY()
 	TObjectPtr<UMHGZWeaponComboData> ComboData;
 
-	/** StateName → ComboTable 索引列表 */
+	/** SourceState → Transitions 索引列表 */
 	TMap<FName, TArray<int32>> StateIndex;
 
 	/** 待授予的 Tag（首次命中时 Apply） */

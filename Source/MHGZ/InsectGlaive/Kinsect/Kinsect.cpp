@@ -244,10 +244,10 @@ void AKinsect::TryRecordExtract(UMHGZMonsterHitzoneComponent* Hitzone)
 
 	case EKinsectExtractMode::AlwaysOverwrite:
 	{
-		// 红(3) > 黄(2) > 白(1)
+		// 红(3) > 橙(2) > 白(1)
 		static const TMap<FGameplayTag, int32> PriorityMap = {
 			{FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White")), 1},
-			{FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow")), 2},
+			{FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange")), 2},
 			{FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red")), 3}
 		};
 

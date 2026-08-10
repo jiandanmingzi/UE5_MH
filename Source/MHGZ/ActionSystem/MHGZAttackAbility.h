@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "MHGZGameplayAbility.h"
 #include "GameplayTagContainer.h"
+#include "Misc/DataValidation.h"
 #include "MHGZAttackAbility.generated.h"
 
 class USoundBase;
@@ -24,6 +25,14 @@ enum class EAttackCollisionShape : uint8
 	Sphere  UMETA(DisplayName = "球体"),
 	Capsule UMETA(DisplayName = "胶囊体"),
 	Box     UMETA(DisplayName = "盒子")
+};
+
+/** 多段伤害默认只能来自真实接触；离散复击必须显式选择并逐跳重验。 */
+UENUM(BlueprintType)
+enum class EAttackMultiHitPolicy : uint8
+{
+	ContactOnly,
+	LockedTargetTicks
 };
 
 /**
@@ -135,7 +144,7 @@ struct FAttackDamageConfig
 
 	/** ★ 动作值（倍率） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FScalableFloat MotionValue = 1.0f;
+	FScalableFloat MotionValue = -1.0f;
 
 	/** ★ 基础破坏值 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -214,9 +223,17 @@ struct FAttackSegmentConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	int32 MultiHitCount = 1;
 
+	/** 默认只结算本次真实 Sweep 接触；LockedTargetTicks 必须逐跳重验距离。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EAttackMultiHitPolicy MultiHitPolicy = EAttackMultiHitPolicy::ContactOnly;
+
 	/** 多次伤害之间的间隔（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float MultiHitInterval = 0.1f;
+
+	/** LockedTargetTicks 每跳允许的最大目标距离。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1.0", EditCondition = "MultiHitPolicy == EAttackMultiHitPolicy::LockedTargetTicks"))
+	float LockedTargetMaxDistance = 300.0f;
 
 	/** ★ 本段 MotionWarping 允许的最大旋转修正角度 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -263,6 +280,10 @@ public:
 		const FGameplayAbilityActivationInfo ActivationInfo,
 		bool bReplicateEndAbility,
 		bool bWasCancelled) override;
+
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
 
 	// ═══════════════════════════════════════════
 	// 碰撞窗口控制（由 AnimNotifyState 调用）

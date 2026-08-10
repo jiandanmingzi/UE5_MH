@@ -12,9 +12,9 @@
  * 挂在怪物骨骼上，动画驱动跟随
  *
  * 通道配置（常态）：
- * - Weapon: Block（始终，供玩家攻击检测）
- * - MonsterAttack: Ignore（常态——攻击窗口内由 AnimNotifyState 切换为 Block）
- * - Pawn: Block（始终，物理阻挡）
+ * - ObjectType: Hitzone；只承担部位查询，不承担实体阻挡
+ * - Weapon / Visibility: Block
+ * - MonsterAttack / Pawn / WorldStatic: Ignore
  */
 UCLASS(ClassGroup = (MHGZ), BlueprintType, meta = (BlueprintSpawnableComponent))
 class UMHGZMonsterHitzoneComponent : public USphereComponent
@@ -43,16 +43,6 @@ public:
 	/** 硬直肉质——硬直倍率（典型值 0.2~1.0） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	float StaggerRate = 1.0f;
-
-	// ═══════════════════════════════════════════
-	// 通道切换
-	// ═══════════════════════════════════════════
-
-	/** MonsterAttack 通道设为 Block（攻击窗口内调用） */
-	void EnableMonsterAttackChannel();
-
-	/** MonsterAttack 通道设为 Ignore（收招调用） */
-	void DisableMonsterAttackChannel();
 
 	/** 强制恢复所有通道到常态 */
 	void ForceRestoreAllChannels();

@@ -8,6 +8,8 @@
 #include "Inventory/MHGZItemTypes.h"
 #include "MHGZEquipmentDefinition.generated.h"
 
+class UWeaponRuntimeDefinition;
+
 /**
  * UMHGZEquipmentDefinition — 装备定义基类
  */
@@ -68,6 +70,11 @@ class UMHGZWeaponDefinition : public UMHGZEquipmentDefinition
 	GENERATED_BODY()
 
 public:
+	/** 武器运行时唯一接线入口；M2 后不再按 WeaponTypeTag 查询旧 DataTable。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Runtime")
+	TObjectPtr<UWeaponRuntimeDefinition> RuntimeDefinition;
+
+	/** 迁移期仍用于识别旧资产；运行时身份最终以 RuntimeDefinition 为准。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FGameplayTag WeaponTypeTag;
 

@@ -266,14 +266,14 @@ FGameplayTag URes_InsectGlaive::StaticMapHitzoneToExtract(FGameplayTag HitzoneTa
 	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.TailTip"))))
 		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
 	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Torso"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"));
+		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
 	if (HitzoneTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.LeftWing"))) ||
 		HitzoneTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.RightWing"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"));
+		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
 	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Back"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"));
+		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
 	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Neck"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"));
+		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
 
 	return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"));
 }
@@ -311,11 +311,11 @@ void URes_InsectGlaive::ApplyExtract(FGameplayTag ExtractColor)
 		Duration = WHITE_DURATION;
 	}
 	else if (ExtractColor.MatchesTag(
-		FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"))))
+		FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"))))
 	{
 		GEClass = LoadClass<UGameplayEffect>(nullptr,
-			TEXT("/Game/GameplayEffects/InsectGlaive/GE_IG_YellowExtract.GE_IG_YellowExtract_C"));
-		Duration = YELLOW_DURATION;
+			TEXT("/Game/GameplayEffects/InsectGlaive/GE_IG_OrangeExtract.GE_IG_OrangeExtract_C"));
+		Duration = ORANGE_DURATION;
 	}
 	else if (ExtractColor.MatchesTag(
 		FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"))))
@@ -351,11 +351,11 @@ void URes_InsectGlaive::CheckAndActivateTripleUp()
 
 	// 检查是否同时持有三种灯
 	static const FGameplayTag WhiteTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"));
-	static const FGameplayTag YellowTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"));
+	static const FGameplayTag OrangeTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
 	static const FGameplayTag RedTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
 
 	if (!ASC->HasMatchingGameplayTag(WhiteTag) ||
-		!ASC->HasMatchingGameplayTag(YellowTag) ||
+		!ASC->HasMatchingGameplayTag(OrangeTag) ||
 		!ASC->HasMatchingGameplayTag(RedTag))
 	{
 		return;
@@ -406,14 +406,14 @@ void URes_InsectGlaive::ConsumeExtract(FGameplayTag ExtractType)
 		}
 		bTripleUpActive = false;
 
-		// 重新 Apply 剩余灯（白+黄）
+		// 重新 Apply 剩余灯（白+橙）
 		static const FGameplayTag WhiteTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"));
-		static const FGameplayTag YellowTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Yellow"));
+		static const FGameplayTag OrangeTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
 		static const FGameplayTag RedTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
 
 		TArray<FGameplayTag> Remaining;
 		if (ExtractType != WhiteTag) Remaining.Add(WhiteTag);
-		if (ExtractType != YellowTag) Remaining.Add(YellowTag);
+		if (ExtractType != OrangeTag) Remaining.Add(OrangeTag);
 		if (ExtractType != RedTag) Remaining.Add(RedTag);
 		ReapplyRemainingExtracts(Remaining);
 	}

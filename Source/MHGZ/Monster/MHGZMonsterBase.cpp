@@ -12,8 +12,9 @@ AMHGZMonsterBase::AMHGZMonsterBase()
 	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AttributeSet = CreateDefaultSubobject<UMHGZAttributeSet>(TEXT("AttributeSet"));
 
-	// 只有 Hitzone 响应武器 Trace，避免角色胶囊先 Block 导致 Sweep 取不到具体部位。
-	GetCapsuleComponent()->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Ignore);
+	// 实体 Body 只负责物理阻挡；Hitzone 独立承担武器、准心与肉质查询。
+	GetCapsuleComponent()->SetCollisionProfileName(TEXT("MonsterBody"));
+	GetMesh()->SetCollisionResponseToChannel(ECC_Visibility, ECR_Ignore);
 	GetMesh()->SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Ignore);
 }
 

@@ -1,6 +1,6 @@
 # GameplayTags 完整层级
 
-> **实施状态说明：** `Config/DefaultGameplayTags.ini` 是当前实际注册表；本文同时保留 Demo 目标 Tag。出现在本文但未出现在配置中的 Tag 只表示规划，不可在当前代码中直接 `RequestGameplayTag`。当前宽泛的 `Combat.State.Aiming` 与 Yellow 精华仍是旧实现，目标设计改为瞄准上下文子标签与 Orange 精华，本轮只修改文档、不改代码。
+> **实施状态说明：** `Config/DefaultGameplayTags.ini` 是实际注册表。M0 建立目标 Tag 与 Yellow→Orange 迁移 Redirect；具体 Tag 的运行时所有权仍按对应里程碑逐步接入。
 
 ## 物品类型
 

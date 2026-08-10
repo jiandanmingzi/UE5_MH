@@ -40,6 +40,7 @@ public class MHGZ : ModuleRules
 			"MHGZ/InputSystem",
 			"MHGZ/InsectGlaive",
 			"MHGZ/InsectGlaive/Kinsect",
+			"MHGZ/WeaponRuntime",
 			"MHGZ/Monster",
 			"MHGZ/UI",
 			"MHGZ/Data"

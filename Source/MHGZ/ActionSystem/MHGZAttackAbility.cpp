@@ -64,6 +64,68 @@ UMHGZAttackAbility::UMHGZAttackAbility()
 	MaxCorrectionAngle = 30.0f;
 }
 
+#if WITH_EDITOR
+EDataValidationResult UMHGZAttackAbility::IsDataValid(FDataValidationContext& Context) const
+{
+	EDataValidationResult Result = Super::IsDataValid(Context);
+	bool bInvalid = false;
+	auto AddError = [&Context, &bInvalid](const FString& Message)
+	{
+		Context.AddError(FText::FromString(Message));
+		bInvalid = true;
+	};
+
+	for (int32 SegmentIndex = 0; SegmentIndex < AttackSegments.Num(); ++SegmentIndex)
+	{
+		const FAttackSegmentConfig& Segment = AttackSegments[SegmentIndex];
+		const float MotionValue = Segment.Damage.MotionValue.GetValueAtLevel(1.0f);
+		if (!FMath::IsFinite(MotionValue) || MotionValue < 0.0f)
+		{
+			AddError(FString::Printf(
+				TEXT("AttackSegments[%d] must explicitly set MotionValue to 0 or a positive value."),
+				SegmentIndex));
+		}
+
+		if (Segment.MultiHitCount < 1)
+		{
+			AddError(FString::Printf(TEXT("AttackSegments[%d].MultiHitCount must be at least 1."), SegmentIndex));
+		}
+
+		if (Segment.MultiHitPolicy == EAttackMultiHitPolicy::LockedTargetTicks)
+		{
+			if (Segment.MultiHitCount < 2)
+			{
+				AddError(FString::Printf(TEXT("AttackSegments[%d] uses LockedTargetTicks but has fewer than 2 hits."), SegmentIndex));
+			}
+			if (!FMath::IsFinite(Segment.MultiHitInterval) || Segment.MultiHitInterval <= 0.0f)
+			{
+				AddError(FString::Printf(TEXT("AttackSegments[%d] LockedTargetTicks interval must be positive."), SegmentIndex));
+			}
+			if (!FMath::IsFinite(Segment.LockedTargetMaxDistance) || Segment.LockedTargetMaxDistance <= 0.0f)
+			{
+				AddError(FString::Printf(TEXT("AttackSegments[%d] LockedTargetTicks distance must be positive."), SegmentIndex));
+			}
+		}
+
+		for (int32 RegionIndex = 0; RegionIndex < Segment.Collision.TraceRegions.Num(); ++RegionIndex)
+		{
+			const FWeaponTraceRegion& Region = Segment.Collision.TraceRegions[RegionIndex];
+			if (Region.EndSocketName.IsNone() || Region.Radius <= 0.0f
+				|| Region.MaxSampleSpacing <= 0.0f || Region.MaxSampleCount <= 0
+				|| Region.MaxAngularStepDegrees <= 0.0f)
+			{
+				AddError(FString::Printf(
+					TEXT("AttackSegments[%d].TraceRegions[%d] has invalid socket or sampling values."),
+					SegmentIndex, RegionIndex));
+			}
+		}
+	}
+
+	return bInvalid ? EDataValidationResult::Invalid
+		: (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);
+}
+#endif
+
 void UMHGZAttackAbility::ActivateAbility(
 	const FGameplayAbilitySpecHandle Handle,
 	const FGameplayAbilityActorInfo* ActorInfo,

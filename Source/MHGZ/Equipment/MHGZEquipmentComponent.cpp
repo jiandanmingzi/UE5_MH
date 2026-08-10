@@ -210,13 +210,13 @@ void UMHGZEquipmentComponent::ApplyItemEffects(UMHGZEquipmentInstance* Item)
 					UMHGZWeaponComboData* ComboData = ComboRow->ComboDataAsset.LoadSynchronous();
 					if (!ComboData) break;
 
-					// ③ 授予所有武器 Ability（从 ComboTable 收集）
+					// ③ 授予所有武器 Ability（从 Transitions 收集）
 					TArray<TSubclassOf<UGameplayAbility>> WeaponAbilities;
-					for (const FComboNode& Node : ComboData->ComboTable)
+					for (const FComboTransition& Transition : ComboData->Transitions)
 					{
-						if (Node.AbilityClass)
+						if (Transition.AbilityClass)
 						{
-							WeaponAbilities.AddUnique(Node.AbilityClass);
+							WeaponAbilities.AddUnique(Transition.AbilityClass);
 						}
 					}
 					ASC->GrantWeaponAbilities(WeaponAbilities);

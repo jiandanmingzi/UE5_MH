@@ -180,6 +180,6 @@ private:
 
 	// 单灯基础时长
 	static constexpr float WHITE_DURATION = 90.f;
-	static constexpr float YELLOW_DURATION = 120.f;
+	static constexpr float ORANGE_DURATION = 120.f;
 	static constexpr float RED_DURATION = 60.f;
 };

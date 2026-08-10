@@ -86,67 +86,66 @@ void UGA_WeaponComboCoordinator::BuildStateIndex()
 	StateIndex.Empty();
 	if (!ComboData) return;
 
-	for (int32 i = 0; i < ComboData->ComboTable.Num(); ++i)
+	for (int32 i = 0; i < ComboData->Transitions.Num(); ++i)
 	{
-		const FComboNode& Node = ComboData->ComboTable[i];
-		if (!Node.bMatchAnyState)
+		const FComboTransition& Transition = ComboData->Transitions[i];
+		if (!Transition.bMatchAnyState)
 		{
-			StateIndex.FindOrAdd(Node.StateName).Add(i);
+			StateIndex.FindOrAdd(Transition.SourceState).Add(i);
 		}
 	}
 }
 
-bool UGA_WeaponComboCoordinator::DoesNodeMatchState(const FComboNode& Node) const
+bool UGA_WeaponComboCoordinator::DoesTransitionMatchState(const FComboTransition& Transition) const
 {
-	if (Node.bMatchAnyState)
+	if (Transition.bMatchAnyState)
 	{
-		// 检查 BlockedStateNames 黑名单
-		if (Node.BlockedStateNames.Contains(CurrentState))
+		if (Transition.BlockedSourceStates.Contains(CurrentState))
 		{
 			return false;
 		}
 		return true;
 	}
-	return Node.StateName == CurrentState;
+	return Transition.SourceState == CurrentState;
 }
 
-const FComboNode* UGA_WeaponComboCoordinator::FindBestMatch(
-	const TArray<const FComboNode*>& Candidates) const
+const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
+	const TArray<const FComboTransition*>& Candidates) const
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (!ASC) return nullptr;
 
-	const FComboNode* Best = nullptr;
+	const FComboTransition* Best = nullptr;
 	int32 BestPriority = INT32_MIN;
 
-	for (const FComboNode* Node : Candidates)
+	for (const FComboTransition* Transition : Candidates)
 	{
 		// 检查 RequiredTags
-		if (!Node->RequiredTags.IsEmpty() && !ASC->HasAllMatchingGameplayTags(Node->RequiredTags))
+		if (!Transition->RequiredTags.IsEmpty() && !ASC->HasAllMatchingGameplayTags(Transition->RequiredTags))
 		{
 			continue;
 		}
 
 		// 检查 BlockedTags
-		if (ASC->HasAnyMatchingGameplayTags(Node->BlockedTags))
+		if (ASC->HasAnyMatchingGameplayTags(Transition->BlockedTags))
 		{
 			continue;
 		}
 
 		// 检查耐力门槛
-		if (Node->StaminaRequired > 0.f)
+		if (Transition->StaminaRequired > 0.f)
 		{
 			const UMHGZAttributeSet* AttrSet = ASC->GetSet<UMHGZAttributeSet>();
-			if (AttrSet && AttrSet->GetStamina() < Node->StaminaRequired)
+			if (AttrSet && AttrSet->GetStamina() < Transition->StaminaRequired)
 			{
 				continue;
 			}
 		}
 
-		if (Node->Priority > BestPriority)
+		if (Transition->Priority > BestPriority)
 		{
-			BestPriority = Node->Priority;
-			Best = Node;
+			BestPriority = Transition->Priority;
+			Best = Transition;
 		}
 	}
 
@@ -157,32 +156,33 @@ void UGA_WeaponComboCoordinator::HandleWeaponInput(FGameplayTag InInputTag)
 {
 	if (!ComboData) return;
 
-	TArray<const FComboNode*> Candidates;
+	TArray<const FComboTransition*> Candidates;
 
 	// 从 StateIndex 获取候选节点
 	if (const TArray<int32>* Indices = StateIndex.Find(CurrentState))
 	{
 		for (int32 idx : *Indices)
 		{
-			const FComboNode& Node = ComboData->ComboTable[idx];
-			if (Node.InputTag == InInputTag)
+			const FComboTransition& Transition = ComboData->Transitions[idx];
+			if (Transition.InputTag == InInputTag)
 			{
-				Candidates.Add(&Node);
+				Candidates.Add(&Transition);
 			}
 		}
 	}
 
 	// bMatchAnyState 节点
-	for (const FComboNode& Node : ComboData->ComboTable)
+	for (const FComboTransition& Transition : ComboData->Transitions)
 	{
-		if (Node.bMatchAnyState && Node.InputTag == InInputTag && DoesNodeMatchState(Node))
+		if (Transition.bMatchAnyState && Transition.InputTag == InInputTag
+			&& DoesTransitionMatchState(Transition))
 		{
-			Candidates.Add(&Node);
+			Candidates.Add(&Transition);
 		}
 	}
 
 	// 四级排序取最佳匹配
-	const FComboNode* Best = FindBestMatch(Candidates);
+	const FComboTransition* Best = FindBestMatch(Candidates);
 	if (!Best) return;
 
 	// 激活 Ability
@@ -202,13 +202,14 @@ void UGA_WeaponComboCoordinator::HandleWeaponInput(FGameplayTag InInputTag)
 		ActiveAttackHandle = AbilityHandle;
 
 		// 更新状态
-		if (!Best->bMatchAnyState && !Best->NextState.IsNone())
+		if (Best->StatePolicy == EComboStatePolicy::Replace && !Best->TargetState.IsNone())
 		{
 			PreviousState = CurrentState;
-			CurrentState = Best->NextState;
+			CurrentState = Best->TargetState;
 		}
 
-		// 存储待授予 Tag
+		// M0 兼容路径保持旧实现的首次命中授予语义，避免在 TagLedger 接入前制造无所有者 Loose Tag。
+		// M1 的统一 ExecuteTransition 会按 GrantTiming 分流 OnActivation / OnFirstHit。
 		if (!Best->GrantedTags.IsEmpty())
 		{
 			PendingGrantedTags = Best->GrantedTags;
