@@ -192,6 +192,7 @@
 | 165 | AMHGZHUD 是本地 Widget 树唯一所有者；资源面板只插入 WBP_HUD，删除空壳 UISubsystem | 每个 PlayerController/HUD 天然隔离本地玩家；消除 AddToViewport 与资源插槽双所有者 |
 | 166 | 武器成本使用 reservation 跨越 GAS Commit：Reserve→Commit→Release/Consume→Confirm | GAS Commit 失败不丢三灯；成功后的 Consume 保证不失败，避免部分耐力/冷却与部分武器资源状态 |
 | 167 | 基础 Dodge 纳入 M1 重写 | 它是战斗基底；必须先验证输入快照、AbilityTask、ActionToken、TagLedger 和碰撞响应恢复 |
-| 168 | 以 Keep/Rewrite/Delete/Defer 表和一次性 Redirect/重存流程迁移旧资产 | 允许完整重构，但不覆盖用户现有改动、不保留旧 DataTable/字段的并行运行时路径 |
+| 168 | （已被 #171 细化）以 Keep/Rewrite/Delete/Defer 表决定旧资产处置 | 仍保留“不覆盖用户改动、不保留双运行时”的原则；具体旧虫棍原型不再走重存迁移 |
 | 169 | PendingExtract 回手时原子取出并清空；耐力归零只在阈值边沿触发一次 | 支持连续取得不同颜色，避免 0 耐力每帧重复召回和音效 |
 | 170 | Demo 禁用 WeaponResource EntryModifier，完整词条阶段重新设计多来源句柄与参数过滤 | 当前 FindOrAdd/遍历语义会丢来源或把修饰应用到错误参数；木桩 Demo 不应建立在已知错误路径上 |
+| 171 | 旧虫棍 DT→最小 Combo→两个 GA→两个无自定义 Notify Montage 与零引用武器定义采用删除重建，不迁移其字段 | UE 5.6 引用审计证明这批资产只含最小原型数据；地图、核心 BP、AnimBP、原始 AnimSequence、美术与输入基础继续保留。M2 先解除旧读取，E3/E4 再按精确清单删除并从最终类型新建 |

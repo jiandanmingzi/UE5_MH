@@ -6,6 +6,8 @@
 
 项目资产采用“系统域顶层、武器类型作为次级目录”的结构，不额外增加 `/Game/MHGZ` 或 `/Game/Combat` 顶层目录。
 
+> 2026-08-11 资产内容审计后的处置更新：下文第 1/7/11 批记录是已完成的历史目录整理，不代表这些旧原型继续保留。`DT_WeaponComboConfig`、旧 `DA_IG_Combo`、`GA_IG_BaDao`、`GA_IG_R_TuCI`、`AM_Shth_BaDao`、`AM_Shth_R_TuCi` 与零引用旧 `DA_IG_HuoLongGun` 将按 [E0 删除重建合同](demo-setup.md#23-e0-的停止点) 在 M2 解除引用后删除；原始 `AS_Shth_*`、Skeleton、美术与核心蓝图继续保留。
+
 首批整理只处理低风险、项目自有资产：
 
 | 类型 | 目标目录 |
@@ -103,7 +105,7 @@
 
 - 不得在资源管理器中移动或重命名 `.uasset`、`.umap`。
 - `__ExternalActors__`、`__ExternalObjects__` 和地图必须作为独立批次处理。
-- `/Game/Data/DT_WeaponComboConfig` 被 `Config/DefaultGame.ini` 直接引用，当前保持原位。
+- `/Game/Data/DT_WeaponComboConfig` 在 M2 前仍被 `Config/DefaultGame.ini` 直接引用，暂时保持原位；M2 解除配置和代码读取后由 E3 删除。
 - `/Game/Maps/L_DemoArena` 是当前唯一默认地图，删除或改名时必须同步三个配置路径。
 - `/Game/TemplateAssets` 只用于模板资产；项目自有运行时资产不得回流该目录。
 - 资产移动不自动修复 C++ 或 INI 中的字符串路径；每一批必须单独扫描并同步修改。

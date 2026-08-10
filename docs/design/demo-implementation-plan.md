@@ -1,10 +1,10 @@
 # 虫棍木桩 Demo 冻结实施计划
 
-> **当前状态：** 已进入分阶段实施。M0 的代码、Project Settings 文本配置、验证与测试已完成；目标 `.uasset` 的首次创建、补录和重存仍待 [编辑器 E0/E1](../editor/demo-setup.md) 执行。后续阶段的实际完成状态以 Git 阶段提交和验证记录为准。
+> **当前状态：** 已进入分阶段实施。M0 的代码、Project Settings 文本配置、验证与测试已完成。2026-08-11 审计决定不迁移旧虫棍动作原型：E0 只体检保留资产，旧 DT/Combo/GA/Montage 与零引用武器定义在 M2 退役旧读取链后由 E3/E4 删除重建。后续阶段的实际完成状态以 Git 阶段提交和验证记录为准。
 
 > **用途：** 当本文的公共接口、所有权和阶段退出条件确定后，再按里程碑逐步修改代码。实施时不得跨阶段顺手重构未列入范围的系统；每一阶段验收通过后才进入下一阶段。
 
-> **迁移边界：** 现有实现允许按 [重构范围与资产迁移](demo-refactor-scope.md) 完整重写。该文档的 Keep/Rewrite/Delete/Defer 表和一次性资产迁移合同与本文同为开始改代码前的强制输入。
+> **资产边界：** 现有实现允许按 [重构范围与资产处置](demo-refactor-scope.md) 完整重写。该文档的 Keep/Rewrite/Delete/Defer 表和一次性删除重建合同与本文同为开始改代码前的强制输入。
 
 ## 1. 本轮任务合同
 
@@ -36,7 +36,7 @@ Demo 必须形成以下闭环：
 出现冲突时按以下顺序处理：
 
 1. [虫棍动作设计](insect-glaive-actions.md) 决定玩法语义。
-2. 本文与 [重构范围与资产迁移](demo-refactor-scope.md) 决定后续实现架构、公共接口、所有权、删除边界和实施顺序。
+2. 本文与 [重构范围与资产处置](demo-refactor-scope.md) 决定后续实现架构、公共接口、所有权、删除边界和实施顺序。
 3. [编辑器搭建指南](../editor/demo-setup.md) 与 [验证清单](../editor/verification.md) 决定可观察验收。
 4. 其他系统文档提供模块细节。
 5. 当前源码只代表“现在有什么”，不能覆盖尚未实现的目标设计。
@@ -90,7 +90,7 @@ CombatConfig                 // UWeaponCombatConfigBase；虫棍为 UInsectGlaiv
 ResourceWidgetClass
 ```
 
-具体 `UMHGZWeaponDefinition`（物品攻击力、外观、词条等）只引用对应 RuntimeDefinition。当前 `DT_WeaponResourceConfig` 与 `DT_WeaponComboConfig` 是待迁移旧桥接；M0/M2 后不保留 DataTable 与 RuntimeDefinition 两套并行查找。虫棍 ComboData 由其 CombatConfig 继续引用。
+具体 `UMHGZWeaponDefinition`（物品攻击力、外观、词条等）只引用对应 RuntimeDefinition。`DT_WeaponResourceConfig` 资产不存在；`DT_WeaponComboConfig` 是待删除旧桥接。M2 删除其配置和代码读取，E3 删除资产，不保留 DataTable 与 RuntimeDefinition 两套并行查找。虫棍 ComboData 由其 CombatConfig 继续引用。
 
 ### 2.1 通用层可以知道什么
 
@@ -209,7 +209,7 @@ struct FWeaponInputSnapshot
 
 ### 3.3 连招 FSM
 
-目标结构正式更名为 `FComboTransition`；`FComboNode`/`ComboTable` 是当前源码旧名，只允许在迁移阶段短暂存在。资产字段目标名为 `Transitions`。
+目标结构正式使用 `FComboTransition/Transitions`。`FComboNode/ComboTable` 只代表旧包的历史序列化名称；最终 `DA_IG_Combo` 从空壳新建，不转存旧最小节点。
 
 ```cpp
 struct FComboTransition
@@ -549,27 +549,27 @@ ActiveReservations            // 本资源发起的粉尘预留
 
 ### M0：配置、标签与验证地基
 
-**修改范围：** Project Settings、GameplayTags、最终 C++/DataAsset 结构、资产引用清点、Redirect 与 Data Validation/自动化测试骨架；不创建具体动作 GA。
+**修改范围：** Project Settings、GameplayTags、最终 C++/DataAsset 结构、资产引用清点、审计用 Redirect 与 Data Validation/自动化测试骨架；不创建具体动作 GA。
 
 **工作：**
 
 1. 新增 Hitzone Object Channel 并统一木桩 Hitzone/Body 碰撞预设。
-2. 按 [重构范围与资产迁移](demo-refactor-scope.md) 清点目标蓝图/DataAsset/Montage 及用户工作树基线；建立 Keep/Rewrite/Delete/Defer 执行表，禁止覆盖已有改动。
+2. 按 [重构范围与资产处置](demo-refactor-scope.md) 清点目标蓝图/DataAsset/Montage 及用户工作树基线；建立 Keep/Rewrite/Delete/Defer 执行表，禁止覆盖已有改动。
 3. 定义 WeaponRuntimeDefinition、RuntimeToken/ActionToken/TagLedger、InputProfile、CombatConfig、Transition、ActivationContext、CostReservation、EffectContext、MovementRequest/Result 的最终 C++ 结构。
 4. 给 TransitionID 唯一性、并列匹配、ExecutionPolicy/AbilityClass 合法组合、CombatConfig 必需 GE/Combo 引用、方向阈值、Dance 数组长度、位移正值、Ballistic 参数互斥、伤害段显式 MotionValue，以及 LockedTargetTicks 的正距离/间隔添加 Data Validation。
-5. 准备唯一 `DA_IG_Combat`（默认 Classic、引用唯一 ComboData）、`DA_IG_Combo` 和唯一 `DA_IG_InputProfile`；为实际旧序列化名称添加精确 Redirect，重存本轮数据壳，不建立旧 DataTable 并行读取。
+5. 定义唯一 `DA_IG_Combat`、`DA_IG_Combo`、`DA_IG_InputProfile` 的最终类型与校验；为实际旧序列化名称添加精确 Redirect 以完成只读加载审计。E0 不重存旧包，最终数据壳由 E3 从最终类型新建。
 
-**退出条件：** 项目编译；资产清点和迁移映射完整；最终类型与精确 Redirect 可加载目标数据壳且无 Missing Property；数据验证可以故意构造重复 TransitionID/错误舞踏数组并稳定报错；Hitzone 与 Body 碰撞互不承担对方职责。
+**退出条件：** 项目编译；资产清点、保留/删除/重建映射和引用链完整；最终类型与精确 Redirect 可只读加载旧包且无 Missing Property；数据验证可以故意构造重复 TransitionID/错误舞踏数组并稳定报错；Hitzone 与 Body 碰撞互不承担对方职责。
 
 ### M1：Ability 生命周期、输入路由与 FSM
 
-**修改范围：** `ActionSystem`、`InputSystem`、Character 上的 RuntimeHost/TagLedger 最小骨架及对应测试；不迁移具体武器 Resource，不实现虫棍特殊状态。
+**修改范围：** `ActionSystem`、`InputSystem`、Character 上的 RuntimeHost/TagLedger 最小骨架及对应测试；不接入具体武器 Resource，不实现虫棍特殊状态。
 
 **工作：**
 
-1. 迁移成本/冷却与 reservation 事务合同，删除空 GE Spec、永久 Loose Cooldown 和旧 float 武器成本。
+1. 实现成本/冷却与 reservation 事务合同，删除空 GE Spec、永久 Loose Cooldown 和旧 float 武器成本。
 2. 让 InputComponent 独占 IMC/Binding；实现 WeaponInputRouter、InputSnapshot、任意必需成员补齐组合、输入释放身份和重复 Possess 安全重绑；从 ASC 删除 Enhanced Input。
-3. 将 `FComboNode/ComboTable` 迁移为 `FComboTransition/Transitions`，实现统一 `ExecuteTransition`。
+3. 以 `FComboTransition/Transitions` 实现统一 `ExecuteTransition`；不为旧最小 Combo 资产增加运行时兼容行为。
 4. 建立 RuntimeHost/TagLedger/ActionToken/Notify Registry 最小生命周期；动作 GA 固定 InstancedPerExecution，协调器固定 InstancedPerActor，实现 Superseded 两阶段交接、精确 MontageInstance Notify、旧回调隔离、自动派生和落地重置。
 5. 将 Pawn 姿态初始化从 ASC 一次性默认 Tag 移到 RuntimeHost/CombatState，并接通 `HandleResolvedInputSnapshot` 的武器与角色通用两条逻辑分发。
 6. 重写基础 `GA_Dodge`：使用解析后的方向快照和 AbilityTask Montage；DodgeWindow 通过 ActionToken 获取实例，以 TagLedger 持有窗口，并缓存/恢复每个被修改碰撞通道的原响应。缺角色、Montage、AnimInstance 或 Commit 失败均走统一 End 清理；Demo 不读取旧 Dodge DataTable 并行配置。
@@ -583,14 +583,14 @@ ActiveReservations            // 本资源发起的粉尘预留
 
 **工作：**
 
-1. 在 M1 RuntimeHost 骨架上迁移 Equipment/Resource 完整生命周期；拆分 StatsChanged 与 WeaponChanged Snapshot，只有武器实例/Runtime 身份变化才重建；换装/死亡/PIE End 执行固定清理顺序。
+1. 在 M1 RuntimeHost 骨架上实现 Equipment/Resource 完整生命周期；拆分 StatsChanged 与 WeaponChanged Snapshot，只有武器实例/Runtime 身份变化才重建；换装/死亡/PIE End 执行固定清理顺序。
 2. 接入玩家 IncomingHitResolver 与反击 Token；武器攻击保留真实 HitResult，并接入自定义 EffectContext、四个 Incoming Meta 与 FeedbackRouter。
 3. 多跳默认改为真实接触策略；只有显式 LockedTarget 策略允许离散复击并逐跳重验。
 4. 木桩建立独立 Body、三个不重叠的 Red/White/Orange Hitzone 与确定性反击攻击器。
 5. 接入可叠加卡肉 Token；Cue/数字可先使用临时表现资产。
-6. 按 M0 映射重存 AttackAbility/角色/木桩目标资产，确认最终 AttackSegment 数据后删除旧 Collision/Socket/成本字段、旧 DataManager Getter 和运行时兼容读取；所有失败早退必须 End 并清 Action/Movement/Warp Token。
+6. 保留角色/木桩核心蓝图并按最终父类接线；删除 `DefaultGame.ini` 的 `WeaponComboConfig`、旧 DataManager Getter、Equipment 旧表读取，以及 Attack 旧字段的所有运行时读取。旧 Collision/Socket/成本字段只作为不参与决策的序列化壳保留到 E3 删除旧 GA；所有失败早退必须 End 并清 Action/Movement/Warp Token。
 
-**退出条件：** 同帧多 Region 只结算最早 Hitzone；MotionValue=0 不扣血；护甲/饰品/镶嵌变化不重建武器 Runtime 或清空临时资源，同一武器重复 Snapshot no-op，真正换武器后无旧 Resource/Timer/Tag；不同 Character 上相同 Generation 数值的 Token 不相等；旧 Host 回调不能操作新运行时；旧 Attack 字段和 DataTable 运行时引用归零；反击测试器的同一 AttackInstanceID 最多结算一次；两个卡肉请求不会互相提前恢复。
+**退出条件：** 同帧多 Region 只结算最早 Hitzone；MotionValue=0 不扣血；护甲/饰品/镶嵌变化不重建武器 Runtime 或清空临时资源，同一武器重复 Snapshot no-op，真正换武器后无旧 Resource/Timer/Tag；不同 Character 上相同 Generation 数值的 Token 不相等；旧 Host 回调不能操作新运行时；旧 Attack 字段和 DataTable 的运行时读取归零；反击测试器的同一 AttackInstanceID 最多结算一次；两个卡肉请求不会互相提前恢复。
 
 ### M3：虫棍资源、基础猎虫、精华与瞄准
 
@@ -613,9 +613,11 @@ ActiveReservations            // 本资源发起的粉尘预留
 
 **修改范围：** 虫棍 ComboData、地面 GA/Montage/Notify；不实现完整空中动作。
 
+**进入条件：** M2 已解除旧 DT/Equipment/Attack 运行时读取，且编辑器 E3 已按删除清单移除旧 Combo/GA/Montage 并创建最终数据壳；若旧包仍存在，不得删除序列化兼容字段或开始批量创建动作资产。
+
 **工作：**
 
-1. 接通《世界》地面基底与两个红灯模式。
+1. E3 已确认旧 GA/Montage/Combo 包删除后，移除只为这些包保留的 Attack 序列化旧字段与临时兼容代码，再接通《世界》地面基底与两个红灯模式。
 2. 实现四连印斩及 `StarterOnly` 派生限制。
 3. 实现突进回旋斩位移、反击窗口、AttackInstance 消费和反击舞踏弹跳入口。
 4. 实现虫印弹与猎虫滑翔的地面激活部分。
@@ -710,6 +712,6 @@ ActiveReservations            // 本资源发起的粉尘预留
 1. 本文不再出现“方案 A/方案 B 二选一”的公共架构描述。
 2. [虫棍动作设计](insect-glaive-actions.md) 没有与本文冲突的输入、消费、舞踏或清理规则。
 3. 每个 P0/P1 差距都映射到一个里程碑和可观察退出条件。
-4. [重构范围与资产迁移](demo-refactor-scope.md) 的清点、重命名、Redirect、重存与删除顺序可以一次完成，不保留永久双结构兼容层。
+4. [重构范围与资产处置](demo-refactor-scope.md) 的保留、引用解除、删除与重建顺序可以一次完成，不保留永久双结构兼容层。
 5. 用户确认 §1.4 的玩法语义；数值未定项可以保留为 CombatConfig 参数，不阻塞接口冻结。
 6. 输入绑定、动作实例、Notify、Tag、Movement/Warp、Resource reservation、Equipment Snapshot 和 Widget 树均有唯一所有者及幂等清理路径。

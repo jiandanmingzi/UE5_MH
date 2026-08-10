@@ -58,7 +58,7 @@ Content/
 │       ├── Materials/              M_Demo_*、MI_Demo_*
 │       ├── Meshes/                 SKM_Demo_*、SK_Demo_*、PA_Demo_*
 │       └── Textures/               T_Demo_*
-├── Data/                           当前旧跨领域表保留到 M2 迁移；目标运行时不再读取 DT_WeaponComboConfig/ResourceConfig
+├── Data/                           旧 DT_WeaponComboConfig 仅保留到 M2 解除读取，E3 删除；目标运行时不读取 Combo/Resource 全局桥接表
 ├── GameplayCues/
 │   ├── InsectGlaive/
 │   ├── Hit/

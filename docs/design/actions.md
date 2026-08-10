@@ -5,7 +5,7 @@
 > **项目动作口径：** 动画和机制可参考《世界》《崛起》《荒野》，但项目采用原创连招规则，不以逐项复刻某一作为目标。虫棍具体动作见 [insect-glaive-actions.md](insect-glaive-actions.md)；通用动作层不得包含翔虫、集中模式、钩爪或虫棍资源判断。
 
 > **冻结实施口径：** 后续代码以 [Demo 冻结实施计划](demo-implementation-plan.md) 为公共接口真相源。当前源码中的 `FComboNode/ComboTable`、全局 `PreviousState`、`bIsContinuous` 成本语义和 ASC 直接解释武器输入都是待迁移旧结构，不得继续扩展。
-> **重构边界：** 具体保留、重写、删除与旧资产处理见 [Demo 重构范围与资产迁移](demo-refactor-scope.md)。
+> **重构边界：** 具体保留、重写、删除与旧资产处理见 [Demo 重构范围与资产处置](demo-refactor-scope.md)。
 
 ## 当前实现
 
@@ -648,7 +648,7 @@ class UMHGZAttackAbility : public UMHGZGameplayAbility
 | HitzoneQueryTag | FGameplayTag | 空 | 限定碰撞仅检测带此 Tag 的组件。空=不限制（检测所有碰撞） |
 | bDrawDebug | bool | false | 绘制 Sweep 轨迹用于校准 |
 
-`TraceEndSocketName`、`AttachSocketName`、旧 `TraceStartSocketName/Shape/ShapeExtent/TraceSampleCount` 只属于迁移输入。M0 清点实际蓝图覆写，M2 将有效值转存 `TraceRegions` 并重存目标资产后删除这些字段；运行时不保留“TraceRegions 为空就读旧字段”的兼容分支。
+`TraceEndSocketName`、`AttachSocketName`、旧 `TraceStartSocketName/Shape/ShapeExtent/TraceSampleCount` 只属于旧原型。2026-08-11 审计决定不转存两个旧攻击 GA；M2 删除兼容读取，E3 删除旧 GA，M4 移除序列化壳，E4 在全新 GA 的 `TraceRegions` 中按最终动作重新配置。运行时不保留“TraceRegions 为空就读旧字段”的兼容分支。
 
 #### FAttackDamageConfig — 单段伤害配置
 
@@ -1239,7 +1239,7 @@ UCLASS(BlueprintType)
 class UMHGZWeaponComboData : public UPrimaryDataAsset
 ```
 
-每武器种类一个，策划在编辑器中配置完整连招图（有向图，允许环）。目标结构正式使用“转移边”命名；当前源码的 `FComboNode/ComboTable/StateName/NextState` 在 M1 一次迁移为 `FComboTransition/Transitions/SourceState/TargetState`，不长期保留双字段。
+每武器种类一个，策划在编辑器中配置完整连招图（有向图，允许环）。目标结构正式使用“转移边”命名；源码已使用 `FComboTransition/Transitions/SourceState/TargetState`。旧 `DA_IG_Combo` 不转存，E3 从最终类型新建空壳，E4 一次填写完整图。
 
 | 成员 | 类型 | 说明 |
 |------|------|------|
@@ -1266,8 +1266,8 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 | RequiredTags | FGameplayTagContainer | 空 | 激活前提——ASC **必须持有全部**这些 Tag（AND）。含状态标签：`Grounded/Unsheathed`（地面招式）、`Aerial/Unsheathed`（空中招式）、`Sheathed`（拔刀攻击）。Buff/PowerUp 也在此列 |
 | BlockedTags | FGameplayTagContainer | 空 | 激活阻止——ASC **必须不持有任一**这些 Tag（NOR）。用于排除特定状态：登龙剑设 `BlockedTags={Combo.Branch.PostRoundslash}`，大回旋 `GrantedTags` 含此 Tag → 登龙无法从大回旋后派生 |
 | GrantedTags | FGameplayTagContainer | 空 | 由本次 Transition ActionToken 拥有，进入下一转移或 Reset 时精确释放 |
-| GrantTiming | ETransitionGrantTiming | OnActivation | OnActivation 或 OnFirstHit；旧布尔 `bRequiresHitToGrantTags` 迁移后删除 |
-| bRequiresComboWindow | bool | false | true 时要求 ComboWindowOpen；旧名 `bRequiresWindowOpen` 迁移后删除 |
+| GrantTiming | ETransitionGrantTiming | OnActivation | OnActivation 或 OnFirstHit；旧布尔 `bRequiresHitToGrantTags` 在旧包删除门槛满足后删除 |
+| bRequiresComboWindow | bool | false | true 时要求 ComboWindowOpen；旧名 `bRequiresWindowOpen` 只用于历史包加载审计 |
 | Priority | int32 | 0 | 显式匹配优先级。同层（精确招式/通用招式 + DirectionalInput）内有多个候选行满足 InputAction 条件时，Priority 高的优先匹配 |
 | bAutoTransition | bool | false | 自动 ε 转移由唯一 TransitionID + SourceActionToken 请求 |
 

@@ -10,7 +10,7 @@
 |------|----------|
 | C++ 类型 | `AKinsect`、`UKinsectCollisionComponent`、`UInsectGlaiveKinsectData`、`URes_InsectGlaive`、`UMHGZInsectGlaiveAbility` 已存在。 |
 | 装备接入 | `DT_WeaponResourceConfig` 资产及配置路径不存在；装备系统不会创建 `URes_InsectGlaive`。`OnWeaponEquipped` 没有调用者，所以猎虫不会自动 Spawn。 |
-| GA/连招资产 | 当前虫棍只有 `GA_IG_BaDao`、`GA_IG_R_TuCI`，`DA_IG_Combo` 只配置了 Y→`GA_IG_R_TuCI` 的最小节点；没有 Send/Recall/特殊技 GA。 |
+| GA/连招资产 | 当前磁盘只有旧原型 `GA_IG_BaDao`、`GA_IG_R_TuCI` 和一个 Y→`GA_IG_R_TuCI` 的不完整 Combo；UE 5.6 审计确认其内容过少，E3/E4 将删除重建，不作为最终实现输入。没有 Send/Recall/特殊技 GA。 |
 | 猎虫与萃取资产 | 猎虫 Mesh 已存在，但 Kinsect DataAsset、White/Orange/Red/TripleUp GE 均不存在；当前代码还硬编码加载不存在的 `GE_KinsectDamage`。目标删除该加载并复用原生通用 Damage GE，不创建同名资产。 |
 | UI/反馈 | AimComponent C++ 射线检测已实现；Crosshair/三灯/耐力 Widget 与 GameplayCue 资产不存在。当前把 Cue Tag 加入 DynamicAssetTags，不会形成已接通的 GC 自动路由。 |
 | 运行时接线缺口 | 当前 `URes_InsectGlaive` 目标宿主与 Pawn/猎虫需求冲突。目标设计由 Character 的 WeaponRuntimeHost 持有；召回、换装、死亡和 PIE End 均需统一清理。 |

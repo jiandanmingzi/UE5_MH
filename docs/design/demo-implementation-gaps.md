@@ -4,7 +4,7 @@
 
 > **范围：** 只列完成虫棍木桩 Demo 所必需的改动。装备成长、背包仓库、任务、存档、完整怪物和完整伤害模型即使仍有设计问题，也不在本轮实现范围内。
 
-> **实施方向：** 下表说明“为什么必须改”；保留/重写/删除边界见 [重构范围与资产迁移](demo-refactor-scope.md)，唯一公共接口、顺序与退出条件见 [Demo 冻结实施计划](demo-implementation-plan.md)。
+> **实施方向：** 下表说明“为什么必须改”；保留/重写/删除边界见 [重构范围与资产处置](demo-refactor-scope.md)，唯一公共接口、顺序与退出条件见 [Demo 冻结实施计划](demo-implementation-plan.md)。
 
 ## 1. 可以保留的基础
 
@@ -35,7 +35,7 @@
 | 装备差分重建 | [MHGZEquipmentComponent.cpp](../../Source/MHGZ/Equipment/MHGZEquipmentComponent.cpp) 77、85、92～115 | 饰品/护甲变化走同一 OnEquipmentChanged，可能销毁 Resource、移除能力并清战斗态 | StatsChanged 与 WeaponChanged Snapshot 分离；相同武器身份 no-op，M2 |
 | 猎虫碰撞 | [KinsectCollisionComponent.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/KinsectCollisionComponent.cpp)；[Kinsect.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/Kinsect.cpp) | 用 Weapon Trace Channel Overlap 充当身份；Root/UpdatedComponent 合同不完整 | Hitzone Object Channel + Collision Root + 前后帧 Capsule Sweep，M0/M3 |
 | 精华状态机 | [Res_InsectGlaive.cpp](../../Source/MHGZ/AttributeSystem/Res_InsectGlaive.cpp) 255～378 | 部位名/Yellow/硬编码路径；三灯先创建单灯；bool 与 GE Handle 可失步 | Hitzone 直接给颜色；唯一 CombatConfig；Active GE Handle 为真相源；原子三灯，M3 |
-| 资产双结构 | [MHGZAttackAbility.h](../../Source/MHGZ/ActionSystem/MHGZAttackAbility.h) 中旧 Socket/Collision/成本字段；旧 Combo/Resource DataTable | 旧、新字段和 DataTable 并存会让蓝图继续保存错误语义，重构后无法证明使用哪条路径 | M0 清点/Redirect，M2 重存并删除旧运行时读取；禁止永久兼容分支 |
+| 资产双结构 | [MHGZAttackAbility.h](../../Source/MHGZ/ActionSystem/MHGZAttackAbility.h) 中旧 Socket/Collision/成本字段；旧 Combo DataTable/最小 Combo/GA/Montage | 旧、新字段和 DataTable 并存会让蓝图继续保存错误语义，重构后无法证明使用哪条路径 | M0 已审计引用；M2 删除旧运行时读取，E3/E4 删除旧原型并从最终类型重建；禁止永久兼容分支 |
 
 ### P1：链路局部能跑，但 Demo 会出现错误或遗留状态
 
@@ -65,4 +65,4 @@
 
 ## 4. 覆盖结论
 
-上述每个 P0/P1 项都已映射到 [Demo 冻结实施计划](demo-implementation-plan.md) 的 M0～M7，并应在 [验证清单](../editor/verification.md) 中有可执行场景。开始改代码前还必须满足 [重构范围与资产迁移](demo-refactor-scope.md) 的清点和删除门槛；不能先创建全部 GA 蓝图，再回头修底层生命周期。
+上述每个 P0/P1 项都已映射到 [Demo 冻结实施计划](demo-implementation-plan.md) 的 M0～M7，并应在 [验证清单](../editor/verification.md) 中有可执行场景。开始改代码前还必须满足 [重构范围与资产处置](demo-refactor-scope.md) 的清点和删除门槛；不能先创建全部 GA 蓝图，再回头修底层生命周期。

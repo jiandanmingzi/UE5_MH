@@ -10,54 +10,56 @@
 
 | 阶段 | 编辑器工作 | 完成标志 |
 |---|---|---|
-| E0 | 首次启动、Redirect 迁移、旧资产重存 | 无 Missing Class/Property，目标蓝图可编译 |
+| E0 | 首次启动、保留资产体检、旧原型删除前审计 | 保留资产无 Missing Class/Property；删除清单与引用链已确认，尚不执行删除 |
 | E1 | Project Settings、碰撞、Tag、插件检查 | Hitzone Object Channel 和输入基础可用 |
 | E2 | 核心蓝图接线 | GameMode、Controller、PlayerState、Character、HUD 关系唯一 |
-| E3 | Runtime/Input/Combat/Combo DataAsset | 武器只从 RuntimeDefinition 完成接线 |
+| E3 | Runtime/Input/Combat/Combo DataAsset | 武器只从 RuntimeDefinition 接线；正式数据壳存在，Combat/Combo 的动作类引用待 E4 完成 |
 | E4 | GE、GA、Montage、Notify | 每个动作可独立激活并正确结束 |
 | E5 | 猎虫、木桩和测试攻击器 | 三色部位、普通放虫和反击输入可复现 |
 | E6 | HUD、资源面板、准心与反馈 | Viewport 只有一份主 HUD，资源面板只在插槽内 |
 | E7 | 全流程 PIE、生命周期压力、打包 | [验证清单](verification.md) 的当前 Demo 项全部通过 |
 
-## 2. E0——第一次打开编辑器与资产迁移
+## 2. E0——第一次打开编辑器与删除前审计
 
 ### 2.1 打开前
 
-1. 关闭 Unreal Editor，使用 Development Editor 配置完整编译项目；不要依靠 Live Coding/Hot Reload 完成反射类型重命名。
-2. 确认重构代码已经包含实际旧类型对应的 CoreRedirect/StructRedirect/PropertyRedirect。
-3. 记录当前 `Content` 工作树和已有用户资产改动；不要覆盖或重新创建同名 `.uasset`。
-4. 首轮迁移只处理下列目标资产及其直接引用者：
+1. 关闭 Unreal Editor，使用 Development Editor 配置完整编译项目；不要依靠 Live Coding/Hot Reload 验证反射类型。
+2. 记录当前 `Content` 工作树和已有用户资产改动；确认 Git 中存在可恢复的阶段提交。
+3. 本轮只体检必须保留的资产：`BP_PlayerState`、`BP_IG_Character`、`BP_MHGZ_PlayerController`、`BP_Demo_GameMode`、`BP_TrainingDummy`、`DA_TrainingDummy`、`ABP_MH_Character`、PSD/PSS、`L_DemoArena`、输入基础资产、虫棍美术与原始 `AS_Shth_*` 动画。
+4. 不再把旧虫棍动作原型当作迁移数据源。以下资产只做删除前引用确认，不在 E0 打开后补字段或重存：
 
-   - `BP_PlayerState`、`BP_IG_Character`、Demo PlayerController、Demo GameMode、HUD、`BP_TrainingDummy`。
-   - 当前虫棍 GA 蓝图，包括已有 `GA_IG_BaDao`、`GA_IG_R_TuCI`。
-   - `DA_IG_Combo`、`DA_IG_HuoLongGun`、旧 Combo/Resource DataTable 的引用者。
-   - 虫棍 Montage 及其中的 AttackCollision、ComboWindow、DodgeWindow、Counter、Movement/MotionWarping Notify。
+   - `/Game/Data/DT_WeaponComboConfig`。
+   - `/Game/Weapons/InsectGlaive/Data/DA_IG_Combo`、`DA_IG_HuoLongGun`。
+   - `/Game/Blueprints/Ability/InsectGlaive/GA_IG_BaDao`、`GA_IG_R_TuCI`。
+   - `/Game/Weapons/InsectGlaive/Anims/Montage/AM_Shth_BaDao`、`AM_Shth_R_TuCi`。
+   - `/Game/Input/Actions/MHGZ/IA_RTA`、`IA_RTB`、`IA_RTY`、`IA_YB`；M1 移除代码读取、E2 清 PlayerState、E3 清 IMC 后，才在 E3 删除。
+
+`BP_MHGZHUD`、WBP 与 `DT_WeaponResourceConfig` 当前不存在，不要把它们写进“待删除”清单。
 
 ### 2.2 首次启动
 
-1. 启动 UE5.6，等待 Asset Registry 扫描和所有 Shader/Blueprint skeleton 更新完成。
+1. 启动 UE5.6，等待 Asset Registry 的 `Discovering Assets` 完成；Shader 编译归零只用于减少干扰，不是 Redirect 或删除审计的前提。Blueprint skeleton 没有全项目完成按钮，目标蓝图在逐个打开时分别重建。
 2. 打开 `Window → Developer Tools → Output Log` 和 `Window → Developer Tools → Message Log`。
-3. 不要先点 `Save All`。依次打开上节清单中的资产，记录：
+3. 不要先点 `Save All`。依次打开上节“必须保留”的资产，记录：
 
    - Missing Class、Unknown Struct、失效 Pin、失效 Parent Class。
-   - 被重命名的 Combo 字段是否被 Redirect 到 `Transitions/SourceState/TargetState`。
-   - AttackAbility 旧 Socket/Collision/成本字段是否仍保存有效覆写值。
+   - 组件、父类、Anim Class、GameMode 默认类和地图内木桩引用是否仍有效。
 
-4. 若出现 Missing Property/Class，先退出编辑器修正 Redirect 或 C++ 类型；禁止在蓝图中删除未知数据后继续保存。
+4. 若保留资产出现 Missing Property/Class，先退出编辑器修正 C++ 类型或必要 Redirect；禁止删除未知数据后继续保存。
 
-### 2.3 迁移旧资产
+### 2.3 E0 的停止点
 
-1. 将旧 Combo 行逐项迁移到最终 `FComboTransition`，保存唯一 `TransitionID`，不要同时保留旧 DataTable 运行时入口。
-2. 将 AttackAbility 的旧单区域字段转存到最终 `AttackSegments[].Collision.TraceRegions[]`：
+E0 不执行旧动作资产迁移，也不执行删除。记录保留资产的错误后关闭编辑器；若无错误即可继续 M1/M2 代码阶段。
 
-   - 武器前段使用 `Root → IG_FrontTip`。
-   - 需要后棍判定的动作使用 `Root → IG_RearTip`。
-   - 整棍横扫在同一个 Segment 中放前、后两个 Region，不复制相同 ConfigIndex 的 Notify。
+旧原型必须等 M2 已删除 `DefaultGame.ini → DT_WeaponComboConfig → EquipmentComponent` 运行时读取链后，在 E3/E4 按以下事务处理：
 
-3. 把旧 `MotionValue`、硬直值、命中特效和命中继续条件迁入对应 AttackSegment；合法无伤判定段显式填 0，伤害段显式填正值。
-4. 逐个 Compile Blueprint。只有所有目标资产无错误后才保存。
-5. 使用 `Reference Viewer` 确认最终 RuntimeDefinition/DataAsset 引用闭合；旧 `DT_WeaponComboConfig`、`DT_WeaponResourceConfig` 和旧 Attack 字段不再有运行时引用。
-6. 在 Content Browser 对本轮迁移目录执行 `Fix Up Redirectors in Folder`，再重启编辑器复查一次。不要在 Windows 资源管理器中移动或覆盖 `.uasset`。
+1. 用 `Reference Viewer` 复核引用链仍为 `DT_WeaponComboConfig → DA_IG_Combo → GA_IG_R_TuCI → AM_Shth_R_TuCi`，以及旁支 `GA_IG_BaDao → AM_Shth_BaDao`；出现额外引用就停止，不使用 Force Delete。
+2. 在 Content Browser 中按引用者到依赖项的顺序删除：`DT_WeaponComboConfig` → 旧 `DA_IG_Combo` → 两个旧 GA → 两个旧 Montage；`DA_IG_HuoLongGun` 无引用，可在同批删除。
+3. 保留两个 Montage 所引用的 `AS_Shth_BaDao`、`AS_Shth_R_TuCi`、`SK_Demo_Body`，以及全部其他原始动画和美术资产。
+4. 关闭并重新打开编辑器，确认这些旧包均不存在且没有 Missing Class/Package，再创建最终资产；不要从旧包复制属性或节点。
+5. M1 只移除代码侧旧输入读取；E2 清空 `BP_PlayerState.ASC.InputBindings`；E3 §5.3 从 `IMC_MHGZ_Demo` 移除旧组合映射。两处资产引用都归零后，才在 E3 删除 `IA_RTA/IA_RTB/IA_RTY/IA_YB`。保留 `IA_A`，直到 E3 明确它是否复用为闪避输入。
+6. 删除与重建完成后对相关目录执行 `Fix Up Redirectors in Folder`，重启并复查引用闭合。
+7. 同一资产批次完成后更新 `Scripts/AssetOrganization/verify_project_assets.py` 的资产总数、Blueprint 数与关键资产清单；在实际创建最终 GA 之前，不以旧的 `EXPECTED_BLUEPRINT_COUNT=8` 作为验收依据。
 
 ## 3. E1——Project Settings
 
@@ -133,7 +135,7 @@
 1. 确认组件只有一份：WeaponRuntimeHost、AimComponent、MotionWarping、CharacterMovement，以及角色 Mesh/武器 Mesh。
 2. 武器 SkeletalMeshComponent 的 Component Tag 设置为代码约定的 `WeaponTrace`。
 3. 武器附着到角色 `Weapon_R` Socket；武器自身用于判定的 `Root`、`IG_FrontTip`、`IG_RearTip` Socket 必须可在 Skeleton Tree 中预览。
-4. 默认武器只引用 `DA_IG_HuoLongGun`；Character 不直接引用 ComboData、Resource Class 或 Resource Widget。
+4. E2 不给默认武器字段接入仍待删除的旧 `DA_IG_HuoLongGun`；保持空值。E3 §5.1 重建同名正式资产后再指向它。Character 不直接引用 ComboData、Resource Class 或 Resource Widget。
 5. Anim Class 指向最终 `ABP_MH_Character`。
 6. 检查 Character 蓝图没有每帧 SetActorRotation、LaunchCharacter 或 Timeline 位移与新的 MovementTask 并行写入。
 
@@ -157,9 +159,15 @@
 
 所有虫棍运行时资产放在 `/Game/Weapons/InsectGlaive/Data`。同一用途只保留一个正式资产。
 
+先完成一次建壳事务，再按 §5.1～§5.6 填字段：
+
+1. 按 §2.3 删除并确认旧 DT/Combo/GA/Montage/武器定义包已不存在。
+2. 新建空壳 `DA_IG_InputProfile`（`UWeaponInputProfile`）、`DA_IG_Combo`（`UMHGZWeaponComboData`）、`DA_IG_Combat`（`UInsectGlaiveCombatConfig`）、`DA_WeaponRuntime_IG`（`UWeaponRuntimeDefinition`）、`DA_IG_HuoLongGun`（`UMHGZWeaponDefinition`）。
+3. 五个壳都存在后再互相赋引用，避免因章节顺序引用尚不存在的资产。E3 中 Combat/Combo 对 E4 资产的空引用按下文明确延期。
+
 ### 5.1 DA_IG_HuoLongGun
 
-打开虫棍物品定义并配置：
+打开建壳事务中新建的 `DA_IG_HuoLongGun`；它必须是 `UMHGZWeaponDefinition` 类型且不是 Duplicate 旧资产。配置：
 
 | 字段 | Demo 值 |
 |---|---|
@@ -170,11 +178,11 @@
 | AttachSocket | `Weapon_R` |
 | AttackPower | Demo 初值，例如 100；后续可调 |
 
-不得在该资产中再填写旧 Combo/Resource DataTable 行。
+不得在该资产中再填写旧 Combo/Resource DataTable 行。保存并验证后回到 `BP_IG_Character`，将默认武器设为这个新建的正式 `DA_IG_HuoLongGun`；此后 Character 只通过它的 RuntimeDefinition 间接取得 Input/Combat/Resource/UI。
 
 ### 5.2 DA_WeaponRuntime_IG
 
-创建或打开 `UWeaponRuntimeDefinition`：
+打开建壳事务中新建的 `DA_WeaponRuntime_IG`：
 
 | 字段 | 值 |
 |---|---|
@@ -191,6 +199,8 @@
 在 `/Game/Input/Actions/MHGZ` 复用或创建：`IA_Y`、`IA_B`、`IA_LT`、`IA_RT`、`IA_Dodge` 和移动输入。全部加入唯一 `IMC_MHGZ_Demo`。
 
 不要在 Enhanced Input 资产中配置 Y+B 等 Chord Trigger；组合由 Router 的 InputProfile 解析。
+
+先从 `IMC_MHGZ_Demo` 删除 `IA_RTA/IA_RTB/IA_RTY/IA_YB` 的所有 Mapping。用 Reference Viewer 同时确认 `BP_PlayerState` 与 IMC 都不再引用它们，再通过 Content Browser 删除这四个旧 InputAction；不要删除 `IA_Y/IA_B/IA_LT/IA_RT`。
 
 ### 5.4 DA_IG_InputProfile
 
@@ -219,7 +229,7 @@
 
 ### 5.5 DA_IG_Combat
 
-创建或打开 `UInsectGlaiveCombatConfig`：
+打开建壳事务中新建的 `DA_IG_Combat`。E3 先填写不依赖 E4 资产的模式、数值、猎虫、位移和范围参数，并把新建的空壳 `DA_IG_Combo` 接入 ComboData；四个精华 GE、动作类、Montage 和完整 Transitions 等待 E4 创建后回填。E3 允许这些明确列出的引用暂时为空，但不得运行 PIE 或把 Data Validation 失败当作正式完成；全量验证在 E4 回填后执行：
 
 1. `RedExtractMode` 默认 `ClassicMovesetGate`。
 2. ComboData 指向唯一 `DA_IG_Combo`。
@@ -235,7 +245,9 @@
 
 ### 5.6 DA_IG_Combo
 
-按照 [虫棍动作与连招](../design/insect-glaive-actions.md) 配置最终 `Transitions`：
+打开建壳事务中新建的 `DA_IG_Combo`。它必须是 `UMHGZWeaponComboData` 类型；不要 Duplicate、导出或抄录旧资产的唯一 Y→突刺节点。
+
+E3 只建立空壳并把它接到 `DA_IG_Combat`；E4 创建最终 GA/Montage 后，再按照 [虫棍动作与连招](../design/insect-glaive-actions.md) 一次配置完整 `Transitions`：
 
 1. 所有输入边有唯一 TransitionID、SourceState、InputTag、Direction、TargetState 和 AbilityClass。
 2. Classic 与 Numeric 使用同一张表，以互斥 RedMode Tag 和红灯 Branch Tag 分流。
@@ -247,7 +259,7 @@
 8. 自动边 InputTag 为空并按确定 TransitionID 触发；StateOnly 不填写 AbilityClass。
 9. 不建立跳跃突进斩（电风扇）转移。
 
-每次修改后运行 Data Validation，消除重复 TransitionID、并列 Priority、非法 StateOnly 和缺失 AbilityClass。
+E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Priority、非法 StateOnly 和缺失 AbilityClass。E3 的临时空壳不是阶段最终验收数据，不得拿它运行 PIE 或宣称 Combo 已完成。
 
 ## 6. E4——GameplayEffect、Ability 与 Montage
 
@@ -266,7 +278,7 @@
 
 ### 6.2 Ability 蓝图
 
-在 `/Game/Blueprints/Ability/InsectGlaive` 创建或迁移以下 Demo 必需 Ability：
+旧 `GA_IG_BaDao`、`GA_IG_R_TuCI` 只属于已删除原型，不 re-parent、不 Duplicate、不复制 Event Graph。基于最终原生父类，在 `/Game/Blueprints/Ability/InsectGlaive` 全新创建以下 Demo 必需 Ability：
 
 - 现有《世界》地面基底和四个 Starter 动作。
 - `GA_IG_SendKinsect`、`GA_IG_DrawAndSendKinsect`、`GA_IG_RecallKinsect`。
@@ -276,7 +288,7 @@
 - `GA_IG_KinsectSlash`、`GA_IG_EnhancedKinsectSpiker`。
 - `GA_IG_StrongJumpingSlash`、`GA_IG_DescendingThrust`、`GA_IG_DivingWyvern`。
 
-每个蓝图只配置数据：Montage、AttackSegments、成本、位移请求和动作特有参数；不要在 Event Graph 复制 Coordinator、资源状态机或直接操作 UI。武器动作必须继承重构后的虫棍动作基类，并保持 native `InstancedPerExecution`。
+每个蓝图只配置数据：Montage、AttackSegments、成本、位移请求和动作特有参数；不要在 Event Graph 复制 Coordinator、资源状态机或直接操作 UI。武器动作必须继承重构后的虫棍动作基类，并保持 native `InstancedPerExecution`。旧拼音 GA 名称不作为最终资产名占位；最终名称按本节动作清单建立。
 
 《世界》地面基底若需要 Classic 无红灯弱动作与红灯正常动作，分别配置明确 GA/Montage 或同 Montage 的明确 Section，并由 ComboData Tag 条件选择；Numeric 模式只走正常动作。不要在 AnimBP 根据红灯临时替换动作。
 
@@ -286,7 +298,7 @@
 
 ### 6.3 Montage 通用检查
 
-每个动作 Montage 按以下顺序检查：
+旧 `AM_Shth_BaDao`、`AM_Shth_R_TuCi` 没有可迁移的自定义 Notify，已随旧 GA 删除。以保留的 `AS_Shth_*` AnimSequence 为源全新创建每个最终动作 Montage，并按以下顺序检查：
 
 1. Skeleton 与 `BP_IG_Character` Mesh 一致，Retarget 后骨骼无报错。
 2. Slot 与 `ABP_MH_Character` 中实际 Slot 节点一致。

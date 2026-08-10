@@ -63,7 +63,7 @@
 43. 猎虫第一次回手交付 Red 后 Pending 为空，第二次命中 White 可正常交付；迟到 Return 回调不能重复交付 Red。
 44. 猎虫耐力从正值降到 0 时警告音效和 ForceRecall 各一次；保持 0 或已 Returning/Attached 的后续 Tick 不重复触发。
 45. Runtime Ready 同 Token 重复广播为 UI no-op；Viewport 只有一份 WBP_HUD，资源面板只作为 WeaponResourceSlot 的一个子控件。旧 Pawn Invalidated 不能删除新面板。
-46. 目标蓝图/DataAsset 经精确 Redirect 重存后不再引用旧 Combo/Resource DataTable 或 Attack 旧字段；冷启动、资产扫描和打包无 Missing Property/Class。
+46. 旧 `DT_WeaponComboConfig`、旧最小 Combo、两个旧拼音 GA/Montage 和旧组合 InputAction 已按清单删除；最终 DataAsset/GA/Montage 均从最终类型新建，不引用 Attack 旧字段；冷启动、资产扫描和打包无 Missing Property/Class。
 47. 觉虫击已有三灯但强制让 GAS Commit 因耐力/冷却失败：reservation 被释放，Triple Handle 与剩余时间不变，无 Montage/位移/状态提交；正常成功时 GAS 成本与三灯各消费一次，不存在部分提交。
 
 ## 后续全项目历史清单（不阻塞当前 Demo）

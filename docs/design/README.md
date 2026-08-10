@@ -6,7 +6,7 @@
 
 为虫棍木桩 Demo 修改代码时，按以下顺序读取：
 
-1. [重构范围与资产迁移](demo-refactor-scope.md)：决定保留、重写、删除和延期边界。
+1. [重构范围与资产处置](demo-refactor-scope.md)：决定保留、重写、删除重建和延期边界。
 2. [冻结实施计划](demo-implementation-plan.md)：决定公共结构、所有权、M0～M7 顺序和退出条件。
 3. [虫棍动作与连招](insect-glaive-actions.md)：决定输入、派生、舞踏、位移和特殊动作玩法。
 4. [动作系统](actions.md)、[GAS 基础设施](gas-infrastructure.md)、[属性与装备](attributes.md)、[虫棍资源](insect-glaive.md)：决定模块接口和运行时状态。

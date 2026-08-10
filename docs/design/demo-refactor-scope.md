@@ -1,6 +1,6 @@
-# 木桩 Demo 重构范围与资产迁移
+# 木桩 Demo 重构范围与资产处置
 
-> **状态：冻结设计，尚未实施。** 本文规定为完成虫棍木桩 Demo，现有系统哪些保留、哪些重写、哪些删除，以及如何一次性迁移已有蓝图/数据资产。只有本文第七节的文档门槛通过后才能开始 [Demo 冻结实施计划](demo-implementation-plan.md) 的 M0；进入 M0 后再按里程碑修改代码、蓝图、资产和配置。
+> **状态：冻结设计，M0 已完成代码部分。** 本文规定为完成虫棍木桩 Demo，现有系统哪些保留、哪些重写、哪些删除重建。2026-08-11 的 UE 5.6 Asset Registry 审计确认旧虫棍动作链只有一个最小 Combo 节点、两个无自定义 Notify 的 Montage 和两个试验 GA，因此不再迁移这批资产的数据。
 
 ## 一、范围与真相源
 
@@ -9,7 +9,7 @@
 - 玩法真相源：[虫棍动作规格](insect-glaive-actions.md) 与 [虫棍系统](insect-glaive.md)。
 - 架构与实施真相源：[Demo 冻结实施计划](demo-implementation-plan.md)。
 - 当前实现问题与证据：[Demo 实现差距](demo-implementation-gaps.md)。
-- 本文只决定迁移边界，不为旧接口保留并行兼容路径。
+- 本文只决定资产处置边界，不为旧接口保留并行兼容路径。
 - 完整伤害、网络、装备成长、背包仓库和完整怪物不属于本轮 Demo。
 
 ## 二、保留
@@ -43,7 +43,7 @@
 
 ## 四、删除或替换
 
-以下内容在对应资产迁移完成后删除，不保留旧、新两条运行时路径。
+以下内容在对应代码替代完成后删除，不保留旧、新两条运行时路径。
 
 | 旧内容 | 替代物 |
 |---|---|
@@ -55,6 +55,9 @@
 | Resource 中静态 Yellow 映射、`bTriple`、`bDeployed`、Overlap 式猎虫命中 | Hitzone 颜色配置、显式状态与 Sweep 查询 |
 | 当前空壳 `UMHGZUISubsystem` | `AMHGZHUD` 的资源面板工厂与插槽所有权 |
 | Character Tick 无条件 `SetActorRotation` | Movement/Action Token 仲裁后的 locomotion steering |
+| 旧原型 `DT_WeaponComboConfig`、`DA_IG_Combo`、`GA_IG_BaDao`、`GA_IG_R_TuCI`、`AM_Shth_BaDao`、`AM_Shth_R_TuCi` | M2 退役旧读取链；E3/E4 全新创建最终 Combo、GA 与 Montage |
+| 零引用旧 `DA_IG_HuoLongGun` | E3 使用最终 `UMHGZWeaponDefinition` 全新创建同名正式资产 |
+| 旧组合 InputAction `IA_RTA/IA_RTB/IA_RTY/IA_YB` | M1 删除代码读取，E2 清 PlayerState 引用，E3 清 IMC 映射后删除；InputRouter 直接组合 Y/B/LT/RT |
 
 ## 五、明确延期且 Demo 不得依赖
 
@@ -68,44 +71,46 @@
 | 网络同步 | Demo 按单机设计；接口不故意阻断未来网络化，但不宣称已支持预测/复制 |
 | 全武器内容 | 只验证通用基底可挂载不同 RuntimeDefinition，不制作其他武器完整动作 |
 
-## 六、一次性资产迁移合同
+## 六、一次性资产删除重建合同
 
-迁移目标是让旧资产被最终类型正确加载并保存一次，然后删除旧运行时字段；不是永久维护兼容分支。
+目标是保留真正有价值的地图、核心蓝图、AnimBP、输入基础、美术与原始动画；旧虫棍动作原型不做字段迁移，等最终代码入口就绪后整链删除并从最终类型重建。不是永久维护兼容分支，也不是全量删除 Content。
 
-本节规定迁移约束；代码编译完成后的具体 Content Browser、蓝图重编译、Reference Viewer 和重存顺序见 [UE5.6 编辑器接线指南 E0](../editor/demo-setup.md#2-e0第一次打开编辑器与资产迁移)。
+具体 Content Browser、Reference Viewer、删除顺序和重建接线见 [UE5.6 编辑器接线指南 E0](../editor/demo-setup.md#2-e0第一次打开编辑器与删除前审计)。
 
 ### 6.1 修改前清点
 
 M0 必须先记录工作树基线并只读清点下列引用：
 
-- 当前虫棍 GA 蓝图、角色/Controller/PlayerState/HUD/木桩蓝图。
-- `DA_IG_Combo`、旧 `DT_WeaponComboConfig`、旧资源配置及其所有引用者。
-- 虫棍动作 Montage 中 AttackCollision、ComboWindow、DodgeWindow、位移与 MotionWarping Notify。
-- AttackAbility 蓝图中旧 Socket、Collision、MotionValue、资源成本字段的实际覆写值。
+- 旧链 `DefaultGame.ini → DT_WeaponComboConfig → DA_IG_Combo → GA_IG_R_TuCI → AM_Shth_R_TuCi`。
+- 零引用旁支 `GA_IG_BaDao → AM_Shth_BaDao` 与零引用 `DA_IG_HuoLongGun`。
+- 角色/Controller/PlayerState/木桩/GameMode/地图等保留资产的直接引用者。
+- `BP_PlayerState`、`IMC_MHGZ_Demo` 对旧组合 InputAction 的引用。
 
-用户已有的源码和资产改动属于基线，迁移不得覆盖或回滚。
+用户已有的源码和资产改动属于基线。实际删除前必须有 Git 阶段提交；只允许通过 Content Browser 删除精确清单，不得在资源管理器中删包。
 
 ### 6.2 最终类型一次到位
 
 1. 在同一个可编译阶段建立最终 RuntimeDefinition、InputSnapshot、Transition、ActionToken、AttackSegment、CostSpec 和 MovementRequest 类型。
-2. 若序列化名称发生变化，只为资产加载添加精确的 `CoreRedirects/StructRedirects/PropertyRedirects`，例如 `FComboNode → FComboTransition`、`ComboTable → Transitions`；最终名称以 M0 资产清点为准，禁止猜测重定向。
-3. 旧字段在资产尚未成功迁移前可临时标记 Deprecated，但不得继续被运行时读取。
+2. M0 已加入的精确 `CoreRedirects/StructRedirects/PropertyRedirects` 只用于证明旧包可安全加载和审计；新建最终资产不得依赖 Redirect 生成数据。
+3. 旧字段在原型删除前可临时标记 Deprecated，但不得继续被最终运行时读取；M2 先删除运行时读取，E3 删除旧包，M4 再移除序列化壳与临时兼容代码。
 
-### 6.3 迁移与重存
+### 6.3 删除与重建
 
-1. 编译最终类型后，只打开或命令行重存本轮清单中的目标资产。
-2. 将旧 DataTable/字段的有效值映射到最终 DataAsset；没有等价语义的值必须人工登记，不静默使用默认值。
-3. 逐项验证资产加载无 Missing Class/Property、Montage Notify 指向最终类、RuntimeDefinition 引用闭合。
-4. 只有目标资产全部可加载并通过内容审计后，才删除旧 DataManager Getter、DataTable 读取、旧字段和临时迁移代码。
-5. 序列化 Redirect 可以保留用于历史资产兼容，但运行时只允许最终 DataAsset/接口这一条路径。
+1. E0 只检查保留资产，不补录、不重存、不删除旧动作原型。
+2. M1 清除 ASC 的旧输入读取；E2 清空 `BP_PlayerState.ASC.InputBindings`；E3 清除 IMC 旧组合映射并删除四个旧组合 InputAction。M2 删除 `DefaultGame.ini` 的旧表配置、DataManager Getter、Equipment 旧读取和 Attack 旧字段的运行时读取，但保留旧包加载所需的序列化壳。
+3. E3 用 Reference Viewer 复核无额外引用后，按引用者到依赖项删除旧 DT、旧 Combo、两个旧 GA、两个旧 Montage及零引用旧武器定义；不使用 Force Delete。
+4. E3 全新创建 `DA_IG_HuoLongGun`、`DA_WeaponRuntime_IG`、`DA_IG_InputProfile`、`DA_IG_Combat` 和空壳 `DA_IG_Combo`，然后才把 Character 默认武器指向新定义；M4 确认旧包已不存在后删除序列化壳；E4 全新创建最终 GA/Montage 后一次回填完整 Transitions。
+5. E3 删除旧组合 InputAction 前，必须先让 E2 的 `BP_PlayerState` 和 E3 的 `IMC_MHGZ_Demo` 对 `IA_RTA/IA_RTB/IA_RTY/IA_YB` 的引用归零。
+6. `AS_Shth_BaDao`、`AS_Shth_R_TuCi`、`SK_Demo_Body`、全部其他原始动画和美术资产不是删除对象。
 
-### 6.4 迁移验收
+### 6.4 删除重建验收
 
 - 项目冷启动和编辑器资产扫描无缺失引用或重定向循环。
 - 旧 Combo/Resource DataTable 不再被运行时代码或目标资产引用。
 - 最终虫棍 RuntimeDefinition 能独立解析输入、连招、资源、UI 与动作配置。
 - AttackAbility 蓝图不再显示或保存旧 Collision/成本字段。
-- 删除旧类/字段后再次编译、重开编辑器和重存目标资产仍通过。
+- 旧拼音 GA/Montage、旧组合 InputAction 与旧 Combo 包均不存在；最终资产不是 Duplicate 旧包所得。
+- 删除旧类/字段后再次编译、重开编辑器并保存最终资产仍通过。
 
 ## 七、开始改代码的门槛
 
@@ -113,6 +118,6 @@ M0 必须先记录工作树基线并只读清点下列引用：
 
 - [ ] 本文、实施计划、问题清单和验证清单对同一架构无冲突。
 - [ ] 所有 Demo 必需动作都有输入、派生、消耗、位移、命中和结束规则。
-- [ ] 资产清点范围与迁移顺序明确，旧资产不会被盲目覆盖。
+- [ ] 保留、删除、重建清单与引用解除顺序明确，旧资产不会被盲目覆盖或 Force Delete。
 - [ ] 每个运行时对象、Tag、输入绑定、Notify、Timer、Movement/WarpTarget 都有唯一所有者和幂等清理路径。
 - [ ] 所有 P0/P1 问题均映射到具体里程碑和可执行验收项。
