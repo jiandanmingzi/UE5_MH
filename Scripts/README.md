@@ -1,6 +1,6 @@
 # 项目维护脚本
 
-`Scripts` 只保存仍可重复使用的维护工具，不参与游戏运行时、打包或启动流程。阶段迁移清单和一次性修复脚本在验证完成后删除；历史操作仍可通过 Git 记录和 `docs/asset-organization.md` 追溯。
+`Scripts` 只保存仍可重复使用的维护工具，不参与游戏运行时、打包或启动流程。阶段迁移清单和一次性修复脚本在验证完成后删除；历史操作仍可通过 Git 记录和 `docs/editor/asset-organization.md` 追溯。
 
 ## AssetOrganization
 

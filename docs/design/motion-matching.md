@@ -16,7 +16,7 @@
 
 ## 1. 概述
 
-当前系统已使用 **UE5 Pose Search（Motion Matching）** 替代旧 BlendSpace + 状态机方案，适用于从怪猎崛起解包获得的**仅向前移动**动画资产。
+当前系统已使用 **UE5 Pose Search（Motion Matching）** 替代旧 BlendSpace + 状态机方案，服务于从《世界》《崛起》《荒野》选取并重定向的移动动画。来源游戏只说明资产出处，不决定项目动作规则。
 
 **核心特性：**
 
@@ -63,7 +63,7 @@
 
 ### 3.2 帧率修正
 
-怪猎崛起原始帧率 30fps，导入 UE5 时为 60fps 采样。当前通过 `Rate Scale` 修正资产播放速度。构建 Pose Search Database 前应将动画统一到正确帧率，避免数据库内的姿态时序与实际播放不一致。
+不同来源和导出工具可能产生不同帧率、Root 结构与播放倍率。每个导入动画必须记录 SourceGame、SourceClip、SourceFPS、ImportedFPS、RateScale 和实测根位移速度；不能把《崛起》30fps 假设套用到全部三部曲资产。构建 Pose Search Database 前先统一实际播放时序。
 
 ### 3.3 巡航速度基准值
 
@@ -247,7 +247,7 @@ void AMHGZCharacter::Tick(float DeltaTime)
     TargetCruiseSpeed = 0.f;  // 没输入 → 速度为 0
     DesiredSpeed = FMath::FInterpTo(DesiredSpeed, 0.f, DeltaTime, DesiredSpeedInterpSpeed);
 
-    if (bHasInput)
+    if (bHasInput && !WeaponRuntimeHost->IsRotationOwnedByAction())
     {
         const float CurrentYaw = GetActorRotation().Yaw;
         const float TargetYaw = LastMovementInputDir.Rotation().Yaw;
@@ -350,14 +350,15 @@ void AMHGZCharacter::Tick(float DeltaTime)
 
 ### 7.1 核心逻辑
 
-角色 Yaw 由 C++ `Tick` 每帧计算，不经过 AnimBP，不依赖动画根骨骼旋转。实现按最短角差转向，并限制每帧最大转角，避免 180° 瞬转。
+普通 locomotion 的角色 Yaw 由 C++ `Tick` 计算，不经过 AnimBP。执行前必须查询 RuntimeHost：若当前 Action/Movement Token 已拥有旋转，普通 Tick 不调用 `SetActorRotation`，只把输入交给动作的 SteeringPolicy；没有动作旋转所有者时才按最短角差转向。
 
 ```
 TargetYaw = LastMovementInputDir.Rotation().Yaw
 DeltaYaw = FMath::FindDeltaAngleDegrees(CurrentYaw, TargetYaw)
 MaxYawStep = TurnRate * DeltaTime
 NewYaw = CurrentYaw + Clamp(DeltaYaw, -MaxYawStep, MaxYawStep)
-SetActorRotation(FRotator(0, UnwindDegrees(NewYaw), 0))
+if (!ActionOwnsRotation)
+    SetActorRotation(FRotator(0, UnwindDegrees(NewYaw), 0))
 ```
 
 ### 7.2 角速度记录

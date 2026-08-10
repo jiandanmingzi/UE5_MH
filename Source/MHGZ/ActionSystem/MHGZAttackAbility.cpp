@@ -15,6 +15,50 @@
 #include "Camera/CameraShakeBase.h"
 #include "Components/SkeletalMeshComponent.h"
 
+namespace
+{
+	FName ResolveLegacyTraceEndSocket(const FAttackCollisionConfig& Collision)
+	{
+		return !Collision.TraceEndSocketName.IsNone()
+			? Collision.TraceEndSocketName
+			: Collision.AttachSocketName;
+	}
+
+	FVector EvaluateRotatingRegionPoint(
+		const FVector& PreviousStart,
+		const FVector& PreviousEnd,
+		const FVector& CurrentStart,
+		const FVector& CurrentEnd,
+		float SpatialAlpha,
+		float TimeAlpha)
+	{
+		const FVector PreviousSpan = PreviousEnd - PreviousStart;
+		const FVector CurrentSpan = CurrentEnd - CurrentStart;
+		const float PreviousLength = PreviousSpan.Size();
+		const float CurrentLength = CurrentSpan.Size();
+
+		if (PreviousLength <= KINDA_SMALL_NUMBER || CurrentLength <= KINDA_SMALL_NUMBER)
+		{
+			const FVector PreviousPoint = FMath::Lerp(PreviousStart, PreviousEnd, SpatialAlpha);
+			const FVector CurrentPoint = FMath::Lerp(CurrentStart, CurrentEnd, SpatialAlpha);
+			return FMath::Lerp(PreviousPoint, CurrentPoint, TimeAlpha);
+		}
+
+		const FVector PreviousDirection = PreviousSpan / PreviousLength;
+		const FVector CurrentDirection = CurrentSpan / CurrentLength;
+		const FQuat FrameRotation = FQuat::FindBetweenNormals(PreviousDirection, CurrentDirection);
+		const FVector InterpolatedDirection = FQuat::Slerp(
+			FQuat::Identity, FrameRotation, TimeAlpha).RotateVector(PreviousDirection).GetSafeNormal();
+		const FVector InterpolatedCenter = FMath::Lerp(
+			(PreviousStart + PreviousEnd) * 0.5f,
+			(CurrentStart + CurrentEnd) * 0.5f,
+			TimeAlpha);
+		const float InterpolatedLength = FMath::Lerp(PreviousLength, CurrentLength, TimeAlpha);
+		return InterpolatedCenter +
+			InterpolatedDirection * ((SpatialAlpha - 0.5f) * InterpolatedLength);
+	}
+}
+
 UMHGZAttackAbility::UMHGZAttackAbility()
 {
 	MaxCorrectionAngle = 30.0f;
@@ -37,11 +81,10 @@ void UMHGZAttackAbility::ActivateAbility(
 	ASC->AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
 
 	// 重置状态
-	HitTargets.Empty();
+	ActiveCollisionWindows.Empty();
 	CurrentSegmentIndex = 0;
 	bHasHitThisActivation = false;
 	bHasActiveRootMotionTask = false;
-	bCollisionActive = false;
 	bIsEndingAbility = false;
 
 	// 方向修正
@@ -168,138 +211,330 @@ void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)
 	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
 
 	CurrentSegmentIndex = SegmentIndex;
-	HitTargets.Empty();
 	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
 
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (!Character) return;
 	USkeletalMeshComponent* Mesh = FindTraceMeshComponent(Seg.Collision);
-	if (!Mesh || Seg.Collision.AttachSocketName.IsNone() ||
-		!Mesh->DoesSocketExist(Seg.Collision.AttachSocketName))
+	if (!Mesh)
 	{
 		UE_LOG(LogTemp, Warning,
-			TEXT("[Attack] Missing trace mesh/socket. ComponentTag='%s' Socket='%s' Mesh='%s'"),
-			*Seg.Collision.TraceMeshComponentTag.ToString(),
-			*Seg.Collision.AttachSocketName.ToString(), *GetNameSafe(Mesh));
+			TEXT("[Attack] Missing trace mesh/socket set. Segment=%d ComponentTag='%s'"),
+			SegmentIndex, *Seg.Collision.TraceMeshComponentTag.ToString());
 		return;
 	}
 
-	PreviousTraceEnd = Mesh->GetSocketLocation(Seg.Collision.AttachSocketName);
-	PreviousTraceStart = (!Seg.Collision.TraceStartSocketName.IsNone() &&
-		Mesh->DoesSocketExist(Seg.Collision.TraceStartSocketName))
-		? Mesh->GetSocketLocation(Seg.Collision.TraceStartSocketName)
-		: PreviousTraceEnd;
-
-	MultiHitCurrentCount = 0;
-	bCollisionActive = true;
-	PerformSweepCheck(); // 首帧零距离 Sweep，防止窗口开启时已经与部位相交。
-}
-
-void UMHGZAttackAbility::DisableCollision()
-{
-	bCollisionActive = false;
-
-	// 清除多跳 Timer
-	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-	if (Character)
+	if (FCollisionWindowRuntimeState* ExistingState = ActiveCollisionWindows.Find(SegmentIndex))
 	{
-		Character->GetWorldTimerManager().ClearTimer(MultiHitTimer);
+		Character->GetWorldTimerManager().ClearTimer(ExistingState->MultiHitTimer);
+		ActiveCollisionWindows.Remove(SegmentIndex);
 	}
 
-	// 空挥截断
-	if (!bIsEndingAbility && AttackSegments.IsValidIndex(CurrentSegmentIndex))
+	FCollisionWindowRuntimeState WindowState;
+	auto AddRuntimeRegion = [&](const FWeaponTraceRegion& Region)
 	{
-		const FAttackSegmentConfig& Seg = AttackSegments[CurrentSegmentIndex];
-		if (Seg.Damage.bRequiresHitToContinue && HitTargets.IsEmpty())
+		if (Region.EndSocketName.IsNone() || !Mesh->DoesSocketExist(Region.EndSocketName))
 		{
-			if (!ShouldContinueAfterHit())
-			{
-				EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, false, true);
-				return;
-			}
+			UE_LOG(LogTemp, Warning,
+				TEXT("[Attack] Invalid trace region end socket. Segment=%d Socket='%s' Mesh='%s'"),
+				SegmentIndex, *Region.EndSocketName.ToString(), *GetNameSafe(Mesh));
+			return;
+		}
+		if (!Region.StartSocketName.IsNone() && !Mesh->DoesSocketExist(Region.StartSocketName))
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[Attack] Invalid trace region start socket. Segment=%d Socket='%s' Mesh='%s'"),
+				SegmentIndex, *Region.StartSocketName.ToString(), *GetNameSafe(Mesh));
+			return;
+		}
+
+		FTraceRegionRuntimeState RuntimeRegion;
+		RuntimeRegion.StartSocketName = Region.StartSocketName;
+		RuntimeRegion.EndSocketName = Region.EndSocketName;
+		RuntimeRegion.Radius = FMath::Max(1.0f, Region.Radius);
+		RuntimeRegion.MaxSampleSpacing = FMath::Max(1.0f, Region.MaxSampleSpacing);
+		RuntimeRegion.MaxSampleCount = FMath::Clamp(Region.MaxSampleCount, 1, 32);
+		RuntimeRegion.MaxAngularStepDegrees = FMath::Clamp(
+			Region.MaxAngularStepDegrees, 1.0f, 90.0f);
+		RuntimeRegion.PreviousEnd = Mesh->GetSocketLocation(RuntimeRegion.EndSocketName);
+		RuntimeRegion.PreviousStart = RuntimeRegion.StartSocketName.IsNone()
+			? RuntimeRegion.PreviousEnd
+			: Mesh->GetSocketLocation(RuntimeRegion.StartSocketName);
+
+		const float RegionLength = FVector::Distance(
+			RuntimeRegion.PreviousStart, RuntimeRegion.PreviousEnd);
+		const float SafeSpacing = FMath::Min(
+			RuntimeRegion.MaxSampleSpacing, RuntimeRegion.Radius * 2.0f);
+		const int32 DesiredSamples = RegionLength <= KINDA_SMALL_NUMBER
+			? 1
+			: FMath::CeilToInt(RegionLength / SafeSpacing) + 1;
+		if (DesiredSamples > RuntimeRegion.MaxSampleCount)
+		{
+			UE_LOG(LogTemp, Warning,
+				TEXT("[Attack] Trace region sample cap may leave gaps. Segment=%d Start='%s' End='%s' Desired=%d Cap=%d"),
+				SegmentIndex, *RuntimeRegion.StartSocketName.ToString(),
+				*RuntimeRegion.EndSocketName.ToString(), DesiredSamples,
+				RuntimeRegion.MaxSampleCount);
+		}
+		WindowState.Regions.Add(MoveTemp(RuntimeRegion));
+	};
+
+	if (!Seg.Collision.TraceRegions.IsEmpty())
+	{
+		for (const FWeaponTraceRegion& Region : Seg.Collision.TraceRegions)
+		{
+			AddRuntimeRegion(Region);
 		}
 	}
+	else
+	{
+		FWeaponTraceRegion LegacyRegion;
+		LegacyRegion.StartSocketName = Seg.Collision.TraceStartSocketName;
+		LegacyRegion.EndSocketName = ResolveLegacyTraceEndSocket(Seg.Collision);
+		LegacyRegion.Radius = FMath::Max(1.0f, Seg.Collision.ShapeExtent.X);
+		LegacyRegion.MaxSampleSpacing = LegacyRegion.Radius * 2.0f;
+		LegacyRegion.MaxSampleCount = FMath::Clamp(Seg.Collision.TraceSampleCount, 1, 8);
+		AddRuntimeRegion(LegacyRegion);
+		if (!WindowState.Regions.IsEmpty())
+		{
+			FTraceRegionRuntimeState& RuntimeRegion = WindowState.Regions.Last();
+			RuntimeRegion.FixedSampleCount = FMath::Clamp(Seg.Collision.TraceSampleCount, 1, 8);
+			RuntimeRegion.LegacyShape = Seg.Collision.Shape;
+			RuntimeRegion.LegacyShapeExtent = Seg.Collision.ShapeExtent;
+			RuntimeRegion.bUseLegacyShape = true;
+		}
+	}
+
+	if (WindowState.Regions.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Attack] Segment %d has no valid trace regions"), SegmentIndex);
+		return;
+	}
+
+	ActiveCollisionWindows.Add(SegmentIndex, MoveTemp(WindowState));
+	PerformSweepCheck(SegmentIndex); // 首帧零距离 Sweep，防止窗口开启时已与部位相交。
 }
 
-void UMHGZAttackAbility::TickCollision(float DeltaSeconds)
+void UMHGZAttackAbility::DisableCollision(int32 SegmentIndex)
 {
-	if (bCollisionActive)
+	if (SegmentIndex == INDEX_NONE)
 	{
-		PerformSweepCheck();
+		TArray<int32> ActiveSegments;
+		ActiveCollisionWindows.GetKeys(ActiveSegments);
+		for (const int32 ActiveSegment : ActiveSegments)
+		{
+			DisableCollision(ActiveSegment);
+		}
+		return;
+	}
+
+	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
+	if (!WindowState) return;
+
+	if (ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Character->GetWorldTimerManager().ClearTimer(WindowState->MultiHitTimer);
+	}
+
+	CurrentSegmentIndex = SegmentIndex;
+	bool bEndForMiss = false;
+	if (!bIsEndingAbility && AttackSegments.IsValidIndex(SegmentIndex))
+	{
+		const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
+		if (Seg.Damage.bRequiresHitToContinue && WindowState->HitTargets.IsEmpty())
+		{
+			bEndForMiss = !ShouldContinueAfterHit();
+		}
+	}
+
+	ActiveCollisionWindows.Remove(SegmentIndex);
+	if (bEndForMiss && IsActive() && !bIsEndingAbility)
+	{
+		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, false, true);
 	}
 }
 
-void UMHGZAttackAbility::PerformSweepCheck()
+void UMHGZAttackAbility::TickCollision(int32 SegmentIndex, float DeltaSeconds)
 {
-	if (!bCollisionActive || !AttackSegments.IsValidIndex(CurrentSegmentIndex)) return;
+	(void)DeltaSeconds;
+	if (ActiveCollisionWindows.Contains(SegmentIndex))
+	{
+		PerformSweepCheck(SegmentIndex);
+	}
+}
+
+void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
+{
+	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
+	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
+	if (!WindowState) return;
 
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (!Character || !GetWorld()) return;
 
-	const FAttackCollisionConfig& Collision = AttackSegments[CurrentSegmentIndex].Collision;
+	const FAttackCollisionConfig& Collision = AttackSegments[SegmentIndex].Collision;
 	USkeletalMeshComponent* Mesh = FindTraceMeshComponent(Collision);
-	if (!Mesh || !Mesh->DoesSocketExist(Collision.AttachSocketName)) return;
-	const FVector CurrentEnd = Mesh->GetSocketLocation(Collision.AttachSocketName);
-	const FVector CurrentStart = (!Collision.TraceStartSocketName.IsNone() &&
-		Mesh->DoesSocketExist(Collision.TraceStartSocketName))
-		? Mesh->GetSocketLocation(Collision.TraceStartSocketName)
-		: CurrentEnd;
-
-	FCollisionShape QueryShape = FCollisionShape::MakeSphere(FMath::Max(1.f, Collision.ShapeExtent.X));
-	switch (Collision.Shape)
-	{
-	case EAttackCollisionShape::Capsule:
-		QueryShape = FCollisionShape::MakeCapsule(
-			FMath::Max(1.f, Collision.ShapeExtent.X),
-			FMath::Max(Collision.ShapeExtent.X, Collision.ShapeExtent.Z));
-		break;
-	case EAttackCollisionShape::Box:
-		QueryShape = FCollisionShape::MakeBox(Collision.ShapeExtent.GetAbs().ComponentMax(FVector(1.f)));
-		break;
-	case EAttackCollisionShape::Sphere:
-	default:
-		break;
-	}
+	if (!Mesh) return;
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MHGZWeaponSweep), false, Character);
 	QueryParams.AddIgnoredActor(Character);
 
-	const bool bHasSpan = !Collision.TraceStartSocketName.IsNone() &&
-		!CurrentStart.Equals(CurrentEnd, 0.1f);
-	const int32 SampleCount = bHasSpan ? FMath::Clamp(Collision.TraceSampleCount, 1, 8) : 1;
-	for (int32 SampleIndex = 0; SampleIndex < SampleCount; ++SampleIndex)
+	struct FBestFrameHit
 	{
-		const float Alpha = SampleCount == 1 ? 1.f :
-			static_cast<float>(SampleIndex) / static_cast<float>(SampleCount - 1);
-		const FVector SweepFrom = FMath::Lerp(PreviousTraceStart, PreviousTraceEnd, Alpha);
-		const FVector SweepTo = FMath::Lerp(CurrentStart, CurrentEnd, Alpha);
+		FHitResult Hit;
+		float FrameTime = TNumericLimits<float>::Max();
+	};
+	TMap<TWeakObjectPtr<AActor>, FBestFrameHit> BestHits;
 
-		TArray<FHitResult> Hits;
-		GetWorld()->SweepMultiByChannel(
-			Hits, SweepFrom, SweepTo, Character->GetActorQuat(),
-			Collision.CollisionChannel, QueryShape, QueryParams);
-
-		for (const FHitResult& Hit : Hits)
+	for (int32 RegionIndex = 0; RegionIndex < WindowState->Regions.Num(); ++RegionIndex)
+	{
+		FTraceRegionRuntimeState& RegionState = WindowState->Regions[RegionIndex];
+		if (!Mesh->DoesSocketExist(RegionState.EndSocketName) ||
+			(!RegionState.StartSocketName.IsNone() &&
+				!Mesh->DoesSocketExist(RegionState.StartSocketName)))
 		{
-			ProcessSweepHit(Hit);
+			continue;
+		}
+
+		const FVector CurrentEnd = Mesh->GetSocketLocation(RegionState.EndSocketName);
+		const FVector CurrentStart = RegionState.StartSocketName.IsNone()
+			? CurrentEnd
+			: Mesh->GetSocketLocation(RegionState.StartSocketName);
+		const float RegionLength = FVector::Distance(CurrentStart, CurrentEnd);
+		const float SafeSpacing = FMath::Min(
+			FMath::Max(1.0f, RegionState.MaxSampleSpacing), RegionState.Radius * 2.0f);
+		const int32 DesiredSampleCount = RegionLength <= KINDA_SMALL_NUMBER
+			? 1
+			: FMath::CeilToInt(RegionLength / SafeSpacing) + 1;
+		const int32 SampleCount = RegionState.FixedSampleCount > 0
+			? RegionState.FixedSampleCount
+			: FMath::Clamp(DesiredSampleCount, 1, RegionState.MaxSampleCount);
+
+		const FVector PreviousSpan = RegionState.PreviousEnd - RegionState.PreviousStart;
+		const FVector CurrentSpan = CurrentEnd - CurrentStart;
+		float AngularDeltaDegrees = 0.0f;
+		if (!PreviousSpan.IsNearlyZero() && !CurrentSpan.IsNearlyZero())
+		{
+			const float DirectionDot = FVector::DotProduct(
+				PreviousSpan.GetSafeNormal(), CurrentSpan.GetSafeNormal());
+			AngularDeltaDegrees = FMath::RadiansToDegrees(
+				FMath::Acos(FMath::Clamp(DirectionDot, -1.0f, 1.0f)));
+		}
+		const int32 TemporalStepCount = FMath::Clamp(
+			FMath::CeilToInt(AngularDeltaDegrees /
+				FMath::Max(1.0f, RegionState.MaxAngularStepDegrees)), 1, 8);
+
+		FCollisionShape QueryShape = FCollisionShape::MakeSphere(RegionState.Radius);
+		FQuat QueryRotation = FQuat::Identity;
+		if (RegionState.bUseLegacyShape)
+		{
+			switch (RegionState.LegacyShape)
+			{
+			case EAttackCollisionShape::Capsule:
+				QueryShape = FCollisionShape::MakeCapsule(
+					FMath::Max(1.0f, RegionState.LegacyShapeExtent.X),
+					FMath::Max(RegionState.LegacyShapeExtent.X, RegionState.LegacyShapeExtent.Z));
+				QueryRotation = Mesh->GetComponentQuat();
+				break;
+			case EAttackCollisionShape::Box:
+				QueryShape = FCollisionShape::MakeBox(
+					RegionState.LegacyShapeExtent.GetAbs().ComponentMax(FVector(1.0f)));
+				QueryRotation = Mesh->GetComponentQuat();
+				break;
+			case EAttackCollisionShape::Sphere:
+			default:
+				break;
+			}
+		}
+
+		for (int32 TemporalStep = 0; TemporalStep < TemporalStepCount; ++TemporalStep)
+		{
+			const float TimeStart = static_cast<float>(TemporalStep) / TemporalStepCount;
+			const float TimeEnd = static_cast<float>(TemporalStep + 1) / TemporalStepCount;
+			for (int32 SampleIndex = 0; SampleIndex < SampleCount; ++SampleIndex)
+			{
+				const float SpatialAlpha = SampleCount == 1
+					? 1.0f
+					: static_cast<float>(SampleIndex) / static_cast<float>(SampleCount - 1);
+				const FVector SweepFrom = EvaluateRotatingRegionPoint(
+					RegionState.PreviousStart, RegionState.PreviousEnd,
+					CurrentStart, CurrentEnd, SpatialAlpha, TimeStart);
+				const FVector SweepTo = EvaluateRotatingRegionPoint(
+					RegionState.PreviousStart, RegionState.PreviousEnd,
+					CurrentStart, CurrentEnd, SpatialAlpha, TimeEnd);
+
+				TArray<FHitResult> Hits;
+				GetWorld()->SweepMultiByChannel(
+					Hits, SweepFrom, SweepTo, QueryRotation,
+					Collision.CollisionChannel, QueryShape, QueryParams);
+
+				for (const FHitResult& Hit : Hits)
+				{
+					AActor* OtherActor = Hit.GetActor();
+					const TWeakObjectPtr<AActor> ActorKey(OtherActor);
+					if (!OtherActor || OtherActor == Character ||
+						WindowState->HitTargets.Contains(ActorKey))
+					{
+						continue;
+					}
+					UMHGZMonsterHitzoneComponent* Hitzone =
+						Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+					if (!Hitzone || (Collision.HitzoneQueryTag.IsValid() &&
+						!Hitzone->HitzoneTag.MatchesTagExact(Collision.HitzoneQueryTag)))
+					{
+						continue;
+					}
+
+					const float FrameTime =
+						(static_cast<float>(TemporalStep) + Hit.Time) / TemporalStepCount;
+					FBestFrameHit* Existing = BestHits.Find(ActorKey);
+					if (!Existing || FrameTime < Existing->FrameTime)
+					{
+						FBestFrameHit Candidate;
+						Candidate.Hit = Hit;
+						Candidate.FrameTime = FrameTime;
+						BestHits.Add(ActorKey, MoveTemp(Candidate));
+					}
+				}
+
+				if (Collision.bDrawDebug)
+				{
+					DrawDebugLine(GetWorld(), SweepFrom, SweepTo, FColor::Red,
+						false, 0.15f, 0, 1.5f);
+					DrawDebugSphere(GetWorld(), SweepTo, RegionState.Radius, 12,
+						Hits.IsEmpty() ? FColor::Yellow : FColor::Green, false, 0.15f);
+				}
+			}
 		}
 
 		if (Collision.bDrawDebug)
 		{
-			DrawDebugLine(GetWorld(), SweepFrom, SweepTo, FColor::Red, false, 0.15f, 0, 1.5f);
-			DrawDebugSphere(GetWorld(), SweepTo, Collision.ShapeExtent.X, 12,
-				Hits.IsEmpty() ? FColor::Yellow : FColor::Green, false, 0.15f);
+			DrawDebugLine(GetWorld(), CurrentStart, CurrentEnd, FColor::Cyan,
+				false, 0.15f, 0, 2.0f);
 		}
+		RegionState.PreviousStart = CurrentStart;
+		RegionState.PreviousEnd = CurrentEnd;
 	}
 
-	PreviousTraceStart = CurrentStart;
-	PreviousTraceEnd = CurrentEnd;
+	for (const TPair<TWeakObjectPtr<AActor>, FBestFrameHit>& Pair : BestHits)
+	{
+		ProcessSweepHit(Pair.Value.Hit, SegmentIndex);
+		if (!ActiveCollisionWindows.Contains(SegmentIndex))
+		{
+			return;
+		}
+	}
 }
 
-void UMHGZAttackAbility::ProcessSweepHit(const FHitResult& Hit)
+void UMHGZAttackAbility::ProcessSweepHit(const FHitResult& Hit, int32 SegmentIndex)
 {
+	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
+	if (!WindowState) return;
+
 	AActor* OtherActor = Hit.GetActor();
-	if (!OtherActor || OtherActor == GetAvatarActorFromActorInfo() || HitTargets.Contains(OtherActor))
+	const TWeakObjectPtr<AActor> ActorKey(OtherActor);
+	if (!OtherActor || OtherActor == GetAvatarActorFromActorInfo() ||
+		WindowState->HitTargets.Contains(ActorKey))
 	{
 		return;
 	}
@@ -307,53 +542,79 @@ void UMHGZAttackAbility::ProcessSweepHit(const FHitResult& Hit)
 	UMHGZMonsterHitzoneComponent* Hitzone = Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
 	if (!Hitzone) return;
 
-	// 如果有 HitzoneQueryTag，检查匹配
-	if (AttackSegments.IsValidIndex(CurrentSegmentIndex))
+	if (AttackSegments.IsValidIndex(SegmentIndex))
 	{
-		const FGameplayTag& QueryTag = AttackSegments[CurrentSegmentIndex].Collision.HitzoneQueryTag;
+		const FGameplayTag& QueryTag = AttackSegments[SegmentIndex].Collision.HitzoneQueryTag;
 		if (QueryTag.IsValid() && !Hitzone->HitzoneTag.MatchesTagExact(QueryTag))
 		{
 			return;
 		}
 	}
 
-	HitTargets.Add(OtherActor, Hitzone->BoneName);
-	ApplyDamage(OtherActor, Hitzone->BoneName, CurrentSegmentIndex);
-	StartMultiHitTimerIfNeeded();
+	WindowState->HitTargets.Add(ActorKey, Hitzone->BoneName);
+	ApplyDamage(OtherActor, Hitzone->BoneName, SegmentIndex);
+
+	// GE/GameplayCue 回调可能同步结束 Ability；重新按 Index 查找，避免使用失效引用。
+	if (ActiveCollisionWindows.Contains(SegmentIndex))
+	{
+		StartMultiHitTimerIfNeeded(SegmentIndex);
+	}
 }
 
-void UMHGZAttackAbility::StartMultiHitTimerIfNeeded()
+void UMHGZAttackAbility::StartMultiHitTimerIfNeeded(int32 SegmentIndex)
 {
-	if (!AttackSegments.IsValidIndex(CurrentSegmentIndex)) return;
-	const FAttackSegmentConfig& Seg = AttackSegments[CurrentSegmentIndex];
-	if (Seg.MultiHitCount <= 1 || MultiHitCurrentCount > 0) return;
+	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
+	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
+	if (!WindowState) return;
+	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
+	if (Seg.MultiHitCount <= 1 || WindowState->MultiHitCurrentCount > 0) return;
 
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (!Character) return;
 
-	MultiHitCurrentCount = 1; // 首次接触已立即结算第一跳。
+	WindowState->MultiHitCurrentCount = 1; // 首次接触已立即结算第一跳。
+	FTimerDelegate MultiHitDelegate;
+	MultiHitDelegate.BindUObject(this, &UMHGZAttackAbility::OnMultiHitTick, SegmentIndex);
 	Character->GetWorldTimerManager().SetTimer(
-		MultiHitTimer, this, &UMHGZAttackAbility::OnMultiHitTick,
+		WindowState->MultiHitTimer, MultiHitDelegate,
 		FMath::Max(0.01f, Seg.MultiHitInterval), true);
 }
 
-void UMHGZAttackAbility::OnMultiHitTick()
+void UMHGZAttackAbility::OnMultiHitTick(int32 SegmentIndex)
 {
-	if (!AttackSegments.IsValidIndex(CurrentSegmentIndex)) return;
-	const FAttackSegmentConfig& Seg = AttackSegments[CurrentSegmentIndex];
+	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
+	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
+	if (!WindowState) return;
+	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
 
-	for (const auto& Pair : HitTargets)
+	TArray<TPair<TWeakObjectPtr<AActor>, FName>> HitTargetSnapshot;
+	HitTargetSnapshot.Reserve(WindowState->HitTargets.Num());
+	for (const TPair<TWeakObjectPtr<AActor>, FName>& Pair : WindowState->HitTargets)
 	{
-		ApplyDamage(Pair.Key.Get(), Pair.Value, CurrentSegmentIndex);
+		HitTargetSnapshot.Add(Pair);
 	}
 
-	MultiHitCurrentCount++;
-	if (MultiHitCurrentCount >= Seg.MultiHitCount)
+	for (const TPair<TWeakObjectPtr<AActor>, FName>& Pair : HitTargetSnapshot)
+	{
+		if (AActor* Target = Pair.Key.Get())
+		{
+			ApplyDamage(Target, Pair.Value, SegmentIndex);
+			if (!ActiveCollisionWindows.Contains(SegmentIndex))
+			{
+				return;
+			}
+		}
+	}
+
+	WindowState = ActiveCollisionWindows.Find(SegmentIndex);
+	if (!WindowState) return;
+	WindowState->MultiHitCurrentCount++;
+	if (WindowState->MultiHitCurrentCount >= Seg.MultiHitCount)
 	{
 		ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 		if (Character)
 		{
-			Character->GetWorldTimerManager().ClearTimer(MultiHitTimer);
+			Character->GetWorldTimerManager().ClearTimer(WindowState->MultiHitTimer);
 		}
 	}
 }
@@ -500,7 +761,10 @@ bool UMHGZAttackAbility::ShouldContinueAfterHit_Implementation() const
 	if (!AttackSegments.IsValidIndex(CurrentSegmentIndex)) return true;
 
 	const FAttackSegmentConfig& Seg = AttackSegments[CurrentSegmentIndex];
-	if (Seg.Damage.bRequiresHitToContinue && HitTargets.IsEmpty())
+	const FCollisionWindowRuntimeState* WindowState =
+		ActiveCollisionWindows.Find(CurrentSegmentIndex);
+	if (Seg.Damage.bRequiresHitToContinue &&
+		(!WindowState || WindowState->HitTargets.IsEmpty()))
 	{
 		return false;
 	}
@@ -560,7 +824,7 @@ USkeletalMeshComponent* UMHGZAttackAbility::FindTraceMeshComponent(
 	const FAttackCollisionConfig& Collision) const
 {
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-	if (!Character || Collision.AttachSocketName.IsNone()) return nullptr;
+	if (!Character) return nullptr;
 
 	TArray<USkeletalMeshComponent*> MeshComponents;
 	Character->GetComponents<USkeletalMeshComponent>(MeshComponents);
@@ -571,7 +835,7 @@ USkeletalMeshComponent* UMHGZAttackAbility::FindTraceMeshComponent(
 		for (USkeletalMeshComponent* Mesh : MeshComponents)
 		{
 			if (Mesh && Mesh->ComponentHasTag(Collision.TraceMeshComponentTag) &&
-				Mesh->DoesSocketExist(Collision.AttachSocketName))
+				HasRequiredTraceSockets(Mesh, Collision))
 			{
 				return Mesh;
 			}
@@ -581,7 +845,7 @@ USkeletalMeshComponent* UMHGZAttackAbility::FindTraceMeshComponent(
 	// 兼容旧配置：优先尝试角色主骨骼网格。
 	if (USkeletalMeshComponent* CharacterMesh = Character->GetMesh())
 	{
-		if (CharacterMesh->DoesSocketExist(Collision.AttachSocketName))
+		if (HasRequiredTraceSockets(CharacterMesh, Collision))
 		{
 			return CharacterMesh;
 		}
@@ -590,11 +854,43 @@ USkeletalMeshComponent* UMHGZAttackAbility::FindTraceMeshComponent(
 	// 最后回退到任意拥有目标 Socket 的骨骼网格组件。
 	for (USkeletalMeshComponent* Mesh : MeshComponents)
 	{
-		if (Mesh && Mesh->DoesSocketExist(Collision.AttachSocketName))
+		if (Mesh && HasRequiredTraceSockets(Mesh, Collision))
 		{
 			return Mesh;
 		}
 	}
 
 	return nullptr;
+}
+
+bool UMHGZAttackAbility::HasRequiredTraceSockets(
+	const USkeletalMeshComponent* Mesh,
+	const FAttackCollisionConfig& Collision) const
+{
+	if (!Mesh) return false;
+
+	if (!Collision.TraceRegions.IsEmpty())
+	{
+		bool bHasAtLeastOneRegion = false;
+		for (const FWeaponTraceRegion& Region : Collision.TraceRegions)
+		{
+			if (Region.EndSocketName.IsNone())
+			{
+				continue;
+			}
+			bHasAtLeastOneRegion = true;
+			if (!Mesh->DoesSocketExist(Region.EndSocketName) ||
+				(!Region.StartSocketName.IsNone() &&
+					!Mesh->DoesSocketExist(Region.StartSocketName)))
+			{
+				return false;
+			}
+		}
+		return bHasAtLeastOneRegion;
+	}
+
+	const FName EndSocketName = ResolveLegacyTraceEndSocket(Collision);
+	return !EndSocketName.IsNone() && Mesh->DoesSocketExist(EndSocketName) &&
+		(Collision.TraceStartSocketName.IsNone() ||
+			Mesh->DoesSocketExist(Collision.TraceStartSocketName));
 }

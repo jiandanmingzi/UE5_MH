@@ -27,6 +27,40 @@ enum class EAttackCollisionShape : uint8
 };
 
 /**
+ * 一段武器轨迹区域。多个区域可以在同一碰撞窗口内同时生效，
+ * 例如虫棍前端和后端同时横扫。
+ */
+USTRUCT(BlueprintType)
+struct FWeaponTraceRegion
+{
+	GENERATED_BODY()
+
+	/** 有效攻击区域起点 Socket 或骨骼；留空时退化为 EndSocketName 单点 Sweep。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
+	FName StartSocketName;
+
+	/** 有效攻击区域终点 Socket 或骨骼，必填。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
+	FName EndSocketName;
+
+	/** 球形 Sweep 半径（厘米）。球体不受武器旋转朝向影响，适合高速长武器。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace", meta = (ClampMin = "1.0"))
+	float Radius = 14.0f;
+
+	/** 棍身相邻采样点的最大间距；运行时还会限制为不超过 2 × Radius。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace", meta = (ClampMin = "1.0"))
+	float MaxSampleSpacing = 20.0f;
+
+	/** 单个区域最多使用的棍身采样点数。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace", meta = (ClampMin = "1", ClampMax = "32"))
+	int32 MaxSampleCount = 16;
+
+	/** 每帧旋转超过该角度时增加时间子步，降低高速旋转沿弧线漏判。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace", meta = (ClampMin = "1.0", ClampMax = "90.0"))
+	float MaxAngularStepDegrees = 15.0f;
+};
+
+/**
  * FAttackCollisionConfig — 单段碰撞配置
  */
 USTRUCT(BlueprintType)
@@ -41,13 +75,23 @@ struct FAttackCollisionConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FName TraceMeshComponentTag = FName(TEXT("WeaponTrace"));
 
-	/** 碰撞体挂载的骨骼 Socket */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	/**
+	 * 本碰撞窗口内同时生效的武器轨迹区域。非空时覆盖下面的旧版单区域字段。
+	 * 虫棍通常配置 Front、Rear 或两者同时启用。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
+	TArray<FWeaponTraceRegion> TraceRegions;
+
+	/** 新版单区域终点；TraceRegions 为空时使用。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
+	FName TraceEndSocketName;
+
+	/** 旧版字段：实际含义是轨迹终点。保留用于读取现有蓝图。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DeprecatedProperty, DeprecationMessage = "Use TraceEndSocketName or TraceRegions"))
 	FName AttachSocketName;
 
 	/**
-	 * 轨迹起点 Socket。留空时只扫 AttachSocketName；配置后会在起点和终点之间
-	 * 采样多条轨迹，适合虫棍这类长武器。
+	 * 旧版单区域起点。TraceRegions 为空时仍与 TraceEndSocketName/AttachSocketName 配合使用。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FName TraceStartSocketName;
@@ -68,7 +112,7 @@ struct FAttackCollisionConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag HitzoneQueryTag;
 
-	/** 长武器横截面采样数，1=仅 AttachSocket，3=根/中/尖 */
+	/** 旧版单区域固定采样数。TraceRegions 非空时改为按长度自动计算。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "8"))
 	int32 TraceSampleCount = 3;
 
@@ -228,12 +272,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Attack")
 	void EnableCollision(int32 SegmentIndex = 0);
 
-	/** 关闭碰撞检测 */
+	/** 关闭指定段；INDEX_NONE 表示关闭本 Ability 的全部碰撞窗口。 */
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Attack")
-	void DisableCollision();
+	void DisableCollision(int32 SegmentIndex = -1);
 
 	/** 碰撞窗口内由 AnimNotifyState::NotifyTick 每帧调用 */
-	void TickCollision(float DeltaSeconds);
+	void TickCollision(int32 SegmentIndex, float DeltaSeconds);
 
 	// ═══════════════════════════════════════════
 	// 伤害构造与 Apply
@@ -277,11 +321,7 @@ protected:
 	// 运行时状态
 	// ═══════════════════════════════════════════
 
-	/** 已命中的怪物→首个接触的 hitzone 骨骼名 */
-	UPROPERTY()
-	TMap<TObjectPtr<AActor>, FName> HitTargets;
-
-	/** 当前正在执行的段索引 */
+	/** 最近开始/结束判定的段索引，仅供兼容 ShouldContinueAfterHit。 */
 	int32 CurrentSegmentIndex = 0;
 
 	/** 本次 GA 激活后是否已有命中 */
@@ -295,27 +335,48 @@ protected:
 	TObjectPtr<UAnimMontage> ActiveAttackMontage;
 
 private:
+	struct FTraceRegionRuntimeState
+	{
+		FName StartSocketName;
+		FName EndSocketName;
+		float Radius = 14.0f;
+		float MaxSampleSpacing = 20.0f;
+		float MaxAngularStepDegrees = 15.0f;
+		int32 MaxSampleCount = 16;
+		int32 FixedSampleCount = 0;
+		EAttackCollisionShape LegacyShape = EAttackCollisionShape::Sphere;
+		FVector LegacyShapeExtent = FVector(14.0f);
+		bool bUseLegacyShape = false;
+		FVector PreviousStart = FVector::ZeroVector;
+		FVector PreviousEnd = FVector::ZeroVector;
+	};
+
+	struct FCollisionWindowRuntimeState
+	{
+		TArray<FTraceRegionRuntimeState> Regions;
+		TMap<TWeakObjectPtr<AActor>, FName> HitTargets;
+		FTimerHandle MultiHitTimer;
+		int32 MultiHitCurrentCount = 0;
+	};
+
 	/** GAS Montage 任务——统一处理完成、取消和被其他 Montage 打断 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
 
-	/** 多跳伤害 Timer */
-	FTimerHandle MultiHitTimer;
+	/** 每个 ConfigIndex 独立保存轨迹、命中和多跳状态，允许窗口重叠。 */
+	TMap<int32, FCollisionWindowRuntimeState> ActiveCollisionWindows;
 
-	/** 多跳已跳次数 */
-	int32 MultiHitCurrentCount = 0;
+	/** 执行指定段的一次 Socket Sweep 检测。 */
+	void PerformSweepCheck(int32 SegmentIndex);
 
-	/** 执行一次 Socket Sweep 检测 */
-	void PerformSweepCheck();
+	/** 处理本帧为某个怪物选出的最早 Sweep 命中。 */
+	void ProcessSweepHit(const FHitResult& Hit, int32 SegmentIndex);
 
-	/** 处理单个 Sweep 命中 */
-	void ProcessSweepHit(const FHitResult& Hit);
+	/** 首次命中后启动本段独立的多跳 Timer。 */
+	void StartMultiHitTimerIfNeeded(int32 SegmentIndex);
 
-	/** 首次命中后启动多跳 Timer */
-	void StartMultiHitTimerIfNeeded();
-
-	/** 一次多跳伤害 */
-	void OnMultiHitTick();
+	/** 指定段的一次多跳伤害。 */
+	void OnMultiHitTick(int32 SegmentIndex);
 
 	/** 查找怪物 HitzoneComponent */
 	UMHGZMonsterHitzoneComponent* FindHitzoneComponent(AActor* Target, FName BoneName) const;
@@ -323,14 +384,15 @@ private:
 	/** 根据组件 Tag 和 Socket 配置找到实际参与武器轨迹检测的骨骼网格。 */
 	USkeletalMeshComponent* FindTraceMeshComponent(const FAttackCollisionConfig& Collision) const;
 
+	/** 检查 Mesh 是否包含当前配置要求的所有轨迹 Socket/骨骼。 */
+	bool HasRequiredTraceSockets(const USkeletalMeshComponent* Mesh,
+		const FAttackCollisionConfig& Collision) const;
+
 	UFUNCTION()
 	void OnMontageCompleted();
 
 	UFUNCTION()
 	void OnMontageInterrupted();
 
-	FVector PreviousTraceStart = FVector::ZeroVector;
-	FVector PreviousTraceEnd = FVector::ZeroVector;
-	bool bCollisionActive = false;
 	bool bIsEndingAbility = false;
 };

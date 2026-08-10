@@ -2,6 +2,16 @@
 
 本文记录当前项目采用的目录规范。设计中但尚未实现的类型不列为“已存在文件”。
 
+## Docs
+
+```text
+docs/
+├── design/             玩法、架构、接口、代码生成和实施计划
+└── editor/             代码完成后的 UE5 资产接线、迁移和人工验收
+```
+
+`docs` 根目录不放业务文档。代码任务以 `design/README.md` 为入口；编辑器任务以 `editor/README.md` 为入口。设计规则发生变化时先更新 design，再同步 editor 中受影响的具体操作。
+
 ## Source
 
 ```text
@@ -23,6 +33,8 @@ Source/MHGZ/
 ```
 
 源码按运行时职责划分。移动 `.h/.cpp` 时需要同步 include 和 `MHGZ.Build.cs`；原生类名和 `/Script/MHGZ` 不随源码文件夹改变。
+
+Demo 重构后 `UI/` 由 `MHGZHUD`、`MHGZMainHUDWidget`、通用/资源/准心 Widget 基类和 AimComponent 组成；现有空壳 `MHGZUISubsystem` 删除。`ActionSystem/` 的玩家动作 Notify 通过 RuntimeHost 的 ActionToken/Montage Registry 定位实例，不建立按武器类型分叉的 Notify 目录。
 
 ## Content：项目资产
 
@@ -46,7 +58,7 @@ Content/
 │       ├── Materials/              M_Demo_*、MI_Demo_*
 │       ├── Meshes/                 SKM_Demo_*、SK_Demo_*、PA_Demo_*
 │       └── Textures/               T_Demo_*
-├── Data/                           仅跨领域映射表；DT_WeaponComboConfig 固定在此
+├── Data/                           当前旧跨领域表保留到 M2 迁移；目标运行时不再读取 DT_WeaponComboConfig/ResourceConfig
 ├── GameplayCues/
 │   ├── InsectGlaive/
 │   ├── Hit/
@@ -93,7 +105,7 @@ Content/
         │           │   └── UnusedCandidate/
         │           └── Transitions/
         ├── Audio/                  挥棍、猎虫、萃取与三灯音效
-        ├── Data/                   虫棍定义、连招和猎虫品种 DataAsset
+        ├── Data/                   WeaponRuntimeDefinition、虫棍物品/Combat/Input/Combo 与猎虫品种 DataAsset
         ├── Materials/
         │   ├── Glaive/
         │   └── Kinsect/
@@ -126,4 +138,4 @@ Content/
 4. 移动后验证目标资产、反向引用、Redirector、蓝图编译和 C++ 构建。
 5. 地图与外部 Actor 永远作为独立批次处理。
 
-迁移记录见 [asset-organization.md](asset-organization.md)，可重复执行工具及用途见 [Scripts/README.md](../Scripts/README.md)。
+迁移记录见 [资产整理记录](../editor/asset-organization.md)，可重复执行工具及用途见 [Scripts/README.md](../../Scripts/README.md)。

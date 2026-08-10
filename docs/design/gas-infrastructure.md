@@ -2,6 +2,8 @@
 
 > **实施状态说明：** ASC/AttributeSet/装备/背包/仓库的挂载位置和 `InitAbilityActorInfo` 已按本文实现；背包、仓库仍是桩组件，武器资源组件只会在装备表配置匹配行时动态创建。Seamless Travel、SaveGame 与 QuestManager 均为保留的后续方案，当前项目没有对应实现。
 
+> **Demo 冻结目标：** 当前 Weapon Resource 实际仍创建在 PlayerState，尚未达到下表的 RuntimeHost 归属。迁移接口和固定 Shutdown 顺序见 [Demo 实施计划 §3.4](demo-implementation-plan.md#34-武器资源宿主与清理顺序)。
+
 > 以下三节为 GAS 初始化必须明确的架构决策，是先决条件而非可选设计。
 
 ## ASC 挂载位置——PlayerState
@@ -10,9 +12,9 @@
 
 | 理由 | 说明 |
 |------|------|
-| 跨 Character 生命周期 | PlayerState 不随 Character 销毁而丢失——猫车/关卡切换时 ASC 和属性持续存在 |
+| 跨 Character 生命周期 | PlayerState 适合保存 ASC 身份；Pawn 重建后必须重新 `InitAbilityActorInfo`，不能假设全部运行时对象引用仍有效 |
 | 官方推荐模式 | Epic 的 Lyra、ShooterGame 等官方项目均将 ASC 放在 PlayerState |
-| 组件集中管理 | `EquipmentComponent`、`BackpackComponent`、`WarehouseComponent` 挂载到 PlayerState；`WeaponResourceComponent` 由装备系统按配置动态创建在 PlayerState。`QuickBarComponent`、`InputComponent` 挂载到 PlayerController。 |
+| 数据与运行时分层 | Equipment/Inventory 可在 PlayerState；当前武器 Resource、猎虫、舞踏和位移引用属于 Pawn/WeaponRuntimeHost；输入路由属于 PlayerController |
 | 未来网络扩展 | 无需迁移 ASC——PlayerState 本身就是网络同步的载体 |
 
 > **注意：** ASC 放 PlayerState 后，AnimNotifyState 的 `MeshComp→GetOwner()` 链路变为 `MeshComp→GetOwner()→GetPlayerState()→GetAbilitySystemComponent()`，多一次跳转。对性能影响可忽略（指针跳转 < 1ns），且 AnimNotifyState 仅在 Montage 播放期间触发，频率可控。
@@ -40,7 +42,7 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 
 ## 组件归属
 
-> 以下组件统一挂载到 `AMHGZPlayerState`，消除跨 Actor 引用。`EdgeVaultComponent` 和 `InputComponent` 除外——前者需要 CMC 访问，后者管理 EnhancedInput IMC。
+> Demo 不追求把组件集中到同一 Actor，而按生命周期归属：持久角色数据在 PlayerState，世界/动画运行时在 Character，输入在 PlayerController。
 
 | 组件 | 挂载位置 | 理由 |
 |------|----------|------|
@@ -49,13 +51,17 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 | `UMHGZEquipmentComponent` | PlayerState | 装备 GE 管理，依赖 ASC |
 | `UMHGZBackpackComponent` | PlayerState | 跨关卡保留物品 |
 | `UMHGZWarehouseComponent` | PlayerState | 仓库跨关卡 |
-| `UMHGZWeaponResourceComponent` | PlayerState | 武器资源，依赖 ASC Tag 查询 |
+| `UMHGZWeaponRuntimeHostComponent` | Character | 只在 WeaponSnapshot 身份变化时创建/销毁当前 Resource；统一清理猎虫、粉尘、舞踏、Action/Notify Registry、位移/Warp 和 Pawn 引用 |
+| `UMHGZWeaponResourceComponent` | Character 的 RuntimeHost（动态组件） | 武器运行时资源；通过接口访问 PlayerState ASC，不把世界 Actor 引用放入持久层 |
 | `UMHGZQuickBarComponent` | PlayerController | 快捷栏——输入选择+音效反馈+使用触发。需访问 Backpack（通过 `GetPlayerState()` 一次跳转获取）、ASC Tag 查询（持刀态/受击/攻击中判断能否使用）。放在 PlayerController 使输入→反馈链路最短 |
 | `UMHGZEdgeVaultComponent` | Character | 需要 CMC 访问（Velocity/边缘检测） |
-| `UMHGZInputComponent` | PlayerController | 管理 IMC 生命周期 |
+| `UMHGZInputComponent` | PlayerController | IMC 与 Enhanced Input Binding 唯一所有者；保存 Handle 并支持重复 Possess 幂等重绑 |
+| `UMHGZWeaponInputRouterComponent` | PlayerController | 原始 Action、Chord、方向、Aim 上下文和释放 SequenceID；输出不可变 InputSnapshot，不选择具体虫棍 GA |
+| `UMHGZHitStopControllerComponent` | Character | 以 Token 合并可叠加卡肉请求，取消/死亡/换装时按所有权释放，不让 Ability 直接覆盖 CustomTimeDilation |
+| `UMHGZHitFeedbackRouterComponent` | 可受击 Actor/Character | 接收已结算 HitFeedbackResult，显式执行 GameplayCue、伤害数字和表现请求，不重算伤害 |
 | `UMotionWarpingComponent` | Character | UE5 内置，动画驱动。需 SkeletalMeshComponent+AnimBP 管线（PlayerState 不具备）——构造函数 `CreateDefaultSubobject` 随 Character 创建，GA 在 ActivateAbility 中通过 `FindComponentByClass` 设 Warp Target，Montage 中 `AnimNotifyState_MotionWarping` 自动消费。单向交互，零耦合 |
 
-> **★ I-4 修复——PlayerState Tick 必须启用：** `AMHGZPlayerState` 构造函数中已设置 `PrimaryActorTick.bCanEverTick = true`。`URes_InsectGlaive` 依赖 Tick 驱动猎虫耐力扣减/回复；萃取剩余时间 Delegate 已声明但广播逻辑尚未实现。
+> 当前源码为了 `URes_InsectGlaive` 打开 PlayerState Tick；目标 Demo 把 Resource 移到 Character RuntimeHost，由 Character/Pawn 生命周期驱动 Tick。EquipmentComponent 分别广播 StatsChanged 与 WeaponSnapshot；RuntimeHost 只消费后者并比较身份。PlayerState 不应只为武器运行时永久开启 Tick。
 
 ## 关卡切换——Seamless Travel + SaveGame 兜底（规划，当前未实现）
 
@@ -66,7 +72,7 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 | 方式 | PlayerState | GameInstance | 加载耗时 | 适用场景 |
 |------|:--:|:--:|:--:|------|
 | **OpenLevel** | ❌ 销毁重建 | ✅ 保留 | 长（全量加载） | 主菜单→游戏、完全独立的关卡 |
-| **Seamless Travel** | ✅ 保留（需配置） | ✅ 保留 | 中（非持久层切换） | 据点↔任务地图——PlayerState 不销毁，ASC/背包/仓库持续存在 |
+| **Seamless Travel** | 通过 GameMode 创建/复制 | ✅ 保留 | 中 | 需要 `CopyProperties/SeamlessTravelTo` 明确复制持久 DTO；组件和 UObject/Actor 引用不会自动完整保留 |
 | **Level Streaming** | ✅ 始终存在 | ✅ 始终存在 | 短（增量加载） | 同一持久世界内加载子关卡（如据点内进入训练场） |
 
 **推荐方案——Seamless Travel 为主，OpenLevel + SaveGame 兜底：**
@@ -85,7 +91,7 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 **Seamless Travel 配置要点：**
 - `AMHGZGameMode::bUseSeamlessTravel = true`
 - 任务地图设为非持久关卡（在 World Settings 中配置 Transition Map）
-- PlayerState 自动跨关卡保留——ASC、Backpack、Warehouse、Equipment 全部无缝衔接
+- GameMode/PlayerState 显式复制角色标识和持久 DTO；新 Pawn/RuntimeHost 重建 ASC ActorInfo、当前武器资源和 UI 绑定
 - 任务参数（地图名、天气、怪物配置、奖励条件）通过 `UGameInstanceSubsystem`（任务管理器）在 Travel 前存储，任务地图 BeginPlay 时读取
 
 **Seamless Travel 失效时的兜底——SaveGame：**

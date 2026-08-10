@@ -63,7 +63,7 @@ void UAnimNotifyState_AttackCollision::NotifyEnd(USkeletalMeshComponent* MeshCom
 		{
 			if (UMHGZAttackAbility* AttackGA = Cast<UMHGZAttackAbility>(Spec.GetPrimaryInstance()))
 			{
-				AttackGA->DisableCollision();
+				AttackGA->DisableCollision(ConfigIndex);
 			}
 		}
 	}
@@ -90,7 +90,7 @@ void UAnimNotifyState_AttackCollision::NotifyTick(USkeletalMeshComponent* MeshCo
 		{
 			if (UMHGZAttackAbility* AttackGA = Cast<UMHGZAttackAbility>(Spec.GetPrimaryInstance()))
 			{
-				AttackGA->TickCollision(FrameDeltaTime);
+				AttackGA->TickCollision(ConfigIndex, FrameDeltaTime);
 			}
 		}
 	}

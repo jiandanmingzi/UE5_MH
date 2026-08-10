@@ -16,7 +16,7 @@
 
 **目标设计：** 装备基础数值与词条最终统一通过 GAS 表达。当前实现会直接用 `SetNumericAttributeBase` 重算 AttackPower/Defense/CriticalRate；只有后续词条/效果方案计划使用 GameplayEffect。装备变化时，已存在的装备 GE 通过 `RemoveActiveEffectsWithAppliedTags(Effect.Source.Equipment)` 清理。
 
-属性约束：Health/Stamina 基础 100、上限 200；AttackPower/Defense 基础 0、无上限；CriticalRate 基础 0、范围 [-100, 100]；StaminaRegenRate/DeductionRate/ConsumptionRate 基础 1.0、下限 0。武器专属资源由 WeaponTypeTag 查 DT_WeaponResourceConfig 决定，同种类共享。
+属性约束：Health/Stamina 基础 100、上限 200；AttackPower/Defense 基础 0、无上限；CriticalRate 基础 0、范围 [-100, 100]；StaminaRegenRate/DeductionRate/ConsumptionRate 基础 1.0、下限 0。目标武器专属资源由 WeaponDefinition 引用的 WeaponRuntimeDefinition 决定，同种类武器共享运行时定义。
 
 ## UMHGZAttributeSet — 角色属性集
 
@@ -40,7 +40,16 @@ class UMHGZAttributeSet : public UAttributeSet
 | StaggerMultiplier | FGameplayAttributeData | 1.0 | ∞ | 0 | ★ 破坏值倍率（**攻击方属性**——代表玩家造成怪物硬直的能力）。参与硬直计算：`Stagger = BaseStaggerValue(招式) × StaggerMultiplier(攻击方) × HitzoneStaggerRate(怪物部位)`。基础 1.0，通过装备词条 GE 加成（如"破坏王"技能珠 +0.3）。怪物侧无此属性——怪物硬直阈值由自身系统内部累积管理 |
 | MoveSpeedMultiplier | FGameplayAttributeData | 1.0 | 3.0 | 0.1 | 移速倍率 Attribute 已实现；当前移动和 CMC 尚未消费该值 |
 
-> **武器专属资源不在 AttributeSet 中：** 怪猎武器资源系统极其多样——太刀气刃槽（色阶）、盾斧瓶计数+盾充能、大剑蓄力等级、操虫棍萃取、双刀鬼人槽等——无法用简单的 float Current/Max/Regen 统一概括。每种武器的资源由各自的 Ability/Component 管理，UI 按 `WeaponTypeTag` 查表选择对应的资源显示组件。`DT_WeaponResourceConfig` 保留作为武器种类→资源类型的查找桥接（具体字段待各武器资源方案确定后补充）。`UMHGZGameplayAbility` 中的 `bRequiresWeaponResource` / `WeaponResourceCost` 保留为通用钩子——各武器 Ability 子类覆写实现具体资源消耗逻辑。
+Demo 伤害迁移时新增四个不复制、不持久化的 Meta Attribute，基础值均为 0：
+
+| Meta Attribute | 用途 |
+|---|---|
+| IncomingDamage | ExecCalc 计算出的本次待结算伤害 |
+| IncomingStagger | 本次待提交硬直值 |
+| IncomingCriticalFlag | 0/1 会心结果，保证反馈与本次随机结果一致 |
+| IncomingHitSignal | 必须最后输出；PostGameplayEffectExecute 只在此信号到达时原子读取并清空整组 Meta |
+
+> **武器专属资源不在 AttributeSet 中：** 怪猎武器资源系统极其多样——太刀气刃槽（色阶）、盾斧瓶计数+盾充能、大剑蓄力等级、操虫棍萃取、双刀鬼人槽等——无法用简单的 float Current/Max/Regen 统一概括。每种武器的资源由各自的 Ability/Component 管理，UI 按 `WeaponTypeTag` 查表选择对应的资源显示组件。旧 `bRequiresWeaponResource/WeaponResourceCost(float)` 在 M1 删除，改为通用 `FWeaponResourceCostSpec{CostType, Amount}` 数组，由当前 Resource 原子检查/提交；通用 GA 不解释 CostType。
 
 ### Clamp 约束
 
@@ -138,7 +147,7 @@ class UMHGZEquipmentComponent : public UActorComponent
   - 输出：是否可镶入。
   - 作用：转发 `HostItem→CanSocketAccessory`，比较饰品等级与孔位等级。
 
-### OnEquipmentChanged 全量重算
+### OnEquipmentChanged 全量重算（当前源码，M2 拆分）
 
 `void OnEquipmentChanged()`
 - 作用：装备变更的统一入口。任何 Equip/Unequip/Socket 操作最终都调用此方法。
@@ -149,6 +158,13 @@ class UMHGZEquipmentComponent : public UActorComponent
   4. 遍历 `EquippedItems` → `ApplyItemEffects(Item)`，重建资源组件、连招与武器 Ability。
   5. `RecalculateEquipmentBaseAttributes(ASC)`，用 `SetNumericAttributeBase` 汇总基础三围。
 - **性能说明（全量重算而非增量更新）：** 一次 `OnEquipmentChanged` 涉及 ~20-30 个 GE 的销毁与重建。装备变更仅在换装/镶嵌/拆除时触发——这些操作全部发生在非战斗期（工坊、准备阶段、菜单），频率极低（每秒 < 0.1 次）。全量重算的核心优势是**零中间状态**——不存在"忘记移除某个 GE"或"旧 GE 残留"的 bug，正确性由设计保证。性能实测后若不达预期，可优化为增量更新（仅 Remove/Apply 变更的 GE），但当前全量方案优先保证正确性。
+
+### Demo 目标：统计与武器身份分流
+
+- `OnEquipmentStatsChanged`：装备/护甲/饰品/镶嵌变化均可触发，只负责属性和可用词条重算。
+- `OnEquippedWeaponChanged(FEquippedWeaponSnapshot)`：仅武器槽身份变化触发。Snapshot 包含 EquipmentInstance、WeaponDefinition、RuntimeDefinition 和 WeaponRevision。
+- RuntimeHost 比较 EquipmentInstance/RuntimeDefinition 身份；相同武器的重复广播、护甲和饰品变化为 no-op，不销毁 Resource、不移除武器 GA、不清空精华/舞踏。
+- 只有真正换武器/卸武器才由 RuntimeHost 执行完整 Shutdown/Initialize。EquipmentComponent 不再直接创建或销毁 Resource。
 
 ### ApplyItemEffects
 
@@ -185,7 +201,7 @@ class UMHGZEquipmentComponent : public UActorComponent
   3. 按 `EffectType` 分三种路径：
      - **SimpleStat：** Apply `GE_EntryStat`（`UExecCalc_EntryStat` 在 Execute 中从 Spec 读取 EntryID+EntryLevel 后查曲线计算数值）。
      - **Complex：** 实例化 `EffectClass` → Apply。
-     - **WeaponResource：** 不创建 GE。查找当前武器的 ResourceComponent → `ApplyEntryModifier` → 存入 ActiveModifiers Map。
+     - **WeaponResource：** Demo 明确禁用。当前多来源合并和目标参数过滤不可靠；Data Validation/内容审计拒绝 Demo 装备引用该路径，完整词条阶段重新设计来源句柄后再接入。
   4. 所有 GE 统一添加 `GrantedTags: Effect.Source.Equipment`。
 
 > **多武器词条路由机制：** `FEntryModifier::AttributeTag` 作为路由键。`WeaponResource.LongSword.*` 仅长刀识别；`WeaponResource.Shared.*` 所有武器识别。不匹配→静默跳过。**前缀校验：** `ApplyEntryModifier` 检查 `MatchesTag("WeaponResource")`，不匹配则 Warning 日志+跳过。同理 UExecCalc_EntryStat 检查 `MatchesTag("Attribute")`。
@@ -196,9 +212,14 @@ class UMHGZEquipmentComponent : public UActorComponent
 
 ### Delegate
 
-`FOnEquipmentChanged` — Equip/Unequip/Socket 后广播。
+目标 Delegate：
 
-### WeaponResourceComponent 销毁时序
+- `FOnEquipmentStatsChanged` — 任意会改变装备属性/词条的操作后广播。
+- `FOnEquippedWeaponChanged(const FEquippedWeaponSnapshot&)` — 仅当前武器身份变化后广播。
+
+当前 `FOnEquipmentChanged` 只记录旧源码，M2 迁移后不继续作为武器运行时重建入口。
+
+### WeaponResourceComponent 销毁时序（当前源码）
 
 OnEquipmentChanged 内执行顺序：
 1. `RemoveWeaponAbilities` — 取消旧协调器并清除旧武器 Ability
@@ -208,30 +229,21 @@ OnEquipmentChanged 内执行顺序：
 5. `ApplyEntryGEs` 当前为空；词条修饰器 Apply 是后续方案
 6. `RecalculateEquipmentBaseAttributes` 重算基础三围
 
-## DT_WeaponResourceConfig — 武器种类资源映射
+目标时序不再由 EquipmentComponent 直接销毁/创建 Resource；Equipment 重算持久装备/GE，并仅在武器身份变化时广播 Snapshot。Character RuntimeHost 按 [冻结实施计划 §3.4](demo-implementation-plan.md#34-武器资源宿主与清理顺序) 编排 Ability、Resource 和 UI。
 
-DataTable，WeaponTypeTag → ResourceComponent 子类 + 资源 UI Widget 的查找桥接。不含资源数值（各武器资源差异太大，不由统一 DataTable 管理）。
+## UWeaponRuntimeDefinition — 武器运行时定义（目标）
+
+每种武器类型一个 PrimaryDataAsset，具体武器物品定义引用它。它只负责运行时接线，不保存单件武器攻击力/外观/词条。
 
 | 列名 | 类型 | 说明 |
 |------|------|------|
 | WeaponTypeTag | FGameplayTag | 武器种类（主键） |
-| ResourceComponentClass | TSubclassOf\<UMHGZWeaponResourceComponent\> | ★ H-7 修复——资源组件 C++ 子类。`EquipmentComponent::ApplyItemEffects` 据此创建对应子类实例（如 `Weapon.InsectGlaive` → `URes_InsectGlaive`） |
+| ResourceComponentClass | TSubclassOf\<UMHGZWeaponResourceComponent\> | RuntimeHost 创建的资源组件类 |
+| InputProfile | TSoftObjectPtr\<UWeaponInputProfile\> | 原始键、Chord 和方向阈值 |
+| CombatConfig | TSoftObjectPtr\<UWeaponCombatConfigBase\> | 武器专属调参；虫棍为 UInsectGlaiveCombatConfig |
 | ResourceWidgetClass | TSoftClassPtr\<UUserWidget\> | 资源 UI Widget 类 |
 
-> 运行时通过 `UMHGZDataManager::FindWeaponResourceConfig(WeaponTypeTag)` 查表获取对应的 Component 类和 UI Widget。
->
-> **Demo 配置：** 仅需一行——`WeaponTypeTag=Weapon.InsectGlaive`、`ResourceComponentClass=URes_InsectGlaive`、`ResourceWidgetClass=WBP_IG_ResourcePanel`。
-
-## DT_WeaponComboConfig — 武器连招表映射
-
-DataTable，按武器种类映射连招数据。
-
-| 列名 | 类型 | 说明 |
-|------|------|------|
-| WeaponTypeTag | FGameplayTag | 武器种类（主键） |
-| ComboData | TSoftObjectPtr\<UMHGZWeaponComboData\> | 连招表 DataAsset 引用 |
-
-> 运行时 `ApplyItemEffects` 中按 `Def→WeaponTypeTag` 查表，命中则通知 ASC 加载对应 `WeaponComboData` 并授予连招协调器。§2 仅保留此桥接——连招数据的完整定义和协调器运行时逻辑归属动作系统（§3）。
+Demo 创建 `DA_WeaponRuntime_IG`，指向 `URes_InsectGlaive`、`DA_IG_InputProfile`、`DA_IG_Combat` 和 `WBP_IG_ResourcePanel`。虫棍 ComboData 由 CombatConfig 引用。当前 `DT_WeaponResourceConfig/DT_WeaponComboConfig` 只代表旧源码状态，M0/M2 迁移后删除运行时读取，不保留第二入口。
 
 ## GE_EntryStat — 通用词条 GameplayEffect（规划，资产未创建）
 
@@ -263,7 +275,7 @@ class UExecCalc_EntryStat : public UGameplayEffectExecutionCalculation
 
 ## 受击与霸体判定（玩家侧，规划；当前仅有未接通骨架）
 
-**原则：GE Spec 即信息载体——攻击方在 `MakeDamageSpec` 中已将伤害值（SetByCaller）、硬直等级（DynamicTag）、命中位置/冲击方向（GameplayEffectContext→HitResult）打包进 Spec。目标侧 ExecCalc 从 Spec 读取全部信息，不需要独立的"广播"通道。**
+**原则：自定义 GameplayEffectContext 是命中载荷，ExecCalc 只输出合法 Modifier。** 攻击方把真实 HitResult、攻击实例 ID、硬直等级和命中类型写入 Context；数值用 SetByCaller/捕获属性。ExecCalc 不在执行过程中修改 Spec、添加 DynamicTag 或发送事件。
 
 **硬直触发采用 GameplayEvent（非 Tag Trigger）：** 使用 `ASC→HandleGameplayEvent(Combat.Event.HitStagger, &EventData)` 触发 GA_HitReaction，而非依赖 `Combat.State.Hitstun` Tag 的 Add/Remove 检测。理由：Tag Trigger 仅在 Tag 从无到有时触发——若目标已处于 Hitstun（正在播放受击动画），第二次命中添加同一 Tag 不会重新触发 GA_HitReaction，导致连打吞受击动画。GameplayEvent 每次调用独立触发，无此问题。`Combat.State.Hitstun` 仍保留——用于 `CanActivateAbility` 阻塞输入（GA_HitReaction 的 Activate 时添加，EndAbility 时移除）。
 
@@ -274,37 +286,36 @@ class UExecCalc_EntryStat : public UGameplayEffectExecutionCalculation
 步骤 1：攻击方 Apply GE Spec（攻击侧）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 MakeDamageSpec → 构造 GE Spec：
-  - SetByCaller: 伤害值, Hitzone.DefenseMultiplier
-  - DynamicTag: HitStaggerTag (Combat.Stagger.Light/Medium/Heavy), HitzoneTag
-  - GameplayEffectContext: HitResult（含命中点、攻击者位置、冲击方向）
+  - SetByCaller: MotionValue, BaseStagger, 可选 AttackPower/DanceMultiplier
+  - GameplayEffectContext: HitResult、HitStaggerTag、HitzoneTag、AttackInstanceID
 → SourceASC→ApplyGameplayEffectSpecToTarget(Spec, TargetASC)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 步骤 2：目标 ExecCalc 执行（同步，const 纯计算）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 UExecCalc_PlayerDamage::Execute（const 方法，不调用 HandleGameplayEvent）：
-  1. 读目标 Tag：Invincible → 伤害=0, return（GAS 层保底——主要拦截由碰撞层完成：DodgeWindow 已将玩家 Weapon 通道设为 Ignore，攻击 Sweep 物理上穿不过）；Dead → return
-  2. 从 Spec 读伤害值 → 套用 Defense 属性 → 修改 Health
+  1. 读目标 Tag：Invincible/Dead → return，不提交 HitSignal
+  2. 从 Spec 读伤害值 → 套用 Defense 属性 → 得到 FinalDamage，但不直接修改 Health
   3. 从 Spec 读 HitStaggerTag → 与目标霸体 Tag 比较等级：
      无霸体 + 任意 Stagger → 需硬直
      有 Poise.Light + Stagger=Light → 无硬直（霸体足够）
      有 Poise.Light + Stagger=Medium → 需硬直（霸体不足）
      ... 类推
-  4. 若需硬直 → 将硬直信息写入 GE Spec 载体：
-     `Out.AddDynamicAssetTag(HitStaggerTag)` + `Out.SetSetByCallerMagnitude("StaggerLevel", LevelInt)`
-     // ★ 不在此调用 HandleGameplayEvent——ExecCalc 是 const 方法
+  4. 依次输出 `IncomingDamage`、`IncomingStagger`、`IncomingCriticalFlag` Meta
+  5. 最后输出 `IncomingHitSignal=1`
+     // 不修改 Spec、不直接修改 Health、不调用 HandleGameplayEvent
   （ExecCalc 不播放动画——它是 const 纯计算。动画由步骤 2.5+3 触发）
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 步骤 2.5：PostGameplayEffectExecute 触发硬直事件（同步，非 const）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 UMHGZAttributeSet::PostGameplayEffectExecute（GE Apply 完成后 GAS 自动调用）：
-  1. 检查 GE Spec 的 DynamicAssetTags 是否含 Combat.Stagger.*
-  2. 若是 → 构造 FGameplayEventData（含 StaggerLevel=HitStaggerTag, HitResult=Context→GetHitResult()）→
-     ASC→HandleGameplayEvent(Combat.Event.HitStagger, &EventData)
-     // ★ 此处 ASC 非 const，HandleGameplayEvent 安全调用
+  1. 只有 EvaluatedAttribute 为最后的 IncomingHitSignal 时开始结算；读取自定义 Context 的 HitStaggerTag/HitResult
+  2. 原子读取并清零 IncomingDamage/IncomingStagger/IncomingCriticalFlag/IncomingHitSignal
+  3. Clamp 并扣 Health，记录 ActualDamage；若 Stagger > 0，构造 FGameplayEventData → ASC→HandleGameplayEvent(Combat.Event.HitStagger)
+  4. 用同一组 ActualDamage/会心/HitResult 生成一次 HitFeedbackResult；从 Target ASC ActorInfo 的 AvatarActor 查 HitFeedbackRouter，木桩无独立 Avatar 时才回退 OwnerActor
 
-> **设计理由：** `UGameplayEffectExecutionCalculation::Execute_Implementation` 是 const 方法，无法调用非 const 的 `HandleGameplayEvent`。将事件触发移至 AttributeSet 的 `PostGameplayEffectExecute`（非 const 上下文），利用 GE Spec 的 DynamicAssetTags 作为中间载体。
+> 突进回旋斩的反击发生在 Apply GE 之前：Character 的 IncomingHitResolver 让当前反击 Token 检查并消费 AttackInstanceID；成功后不创建伤害 Spec，也不会进入本流程。普通受击才由 ExecCalc/Meta Attribute 触发硬直。
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 步骤 3：GA_HitReaction 自动激活（异步，播 Montage）

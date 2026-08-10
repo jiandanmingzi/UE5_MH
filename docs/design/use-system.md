@@ -62,7 +62,7 @@ UCLASS(BlueprintType, Blueprintable, Abstract, EditInlineNew)
 class UMHGZSpecialAction : public UPrimaryDataAsset
 ```
 
-不属于常规战斗/移动系统、需玩家主动触发的动作（探测、钩爪、拍照、演奏等）。
+不属于常规战斗/移动系统、需玩家主动触发的动作（探测、拍照、演奏等）。本项目不包含钩爪。
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|

@@ -2,12 +2,17 @@
 
 > **实施状态说明（以源码为准）：** 本文保留完整目标设计。除本节“当前实现”以及正文中明确标注为已实现的内容外，其余类、字段、资产、流程和验证项均是待实现或待接入的详细方案，不表示当前项目已经具备。
 
+> **项目动作口径：** 动画和机制可参考《世界》《崛起》《荒野》，但项目采用原创连招规则，不以逐项复刻某一作为目标。虫棍具体动作见 [insect-glaive-actions.md](insect-glaive-actions.md)；通用动作层不得包含翔虫、集中模式、钩爪或虫棍资源判断。
+
+> **冻结实施口径：** 后续代码以 [Demo 冻结实施计划](demo-implementation-plan.md) 为公共接口真相源。当前源码中的 `FComboNode/ComboTable`、全局 `PreviousState`、`bIsContinuous` 成本语义和 ASC 直接解释武器输入都是待迁移旧结构，不得继续扩展。
+> **重构边界：** 具体保留、重写、删除与旧资产处理见 [Demo 重构范围与资产迁移](demo-refactor-scope.md)。
+
 ## 当前实现
 
 | 模块 | 当前状态 |
 |------|----------|
 | 移动 | `AMHGZCharacter::DoMove` 只计算 `InputMagnitude`、`TargetCruiseSpeed` 和 `DesiredSpeed`，不调用 `AddMovementInput`；AnimBP 使用 Motion Matching/Root Motion。角色在 `Tick` 中按 `TurnRate` 限制最大转角，默认 `360°/s`，180° 不再瞬转。 |
-| 冲刺与瞄准 | 冲刺是 Character 上的 `bSprintHeld`，瞄准由 Character 输入增删 `Combat.State.Aiming`；当前不是 `GA_Sprint`/`GA_Aim` 驱动。 |
+| 冲刺与瞄准 | 冲刺是 Character 上的 `bSprintHeld`；当前瞄准只有一个宽泛 `Combat.State.Aiming`，目标设计会拆成 Kinsect/Action/Slinger 上下文。当前不是 `GA_Sprint`/`GA_Aim` 驱动。 |
 | GAS 输入 | ASC 在初始化时把 InputAction 的 `Started`/`Completed` 绑定到 GameplayTag 路由；`BindInputAction` 只更新配置数组，不会在初始化完成后补绑 EnhancedInput。 |
 | 攻击 | `UMHGZAttackAbility`、Montage Task、Socket Sweep、多段/多跳伤害和 `AnimNotifyState_AttackCollision` 已实现。当前 Sweep 直接查询，不创建临时碰撞组件。 |
 | 连招 | `UGA_WeaponComboCoordinator` 使用 `UMHGZWeaponComboData::ComboTable` 和 `FComboNode::InputTag`。当前只匹配状态、输入、Required/Blocked Tags、耐力门槛和优先级；`DirectionalInput`、`bRequiresWindowOpen`、`bAutoTransition`、`bRequiresHitToGrantTags` 尚未接入匹配流程。 |
@@ -15,7 +20,7 @@
 | 边缘跳越 | `UMHGZEdgeVaultComponent` 目前仅为关闭 Tick 的桩组件；检测链和 `GA_EdgeVault` 属于下文保留方案。 |
 | 基础消耗/冷却 | 持续扣耐可用；单次扣耐被无效的 `MakeOutgoingSpec(nullptr)` 条件包住，当前可能不生效。`CooldownTag` 只添加不移除，`CooldownDuration` 尚未使用。 |
 
-**设计原则：** GAS + EnhancedInput 驱动，通过 GameplayTag 桥接输入与 Ability。核心能力（移动/闪避）始终可用，武器能力（连招/资源技能）由装备系统动态授予/移除。**无独立跳跃键——边缘跳越（Edge Vault）替代。**
+**设计原则：** GAS + EnhancedInput 驱动，通过输入快照和 GameplayTag 桥接 Ability。协调器只处理武器无关的状态转移；武器能力、资源和特殊判定由装备时动态授予的派生层提供。**无独立跳跃键——边缘跳越（Edge Vault）替代。**
 
 ## 移动实现
 
@@ -38,11 +43,11 @@
 | 受击硬直 Montage | 击退距离由 Impulse + Montage RootMotion 共同决定 | ✅ true |
 | 待机/收刀行走 | 摇杆+CMC 正常移动 | ❌ false |
 
-### MotionWarping——FBX 无根骨骼位移数据时的补位方案
+### MotionWarping——有根位移动画的目标对齐工具
 
 #### 问题背景：外部游戏提取的 FBX 通常缺少根骨骼位移
 
-从商业游戏（如怪猎崛起 RE Engine）解包获得的 FBX 动画，其骨骼层级与 UE5 的 RootMotion 预期存在结构性差异：
+从三部曲提取并重定向的 FBX 动画，其骨骼层级与 UE5 RootMotion 预期可能不同：
 
 ```
 UE5 RootMotion 预期结构：
@@ -59,20 +64,19 @@ RE Engine FBX 实际结构：
 
 1. 打开动画序列 → 骨骼树面板 → 选中根骨骼
 2. 曲线编辑器查看 Translation X/Y/Z 曲线
-3. **曲线全程水平线 = 根骨骼无位移数据 → 必须用 MotionWarping 补偿**
+3. **曲线全程水平线 = 根骨骼无位移数据 → 不能依赖 MotionWarping 生成位移，应使用 RootMotionSource/AbilityTask/自定义轨迹**
 
 #### MotionWarping 核心机制
 
-**MotionWarping 不是瞬移。** 工作方式：
+MotionWarping 修改动画已经提供的根运动，使动作在 Warp Window 内对齐到目标位置/朝向。它不是通用运动组件，也不能把总平移为零的动画稳定拉成任意距离冲刺。
 
 ```
-原始动画根骨骼轨迹：起点 ════════ 终点（前移 50cm，动画师 K 的小幅位移）
-设定 Warp Target：   起点 ════════════════════════ 目标点（前移 800cm）
+原始动画根骨骼轨迹：起点 ═════════════ 终点（已有明确前移）
+设定 Warp Target：   起点 ═════════════════ 目标点（在允许缩放范围内校正）
 
 逐帧处理：
-  每帧读取原始动画根骨骼位移 → 乘以缩放因子（或重新映射到目标点）
-  → 最终累积位移 = 起点到目标点的向量
-  → 角色在 Warp Window 时长内平滑移动到目标点
+  每帧读取原始动画根骨骼位移 → 在配置的平移/旋转限制内重映射
+  → 保持动画相位并对齐到目标
 ```
 
 #### 位移速度控制
@@ -83,11 +87,11 @@ MotionWarping 不提供类似 CMC 的加速度曲线，但可通过以下参数�
 |----------|------|----------|
 | **Warp Window 时长** | 位移被拉伸的时间段。窗越短→速度越快；窗越长→越平滑 | `AnimNotifyState_MotionWarping` 的 Start/End 时间 |
 | **Warp Translation 轴开关** | 控制 X/Y/Z 各轴是否参与 Warp、最大缩放倍数 | NotifyState 的 `WarpTranslation` 属性 |
-| **Montage Play Rate** | 与 Warp 叠加生效。Rate=2.0 + Warp=800cm → 视觉速度翻倍 | GA 的 `PlayMontageAndWait` 的 `Rate` 参数 |
+| **Montage Play Rate** | 改变动画与 Warp Window 的实际持续时间；必须与攻击帧一起校准 | GA 的 `PlayMontageAndWait` 的 `Rate` 参数 |
 | **自定义 Warp Curve** | 自定义缓入缓出曲线（Ease-In/Out） | `MotionWarpingComponent` 的 Warp Curves 资产 |
 | **分段 Warp** | 同 Montage 内多个 Warp Notify 覆盖不同时间片段 | 动画师在 Montage 时间轴上分段拖拽 |
 
-> **精细曲线方案：** 如需精确的"先加速后减速"曲线，可 C++ 派生 `UMotionWarpingModifier`，在 `OnWarpUpdate` 中实现自定义 easing 逻辑。
+> **选择规则：** 有可用根运动且只需有限目标对齐时用 MotionWarping；需要指定距离、最高点、贯通、惯性继承或零根位移动画时用通用位移任务。虫棍觉虫击、猎虫滑翔、操虫斩和降龙按 [虫棍动作设计](insect-glaive-actions.md) 选择后者。
 
 #### 高速突刺 + 命中分支的 MotionWarping 配合
 
@@ -276,19 +280,19 @@ EnhancedInput → Tag → ASC → GA → Montage → RootMotion 覆盖 CMC 位�
 
 ## 空中动作系统（规划，当前无空中 GA）
 
-**设计原则：** 空中招式按位移来源分为 5 类，通过**惯性速度状态（AerialVelocity）**在 CMC 与 GA 之间交接动量，AnimBP 按 `Combat.State.Aerial.Falling.*` Tag 选择下落/收招 Pose。
+**设计原则：** 通用层通过**惯性速度状态（AerialVelocity）**在 CMC 与 GA 之间交接动量，并保证任一时刻只有一个位移所有者。虫棍动作选择和派生以 [insect-glaive-actions.md §6](insect-glaive-actions.md#6-舞踏与空中动作) 为准。
 
 ### 招式分类与位移策略
 
-| 分类 | 虫棍示例 | 位移特征 | 实现方案 |
+| 分类 | 虫棍示例 | 位移特征 | 目标实现 |
 |------|---------|----------|----------|
-| **① FBX 自带位移** | 空中回避(137)、降龙上升(173)、撑杆前半 | FBX 已 K 帧，方向锁定（4向/8向） | `bEnableRootMotion=true` + `MaxCorrectionAngle` 方向修正 |
-| **② 准心方向 + 固定距离** | 操虫斩(162)、铁虫丝跳跃(178) | 方向=按键时准心朝向，最大距离固定 | MotionWarping `AddOrUpdateWarpTargetFromLocation` |
-| **③ 固定垂直 + 摇杆水平缩放** | 撑杆起跳(141-146)、舞踏(189)、猎虫滑翔(190)、操虫斩命中后(163) | 上升高度固定，水平受摇杆影响（前推增、后推减） | 垂直: FBX RootMotion 或 Task；水平: RootMotion Task + 摇杆缩放 |
-| **④ 纯惯性下落** | 被动下坠(74)、持刀下坠(76)、起跳下坠(143) | 仅重力+空气摩擦 | **无 GA**——CMC 全权管理 |
-| **⑤ 惯性 + 摇杆参与** | 跳跃斩(105)→下坠(106)、急袭突刺 | 继承动量 + 摇杆修正 + 重力 | RootMotion Task（Additive 模式合成） |
+| **① 动画根运动** | 具有可靠 Root 曲线的空中回避/短动作 | 轨迹主要由动画给出 | Montage RootMotion；MotionWarping 只做有限朝向/落点校正 |
+| **② 受限定向位移** | 操虫斩、猎虫滑翔、觉虫击猎人位移 | 激活时快照方向，具有最大距离和碰撞终止 | RootMotionSource/AbilityTask + Capsule Sweep + 距离/时长上限 |
+| **③ 弹跳/舞踏** | 操虫斩命中、突进回旋斩反击后的舞踏 | 明确初速度或最高点，随后交给重力 | 由统一 Launch/Ballistic Task 计算速度；结束写回 CMC |
+| **④ 惯性叠加攻击** | 强化跳跃斩、急袭突刺 | 保留进入动作时水平惯性并允许受限空中修正 | Additive RootMotionSource/Task；动画位移与惯性合成 |
+| **⑤ 自由下落** | 空中动作结束后的 Falling | 仅重力、空气控制和衰减 | 无 GA 位移，CMC 全权管理 |
 
-> ③ 的上升方向由动画类型决定（撑杆前跳=前上、舞踏=正上、猎虫滑翔=前上、操虫斩命中=后上），水平位移是"动画预设方向 × 摇杆缩放"。⑤ 的位移方向完全由当前惯性+摇杆实时计算。
+任何运行时轨迹都必须输出明确的 Start、EndReason、FinalVelocity，并在碰墙、受击、死亡、落地和换武器时清理。不能在 `EndAbility` 临时读取“最后一帧根位移”猜测整段动作末速度。
 
 ### 惯性系统——AerialVelocity 状态
 
@@ -316,10 +320,10 @@ Velocity=(vx,vy,vz)
 暂停 Velocity 更新  →  快照 Velocity
                         ↓
                     根据分类处理：
-                    ① RootMotion 直接
-                    ② MotionWarping
-                    ③ RootMotion Task(垂直) + 摇杆缩放(水平)
-                    ⑤ RootMotion Task(惯性+摇杆, Additive)
+                    ① Montage RootMotion
+                    ② Bounded Directional Task
+                    ③ Ballistic/Vault Task
+                    ④ Additive Inertia Task
                         ↓
   ↓ GA 结束              ↓
 Velocity=最终合成值  ←  回灌               下落 Pose Tag 写入
@@ -329,145 +333,64 @@ CMC 管理重力+摩擦
 Velocity归零→Grounded    可激活新 GA          落地动画→Idle
 ```
 
-### 各分类实现细节
+### 通用位移任务协议
 
-#### ① FBX 自带位移
+所有武器共享 `UAbilityTask_MHGZMovement`，字段与冻结计划保持一致：
 
-```cpp
-void UGA_IG_AirDodge::EndAbility(...)
-{
-    // 从 Montage 末帧反算速度（不能用 CMC→Velocity——可能已衰减）
-    UAnimInstance* Anim = Mesh->GetAnimInstance();
-    FVector RootDelta = Anim->GetRootMotionDelta();
-    FVector FinalVelocity = RootDelta / Anim->GetDeltaSeconds();
-    CMC->Velocity = FinalVelocity;
-
-    ASC->AddLooseGameplayTag(Combat.State.Aerial.Falling.IG_AirDodge);
-    Super::EndAbility(...);
-}
+```text
+FWeaponMovementRequest:
+  OwnerAction, Mode, DirectionSnapshot, MaxDistance, Duration, DistanceCurve,
+  InheritedVelocity, InheritedVelocityRatio,
+  BallisticMode, ApexHeight, LaunchVelocity, AirControlScale,
+  RotationPolicy, MaxTurnRateDegrees, SteeringConeHalfAngle, WarpTargetName,
+  CollisionPolicy, CancelVelocityPolicy
+FWeaponMovementResult:
+  EndReason, TravelledDistance, FinalVelocity, BlockingHit
 ```
 
-#### ② 准心方向 + 固定距离
+`Mode` 只允许 BoundedDirectional/BallisticVault/AdditiveInertia。`DirectionSnapshot` 在输入发生时确定；任务执行中不能持续追踪准心。`CollisionPolicy` 至少区分 WorldBlock、MonsterHit、Landing、IgnoreHitzoneForMovement。任务按 ActionToken 拥有唯一 Movement Token/RootMotionSource ID、旋转/steering 权限和唯一 WarpTargetName；Character 普通移动在该 Token 有效时不得另外写 ActorRotation。所有 Ability 结束路径精确回收本动作对象。
 
-```cpp
-void UGA_IG_KinsectSlash::ActivateAbility(...)
-{
-    FVector Target = Avatar->GetActorLocation()
-                   + GetAimComponent()->GetAimDirection() * MaxSlashDistance;
-    MotionWarpingComponent->AddOrUpdateWarpTargetFromLocation(
-        FName("KinsectSlashTarget"), Target);
-    PlayMontageAndWait(KinsectSlashMontage);
-}
-// 命中后：结束当前 GA，激活 ③ 类 GA 处理命中后动画
-// ③ 类 GA 的 Task(bIsAdditive=false) 覆盖 Warp 残留速度
-```
+弹跳任务不能用“距离/Duration”冒充三维初速度。若配置为最高点 `ApexHeight` 与时长 `Duration`，应由重力求解初始 Z 速度；若配置为显式 LaunchVelocity，则最高点只作为验证结果。
 
-#### ③ 固定垂直 + 摇杆水平缩放
-
-```cpp
-void UGA_IG_PoleVaultForward::ActivateAbility(...)
-{
-    FVector2D Stick = GetLastMovementInputVector();
-    float StickScale = FMath::Clamp(1.0f + Stick.Y, 0.2f, 1.8f);  // 前推×1.8，后推×0.2
-    float HDist = PoleVaultBaseForwardDistance * StickScale;
-
-    FVector LaunchVel = Avatar->GetActorForwardVector() * HDist / Duration;
-    LaunchVel.Z = PoleVaultBaseHeight / Duration;
-    LaunchVel += CMC->Velocity * InertiaPreserveRatio;
-
-    UAbilityTask_ApplyRootMotionConstantForce* Task =
-        UAbilityTask_ApplyRootMotionConstantForce::ApplyRootMotionConstantForce(
-            this, TEXT("PoleVault"), LaunchVel, Duration,
-            false, nullptr, ERootMotionFinishVelocityMode::SetVelocity);
-    Task->ReadyForActivation();
-}
-```
-
-#### ⑤ 惯性 + 摇杆参与
-
-```cpp
-void UGA_IG_JumpSlash::ActivateAbility(...)
-{
-    FVector Inherited = CMC->Velocity;
-    FVector2D Stick = GetLastMovementInputVector();
-    FVector StickDir = Avatar->GetActorForwardVector() * Stick.Y
-                     + Avatar->GetActorRightVector() * Stick.X;
-
-    FVector Vel = Inherited * 0.7f + StickDir * StickForce + FVector(0,0,-DownwardForce);
-    Vel = Vel.GetClampedToMaxSize(MaxAerialSpeed);
-
-    UAbilityTask_ApplyRootMotionConstantForce* Task = ...;
-    Task->ReadyForActivation();
-}
-```
-
-### RootMotion Task vs MotionWarping — 惯性行为对照
+### RootMotion Task vs MotionWarping — 选择边界
 
 | | RootMotion Task（SetVelocity） | MotionWarping |
 |------|:--:|:--:|
 | **运行时速度正确反映在 CMC？** | ✅ 每帧 | ⚠️ 反映，但 Warp 是"位移缩放"而非"速度控制" |
-| **结束时自动保留惯性？** | ✅ `SetVelocity` 模式自动写 CMC | ❌ 需手动从 `GetRootMotionDelta` 反算回灌 |
+| **结束时保留惯性？** | ✅ 任务显式返回 FinalVelocity | 仅在动画根运动连续且已验证时可取动画提取速度 |
 | **能叠加惯性（Additive）？** | ✅ `bIsAdditive=true` | ❌ Warp 只修改动画内位移 |
 | **能覆盖惯性（重置）？** | ✅ `bIsAdditive=false` | ❌ 需配合 Task 覆盖 |
-| **适用分类** | ③ ⑤ | ② |
+| **适用分类** | ② ③ ④ | ① |
 
-> **MotionWarping 的坑：** Montage 结束和 `EndAbility` 之间可能差 1~数帧，此时 CMC 已恢复自主物理（`BrakingDecelerationFalling` 生效），直接读 `CMC→Velocity` 得到的是已衰减的速度。正确做法：从 `UAnimInstance::GetRootMotionDelta()` 反算末帧瞬时速度。
+> `GetRootMotionDelta()` 只代表被查询帧的动画根位移，不是可靠的整段动作末速度合同。需要惯性的动作必须让位移任务或经验证的动画提取器显式产出 FinalVelocity。
 
-### 统一 EndAbility — 空中 GA 速度回灌
+### 统一 EndAbility — 空中 GA 速度交接
 
-```cpp
-void UMHGZAttackAbility::EndAbility(...)
-{
-    // 仅空中 GA 需要惯性保留
-    if (ASC->HasMatchingGameplayTag(Combat.State.Aerial))
-    {
-        UAnimInstance* Anim = Mesh->GetAnimInstance();
-        if (Anim && CurrentMontage)
-        {
-            if (!bHasActiveRootMotionTask)
-            {
-                // ①② 类（FBX RootMotion / MotionWarping）：
-                // Task 未接管位移 → 从 Montage 末帧反算速度
-                FVector RootDelta = Anim->GetRootMotionDelta();
-                if (!RootDelta.IsNearlyZero())
-                {
-                    CMC->Velocity = RootDelta / Anim->GetDeltaSeconds();
-                }
-            }
-            // ③⑤ 类（RootMotion Task）：Task 已在结束时自动写 CMC→Velocity
-        }
-    }
-
-    Super::EndAbility(...);
-}
-```
-
-> `bHasActiveRootMotionTask` 在 GA 激活 RootMotion Task 时设为 true，Task 结束时（`SetVelocity` 模式自动写 CMC）或 `EndAbility` 清理时设回 false。
+Ability 保存当前位移任务句柄和最近一次有效 `FinalVelocity`。正常完成使用任务输出；取消时按动作的 `CancelVelocityPolicy` 选择保留当前速度、清零指定轴或交给 CMC。清理顺序固定为：停止攻击窗口 → 结束位移任务 → 写回速度 → 更新 Aerial/Falling 状态 → 通知协调器。
 
 ### 各分类惯性行为总览
 
 | 分类 | 位移源 | 结束时机 | 惯性交接方式 |
 |------|--------|---------|-------------|
-| ① | Montage RootMotion | Montage 末帧 | `EndAbility` 手动：`GetRootMotionDelta() / Δt` → CMC |
-| ② | MotionWarping | Warp 窗口结束 | `EndAbility` 手动：同上 |
-| ② 命中 → ③ | — | GA 切换 | ③ 类 Task（`bIsAdditive=false`）覆盖残留速度 |
-| ③ | RootMotion Task | Task 结束 | `SetVelocity` 自动 → CMC |
-| ④ | CMC 物理 | 持续直到落地 | CMC 自身（重力+摩擦） |
-| ⑤ | RootMotion Task（Additive） | Task 结束 | `SetVelocity` 自动 → CMC |
+| ① | Montage RootMotion | Montage/Warp 窗口结束 | 经验证的动画速度提取器输出，不在 EndAbility 猜测最后一帧 |
+| ② | Bounded Directional Task | 命中/阻挡/距离/超时 | Task FinalVelocity → CMC |
+| ③ | Ballistic/Vault Task | 时长/顶棚/落地/取消 | Task FinalVelocity → CMC |
+| ④ | Additive Inertia Task | 动作段完成/取消 | 合成 FinalVelocity → CMC |
+| ⑤ | CMC 物理 | 持续直到落地 | CMC 自身管理 |
 
 ### 空中收招后的状态流向
 
 ```
-空中回避(137) 结束 → ① → 末速度写入 CMC → ④下落
-操虫斩(162) 命中 → ② → ③ 类 GA 重置惯性 → ③ 结束 → ④下落
-操虫斩(162) 未命中 → ② → 末速度写入 CMC → ④下落
-撑杆起跳(141) 结束 → ③ → SetVelocity 自动 → ④下落
-跳跃斩(105) 结束 → ⑤ → SetVelocity 自动 → ④下落
+操虫斩命中 → ② 定向位移结束 → ③ 舞踏弹跳 → ⑤ 下落/继续派生
+操虫斩未命中 → ② 输出末速度 → ⑤ 下落
+猎虫滑翔命中 → ② 停止水平位移 → ③ 小弹跳（不加舞踏层）→ 空战
+强化跳跃斩/急袭突刺 → ④ 合成惯性 → ⑤ 下落或显式落地段
+降龙 → ②/③ 组合任务 → 落地段 → Grounded
 ```
 
 ### 空中动作次数限制
 
-**设计思路：** 不维护数字计数器，用 Cant（禁止）Tag 做"空中体力槽"。默认无限制——用了才禁止。每轮滞空：空中回避 ×1 + 空中攻击 ×1。两者用完→两个 Cant 同时存在→各自 BlockedTags 命中→双阻塞。舞踏/操虫斩命中后清 Cant 重置。
+空中回避和普通空中攻击许可仍可使用 `CantDodge`/`CantAttack` Tag；舞踏层数则必须是虫棍资源组件中的显式计数，不能用 Cant Tag 代替。只有操虫斩命中和突进回旋斩反击能触发舞踏并按动作配置重置空中许可。
 
 ```
 权限模型（Tag 驱动，零交叉逻辑）：
@@ -483,7 +406,7 @@ void UMHGZAttackAbility::EndAbility(...)
     ├── 两者都用了 → CantDodge + CantAttack 都存在
     │     → 各自 BlockedTags 各自命中 → 双阻塞
     │
-    └── ★ GA_DanceJump 激活（命中触发/操虫斩命中后）
+    └── ★ IG DanceVault（仅操虫斩命中/突进回旋斩反击）
           → 移除 CantDodge + CantAttack（重置）
 
 不需要 Exhausted——两个 Cant 各自独立，不需要"汇总"标签。
@@ -493,14 +416,15 @@ void UMHGZAttackAbility::EndAbility(...)
 
 ### 着陆重置——落地后恢复连招
 
-**问题：** 落地链路绕过了协调器（CMC `OnLanded` 事件，不经过任何 GA）→ `CurrentState` 残留空中攻击的招式名 → 地面 `FComboNode` 无法从 `"Idle"` 匹配起手攻击。
+**当前问题：** 落地链路绕过了协调器（CMC `OnLanded` 事件，不经过任何 GA）→ `CurrentState` 残留空中攻击的招式名 → 旧 `FComboNode` 无法从 `"Idle"` 匹配起手攻击。
 
 **方案：** 在 `AMHGZCharacter::OnLanded()` 中：
-1. ASC 移除所有 `Aerial`/`Falling.*`/`CantDodge`/`CantAttack` Tag → 添加 `Grounded`
-2. `Coordinator→OnLanded()` → `CurrentState = "Idle"` + 清除 `Combo.Branch.*` Tag
-3. AnimBP 自然检测 `Grounded` Tag → 播放 Landing→Idle 过渡
+1. 通过句柄移除当前空中动作实例拥有的 `Aerial`/`Falling.*`/`CantDodge`/`CantAttack` Tag → 添加 `Grounded`
+2. 当前武器资源收到 `OnLanded`；虫棍清空舞踏层数
+3. `Coordinator→OnLanded()` → `CurrentState = "Idle"` + 清除本次连招拥有的 Branch Tag
+4. AnimBP 自然检测 `Grounded` Tag → 播放 Landing→Idle 过渡
 
-> 着陆不是 GA——不产生伤害、不消耗资源、不需要 Montage。只是状态复位。落地后的攻击由协调器正常匹配 `StateName="Idle"` 的 `FComboNode` 行触发。
+> 着陆不是 GA——不产生伤害、不消耗资源、不需要 Montage。它向协调器提交 `ResetCombo(Landed)`；落地后的攻击从 `SourceState="Idle"` 的 `FComboTransition` 匹配。
 
 ### GameplayTag 扩展
 
@@ -509,11 +433,12 @@ Combat.State.Aerial                               ← 已有
 Combat.State.Aerial.Falling                       ← 下落态
 Combat.State.Aerial.Falling.Default               ← 兜底 Pose
 Combat.State.Aerial.Falling.IG_AirDodge
-Combat.State.Aerial.Falling.IG_JumpSlash
-Combat.State.Aerial.Falling.IG_PoleVault
-Combat.State.Aerial.Falling.IG_DanceJump
-Combat.State.Aerial.Falling.IG_KinsectSlide
-Combat.State.Aerial.Falling.IG_KinsectSlashHit
+Combat.State.Aerial.Falling.IG_StrongJumpingSlash
+Combat.State.Aerial.Falling.IG_DanceVault
+Combat.State.Aerial.Falling.IG_KinsectGlide
+Combat.State.Aerial.Falling.IG_KinsectSlash
+Combat.State.Aerial.Falling.IG_DescendingThrust
+Combat.State.Aerial.Falling.IG_DivingWyvern
 Combat.State.Aerial.CantDodge                  ← 空中回避已用
 Combat.State.Aerial.CantAttack                 ← 空中攻击已用
 Combat.State.Aerial.Landing                       ← 落地瞬间过渡
@@ -534,13 +459,28 @@ CMC 边缘检测 + 自定义组件触发 + GA 播动画。推荐方案 A（组�
 
 ## 输入流
 
+**当前源码：**
+
 ```
 EnhancedInput → InputAction → Tag → ASC→OnInputActionTriggered(Tag)
   → 武器Tag? → Coordinator→HandleWeaponInput
   → 非武器Tag? → TryActivateAbilityByTag
 ```
 
-## FAbilityInputBinding — 输入-技能绑定
+**冻结目标：**
+
+```text
+EnhancedInput
+  -> UMHGZWeaponInputRouterComponent
+     -> UWeaponInputProfile 解析组合、修饰键、姿态和世界方向
+     -> FWeaponInputSnapshot(InputTag, HeldModifiers, Direction, Phase, SequenceID)
+        -> 武器输入：Coordinator->HandleWeaponInput(Snapshot)
+        -> 非武器输入：显式通用输入路由
+```
+
+ASC 保留 Ability Spec、GE 和激活能力，但不再直接解释物理按键或把任意 Completed 转成统一 ChargeReleased。
+
+## FAbilityInputBinding — 旧输入结构（M1 删除）
 
 ```
 USTRUCT(BlueprintType)
@@ -553,6 +493,8 @@ struct FAbilityInputBinding
 | AbilityTag | FGameplayTag | 空 | 触发时激活的 Ability Tag，也作为蓄力 GA 的 Completed 事件标识 |
 | bConsumeInput | bool | true | 触发后是否消耗此次输入（防止一个按键触发多个 Ability） |
 
+该结构只记录当前源码，不是目标接口。M1 删除 ASC 的 `InputBindings/ActionToTag/bInputBound` 和 Enhanced Input 回调；不得把它迁移成第二套并行输入系统。
+
 ## UMHGZAbilitySystemComponent — 扩展 ASC
 
 ```
@@ -560,7 +502,7 @@ UCLASS()
 class UMHGZAbilitySystemComponent : public UAbilitySystemComponent
 ```
 
-扩展 UE 原生 ASC，增加输入绑定和批量授予能力。
+扩展 UE 原生 ASC。当前源码包含输入绑定和批量授予；M1 后 ASC 只保留 GAS 身份、Ability 授予/移除、SpecHandle 查找和带 ActivationContext/InputSnapshot 的激活接口。ASC 不拥有 IMC、UInputAction、物理键状态或 Pawn 初始姿态。
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
@@ -568,7 +510,7 @@ class UMHGZAbilitySystemComponent : public UAbilitySystemComponent
 | CoreAbilities | TArray\<TSubclassOf\<UGameplayAbility\>\> | "Ability\|Core" | 空 | 核心能力列表（BeginPlay 时自动授予） |
 | CoreAttributeEffects | TArray\<TSubclassOf\<UGameplayEffect\>\> | "Ability\|Core" | 空 | 核心 GE 列表（BeginPlay 时自动 Apply） |
 
-### 核心方法
+### 当前旧方法（M1 删除输入职责）
 
 - `void InitializeAbilitySystem()`
   - 作用：依次执行：(1) 设置初始 GameplayTag（`Combat.State.Sheathed`、`Combat.State.Grounded`），(2) 授予 CoreAbilities，(3) Apply CoreAttributeEffects，(4) 遍历 `InputBindings` 建立 `ActionToTag`，绑定 EnhancedInput 的 `Started` 和 `Completed`。回调从 `FInputActionInstance::GetSourceAction()` 查回 Tag。
@@ -602,27 +544,27 @@ class UMHGZAbilitySystemComponent : public UAbilitySystemComponent
   - 当前作用：只更新 `InputBindings` 数组；若 ASC 已完成输入初始化，不会立即调用 EnhancedInput `BindAction` 或更新现有 `ActionToTag`，动态补绑仍需实现。
   - 注意：限制攻击/不可操作场景不通过解绑实现——GAS 的 `CanActivateAbility` 通过 GameplayTag 阻塞拦截激活。
 
-### 统一派发流程
+### 目标统一派发流程
 
 ```
 EnhancedInput (所有按键/摇杆)
-  → FInputActionInstance.SourceAction → ActionToTag → AbilityTag
-    → Tag.MatchesTag("Input.Weapon") ?
-        ├── 是 → 查找 Active 的 GA_WeaponComboCoordinator
-        │        → Coordinator→HandleWeaponInput(AbilityTag)
-        │        → 协调器内部：同步收集候选 → 条件/优先级匹配 → TryActivateAbility(Handle)
-        │
-        └── 否 → ASC→TryActivateAbilityByTag(AbilityTag)
-                 → GAS 标准路径
+  → WeaponInputRouter + 当前 UWeaponInputProfile
+  → 组合键消费 / Aim 上下文 / 世界方向分类
+  → FWeaponInputSnapshot
+    → Weapon Tag → Coordinator→HandleWeaponInput(Snapshot)
+      → ExecuteTransition → ASC→TryActivateWeaponAbility(Handle, ActivationContext)
+    → 通用 Tag → 显式通用路由（闪避/交互/快捷栏）
 ```
+
+所有分支都从同一 `HandleResolvedInputSnapshot` 进入：武器 Tag 交给 Coordinator，`Input.Dodge` 等通用 Tag 按明确 SpecHandle 激活并注册快照。任何 GA 都不能回退读取原始 InputAction 或 `GetLastMovementInputVector()`。
 
 ### Ability 分类与输入归属
 
 | 类别 | 示例 | 授予方 | 输入绑定 |
 |------|------|--------|----------|
-| 核心能力 | 移动、闪避、边缘跳越、交互 | ASC→CoreAbilities（BeginPlay） | ASC→InputBindings（EdgeVault 例外——由 UMHGZEdgeVaultComponent 代码触发，不绑定按键） |
-| 武器连招 | Y/B/RT/组合键 | 装备时 ASC→GrantWeaponAbilities | ASC→InputBindings（IA_Y→Input.Weapon.Y），由 `OnInputActionTriggered` 判别为武器 Tag 后转发给协调器 |
-| 特殊动作 | 钩爪、探测、拍照 | 快捷栏手动分配 | 经快捷栏→UseAction→Ability |
+| 核心能力 | 闪避、边缘跳越、交互 | ASC→CoreAbilities | InputComponent/Router→Resolved Snapshot→显式通用路由（EdgeVault 由组件事件触发） |
+| 武器连招 | Y/B/RT/组合键 | 装备时 ASC→GrantWeaponAbilities | WeaponInputRouter→InputSnapshot→Coordinator |
+| 特殊动作 | 探测、拍照等非武器操作 | 快捷栏手动分配 | 经快捷栏→UseAction→Ability；项目不设计钩爪 |
 | 消耗品 | 喝药、投掷 | 快捷栏自动登记 | 经快捷栏→UseAction→Ability |
 
 ## UMHGZGameplayAbility — Ability 基类
@@ -632,7 +574,7 @@ UCLASS(BlueprintType, Blueprintable, Abstract)
 class UMHGZGameplayAbility : public UGameplayAbility
 ```
 
-所有 Ability 的基类，统一处理耐力消耗、冷却、输入标签。
+所有 Ability 的基类，统一处理耐力消耗、冷却、输入标签。下表先记录当前源码字段；目标实现不保留 `bIsContinuous` 的混合语义。
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
@@ -647,21 +589,30 @@ class UMHGZGameplayAbility : public UGameplayAbility
 | MaxCorrectionAngle | float | "Ability\|Correction" | 30.0 | 攻击激活瞬间最大方向修正角度（以角色朝向为基准，扭向摇杆方向）。0=禁止修正 |
 | AudioIdentityTag | FGameplayTag | "Ability\|Audio" | 空 | 挥刀风声身份标签（如 `Audio.Swing.LS_VerticalSlash`）。GA 蓝图必配——`ActivateAbility` 时以此为 Key 查 `WeaponDef.SwingSoundOverrides`，命中则覆盖 `DamageConfig.SwingSound`。不同招式用不同 GA 蓝图→不同 Tag→不同音效，武器覆盖是可选增量 |
 
-> **FScalableFloat：** 所有 `FScalableFloat` 字段统一关联全局 CurveTable `DT_AbilityScalars`，Ability 只需指定行名（RowName）。`StaminaCost` 是 GA 的实际耐力扣除量；`FComboNode::StaminaRequired` 是协调器的匹配门槛，不负责扣耐。
+> **FScalableFloat：** 所有 `FScalableFloat` 字段统一关联全局 CurveTable `DT_AbilityScalars`，Ability 只需指定行名（RowName）。`StaminaCost` 是 GA 的实际耐力扣除量；`FComboTransition::StaminaRequired` 是协调器的匹配门槛，不负责扣耐。
+
+### 冻结后的成本合同
+
+`EAbilityStaminaCostPolicy = None / Instant / PerSecond`。Ability 是否长期存在只由其 EndAbility 时机决定，与成本策略无关。
+
+- `Instant`：`CommitAbility` 使用有效的 Cost GE 和 Cooldown GE；Commit 失败不播放 Montage、不提交连招状态。
+- `PerSecond`：Commit 后启动带 Ability 所有权的 `UAbilityTask_MHGZStaminaDrain`，按真实经过时间用有效 Instant Cost GE 扣耐；不足支付下一跳时取消 Ability。
+- `None`：协调器等长期 Ability 使用；不扣耐、不伪造 Cooldown Loose Tag。
+- 武器专属资源使用 reservation：`TryReserveCosts(ActionToken)` → `CommitAbility` → 失败 `ReleaseReservation` / 成功 `ConsumeReservedCosts` → Confirm。成功后的 Consume 保证不失败，reservation 期间禁止资源重入改变被锁身份。所有 reservation、任务、GE Handle、Timer 和临时 Tag 由同一个幂等清理出口回收。
+
+当前 `bRequiresWeaponResource/WeaponResourceCost` 是待删除旧字段。目标 Ability 保存 `TArray<FWeaponResourceCostSpec>`：`CostType` 是资源组件解释的 GameplayTag，`Amount` 是可缩放数值；空数组表示无武器成本。通用层只调用当前 Resource 的 Reserve/Release/Consume 接口，不假设资源一定是单个 float。
 
 ### 核心方法（覆写）
 
 - `bool CanActivateAbility(...) const override`
   - 输出：是否可激活。
-  - 作用：检查耐力是否够 → 检查武器资源是否够 → 检查冷却是否结束 → 任一不满足返回 false（GAS 自动处理 UI 提示）。
+  - 目标作用：只做无副作用的耐力、武器资源、Cooldown 和 Tag 预检；最终仍由 Commit 重新验证。
 
 - `void ActivateAbility(...) override`
-  - 作用：
-    - **单次型（bIsContinuous=false）**：计划扣除 `StaminaCost × StaminaDeductionRate`；当前 `DeductStaminaOnce` 被无效的 `MakeOutgoingSpec(nullptr)` 条件包住，可能不会执行 ApplyMod。`WeaponResourceCost` 也尚未消费。
-    - **持续型（bIsContinuous=true）**：启动 0.1s Timer，固定步长扣除 `Rate × StaminaConsumptionRate × 0.1`；耐力归零后取消 Ability。
+  - 目标作用：先完成 Resource reservation + GAS Commit；成功后再消费 reservation、Confirm，并根据 CostPolicy 启动持续任务。当前 `MakeOutgoingSpec(nullptr)` 与 Loose Cooldown 路径在 M1 删除。
 
 - `void EndAbility(...) override`
-  - 作用：清理动画状态、结束冷却计时器。
+  - 作用：幂等停止持续任务和本 Ability 拥有的运行时对象；Cooldown GE 不在这里手工移除。
 
 ## UMHGZAttackAbility — 攻击 Ability 中间层
 
@@ -674,35 +625,45 @@ class UMHGZAttackAbility : public UMHGZGameplayAbility
 
 ### 核心配置结构
 
-#### FAttackCollisionConfig — 单段碰撞配置
+#### FWeaponTraceRegion — 单个有效攻击区域
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| StartSocketName | FName | 空 | 有效攻击区域起点 Socket 或骨骼；留空时退化为 EndSocketName 的单点 Sweep |
+| EndSocketName | FName | 必填 | 有效攻击区域终点 Socket 或骨骼 |
+| Radius | float | 14 | 球形 Sweep 半径（厘米） |
+| MaxSampleSpacing | float | 20 | 棍身相邻采样点允许的最大间距；运行时还会限制为不超过 `2 × Radius`，避免采样球之间出现空洞 |
+| MaxSampleCount | int32 | 16 | 单个区域最多使用的空间采样点数，范围 1~32；不足以覆盖区域时输出警告 |
+| MaxAngularStepDegrees | float | 15 | 一帧内旋转超过该角度时增加时间子步，降低高速旋转沿弧线漏判 |
+
+同一个碰撞窗口可以配置多个 `TraceRegions`。虫棍按握持点把棍身拆为前、后两个区域：只用前半段的招式启用 Front，只用后半段的招式启用 Rear，整棍横扫则同时配置两个区域。当前虫棍的 `Root` 骨骼就在模型中点/握持点，因此它可直接作为两个区域的共同 Start，只需在前后棍尖各建一个 Tip Socket；这些名称只描述有效伤害区边界，不承担武器附着功能。
+
+#### FAttackCollisionConfig — 单段碰撞窗口配置
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | TraceMeshComponentTag | FName | WeaponTrace | 优先定位参与轨迹检测的武器 SkeletalMeshComponent |
-| AttachSocketName | FName | 必填 | 碰撞体挂载的骨骼 Socket（如 "weapon_tip"、"hand_r"） |
-| TraceStartSocketName | FName | 空 | 长武器轨迹起点；留空时只扫 AttachSocketName |
-| Shape | EAttackCollisionShape | Sphere | 碰撞形状（Sphere / Capsule / Box） |
-| ShapeExtent | FVector | (20,20,20) | 形状参数：Sphere→X=Radius；Capsule→X=Radius+Z=HalfHeight；Box→HalfExtent |
+| TraceRegions | TArray\<FWeaponTraceRegion\> | 空 | 最终轨迹区域数组，可按招式选择前段、后段或两者 |
 | CollisionChannel | TEnumAsByte\<ECollisionChannel\> | GameTraceChannel1 | 碰撞通道（默认 Weapon 通道） |
 | HitzoneQueryTag | FGameplayTag | 空 | 限定碰撞仅检测带此 Tag 的组件。空=不限制（检测所有碰撞） |
-| TraceSampleCount | int32 | 3 | 长武器根/中/尖采样数，范围 1~8 |
 | bDrawDebug | bool | false | 绘制 Sweep 轨迹用于校准 |
+
+`TraceEndSocketName`、`AttachSocketName`、旧 `TraceStartSocketName/Shape/ShapeExtent/TraceSampleCount` 只属于迁移输入。M0 清点实际蓝图覆写，M2 将有效值转存 `TraceRegions` 并重存目标资产后删除这些字段；运行时不保留“TraceRegions 为空就读旧字段”的兼容分支。
 
 #### FAttackDamageConfig — 单段伤害配置
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| DamageEffectClass | TSubclassOf\<UGameplayEffect\> | nullptr | 伤害 GE 蓝图（策划在编辑器中配置） |
-| MotionValue | FScalableFloat | 1.0 | ★ 动作值（倍率），参与伤害计算：`Damage = AttackPower × MotionValue × HitzoneDefense`。轻击 0.8 / 重击 1.5 / 终结技 3.0 |
+| DamageEffectClass | TSubclassOf\<UGameplayEffect\> | UMHGZDamageGameplayEffect | Demo 通用原生伤害 GE；特殊来源仍复用同一 ExecCalc，不以空类静默跳过 |
+| MotionValue | FScalableFloat | 0 | ★ 动作值（倍率）。伤害段必须显式设置为正值；0 表示合法的无伤害命中，缺失不回退到 1 |
 | BaseStaggerValue | FScalableFloat | 0 | ★ 基础破坏值。参与硬直计算：`Stagger = BaseStaggerValue × StaggerMultiplier × MonsterHitzoneStaggerRate`。为 0 则该段不造成硬直 |
 | KnockbackAngle | float | 0 | 击退方向（相对攻击者朝向，0=前方，180=击飞） |
 | KnockbackForce | FScalableFloat | 0 | 击退力度 |
 | HitStaggerTag | FGameplayTag | 空 | 硬直等级（`Combat.Stagger.Light` / `Medium` / `Heavy`） |
-| DamageSetByCallerTag | FGameplayTag | 空 | SetByCaller 伤害值 Tag（GE 中用此 Tag 读取动态伤害值） |
 | bUseHitzoneDefense | bool | true | 是否按命中部位的 `DefenseMultiplier` 修正伤害。怪物侧每个 hitzone 碰撞体持有 `DefenseMultiplier`（肉质）和 `StaggerRate`（硬直肉质） |
-| bRequiresHitToContinue | bool | false | 招式内空挥截断：为 true 时，本段碰撞窗口结束后检查 `HitTargets`——若该段空挥，提前 `EndAbility`。同时也是 `ShouldContinueAfterHit()` 的默认判断依据 |
+| bRequiresHitToContinue | bool | false | 招式内空挥截断：为 true 时，本段碰撞窗口结束后检查该窗口自己的 `HitTargets`——若该段空挥，提前 `EndAbility`。同时也是 `ShouldContinueAfterHit()` 的默认判断依据 |
 | OnHitSelfEffect | TSubclassOf\<UGameplayEffect\> | nullptr | 命中时对自身施加的 GE（如虫棍三灯）。仅首次命中时 Apply 一次 |
-| HitCueTag | FGameplayTag | 空 | 物理命中 Cue Tag。当前加入 DynamicAssetTags，GameplayCue 自动路由尚未接通 |
+| HitCueTag | FGameplayTag | 空 | 物理命中 Cue Tag。目标链路把它写入 HitFeedbackResult，由 Router 显式执行；当前代码仍只加入 DynamicAssetTags |
 | ElementalCueTag | FGameplayTag | 空 | 元素附魔命中 GC 标签（可选——留空则无元素特效）。如 `GameplayCue.Hit.Fire` |
 | CameraShakeClass | TSubclassOf\<UCameraShakeBase\> | nullptr | 震屏类（按武器种类选不同类；留空则无震屏）。在 `ApplyDamage` 中通过 `ClientStartCameraShake` 执行 |
 | CameraShakeScale | float | 0.0 | 震屏强度倍率（0.0~1.0）。同武器不同招式改此值，不产生新蓝图 |
@@ -720,88 +681,94 @@ struct FAttackSegmentConfig
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| Collision | FAttackCollisionConfig | — | 本段碰撞参数（形状/通道/过滤） |
+| Collision | FAttackCollisionConfig | — | 本段碰撞窗口参数（轨迹区域/通道/过滤） |
 | Damage | FAttackDamageConfig | — | 本段伤害参数（动作值/破坏值/击退） |
-| MultiHitCount | int32 | 1 | ★ 单次碰撞产生的伤害跳数。默认 1=命中即造成 1 次伤害。>1=命中后每隔 `MultiHitInterval` 秒造成一次伤害，共 `MultiHitCount` 次（如登龙剑下劈：1 次碰撞判定 × 7 跳伤害） |
-| MultiHitInterval | float | 0.1 | 多次伤害之间的间隔（秒）。仅 `MultiHitCount>1` 时有效 |
+| MultiHitPolicy | EMultiHitPolicy | PerContactTrace | `PerContactTrace` 只在实际 Sweep/Overlap 仍接触时重复伤害；`LockedTargetTicks` 才允许命中后锁定目标定时跳伤 |
+| MultiHitCount | int32 | 1 | 每目标在该窗口内最多结算次数；1=普通单次命中 |
+| MultiHitInterval | float | 0.1 | 同目标两次结算的最小间隔；不能只靠 Timer 对已离开区域的缓存目标继续伤害 |
+| LockedTargetMaxDistance | float | 0 | 仅 LockedTargetTicks 使用；每跳验证攻击者到原 Hitzone 的距离，0 禁止配置该策略 |
 | MaxWarpAngle | float | 30.0 | ★ 本段 MotionWarping 允许的最大旋转修正角度（度）。与 GA 的 `MaxCorrectionAngle` 区分：GA 的管控"激活时第一段扭头"，段的 `MaxWarpAngle` 管控"段内 Montage 播放期间 MotionWarping 的旋转上限"。多段招式每段可不同（见切段0=180°后撤、段1=120°回砍）。0=该段不做旋转 Warp |
 
 ### 攻击 GA 成员
+
+所有离散武器动作 GA 固定为 `InstancedPerExecution`。激活实例由 `FWeaponActionToken{RuntimeToken, AbilityHandle, ActivationSequenceID, AbilityInstance}` 唯一标识；Montage 开始后另以 `FWeaponMontageRegistration{ActionToken, Mesh, MontageInstanceID}` 注册。这样 Confirm 不依赖尚未创建的 Montage 实例，同一个 AbilityClass/Spec 仍可在旧实例 BlendOut 前启动下一实例而不共享运行时窗口。
+
+项目结束原因不修改 UE 原生 `EndAbility` 签名。通用动作基类以 `RequestEndAction(Reason)` 首次保存原因并调用原生 Cancel/End；`EndAbility` 统一读取该原因。后续重复终止请求不覆盖首个原因，Superseded 因而可以被精确记录和验证。
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
 | AttackSegments | TArray\<FAttackSegmentConfig\> | "Attack" | 空 | ★ 多段攻击配置——每段独立配置碰撞 + 伤害 + 多跳。替代原来分离的 `CollisionConfigs` + `DamageConfig`，解决非数组成员（Damage/MotionValue/Stagger 等）无法随段变化的问题 |
 | MaxCorrectionAngle | float | "Attack\|Correction" | 30.0 | ★ 攻击激活瞬间（第一段）的最大方向修正角度（度）。读摇杆方向，若偏离 ≤ 此值则设 MotionWarping RotationTarget 扭向目标。段内 MotionWarping 的修正上限由 `FAttackSegmentConfig::MaxWarpAngle` 控制，两者独立。0=禁止修正 |
-| HitTargets | TMap\<AActor*, FName\> | — | 空 | 已命中的怪物→首个接触的 hitzone 骨骼名（Key=Actor, Value=BoneName）。**每段 `EnableCollision` 清空，各段独立记录——段0命中头部、段1命中尾部互不干扰。** 同一段内同怪物只记录首个接触部位 |
-| CurrentSegmentIndex | int32 | — | 0 | 当前正在执行的段索引（运行时状态） |
+| ActiveCollisionWindows | TMap\<int32, RuntimeState\> | — | 空 | 每个 ConfigIndex 独立保存轨迹区域、已命中目标和多跳 Timer；不同段的 Notify 窗口可以重叠运行 |
+| CurrentSegmentIndex | int32 | — | 0 | 最近开始或结束判定的段索引，仅用于兼容 `ShouldContinueAfterHit()` 覆写 |
 | bHasHitThisActivation | bool | — | false | 本次 GA 激活后是否已有命中。用于首次命中时触发一次性逻辑（通知协调器 + Apply OnHitSelfEffect），避免多段/多怪重复触发 |
 
 ### 关键方法（覆写/新增）
 
 - `void ActivateAbility(...) override`
-  - 作用：基类扣耐力/资源 → `ASC→AddLooseGameplayTag(Combat.State.Attacking)` → **方向修正**（`GetLastMovementInputVector` → 若长度 ≥ 0.1 且与角色朝向夹角 ≤ `MaxCorrectionAngle` → `MotionWarpingComponent→AddOrUpdateWarpTarget` → 播放 Montage）→ 等待 `AnimNotifyState_AttackCollision` 控制碰撞窗口。
+  - 目标作用：从 `FWeaponAbilityActivationContext` 取得 SourceState/InputSnapshot/RuntimeToken/ActivationSequence → 建立 ActionToken 候选 → Resource reservation + `CommitAbility` → 消费 reservation → 回执 Coordinator Confirm。只有 Confirm 接受后才申请 `Combat.State.Attacking` 所有权 Token、按 InputSnapshot 修正方向、生成本 ActionToken 唯一 WarpTargetName 并播放 Montage；Montage 启动后把 Mesh+MontageInstanceID 注册到 RuntimeHost。Commit/Confirm 前不改状态、不授予 Tag、不播放动画。
 
 - `void EndAbility(...) override`
-  - 作用：**幂等清理——正常结束、Cancel、异常销毁均经此路径**（GAS 保证 `Cancel→EndAbility` 调用链，无需在 `CancelAbility` 中重复）。`ASC→RemoveLooseGameplayTag(Combat.State.Attacking)` → 查找 `GA_WeaponComboCoordinator` → `Coordinator→OnAttackFinished()` → `DisableCollision`（内部 `ClearTimer(MultiHitTimer)`，幂等安全）→ 清理动画状态、结束冷却。
+  - 目标作用：**按本次 ActionToken 幂等清理**：注销 Montage/Notify Registry → 关闭本实例的 Collision/Combo/DodgeAccept/Counter/Movement Token → 移除本实例 WarpTarget → 释放自己拥有的 Attacking/临时 Tag → 释放未消费 reservation → 携带 ActionToken 和 EndReason 通知 Coordinator → 清理 Montage/任务。`Superseded` 只结束精确旧实例；迟到 End 不能重置新状态。
 
 - `void EnableCollision(int32 SegmentIndex = 0)`
   - 输入：段索引。
-  - 作用：设置段索引、清空 `HitTargets`，按组件 Tag/Socket 找到轨迹 Mesh，缓存前一帧起止点并立即执行首帧零距离 Sweep。当前不会创建临时碰撞组件。
-  - 后续判定：`AnimNotifyState_AttackCollision::NotifyTick` 每帧调用 `TickCollision`，在前后帧 Socket 位置之间执行 `SweepMultiByChannel`；长武器按 `TraceSampleCount` 采样。
-  - **多跳伤害（MultiHitCount>1）：** 首帧 Sweep 命中后启动 `MultiHitTimer`，每隔 `MultiHitInterval` 秒对 `HitTargets` 中所有怪物调用 `ApplyDamage(HitActor, BoneName, SegmentIndex)`，共 `MultiHitCount` 次。`DisableCollision` 或 GA 结束 → 清除 Timer。
-  - 调用方：`UAnimNotifyState_AttackCollision→NotifyBegin`。
+  - 作用：为该段建立独立运行时窗口，按组件 Tag/Socket 找到轨迹 Mesh，缓存每个 Region 的前一帧起止点并立即执行首帧零距离 Sweep。当前不会创建临时碰撞组件。
+  - 后续判定：`AnimNotifyState_AttackCollision::NotifyTick` 每帧调用 `TickCollision(SegmentIndex, DeltaSeconds)`；每个 Region 根据长度和半径自动布置空间采样点，并根据帧间旋转角增加时间子步，在上一帧到当前帧的旋转弧线上执行球形 `SweepMultiByChannel`。
+  - **同帧部位选择：** 汇总该窗口所有 Region、空间采样和时间子步的命中；同一怪物只结算归一化帧时间最早的 Hitzone，随后写入该窗口自己的去重表。
+  - **多跳伤害（MultiHitCount>1）：** 默认 `PerContactTrace` 由后续真实 Sweep/Overlap 触发并按目标记录 LastHitTime/Count。只有显式 `LockedTargetTicks` 才启动 Timer，且每跳必须验证弱引用、存活、Hitzone 和最大距离。当前代码仍是无条件伤害缓存目标，接入完整 Demo 前需按此目标修订。
+  - 调用方：`UAnimNotifyState_AttackCollision→NotifyBegin` 先由 Mesh+MontageInstanceID 解析本 ActionToken，再调用该 AbilityInstance；不得遍历全部 Active Ability。
 
-- `void DisableCollision()`
-  - 作用：关闭 Sweep、清除 `MultiHitTimer`。若当前段要求命中但 `HitTargets` 为空，则调用 `ShouldContinueAfterHit()`，返回 false 时提前结束。
-  - 调用方：`UAnimNotifyState_AttackCollision→NotifyEnd`。
+- `void DisableCollision(int32 SegmentIndex = INDEX_NONE)`
+  - 作用：只关闭指定段并清除该窗口的 `MultiHitTimer`；`INDEX_NONE` 关闭全部窗口。若指定段要求命中但其 `HitTargets` 为空，则调用 `ShouldContinueAfterHit()`，返回 false 时提前结束。
+  - 调用方：`UAnimNotifyState_AttackCollision→NotifyEnd` 只调用相同 ActionToken；旧 Montage 的 NotifyEnd 不得关闭新动作窗口。
 
-- `void ProcessSweepHit(const FHitResult& Hit)`
+- `void ProcessSweepHit(const FHitResult& Hit, int32 SegmentIndex)`
   - 当前过滤：忽略自身和已命中 Actor；命中组件必须是 `UMHGZMonsterHitzoneComponent`；配置了 `HitzoneQueryTag` 时要求 Exact Match。当前没有队友、无敌或死亡过滤。
 
-- `void ApplyDamage(AActor* Target, FName HitzoneBoneName, int32 SegmentIndex)`
-  - 输入：目标 Actor、命中部位骨骼名、段索引。
+- `void ApplyDamage(const FHitResult& Hit, int32 SegmentIndex)`
+  - 输入：真实 Sweep HitResult 和段索引；不得只保存 BoneName 后重建命中点。
   - 作用：
-    1. 直接使用 `HitStopBase` 设置攻击者 `CustomTimeDilation=0.05`，Timer 到期恢复
-    2. 调用 `MakeDamageSpec(Target, HitzoneBoneName, SegmentIndex)` 构造 GE Spec
-    3. `SourceASC→ApplyGameplayEffectSpecToTarget(Spec, TargetASC)`；当前 GC 自动路由未接通
-    4. 读 `CameraShakeClass`+`CameraShakeScale` → `ClientStartCameraShake`
-    5. **首次命中时（`bHasHitThisActivation==false`）：** 设 `bHasHitThisActivation=true` → 通知协调器 `GA_WeaponComboCoordinator→OnAttackHit()`（触发 `PendingGrantedTags` 授予）→ 若段 `Damage.OnHitSelfEffect` 非空则 Apply 到自身 ASC
-    6. 多段碰撞/多怪物场景下，后续命中跳过步骤 5。**多跳伤害（MultiHitCount>1）每次 Tick 都执行步骤 1-4（Apply 伤害 GE），但不重复触发首次命中逻辑。**
-- `FGameplayEffectSpecHandle MakeDamageSpec(AActor* Target, FName HitzoneBoneName, int32 SegmentIndex)`
-  - 输入：目标 Actor、命中部位骨骼名、段索引。
+    1. 调用 `MakeDamageSpec(Hit, SegmentIndex, AttackInstanceID)` 构造 GE Spec
+    2. `SourceASC→ApplyGameplayEffectSpecToTarget(Spec, TargetASC)`；AttributeSet 结算后由 HitFeedbackRouter 请求 Cue、伤害数字、镜头和可叠加卡肉 Token
+    3. **首次命中时（`bHasHitThisActivation==false`）：** 设 `bHasHitThisActivation=true` → 携带完整 ActionToken 通知协调器 `OnAttackHit`；段 `Damage.OnHitSelfEffect` 非空时 Apply 到自身 ASC
+    4. 多段碰撞/多怪物场景下，后续命中跳过步骤 3。多跳每次都提交独立真实 HitResult/AttackInstance 子序号，但不重复触发首次命中逻辑
+  - 当前源码仍在步骤前直接覆盖 `CustomTimeDilation` 并自行震屏；M2 删除该路径。
+- `FGameplayEffectSpecHandle MakeDamageSpec(const FHitResult& Hit, int32 SegmentIndex)`
+  - 输入：真实 HitResult 和段索引。
   - 输出：构造好的 GE Spec。
   - 作用：
     1. `ASC→MakeOutgoingSpec(AttackSegments[SegmentIndex].Damage.DamageEffectClass)`
     2. 写入 `Damage.MotionValue` 与 `Damage.BaseStagger` SetByCaller；最终伤害由 `UMHGZDamageExecCalc` 计算
-    3. 若配置，向 DynamicAssetTags 加入 HitzoneTag、`HitStaggerTag`、`HitCueTag`、`ElementalCueTag`
-    4. 始终把 `GameplayCue.Hit.DamageNumber` 加入 DynamicAssetTags
-    5. 将 Hitzone 位置写入 GameplayEffectContext 的 HitResult
-    6. `DamageSetByCallerTag`、Knockback、SwingSound 和 `MaxWarpAngle` 当前未被消费；暴击 GC 也未实现
+    3. 将原始 HitResult、HitStaggerTag、HitCueTag、ElementalCueTag 和 AttackInstanceID 写入项目自定义 GameplayEffectContext
+    4. 虫棍空中攻击写入激活时快照的 `Damage.DanceMultiplier`；其他来源默认为 1
+    5. DynamicAssetTags 可保留用于调试/查询，但不负责触发 GameplayCue
+    6. 旧 `DamageSetByCallerTag` 在资产迁移后删除；Knockback、SwingSound 和 `MaxWarpAngle` 若不进入 Demo 最终数据流则不得作为假可用字段保留
 
 - `bool ShouldContinueAfterHit() const` (BlueprintNativeEvent)
   - 输出：当前碰撞窗口命中后，是否继续下一段碰撞窗口。
-  - 默认实现：若 `AttackSegments[CurrentSegmentIndex].Damage.bRequiresHitToContinue && HitTargets.IsEmpty()` → return false；否则 return true。
+  - 默认实现：若 `AttackSegments[CurrentSegmentIndex].Damage.bRequiresHitToContinue` 且当前 Index 对应窗口的 `HitTargets` 为空 → return false；否则 return true。
   - **蓝图覆写场景——登龙剑：** 覆写此函数 → 读 ASC 的武器资源（气刃槽色阶）→ 若色阶 < 白 → return false → `EndAbility` 提前，第二段不播放。
   - 调用时机：`DisableCollision` 内，下一段 `EnableCollision` 之前。
 
-- `bool CheckWeaponResourceForAbility() const` (BlueprintNativeEvent)
-  - 输出：当前武器资源是否满足此 Ability 的消耗要求。
-  - 默认返回 true。**各武器 GA 子类自行覆写**——查询各自武器特有的资源系统（气刃槽/瓶计数/蓄力等级等）。
+- `TryReserveWeaponResourceCosts` / `ReleaseReservation` / `ConsumeReservedCosts`（目标）
+  - 输入：本 Ability 的 `FWeaponResourceCostSpec` 数组。
+  - 作用：通过 `IWeaponResourceProvider` 交给当前 Resource 解释 CostType，锁定精确资源身份并按 GAS Commit 结果释放或消费。旧 `CheckWeaponResourceForAbility + float WeaponResourceCost` 在 M1 删除。
 
 ### Ability 继承层级
 
 当前层级：`UGameplayAbility` → `UMHGZGameplayAbility` → `UMHGZAttackAbility` / `UMHGZDodgeAbility`，虫棍再由 `UMHGZInsectGlaiveAbility` 继承攻击基类。`UMHGZEdgeVaultAbility`、`GA_Sprint`、`GA_Heal` 为规划。
 
-### GameplayCue 集成 — MakeDamageSpec
+### GameplayCue 集成 — HitFeedbackResult
 
-当前 `MakeDamageSpec` 把这些 Tag 放入 `DynamicAssetTags`，且没有自定义 `UMHGZGameplayCueManager`/GC 资产，因此下表是保留的 GameplayCue 接入方案，不是当前运行链路。
+当前 `MakeDamageSpec` 仍把 Cue Tag 放入 DynamicAssetTags，目标链路改为由结算结果显式路由：
 
 | 步骤 | Tag 来源 | 说明 |
 |:--:|------|------|
-| 1 | `FAttackDamageConfig::HitCueTag` | 物理命中类型（必设——`Slash` / `Blunt`） |
-| 2 | `FAttackDamageConfig::ElementalCueTag` | 元素附魔（可选——留空则跳过） |
-| 3 | ExecCalc 内部 `ASC→AddGameplayCue(Hit.Crit)` | 暴击——在 ExecCalc 判定暴击后单独触发 |
-| 4 | `GameplayCue.Hit.DamageNumber` | 伤害数字——始终追加，值通过 `Parameters.RawMagnitude` 传递 |
+| 1 | GameplayEffectContext | 保存真实 HitResult、物理/元素 CueTag、来源动作和 AttackInstanceID |
+| 2 | ExecCalc/AttributeSet | 得到 FinalDamage、bCrit 和硬直结果，组成 `FMHGZHitFeedbackResult` |
+| 3 | Target `UMHGZHitFeedbackRouter` | 显式 Execute 物理/元素/Crit Cue；用真实 ImpactPoint/Normal |
+| 4 | `GameplayCue.Hit.DamageNumber` | Router 显式设置 `Parameters.RawMagnitude=FinalDamage` 后执行 |
 
 
 
@@ -835,7 +802,7 @@ UMHGZAttackAbility                         ← 碰撞+伤害+方向修正（通�
   └── UMHGZSwitchAxeAbility                ← ★ 斩斧: 充能槽
 ```
 
-每个武器基类（~50 行 C++）持有 `UMHGZWeaponResourceComponent*` 子类引用，覆写 `CheckWeaponResourceForAbility()`（资源门控）和 `ShouldContinueAfterHit()`（招内击中派生）。武器基类管 GA **激活后**的内部逻辑，FComboNode 管**激活前**的匹配条件。
+每个武器派生 Ability 通过 `IWeaponResourceProvider` 取得当前 `UMHGZWeaponResourceComponent`，覆写资源门控和招内命中派生。武器派生层管 GA **激活后**的内部逻辑，`FComboTransition` 管**激活前**的匹配条件；通用基类不持有虫棍类型指针。
 
 > **见切（ForesightSlash）：** 段0 `AttackSegments[0].Damage` 全为 0（不产生伤害），闪避判定采用**碰撞通道 Overlap 检测**——`DodgeWindow` 将玩家对 MonsterAttack 通道从 Block 切换为 Overlap（攻击穿透无伤害），`ForesightJudge` 监听玩家 CapsuleComponent 的 `OnComponentBeginOverlap`（与怪物攻击碰撞体重叠即 `bDodgeSuccessful=true`）。Pawn 通道始终 Block——后撤时被怪物身体挡住即失败。段1 走标准 `AttackCollision → ApplyDamage`。
 
@@ -931,7 +898,7 @@ GA 中的分支逻辑：
 | 分支类型 | 对应方法 | 作用层级 |
 |----------|---------|----------|
 | **招内派生**（同一 GA 内，命中→继续/命中→切段） | `ShouldContinueAfterHit()` + `JumpToSection` | 同一 GA 内部 |
-| **跨 GA 派生**（一个 GA 结束→下一个 GA） | `FComboNode::GrantedTags` + 协调器 | GA 之间 |
+| **跨 GA 派生**（一个 GA 结束→下一个 GA） | `FComboTransition::GrantedTags` + 协调器 | GA 之间 |
 
 ### Montage 资产策略——单 Montage（多 Section）vs 多 Montage
 
@@ -961,7 +928,7 @@ GA 中的分支逻辑：
 
 ### 招式衔接动画——Montage Entry Section 模式
 
-**设计原则：** 不改变"每个招式 = 一个 GA + 一个 Montage"的架构。衔接动画放在**下一个招式的 Montage 开头**作为 Entry Section，GA 激活时根据协调器的 `PreviousState` 选择对应入口。
+**设计原则：** 不改变“每个招式 = 一个 GA + 一个 Montage”的架构。衔接动画放在**下一个招式的 Montage 开头**作为 Entry Section，GA 激活时根据本次不可变 `FWeaponAbilityActivationContext.SourceState` 选择对应入口，不读取协调器随后可能变化的全局状态。
 
 #### Montage Entry Section 结构
 
@@ -984,8 +951,8 @@ Montage_Slash_103（连续上捞）：
 // 在武器 GA（如 UGA_IG_Slash_103）的 ActivateAbility 中
 void UGA_IG_Slash_103::ActivateAbility(...)
 {
-    // 查询协调器：上一个招式是什么？
-    FName PreviousState = Coordinator->GetPreviousState();
+    // 由本次激活上下文取得来源状态；激活后保持不变
+    const FName SourceState = GetWeaponActivationContext().SourceState;
 
     // 根据来源选择入口 Section
     FName EntrySection;
@@ -994,14 +961,14 @@ void UGA_IG_Slash_103::ActivateAbility(...)
         { "Slash_101",  "Entry_From_Slash101"   },
         { "Dodge",      "Entry_From_Dodge"      },
     };
-    EntrySection = EntryMap.FindRef(PreviousState, FName("Entry_Default"));
+    EntrySection = EntryMap.FindRef(SourceState, FName("Entry_Default"));
 
     // 从入口 Section 播放，播完自动进入 "Attack"
     PlayMontageAndWait(Montage, EntrySection);
 }
 ```
 
-> **Entry_Default：** 当 `PreviousState` 无匹配时走此兜底 Section——通常是一个极短的过渡段或直接空 Section，依赖 UE5 内置 Inertialization 做骨骼惯性混合。
+> **Entry_Default：** 当 `SourceState` 无匹配时走此兜底 Section——通常是一个极短的过渡段或直接空 Section，依赖 UE5 内置 Inertialization 做骨骼惯性混合。
 
 #### 哪些招式对需要专属衔接动画？
 
@@ -1019,14 +986,14 @@ void UGA_IG_Slash_103::ActivateAbility(...)
 | 机制 | Montage 结构 | 触发方式 | 适用 |
 |------|-------------|----------|------|
 | **招内分支**（上节） | 单 Montage 多 Section | GA 内部 `JumpToSection`（命中/未命中） | 同一招式内的分支 |
-| **Entry Section**（本节） | 每个 Montage 多个入口 Section | GA 激活时选 Section（基于 `PreviousState`） | 招式间的衔接过渡 |
+| **Entry Section**（本节） | 每个 Montage 多个入口 Section | GA 激活时按 ActivationContext.SourceState 选 Section | 招式间的衔接过渡 |
 | **Inertialization** | 不需要额外 Section | UE5 自动 | Pose 接近的招式间过渡 |
 
 ## 蓄力式攻击（规划）
 
-蓄力不进连招表路由——全程在一个 GA 内部闭环。`bIsContinuous=true`，按住累积 `ChargeLevel`（通过曲线/参数控制递增速率），ASC 持有 `Input.Modifier.Charging` Tag。松开（Completed 事件）→ ASC 的 `OnInputActionCompleted` 检查 `Combat.State.Charging` Tag → 若存在则 `HandleGameplayEvent(Combat.Event.ChargeReleased, InputTag=AbilityTag)`。蓄力 GA 通过 `AbilityTrigger` 监听此 Event → 根据 `ChargeLevel` 分支选 Montage 和 `DamageConfig` → 方向修正（`MaxCorrectionAngle` 通常设 60°）→ 播放释放 Montage。不同等级使用不同 `AttackSegments` 配置，不创建多个 GA 蓝图子类。
+蓄力全程在一个 GA 内闭环。激活输入的 `SourceControlTag + SequenceID` 写入 Ability 激活上下文；WeaponInputRouter 收到同一物理输入的 Completed 后，只把释放事件投递给持有该身份的 Ability。按住期间按曲线累积 `ChargeLevel`，释放后在同一 GA 内选择 Montage 和 DamageConfig。蓄力本身是否持续扣耐由 `EAbilityStaminaCostPolicy` 决定，不能再借用 `bIsContinuous` 表示“正在蓄力”。
 
-> **优势：** 蓄力 GA 被 Cancel（受击/死亡）时 `Charging` Tag 已移除 → Completed 事件检查 Tag 不存在 → 不发送 `ChargeReleased` 事件 → 蓄力 GA 不会在被打断后意外释放。不再需要遍历 ActiveAbilities 查找蓄力 GA。
+> **取消规则：** 蓄力 GA 被受击/死亡取消时注销其输入身份；之后到达的 Completed 因 SequenceID 无有效订阅者而被丢弃，不会误释放其他正在运行的 Ability。
 
 ## 怪物攻击碰撞——部位胶囊体复用 + 通道切换（规划）
 
@@ -1072,33 +1039,30 @@ void UGA_IG_Slash_103::ActivateAbility(...)
 
 ## 武器资源子系统（部分实现；当前仅虫棍 C++ 骨架）
 
-**UMHGZWeaponResourceComponent（基类，挂载到 PlayerState）** — 动态创建/销毁，切换武器时旧状态全部清空。与 ASC 同宿主，零跨 Actor 引用。
+**UMHGZWeaponResourceComponent（基类，由 Character 的 WeaponRuntimeHost 持有）** — 装备时动态创建，切换武器/重生时通过统一生命周期清理。它可访问当前 Pawn、动画和世界 Actor，并通过接口取得 PlayerState ASC；持久装备数据仍留在 PlayerState。
 
 | 成员/接口 | 类型 | 说明 |
 |------|------|------|
 | WeaponTypeTag | FGameplayTag | 关联武器种类 |
-| GetCurrentValue() | virtual float | 当前资源量（各子类覆写） |
-| GetMaxValue() | virtual float | 资源上限 |
-| Consume(float Amount) | virtual bool | 消耗资源，返回是否足够 |
-| Restore(float Amount) | virtual void | 回复资源 |
-| GetNormalizedValue() | float | 0~1 归一化值（UI 绑定用） |
-| ApplyEntryModifier(FGameplayTag AttributeTag, float Value, EGameplayModOp Op) | virtual void | 词条修饰器——按 AttributeTag 前缀路由到内部倍率参数 |
-| ClearAllEntryModifiers() | virtual void | 全量重建时清空所有修饰器 |
-| GetModifiedParam(FName ParamName) | virtual float | 求值活跃修饰器——对基础参数应用所有已注册修饰器 |
+| TryReserveCosts(const FWeaponActionToken&, TConstArrayView\<FWeaponResourceCostSpec\>, OutReservation) | virtual bool | 无表现地锁定精确资源身份；CostType 由具体武器解释 |
+| ReleaseReservation(const FWeaponResourceCostReservation&) | virtual void | GAS Commit/激活失败时幂等释放，不改变资源 |
+| ConsumeReservedCosts(const FWeaponResourceCostReservation&) | virtual void | 成功 reservation 的同步、保证成功消费；完成后统一广播 |
+| BuildResourceViewData() | virtual/接口 | 返回该武器 UI DTO；不假设所有武器只有 Current/Max float |
+| ApplyEntryModifier / GetModifiedParam | 延期 | 当前多来源与目标参数过滤有缺陷，Demo 不得调用；完整装备词条阶段重新设计来源句柄 |
 | PlayResourceSound(USoundBase* Sound) | void | 工具方法——子类在资源变化时调用，统一走 `UGameplayStatics::PlaySound2D`（UI 反馈用 2D 音效） |
 
-> 基类不预设音效槽位——子类各自持有 `UPROPERTY` 音效成员，通过 `PlayResourceSound()` 播放。词条/装备对资源的加成走 GE 修改资源组件的倍率参数（非 AttributeSet）。
+> 基类不预设音效槽位——子类各自持有 `UPROPERTY` 音效成员，通过 `PlayResourceSound()` 播放。武器资源词条本轮明确延期；Demo 参数直接来自 CombatConfig。
 
 ### 各武器子类
 
 | 子类 | 特有字段 | 特殊逻辑 | 音效成员 |
 |------|----------|----------|----------|
 | `URes_LongSword`（规划） | `ESpiritLevel Level`（无/白/黄/红）、`float Amount`、`FTimerHandle DecayTimer` | 击中回复量不同、等级随时间和命中升降、衰减 Timer | `GaugeFillSound` / `LevelUpSound`（白→黄→红） / `LevelDownSound` / `DepleteSound` |
-| `URes_InsectGlaive`（部分实现） | `KinsectActor/KinsectData`、`KinsectStamina/MaxKinsectStamina`、Regen/Hover/Flight 三个倍率、白90/黄120/红60常量、`TripleUpDuration=90`、`TMap<FGameplayTag,FActiveGameplayEffectHandle> ActiveExtractHandles`、`TripleUpHandle`、`bTripleUpActive` | 萃取、三灯、消耗与耐力逻辑已有 C++；资源组件创建、猎虫 Spawn、GA/GE 资产仍未接线 | `ExtractCollectedSound` / `TripleUpActivatedSound` / `TripleUpExpiredSound` / `KinsectDepletedSound` |
+| `URes_InsectGlaive`（部分实现） | 当前源码仍使用白/Yellow/红常量、TripleUp Handle 和猎虫耐力；目标设计改为白/Orange/红、CombatConfig 双红灯模式、舞踏和粉尘接口 | 当前状态机需按 [insect-glaive.md](insect-glaive.md) 修订；资源组件创建、猎虫 Spawn、GA/GE 资产仍未接线 | `ExtractCollectedSound` / `TripleUpActivatedSound` / `TripleUpExpiredSound` / `KinsectDepletedSound` |
 | `URes_ChargeBlade`（规划） | `int32 PhialCount`(0~6)、`bool ShieldCharged`、`FTimerHandle RedShieldTimer` | 瓶被动不消耗、部分招式主动消耗、红盾有时限 | `PhialLoadSound` / `ShieldChargeSound` / `PhialBurstSound` / `OverheatSound` |
 | `URes_SwitchAxe`（规划） | `float ChargeGauge`(0~1) | 连续值充能 | `GaugeChargedSound`（充能就绪） / `SwordModeActivateSound` / `SwordModeDeactivateSound` |
 
-> `FWeaponResourceConfigRow` 同时桥接 ResourceComponentClass 与 ResourceWidgetClass，但当前 `DT_WeaponResourceConfig` 资产不存在。虫棍已声明 `OnKinsectStaminaChanged`、`OnExtractTimeUpdated`、`OnTripleUpChanged`；其中 ExtractTimeUpdated 尚未广播，UI 也未接线。
+> 当前 `FWeaponResourceConfigRow/DT_WeaponResourceConfig` 尚未形成资产闭环。目标由 WeaponDefinition 引用 `UWeaponRuntimeDefinition`，统一提供 ResourceClass/InputProfile/CombatConfig/ResourceWidget；RuntimeHost 是唯一消费方。虫棍现有 Delegate 仍需在 M3/M6 接线。
 
 ## GA_Dodge — 翻滚/闪避 Ability（不进连招表）
 
@@ -1107,63 +1071,39 @@ UCLASS(BlueprintType, Blueprintable)
 class UMHGZDodgeAbility : public UMHGZGameplayAbility
 ```
 
-继承 `UMHGZGameplayAbility`（非 `UMHGZAttackAbility`——翻滚不涉及攻击碰撞和伤害）。通过 `TryActivateAbilityByTag(Input.Dodge)` 激活，**不进连招协调器，不占 FComboNode 行**。
+继承 `UMHGZGameplayAbility`，通过通用输入路由激活，**不进武器连招表**。它仍使用 ActionToken/Notify Registry 和 TagLedger，因此与攻击共享可靠的动作生命周期，但不共享 Combo State。
 
+### 最终配置
 
-
-### GA_Dodge 自身配置（蓝图可编辑）
-
-| 成员 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| SheathedDodgeMontages | TMap\<EComboDirection, TSoftObjectPtr\<UAnimMontage\>\> | 空 | 收刀态各方向翻滚 Montage（所有武器共用，Key=None=无方向翻滚，Forward/Back/Left/Right=方向翻滚）。无敌帧区间由动画师在 Montage 上拖拽 `AnimNotifyState_DodgeWindow` 控制 |
-
-### FWeaponDodgeConfig — 武器翻滚配置
-
-存于 `DT_WeaponDodgeConfig` DataTable。
-
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| WeaponTypeTag | FGameplayTag | 必填 | 武器种类（主键） |
-| UnsheathedMontages | TMap\<EComboDirection, TSoftObjectPtr\<UAnimMontage\>\> | 空 | 拔刀态各方向翻滚 Montage（Key=None=无方向翻滚，Forward/Back/Left/Right=方向翻滚）。无敌帧区间由动画师在 Montage 上拖拽 `AnimNotifyState_DodgeWindow` 控制，不在此处配数字 |
-
-> 耐力消耗使用基类 `UMHGZGameplayAbility::StaminaCost`。
+- 收刀翻滚使用角色通用 Dodge DataAsset 中的方向 Montage Map。
+- 持刀翻滚由当前 `UWeaponRuntimeDefinition` 可选覆写同一 Map；缺覆写时回退角色通用 Map。
+- 旧 `DT_WeaponDodgeConfig` 在 M0 清点、迁移后停止运行时读取，不保留 DataTable 与 RuntimeDefinition 两条路径。
+- 耐力使用 `Instant` 成本策略；无敌帧只由 Montage 中 `AnimNotifyState_DodgeWindow` 定义。
 
 ### 执行流程
 
+```text
+HandleResolvedInputSnapshot(Input.Dodge)
+  → 按 Snapshot.ContextTags 检查 Hitstun/Knockdown、Attacking+DodgeAcceptOpen
+  → TryActivate 明确的 Dodge Spec，并注册完整 InputSnapshot
+  → GA 取得 Direction/RuntimeToken/Sequence，建立 ActionToken
+  → 选择收刀/持刀 Montage；按 Snapshot.Direction 选象限，缺方向项回退 None
+  → 依赖、Montage、AnimInstance 任一无效：Reject/End，不修改 BlockMovement 或碰撞
+  → Commit 成功后经 AbilityTask 播放 Montage，并注册 Mesh+MontageInstanceID
+  → DodgeWindow 只解析本 ActionToken，缓存各通道原响应、取得 Invincible Token
+  → 完成/BlendOut/Interrupted/Cancelled/Superseded 均走同一幂等 End
 ```
-GA_Dodge::CanActivateAbility：
-  → 检查 ASC 不含 Combat.State.Hitstun / Knockdown
-  → 若 ASC 有 Combat.State.Attacking 但无 Combat.State.DodgeAcceptOpen → 阻塞（攻击中但不在翻滚窗口）
-  → 检查 Stamina ≥ StaminaCost（基类字段）
-  → ✅ 通过 → 激活
-  // 纯 Tag 检查：无武器时 Attacking 不存在 → 翻滚始终可用
 
-GA_Dodge::ActivateAbility：
-  → 基类扣耐力（StaminaCost × StaminaDeductionRate）
-  → 读 ASC 的 Sheathed/Unsheathed 标签：
-      Sheathed → 使用 `SheathedDodgeMontages`（GA_Dodge 自身配置，所有武器共用）
-      Unsheathed → 通过 `UMHGZDataManager::FindWeaponDodgeConfig(WeaponTypeTag)` 获取 FWeaponDodgeConfig → 使用 UnsheathedMontages
-  → 读摇杆方向 → 从 Montages 中选对应 Montage
-     （无方向 → None 键；有方向 → 按象限匹配 Forward/Back/Left/Right；无匹配 → 回退 None）
-  → 播放 Montage（含 AnimNotifyState_DodgeWindow 控制无敌帧）
-  → Montage 播完 → EndAbility
-```
+不再读取 `GetLastMovementInputVector()`，因为当前 Character 移动并未把该值作为战斗方向真相源；方向只来自解析时的 InputSnapshot。
 
 ### 翻滚与连招的关系
 
-- 翻滚激活时 GAS 自动取消当前攻击 GA → 协调器的 `SafetyTimer`（GlobalComboTimeout）兜底回 Idle
-- 翻滚无敌帧由独立的 `AnimNotifyState_DodgeWindow` 控制
+- Idle 时可直接闪避；攻击中只有动作的 DodgeAcceptWindow Token 有效时可激活。
+- 翻滚接受后由协调器精确结束旧 ActionToken，并以明确原因 Reset/交接，不依赖 SafetyTimer 才回 Idle。
+- DodgeWindow 缓存并恢复 NotifyBegin 前每个被修改通道的 CollisionResponse；不得统一恢复成 Block。
+- Ability End 兜底释放仍存活的 Invincible/DodgeAccept Token 和碰撞快照，即使 Montage 中断未触发 NotifyEnd。
 
-### DT_WeaponDodgeConfig — 武器翻滚配置表
-
-| 列名 | 类型 | 说明 |
-|------|------|------|
-| WeaponTypeTag | FGameplayTag | 武器种类（主键） |
-| DodgeConfig | FWeaponDodgeConfig | 翻滚参数（各方向 Montage + 无敌帧区间）。注意：耐力消耗由基类 `UMHGZGameplayAbility::StaminaCost` 管理，不在此结构中 |
-
-### 翻滚窗口与取消
-
-`AnimNotifyState_DodgeAcceptWindow` 控制翻滚可用性：窗口内 ASC 持有 `Combat.State.DodgeAcceptOpen` Tag，`GA_Dodge::CanActivateAbility` 检查 `Attacking` 有 + `DodgeAcceptOpen` 无 → 阻塞。取消动作（虫棍收虫等）设 `bRequiresWindowOpen=false` + `RequiredTags` 含 `Combat.State.DodgeAcceptOpen`，与翻滚共用取消窗口。
+取消动作（如虫棍收虫）仍可配置 `bRequiresComboWindow=false` 并要求 `Combat.State.DodgeAcceptOpen`，但它们必须通过自己的 Transition/ActionToken 执行，不能直接篡改 Dodge 实例。
 
 ## UMHGZEdgeVaultComponent — 边缘跳越组件（规划；当前关闭 Tick）
 
@@ -1254,7 +1194,7 @@ UCLASS(ClassGroup=(Input), BlueprintType)
 class UMHGZInputComponent : public UActorComponent
 ```
 
-挂载到 PlayerController 或 Character。**仅负责 IMC（InputMappingContext）生命周期管理**——添加/移除/切换映射上下文。EnhancedInput 与 Ability 的绑定由 ASC 的 `InputBindings` 统一管理，InputComponent 不持有绑定数据。
+固定挂载到 PlayerController。它是 **IMC 与 Enhanced Input Binding 的唯一所有者**：添加/移除/切换 MappingContext，建立 Router 所需的原始 Action 绑定并保存 Handle。PlayerController 和 ASC 不再添加 Default IMC 或绑定 UInputAction；InputComponent 不持有连招、Ability 或虫棍规则。
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
@@ -1264,7 +1204,7 @@ class UMHGZInputComponent : public UActorComponent
 
 - `void InitializeInput(APlayerController* PC)`
   - 输入：PlayerController。
-  - 作用：将 `InputMappingContext` 添加到 EnhancedInputSubsystem → 通知 ASC 调用 `InitializeAbilitySystem()`（ASC 内部遍历自己的 `InputBindings` 完成 EnhancedInput 绑定）。仅调用一次。
+  - 目标作用：先解除本组件保存的旧 Binding/Mapping Handle，再将默认 InputMappingContext 添加到 EnhancedInputSubsystem，并把原始 Action 绑定到 WeaponInputRouter。重复 Setup 不得叠加。
 
 - `void PushInputMappingContext(UInputMappingContext* IMC, int32 Priority = 0)`
   - 输入：映射上下文、优先级。
@@ -1274,73 +1214,94 @@ class UMHGZInputComponent : public UActorComponent
   - 输入：映射上下文。
   - 作用：移除之前 Push 的 IMC，恢复默认映射。
 
-> InputComponent 只管 IMC 生命周期（"哪些按键可用"），ASC 的 `InputBindings` 管 IA→Tag→Ability 映射（"按键触发什么技能"）。限制攻击/不可操作场景通过 GAS 的 `CanActivateAbility` GameplayTag 阻塞，不解绑输入。
+> InputComponent 只管 IMC 与原始 Enhanced Input Binding 的生命周期/所有权；回调立即交给 WeaponInputRouter 解析为 InputSnapshot，ComboData/通用路由再决定“触发什么”。限制攻击/不可操作场景通过 GAS Tag/CanActivate 阻塞，不反复解绑输入。
 
-## UMHGZWeaponComboData — 连招表 DataAsset
+`UnPossess`、Controller/Pawn 替换和 `EndPlay` 必须调用同一幂等 `ShutdownInput`，按 Handle 解除所有绑定并移除本组件添加的 MappingContext。
+
+## UMHGZWeaponInputRouterComponent — 武器输入路由（目标）
+
+挂载到本地 PlayerController，读取当前武器的 `UWeaponInputProfile`。它只生成输入事实，不选择具体 GA。
+
+| 运行时状态 | 说明 |
+|---|---|
+| CurrentProfile | 当前武器的物理键、Chord、GracePeriod 和方向阈值 |
+| HeldControls | 当前按下的 LT/RT/Y/B 等物理输入及 Started SequenceID |
+| PendingChordInputs | 仅保存可能参与组合的输入；超时后再派发单键 |
+| NextSequenceID | 单调递增的输入身份；Completed 必须引用对应 Started |
+| OwnedAimTags | 本路由器添加的 Kinsect/Action/Slinger Tag 计数，失效时精确清理 |
+
+`ResolveInput` 输出完整 `FWeaponInputSnapshot`。任意 Chord 必需成员 Started 都重算候选；TriggerControls 必须在 GracePeriod 内，RequiredHeldModifier 可预先持有或在候选超时前最后补齐。组合完整的最后成员决定方向、姿态、HeldModifier、Aim 和时间快照。组合键优先级和消费规则由 Profile Data Validation 保证；详细字段与释放身份合同见 [冻结实施计划 §3.2](demo-implementation-plan.md#32-输入路由与组合键)。
+
+## UMHGZWeaponComboData — 连招转移表 DataAsset
 
 ```
 UCLASS(BlueprintType)
 class UMHGZWeaponComboData : public UPrimaryDataAsset
 ```
 
-每武器种类一个，策划在编辑器中配置完整连招图（有向图，允许环）。
+每武器种类一个，策划在编辑器中配置完整连招图（有向图，允许环）。目标结构正式使用“转移边”命名；当前源码的 `FComboNode/ComboTable/StateName/NextState` 在 M1 一次迁移为 `FComboTransition/Transitions/SourceState/TargetState`，不长期保留双字段。
 
 | 成员 | 类型 | 说明 |
 |------|------|------|
 | WeaponTypeTag | FGameplayTag | 关联武器种类 |
-| ComboTable | TArray\<FComboNode\> | 连招节点列表 |
+| Transitions | TArray\<FComboTransition\> | 连招转移边列表；当前源码旧名为 ComboTable/FComboNode |
 | GlobalComboTimeout | float | 全局兜底超时，默认 10 秒 |
 
-### FComboNode 结构体
+### FComboTransition 结构体
 
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
-| StateName | FName | 必填 | 当前所处的具体招式名（"Idle" / "RisingSlash" / "DoubleSlash" / "TornadoSlash"…），非抽象段位编号。`"Idle"` 为起手待机态 |
-| bMatchAnyState | bool | false | 为 true 时忽略 StateName 匹配——匹配任意招式状态（含 Idle）。用于纳刀、起跳等通用招式。若需排除特定招式状态，使用 `BlockedStateNames`；若需排除受击/击倒等，使用 `BlockedTags` |
-| BlockedStateNames | TArray\<FName\> | 空 | **仅 `bMatchAnyState==true` 时生效**——排除这些源状态名。空数组=匹配任意状态（原行为）。用于"任意派生但不可从 Idle/收刀态起手"（如太刀特殊纳刀）或"排除特定招式"的场景。黑名单模式——只需列出不允许的少数状态 |
-| InputTag | FGameplayTag | 必填 | 触发条件（`Input.Weapon.Y` / `Input.Weapon.B` / `Input.Weapon.RT` 等） |
-| DirectionalInput | EDirectionalInput | None | 字段已定义，当前协调器尚未消费；方向匹配为后续方案 |
-| NextState | FName | 必填 | 命中后跳转到的招式名（可指向自身或前序招式，有向图允许环） |
-| AbilityClass | TSubclassOf\<UGameplayAbility\> | nullptr | 触发的 GA 类；当前不限于 AttackAbility |
+| TransitionID | FName | 必填 | 转移边的唯一稳定 ID；自动派生、调试和运行时所有权都引用它。Data Validation 禁止重复 |
+| SourceState | FName | 必填 | 输入发生前所处状态（"Idle" / "RisingSlash" / "DoubleSlash"…） |
+| bMatchAnyState | bool | false | 为 true 时忽略 SourceState 并匹配任意招式状态；使用 `BlockedSourceStates` 排除少数状态 |
+| BlockedSourceStates | TArray\<FName\> | 空 | 仅 bMatchAnyState 时生效；空数组表示匹配任意状态 |
+| InputTag | FGameplayTag | 输入边必填 | ChordResolver 已解析的 `Input.Weapon.*`；自动转移可为空 |
+| Direction | EDirectionalInput | None | None 表示不要求方向；具体方向优先于 None |
+| ExecutionPolicy | EComboExecutionPolicy | ActivateAbility | ActivateAbility 激活新 GA；StateOnly 只允许同一 GA 内自动阶段/收尾边 |
+| TargetState | FName | Replace 时必填 | 转移成功后状态，可指向自身或前序状态 |
+| StatePolicy | EComboStatePolicy | Replace | Replace 改变状态；Preserve 只用于不改变连招状态的侧向命令，且不得授予跨招式 Branch Tag |
+| LandingPolicy | EComboLandingPolicy | ResetToIdle | 普通落地由协调器 Reset；AbilityOwned 把 Landing Hit 交给当前 GA 完成显式落地段 |
+| AbilityClass | TSubclassOf\<UGameplayAbility\> | nullptr | ActivateAbility 时必填；StateOnly 必须为空并继续使用 SourceActionToken |
 | StaminaRequired | float | 0 | 耐力门槛——连招匹配时协调器检查 `CurrentStamina ≥ Required`。**不负责扣耐**——实际扣除由 GA 的 `UMHGZGameplayAbility::StaminaCost` 在 ActivateAbility 中执行 |
 | RequiredTags | FGameplayTagContainer | 空 | 激活前提——ASC **必须持有全部**这些 Tag（AND）。含状态标签：`Grounded/Unsheathed`（地面招式）、`Aerial/Unsheathed`（空中招式）、`Sheathed`（拔刀攻击）。Buff/PowerUp 也在此列 |
 | BlockedTags | FGameplayTagContainer | 空 | 激活阻止——ASC **必须不持有任一**这些 Tag（NOR）。用于排除特定状态：登龙剑设 `BlockedTags={Combo.Branch.PostRoundslash}`，大回旋 `GrantedTags` 含此 Tag → 登龙无法从大回旋后派生 |
-| GrantedTags | FGameplayTagContainer | 空 | **GA 首次命中后**由协调器授予的临时 Tag，供后续节点 RequiredTags/BlockedTags 判断（非激活时立即授予）。空挥则 GrantedTags 不生效 → 依赖此 Tag 的后续节点匹配失败 → 空挥断连 |
-| bRequiresHitToGrantTags | bool | false | 字段尚未被读取；当前 PendingGrantedTags 总是在 `OnAttackHit` 时授予 |
-| bRequiresWindowOpen | bool | false | 字段尚未被读取；当前协调器不检查 ComboWindowOpen |
+| GrantedTags | FGameplayTagContainer | 空 | 由本次 Transition ActionToken 拥有，进入下一转移或 Reset 时精确释放 |
+| GrantTiming | ETransitionGrantTiming | OnActivation | OnActivation 或 OnFirstHit；旧布尔 `bRequiresHitToGrantTags` 迁移后删除 |
+| bRequiresComboWindow | bool | false | true 时要求 ComboWindowOpen；旧名 `bRequiresWindowOpen` 迁移后删除 |
 | Priority | int32 | 0 | 显式匹配优先级。同层（精确招式/通用招式 + DirectionalInput）内有多个候选行满足 InputAction 条件时，Priority 高的优先匹配 |
-| bAutoTransition | bool | false | 字段已定义但 `OnAutoTransition` 尚未实现；以下 ε 转移流程作为后续方案保留 |
+| bAutoTransition | bool | false | 自动 ε 转移由唯一 TransitionID + SourceActionToken 请求 |
 
-#### 尚未接入字段的目标行为（保留方案）
+#### 冻结后的目标行为（当前尚未接入）
 
-- `DirectionalInput`：在玩家按下输入时快照方向，以角色前向为基准划分 Forward/Back/Left/Right；具体方向节点优先于 None。
-- `bRequiresWindowOpen`：为 true 时仅在 `Combat.State.ComboWindowOpen` 存在时匹配；为 false 时允许收虫、纳刀等取消动作绕过连招窗口，但仍受 RequiredTags 约束。
-- `bRequiresHitToGrantTags`：为 true 时仅首次命中后授予 GrantedTags；为 false 时计划允许激活即授予，从而支持空挥派生。
-- `bAutoTransition`：目标是允许 InputTag 为空的 ε 转移；GA 命中或播放完成后通过 `OnAutoTransition(NextState)` 请求协调器激活下一节点。
+- `Direction`：输入层先把摇杆转换为世界方向，再与角色 Forward/Right 比较。方向、组合键和修饰态在同一个 InputSnapshot 中冻结；具体方向节点优先于 None。
+- `bRequiresComboWindow`：为 true 时仅在 `Combat.State.ComboWindowOpen` 存在时匹配；为 false 时允许收虫、纳刀等取消动作绕过连招窗口，但仍受 RequiredTags 约束。
+- `GrantTiming`：OnFirstHit 只接受当前 ActionToken 的首次命中；OnActivation 在 Ability 激活成功后授予。
+- `bAutoTransition`：允许 InputTag 为空的 ε 转移；GA 命中或阶段完成后通过确定的 `TransitionID` 请求协调器执行该边，不能只传 TargetState。
+- `ExecutionPolicy=StateOnly`：只用于当前 GA 内的命中/落地/收尾阶段变更；协调器验证 SourceActionToken 后更新同一 ActiveTransition，不为纯状态变化创建空 GA。
 
 ### 出招表数据模型
 
-`ComboTable` 定义了 FSM 的有向转移图。`StateName` 是状态，`NextState` 是转移目标。当前输入字段名为 `InputTag`；`bAutoTransition` 对应的 ε 转移仍是后续方案。
+`Transitions` 定义 FSM 的有向转移图。`SourceState` 是来源，`TargetState` 是目标，`AbilityClass` 是执行这次状态转移的动作。多个出边可以共享 SourceState，但不要求共享 AbilityClass。
 
-`ComboTable` 是平面数组。当前 `StateIndex` 只索引精确 StateName；`bMatchAnyState` 节点在每次输入时遍历数组并检查 `BlockedStateNames`。`"*"` 桶是可选的后续优化方案。
+`Transitions` 是平面数组。目标 `StateIndex` 索引精确 SourceState，并另建 AnyState 索引；不为 Demo 保留第二套 `"*"` 数据表示。
 
 ### 与装备系统的对接
 
-`EquipmentComponent→ApplyItemEffects` 当前从 `DT_WeaponComboConfig` 同步 `LoadSynchronous` ComboData，收集 `ComboTable` 中 AbilityClass 并授予，再 `GiveAbilityAndActivateOnce` 协调器，最后 `InjectComboData` 构建 StateIndex。异步 RequestID 方案保留在 [entries.md](entries.md)。
+`EquipmentComponent→ApplyItemEffects` 当前从 `DT_WeaponComboConfig` 同步 `LoadSynchronous` ComboData，收集旧 `ComboTable` 中 AbilityClass 并授予，再激活协调器。目标由 RuntimeHost/装备变更流程注入 `Transitions`；异步 RequestID 不属于本次 Demo 必需范围。
 
 ### 复合输入与修饰态
 
-| 模式 | 示例 | 实现 | FComboNode 如何区分 |
+| 模式 | 示例 | 实现 | FComboTransition 如何区分 |
 |------|------|------|---------------------|
-| 长按修饰+点按 | 按住 LT 瞄准时按 B | LT→Hold trigger→设 `Input.Modifier.Aiming` Tag；B 照常触发 | 同一 InputAction（B）+ 不同 RequiredTags（空 vs `Aiming`）匹配不同行 |
-| 同时按 | Y+B | `IA_YB` + `UInputTriggerChordAction` 引用 IA_Y 和 IA_B | 独立 InputTag `Input.Weapon.YB`，与 Y、B 不冲突 |
-| 嵌套长按 | 按住 RT 蓄力 + 按住 LT 瞄准 | 两个独立 Hold trigger，各管各的 Tag | `RequiredTags={Charging, Aiming}` 匹配蓄力瞄准态招式 |
+| 长按修饰+点按 | 持刀 LT+B | LT→Kinsect Aiming 状态；ChordResolver 输出 `Input.Weapon.LTB` | 地面为召回，空中为操虫斩；由 Grounded/Aerial 分流 |
+| 同时按 | Y+B | ChordResolver 在 Grace Period 内合并并抑制 Y、B 单键 | 独立 `Input.Weapon.YB`，可再叠加 DirectionalInput |
+| 三键组合 | LT+Y+B / RT+Y+B | 快照修饰键后输出 `LTYB` / `RTYB` | 不等待三个普通 GA 竞争；状态再区分粉尘集约/降龙 |
 
-> **核心原则：** 不创建组合爆炸的 InputAction——修饰态走 GameplayTag（`Input.Modifier.*`），真正的同时按键走 Chord Trigger。
+> **核心原则：** EnhancedInput 只采集原始键；通用 ChordResolver 根据当前武器声明的组合表产生稳定 InputTag，并在可配置 Grace Period 内抑制已被组合消费的单键。协调器不硬编码虫棍组合。
 
 ### EDirectionalInput 象限规则（规划，协调器尚未消费）
 
-以角色前向为基准 ±45° 分 4 象限。Forward/Back 优先级高于 Left/Right——对角线（45°）归 Forward。无输入或向量长度 < 0.1 视为 None。翻滚使用相同规则。
+摇杆先按当前控制方案转换为水平世界方向，再以角色 Forward/Right 分象限。虫棍 `前+Y+B` 因此要求输入世界方向与角色面朝方向一致：角色朝屏幕左时，摇杆左才是 Forward。默认半角 45°、最小输入 0.1，具体阈值只由当前 `UWeaponInputProfile` 提供。
 
 | 值 | 角度范围 |
 |----|------|
@@ -1357,78 +1318,74 @@ UCLASS(BlueprintType, Blueprintable)
 class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 ```
 
-协调器是 `InstancedPerActor`、`LocalOnly`、`bIsContinuous=true` 的持续 Ability。装备时通过 `GiveAbilityAndActivateOnce` 激活，`InjectComboData` 后构建索引；卸装时取消。它不直接绑定 EnhancedInput，只接收 ASC 转发的 `HandleWeaponInput`。
+协调器是 `InstancedPerActor`、`LocalOnly` 的 maintained/no-cost Ability。它长期存在是因为装备期间不主动 End，与耐力成本策略无关。装备时激活并注入 ComboData，卸装时取消；只接收 WeaponInputRouter 生成的 `FWeaponInputSnapshot`。
 
 ### 运行时状态（非 UPERTY，协调器内部维护）
 
 | 成员 | 类型 | 说明 |
 |------|------|------|
 | CurrentState | FName | 当前所处的招式名（初始 "Idle"） |
-| PreviousState | FName | 上一个成功激活的招式名（初始 `"Idle"`）。GA 在 `ActivateAbility` 中通过 `Coordinator→GetPreviousState()` 读取，用于选择 Montage 的入口 Section（Entry Section） |
 | ComboData | TObjectPtr\<UMHGZWeaponComboData\> | 当前武器的连招表 |
-| StateIndex | TMap\<FName, TArray\<int32\>\> | 当前只索引 `bMatchAnyState=false` 的 StateName；通用节点输入时线性遍历 |
-| ComboTimeoutTimer | FTimerHandle | 使用 ComboData 的 `GlobalComboTimeout`；到期回 Idle 并清 PendingGrantedTags |
-| PendingGrantedTags | FGameplayTagContainer | 当前激活的 GA 待授予的 GrantedTags。GA 激活时存入（非立即应用），GA 首次命中时由 `OnAttackHit()` 写入 ASC；若 GA 结束仍未命中则丢弃 |
+| StateIndex / AnyStateIndices | 索引 | 目标分别索引精确 SourceState 与 bMatchAnyState 转移；不在每次输入全表扫描 |
+| ComboTimeoutTimer | FTimerHandle | 使用 ComboData 的 `GlobalComboTimeout`；到期只清理当前 ActiveTransition 拥有的状态和标签 |
+| PendingTransition | FPendingComboTransition | 已通过数据匹配但尚未收到 GA Commit 成功回执的转移；不拥有状态或标签 |
+| ActiveTransition | FActiveComboTransition | 当前转移的 TransitionID、完整 ActionToken、Source/TargetState、OwnedTags 与命中状态；不存在跨 Ability 共用的全局 PendingGrantedTags |
 
-> `PendingInputs`、帧批处理、PreInput 缓冲、ActiveLoadRequestID 均为保留方案，当前类没有这些成员。
+> 当前源码仍维护 `PreviousState`。目标 GA 从不可变 `FWeaponAbilityActivationContext.SourceState` 选择 Montage 入口；M1 删除运行时对全局 PreviousState 的依赖。
+
+> 当前类还没有 PendingTransition 或 PreInputSnapshot。Chord Pending/Timer 明确属于 WeaponInputRouter，协调器不得再维护第二套组合键缓冲。
 
 规划成员明细：
 
 | 成员 | 类型 | 目标语义 |
 |------|------|----------|
-| PendingInputs | TArray\<FGameplayTag\> | 累积当前帧武器输入，下一帧统一按 Chord/单键优先级处理 |
-| InputBatchTimer | FTimerHandle | 0 秒延迟到下一帧执行批处理 |
-| PreInputTag | FGameplayTag | ComboWindow 打开前的单槽预输入，后输入覆盖前输入 |
-| PreInputTimestamp | float | 预输入捕获时刻，用于判定有效期 |
+| PreInputSnapshot | TOptional\<FWeaponInputSnapshot\> | ComboWindow 打开前的单槽预输入；后输入覆盖前输入，但保留原方向/时间/SequenceID |
 | PreInputLifetime | float | 预输入有效窗口，原方案默认 0.15 秒 |
-| ActiveLoadRequestID | FGuid | 异步加载令牌，只接受最新武器的 ComboData 回调 |
 
 ### 公共方法
 
 - `void InjectComboData(UMHGZWeaponComboData* Data)`
-  - 当前作用：保存同步加载的 ComboData，构建精确状态索引并重置超时。
+  - 当前作用：保存同步加载的旧 ComboTable 并构建部分索引。
+  - 目标作用：验证并索引 Transitions/AnyState，清 Pending/PreInput，重置状态。Demo 由 RuntimeHost 同步注入。
 
-- `void SetComboData(UMHGZWeaponComboData* InData, FGuid RequestID)`（规划）
-  - 与 `DataManager::RequestWeaponComboData` 配套：校验 RequestID，丢弃过期换装请求，再构建 StateIndex。完整竞态方案见 [entries.md](entries.md) 的 RequestID 章节。
+- 异步 ComboData 的 RequestID 方案延期到完整装备/流送系统；本 Demo 不同时实现同步与异步两条加载路径。其他延迟回调使用完整 `FWeaponRuntimeToken{Host, Generation}` 拒绝旧 Pawn/旧世代。
 
-- `void HandleWeaponInput(FGameplayTag AbilityTag)`
-  - 输入：武器输入 Tag（`Input.Weapon.Y` / `Input.Weapon.B` 等）。
-  - 作用：由 ASC 的 `OnInputActionTriggered` 在判别为武器 Tag 时调用。若 ComboData 未注入（StateIndex 为空）→ 忽略。帧批处理收集 → 排序 → 匹配 → 激活 GA。
+- `void HandleWeaponInput(const FWeaponInputSnapshot& Input)`
+  - 输入：WeaponInputRouter 已解析的组合 Tag、HeldModifiers、姿态 ContextTags、世界方向、Phase、时间与 SequenceID。
+  - 作用：若 ComboData 未注入则忽略；按状态/修饰/方向/Priority 匹配后进入统一 `ExecuteTransition`。
 
-- `FName GetPreviousState() const`
-  - 输出：上一个成功激活的招式名。
-  - 作用：GA 在 `ActivateAbility` 中调用——根据来源招式选择 Montage 的入口 Section（Entry Section）。
+- `void ConfirmTransitionActivation(const FWeaponActionToken& ActionToken)`
+  - 只接受 RuntimeToken、SpecHandle、ActivationSequenceID 和 AbilityInstance 与 PendingTransition 全部匹配的成功回执；此时才提交 CurrentState、ActiveTransition 和 OnActivation Tags。
 
-- `void OnAttackHit()`
-  - 作用：由攻击 GA 的 `ApplyDamage` 在首次命中时调用。将 `PendingGrantedTags` 写入 ASC。
+- `void RejectTransitionActivation(const FWeaponActionToken& ActionToken)`
+  - Commit 失败、激活期间取消或上下文无效时清除 Pending；不得修改 CurrentState 或释放当前旧转移。
 
-- `void OnAttackFinished()`
-  - 当前作用：清空 ActiveAttackHandle；仅当 CurrentState 不在 StateIndex 且不是 Idle 时回 Idle，不清 Branch Tag。
+- `void OnAttackHit(const FWeaponActionToken& ActionToken)`
+  - 作用：只更新完整匹配 ActionToken 的 ActiveTransition，并按该转移配置从 TagLedger 取得有所有权 Token；同一 Spec 的旧激活迟到回调不能改写新转移。
 
-- `void OnAutoTransition(FName NextStateName)`（规划，当前无此方法）
-  - 输入：自动转移目标的招式名。
-  - 作用：GA 命中/播完时主动调用——不经过玩家输入，直接按 `StateName=NextStateName` 从 `StateIndex` 查找对应 GA 类并激活。内部流程：`PreviousState = CurrentState` → 查 `FindAbilityClassForState(NextStateName)` → `ASC→TryActivateAbilityByClass(NextGA)` → `CurrentState = NextStateName` → 重置 `SafetyTimer`。调用方为 GA 子类的命中回调或 `ShouldContinueAfterHit` 覆写。
-  - 前提：`NextStateName` 对应的连招表行必须设 `bAutoTransition=true`，否则不激活（防止非法自动转移）。
+- `void OnAttackFinished(const FWeaponActionToken& ActionToken, EAbilityEndReason Reason)`
+  - 仅当完整 ActionToken 仍拥有 ActiveTransition 时清理其 Token 并决定回 Idle；被后续动作以 `Superseded` 取代的旧实例不能重置新状态。
 
-- `TSubclassOf<UGameplayAbility> FindAbilityClassForState(FName StateName) const`
-  - 输出：指定招式名对应的 Ability 类。
-  - 作用：从 `StateIndex[StateName]` 中取出首个节点的 `AbilityClass`（所有同名节点共享同一个 AbilityClass）。若 `StateIndex` 中无此键或 AbilityClass 为空 → 返回 nullptr。
+- `void OnAutoTransition(FName TransitionID, const FWeaponActionToken& SourceAction)`（目标）
+  - 输入：确定的自动转移边 ID 和发起它的完整 ActionToken。
+  - 作用：验证 SourceAction 仍拥有当前状态、目标边 `bAutoTransition=true` 且 SourceState 匹配，然后执行该边的 AbilityClass 并进入它的 TargetState。
+  - 不提供 `FindAbilityClassForState`；同一 SourceState 的不同出边本来就可以激活不同 Ability。
 
 ### 运行时工作流
 
-**阶段 A（当前装备流程）：** `EquipmentComponent→OnEquipmentChangedInternal()` → 从 DT 同步加载 ComboData → `GrantWeaponAbilities` → `GiveAbilityAndActivateOnce(UGA_WeaponComboCoordinator)` → `InjectComboData` 构建 StateIndex。
+**阶段 A（目标装备流程）：** EquipmentComponent 只在武器身份变化时广播 WeaponSnapshot → Character RuntimeHost 比较身份并创建 Resource/请求 ComboData → ASC 授予 Transitions 引用的 Ability → 激活 Coordinator → 注入 ComboData 并构建索引。护甲、饰品和重复 Snapshot 不重建。
 
-**阶段 B（起手攻击）：** `HandleWeaponInput` → 候选行 = `StateIndex["Idle"] ∪ StateIndex["*"]` → 四级排序（`bMatchAnyState=false > true`；`DirectionalInput` 具体 > None；`Priority` 降序）→ 遍历检查 6 条件（`InputAction`/`DirectionalInput`/`RequiredTags`/窗口或起手/`BlockedTags`/`StaminaRequired`）→ 匹配成功则 `PreviousState = CurrentState` → `ActivateAbility` + 更新 `CurrentState`（新招式名）+ 存入 `PendingGrantedTags` + 重置 `SafetyTimer`（时长为 `GlobalComboTimeout`）。
+**阶段 B（起手攻击）：** InputProfile 已将修饰键解析为唯一 InputTag；`HandleWeaponInput(InputSnapshot)` → 候选边 = `StateIndex["Idle"] ∪ AnyState` → 按 InputTag、状态精确度、方向、Priority 排序与预检 → 建立 PendingTransition/ActivationContext → TryActivate 已授予 Spec。GA 开头 Commit 成功并回执 Confirm 后，协调器才提交 ActiveTransition 和 TargetState；TryActivate 或 Commit 失败都清 Pending 且不改变状态。
 
-**阶段 C（GA 执行）：** GA `ActivateAbility` 扣耐力/播 Montage → `AttackCollision→NotifyBegin` 调 `EnableCollision` → Sweep 命中 → `ApplyDamage` → `NotifyEnd` 调 `DisableCollision` → `ComboWindow→NotifyBegin` 加 `ComboWindowOpen` Tag。
+**阶段 C（GA 执行）：** GA 读取 ActivationContext → Resource reservation → GAS Commit → Consume → Confirm；Confirm 接受后才播放 Montage并注册 Mesh+MontageInstanceID→ActionToken。`AttackCollision/ComboWindow` 先从 RuntimeHost Registry 解析所属 ActionToken，再只调用该实例；Coordinator 通过 TagLedger 管理重叠 Window Token。
 
-**阶段 D（连招下一段）：** 窗口内 `HandleWeaponInput` → `StateIndex[CurrentState] ∪ StateIndex["*"]`（`"*"` 桶中过滤 `BlockedStateNames.Contains(CurrentState)` 的行）→ 匹配成功则取消旧 `SafetyTimer` → `PreviousState = CurrentState` → `ActivateAbility` → 更新 `CurrentState` → 重启 `SafetyTimer`（时长为 `GlobalComboTimeout`）。GA 首次命中时 `OnAttackHit()` 将 `PendingGrantedTags` 写入 ASC。
+**阶段 D（连招下一段）：** 窗口内按同一流程执行下一条边；新实例 Commit+Confirm 后接管 ActiveTransition，协调器再对旧实例调用 `RequestEndAction(Superseded)`。GA 首次命中只更新完整 ActionToken 匹配的转移。
 
-**阶段 E（回 Idle）：** `ComboWindow→NotifyEnd` 移除 Tag → Montage 播完 → GA `EndAbility` → `Coordinator→OnAttackFinished()` → 若 `CurrentState` 未变更（未被 `HandleWeaponInput` 或 `OnAutoTransition` 改变）则回 `"Idle"` + 清除 `Combo.Branch.*` Tag。
+**阶段 E（回 Idle）：** `ComboWindow→NotifyEnd` 释放匹配 Window Token → Montage 播完 → GA `EndAbility` → `Coordinator→OnAttackFinished(ActionToken, Reason)`；只有该完整身份仍拥有 ActiveTransition 时才回 `Idle` 并释放它持有的分支 Token，绝不按 `Combo.Branch.*` 父标签批量清理。
 
-**阶段 F（异常兜底）：** `SafetyTimer` 到期（`GlobalComboTimeout` 秒，仅 Montage 卡死等极端情况）→ 强制 `CurrentState="Idle"` + 清除所有 `Combo.Branch.*` Tag。武器卸下：清除所有 `Combo.Branch.*` Tag + StateIndex 清空。
+**阶段 F（异常兜底）：** `SafetyTimer` 到期（`GlobalComboTimeout` 秒，仅 Montage 卡死等极端情况）→ `ResetCombo(SafetyTimeout)`，只释放 Pending/ActiveTransition 自己拥有的 Tag，并按真实姿态回 Idle/Aerial.Free。武器卸下由 RuntimeHost 先 Reset/Cancel，再清索引；禁止按父标签无差别删除其他系统拥有的 Branch Tag。
 
-**阶段 G（自动转移）：** GA 命中/播完 → `Coordinator→OnAutoTransition(NextStateName)` → 检查 `StateIndex` 中是否含此状态 → 目标行 `bAutoTransition==true` 才激活 → `PreviousState=CurrentState` → 查 `FindAbilityClassForState` → `ActivateAbility` → `CurrentState=NextStateName` → 重置 `SafetyTimer`。与阶段 B/D 共享同一状态变更路径，不绕过协调器。
+**阶段 G（自动转移）：** GA 命中/阶段完成 → `Coordinator→OnAutoTransition(TransitionID, SourceActionToken)` → 精确找到一条 `bAutoTransition` 边 → 验证所有权和 SourceState。ActivateAbility 边走 Pending/Commit/Confirm；StateOnly 边继续由同一 ActionToken 持有并直接完成状态/标签交接。
 
 ### 两种转移路径对照
 
@@ -1436,26 +1393,29 @@ class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 |------|------|------|
 | 触发源 | 玩家按键 | GA 事件（命中/播完） |
 | 协调器方法 | `HandleWeaponInput` | `OnAutoTransition` |
-| InputAction | 必填 | 可为空或忽略 |
-| 匹配方式 | 四级排序匹配 | 直接按 StateName 查找 |
+| InputTag | 必填 | 必须为空 |
+| 匹配方式 | 输入快照排序匹配 | 直接按唯一 TransitionID 查找 |
 | 出招表标记 | — | `bAutoTransition=true` |
-| 示例 | 袈裟斩→二连斩（按 Y） | 操虫斩命中→命中后动画（自动） |
+| ExecutionPolicy | ActivateAbility | ActivateAbility 或 StateOnly |
+| 示例 | 袈裟斩→二连斩（按 Y） | 操虫斩命中→StateOnly 舞踏阶段 |
 
 ### 关键设计要点
 
-- **帧级输入批处理：** `PendingInputs` 收集当前帧所有武器输入，下一帧统一按 Chord > 单键排序匹配
-- **预输入缓冲：** `PreInputTag`（单槽，`PreInputLifetime=0.15s`），窗口打开时消费
-- **节点匹配四级排序 + 匹配即停**
-- **死亡处理：** `Combat.Event.Death` → `GA_Death` Cancel 所有 GA。猫车 = `SetActorLocation` + 设 Grounded+Sheathed
-- **打断后自动恢复：** 监听 Hitstun/Knockdown Removed → 检查 `Input.Modifier.*` → 自动 `TryActivateAbilityByTag`
-- **着陆重置——`Coordinator→OnLanded()`：** CMC 落地事件触发，将 `CurrentState` 强制复位 `"Idle"` + 清除 Branch Tag。确保地面连招表正确匹配起手招式
+- **组合输入解析：** ChordResolver 只延迟可能组成组合键的单键；形成组合后立即消费，普通无组合输入不增加一帧延迟
+- **预输入缓冲：** 保存完整 `FWeaponInputSnapshot`（单槽，`PreInputLifetime=0.15s`），窗口打开时消费；不能只存 Tag 丢失方向和 SequenceID
+- **转移匹配排序 + 匹配即停：** InputTag 已精确解析；再按精确 SourceState、具体方向、Priority 排序
+- **死亡处理：** `Combat.Event.Death` 取消武器 GA并 RuntimeHost Shutdown；复用同一 Character 时递增 Generation，新建 Pawn 时更换 Host，二者都生成新 `FWeaponRuntimeToken` 并从当前装备重建，不能复用死亡前运行时对象
+- **打断后瞄准恢复：** Hitstun/Knockdown 移除后由 WeaponInputRouter 根据仍按住的物理键重新计算 Aim Context；不自动激活攻击 GA
+- **着陆分流——`Coordinator→OnLanded(Hit)`：** 默认 `ResetCombo(Landed)`；当前转移为 AbilityOwned 时，只把 Hit 交给匹配 ActionToken 的 GA，急袭突刺/降龙完成落地段后再 StateOnly Auto→Idle
 - **空中次数限制——Cant 权限模型（零交叉逻辑）：** `CantDodge`/`CantAttack` 两个 Tag 各自独立。`GA_AirDodge` 添加 `CantDodge`，`GA_AirAttack_*` 添加 `CantAttack`。无需 `Exhausted` 汇总——两个 Cant 同时存在 = 双阻塞。GAS 原生 `BlockedTags` 处理，GA 零覆写代码
-- **FSM 两条转移路径不冲突：** 输入转移（`HandleWeaponInput`）和自动转移（`OnAutoTransition`）共享同一状态变更路径——都经过 `PreviousState=CurrentState` → 激活新 GA → `CurrentState=NextState`。GA 的 `EndAbility` 中 `OnAttackFinished()` 仅当 `CurrentState` 未被两者修改时才回 Idle
-- **GA→GA 自动派生不走 `TryActivateAbilityByTag`：** 必须通过 `OnAutoTransition`——确保协调器感知状态变更、`PreviousState` 正确传递、`SafetyTimer` 更新。绕过协调器直接激活 GA 会导致状态不同步、Entry Section 选错、`OnAttackFinished` 误回 Idle
+- **FSM 两条转移路径不冲突：** 输入转移和自动转移共享 `ExecuteTransition(TransitionID)`；自动转移必须引用唯一边 ID，EndAbility 只有在 AbilityHandle 仍拥有 ActiveTransition 时才能回 Idle
+- **GA→GA 自动派生不走 `TryActivateAbilityByTag`：** 必须通过 `OnAutoTransition`——确保协调器感知状态变更、ActivationContext 来源正确、SafetyTimer 更新。绕过协调器直接激活 GA 会导致状态不同步、Entry Section 选错、旧 End 回调误回 Idle
 
 ## AnimNotifyState 系列（当前仅 AttackCollision 与 DodgeWindow；其余为规划）
 
 > 均为 C++ 类（非蓝图）。`UAnimNotifyState` 有 Begin/Tick/End 三阶段回调，适合需要"持续一段帧"的逻辑。
+
+所有玩家动作 Notify 覆写带 `FAnimNotifyEventReference` 的 Begin/Tick/End，并从 `EventReference.GetContextData<UE::Anim::FAnimNotifyMontageInstanceContext>()` 取得 UE5.6 的 MontageInstanceID（包含 `Animation/ActiveMontageInstanceScope.h`）。再以 `MeshComp + MontageInstanceID` 查询 RuntimeHost Registry，取得完整 ActionToken 和弱 AbilityInstance；Context 缺失、Token 无效、世代不符或实例已结束时静默忽略。禁止 `GetActivatableAbilities()` 全表扫描，禁止按 AbilityClass 猜实例，禁止 Notify 资产对象保存运行时 Token。
 
 ### UAnimNotifyState_ComboWindow — 连招窗口通知
 
@@ -1475,17 +1435,19 @@ class UAnimNotifyState_ComboWindow : public UAnimNotifyState
 
 ```
 NotifyBegin（窗口打开）：
-  → MeshComp→GetOwner()→GetAbilitySystemComponent()
-  → ASC→AddLooseGameplayTag(Combat.State.ComboWindowOpen)
+  → 从 MeshComp/MontageInstanceID 精确取得 ActionToken
+  → Coordinator→OpenComboWindow(ActionToken, NotifyEventID)
+  → Coordinator 为该身份创建 Window Token；首次 Token 才使 ComboWindowOpen 生效
   → （可选）按 HapticLeadTime 启动震动计时器
 
 NotifyEnd（窗口关闭）：
-  → ASC→RemoveLooseGameplayTag(Combat.State.ComboWindowOpen)
+  → Coordinator→CloseComboWindow(ActionToken, NotifyEventID)
+  → 只释放匹配 Token；同一 Ability 的其他重叠窗口仍保持开放
   → 输入不再触发连招
   → 攻击 Montage 自然播放至 BlendOut → 动画回到 Idle 待机
 ```
 
-> ComboWindow（AnimNotifyState, 0.1–0.5s）精确控制可接下一招的帧；GlobalComboTimeout（协调器字段, ~10s）为异常兜底。
+> NotifyState 资产对象可能被多个角色/实例共享，不能保存运行时 Handle。Window Token 保存于 Coordinator 的 `(ActionToken, NotifyEventID)` Map；Ability End/ResetCombo 会兜底回收，即使 Montage 中断没有可靠到达 NotifyEnd 也不残留。
 
 ### UAnimNotifyState_DodgeWindow — 翻滚无敌帧通知
 
@@ -1516,13 +1478,13 @@ class UAnimNotifyState_DodgeWindow : public UAnimNotifyState
 
 ```
 NotifyBegin：
-  → MeshComp→GetOwner()→GetPlayerState()→FindComponentByClass<UAbilitySystemComponent>()
-  → ASC→AddLooseGameplayTag(Combat.State.Invincible)
-  → 将角色胶囊体对 Weapon、MonsterAttack 通道设为 Ignore
+  → 由 Registry 取得当前 Dodge ActionToken
+  → 该实例申请 Invincible Window Token，并缓存角色胶囊体对 Weapon、MonsterAttack 的原响应
+  → 将两个通道设为 Ignore
 
 NotifyEnd：
-  → ASC→RemoveLooseGameplayTag(Combat.State.Invincible)
-  → 将胶囊体 Weapon、MonsterAttack 通道恢复为 Block（当前不是恢复缓存的原始值）
+  → 释放匹配 Token
+  → 恢复 NotifyBegin 前缓存的各通道原始响应；不能一律写成 Block
 ```
 
 **卡模/穿模风险：**
@@ -1546,11 +1508,10 @@ class UAnimNotifyState_DodgeAcceptWindow : public UAnimNotifyState
 
 ```
 NotifyBegin：
-  → MeshComp→GetOwner()→GetAbilitySystemComponent()
-  → ASC→AddLooseGameplayTag(Combat.State.DodgeAcceptOpen)
+  → 当前攻击 Ability 以 ActionToken+NotifyEventID 申请 DodgeAccept Window Token
 
 NotifyEnd：
-  → ASC→RemoveLooseGameplayTag(Combat.State.DodgeAcceptOpen)
+  → 释放匹配 Token；Ability End/Reset 兜底回收
 ```
 
 > ComboWindow 接受连招输入（0.1–0.5s）；DodgeAcceptWindow 接受翻滚输入（0.1–0.7s，延伸到收招帧）。DodgeAcceptWindow 在攻击 Montage，DodgeWindow 在翻滚 Montage。
@@ -1562,7 +1523,7 @@ UCLASS(BlueprintType, Blueprintable)
 class UAnimNotifyState_PoiseWindow : public UAnimNotifyState
 ```
 
-挂载在攻击 Montage 中。`NotifyBegin` → ASC 添加 Poise Tag（如 `Combat.Poise.Heavy`）；`NotifyEnd` → 移除。攻击动画师在此区间放置，覆盖招式的大开大合期。
+挂载在攻击 Montage 中。`NotifyBegin` 以当前 ActionToken+NotifyEventID 申请 Poise Token（如 `Combat.Poise.Heavy`）；`NotifyEnd` 只释放匹配 Token，Ability End/Reset 兜底回收。Notify 对象不保存运行时状态。攻击动画师在此区间放置，覆盖招式的大开大合期。
 
 ### UAnimNotifyState_AttackCollision — 攻击碰撞窗口
 
@@ -1571,7 +1532,7 @@ UCLASS(BlueprintType, Blueprintable)
 class UAnimNotifyState_AttackCollision : public UAnimNotifyState
 ```
 
-挂载在攻击 Montage 中。`NotifyBegin` → 通过 `MeshComp→GetOwner()→GetAbilitySystemComponent()` 获取当前 Active Ability → Cast 到 `UMHGZAttackAbility` → `EnableCollision(ConfigIndex)`；`NotifyEnd` → `DisableCollision()`。判定窗口可短至 1-2 帧；多段攻击在 Montage 中放多个独立 NotifyState 各自负责一段判定。
+挂载在攻击 Montage 中。Begin/Tick/End 每次都由 `MeshComp + MontageInstanceID` 解析同一 ActionToken，并只调用该 Token 的 `UMHGZAttackAbility` 实例执行 `EnableCollision/TickCollision/DisableCollision(ConfigIndex)`；解析失败即忽略，绝不遍历 ASC 中全部活动攻击。ConfigIndex 在完整生命周期内保持一致，因此不同段可以重叠，各自维护去重表、轨迹历史与多跳 Timer。旧 Montage 的 End 因 ActionToken 不匹配不能关闭新实例窗口。判定窗口可短至 1-2 帧；同一招式前后半棍同时有效时，优先在一个 Segment 的 `TraceRegions` 中配置两个 Region，而不是复制相同 Index 的 Notify。
 
 ### UAnimNotifyState_MonsterAttackCollision — 怪物攻击碰撞窗口
 

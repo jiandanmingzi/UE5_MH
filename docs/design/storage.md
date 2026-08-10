@@ -24,7 +24,7 @@ UCLASS(ClassGroup=(Inventory), BlueprintType)
 class UMHGZBackpackComponent : public UActorComponent
 ```
 
-挂载到 PlayerState，跨关卡保留。
+规划挂载到 PlayerState 作为当前会话数据；跨关卡必须通过 CopyProperties/Save DTO 显式复制，不能依赖组件自动保留。
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
@@ -87,7 +87,7 @@ UCLASS(ClassGroup=(Inventory), BlueprintType)
 class UMHGWarehouseComponent : public UActorComponent
 ```
 
-挂载到 PlayerState，跨关卡保留。常量 `WAREHOUSE_MAX_STACK = 99999`。可混合存储 `ItemInstance`（消耗品/材料）和 `EquipmentInstance`（武器/衣服/饰品），通过多态统一管理。
+规划挂载到 PlayerState；跨关卡由显式持久 DTO 恢复。常量 `WAREHOUSE_MAX_STACK = 99999`。可混合存储 `ItemInstance`（消耗品/材料）和 `EquipmentInstance`（武器/衣服/饰品），具体共同实例基类仍属后续设计。
 
 ### 实例生命周期
 

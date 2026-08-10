@@ -1,6 +1,6 @@
 # GameplayCue 系统
 
-> **实施状态说明（以源码、配置和 Content 为准）：** 当前只完成 GameplayCue Tag 注册以及 `+GameplayCueNotifyPaths=/Game/GameplayCues` 配置。源码中没有自定义 GameplayCueManager、Cue 基类或伤害数字对象池，Content 中也没有 GC 资产；攻击代码目前使用 `AddDynamicAssetTag` 保存 Cue Tag，尚未形成 GameplayCue 自动触发链路。本文其余内容全部作为详细实现方案保留。
+> **实施状态说明（以源码、配置和 Content 为准）：** 当前只完成 GameplayCue Tag 注册以及扫描路径配置；Content 中没有 GC 资产。攻击代码把 Cue Tag 当 DynamicAssetTag 保存，但 DynamicAssetTag 不会自动触发 GameplayCue。本文给出木桩 Demo 所需的修订目标，本轮不修改代码。
 
 ## 当前实现
 
@@ -12,7 +12,7 @@
 | 资产 | `Content/GameplayCues` 只有目录占位文件，没有任何 GameplayCueNotify 或伤害数字 Widget。 |
 | 模块 | Build.cs 已有 GameplayAbilities/GameplayTags/UMG，尚未添加 Niagara。 |
 
-> **设计原则：** 统一 GameplayCue 标签触发全部命中反馈（火花/音效/震屏/伤害数字）和状态驱动视觉（Buff 光环/死亡/翻滚），按语义分类创建 C++ 基类封装通用逻辑，伤害数字用 WorldSubsystem 管理对象池。
+> **设计原则：** GameplayCue 只负责表现。伤害结算先生成明确的 HitFeedbackResult，再由目标侧 Router 显式执行瞬时 Cue；Duration GE 可使用自身配置的 GameplayCue 处理 Add/Remove。Demo 不需要自定义 GameplayCueManager。
 
 > **适用范围：** 当前版本仅单机。GameplayCue 在单机模式下等价于本地函数调用，零网络开销。
 
@@ -40,7 +40,7 @@ GameplayCue.Hit.Block           ← 格挡/防御命中特效
 GameplayCue.Hit.DamageNumber    ← 伤害数字浮空文字
 ```
 
-> **触发方式：** 攻击方 `MakeDamageSpec` 将对应 Tag 注入 GE Spec 的 `DynamicGameplayCueTags`，ASC `ApplyGameplayEffectToTarget` 时自动路由。一个 GE Spec 可携带多个 GC Tag（物理+元素+暴击+伤害数字）→ 对应 GC Notify 全部触发。
+> **触发方式：** AttackAbility 把真实 HitResult 和命中类型写入自定义 GameplayEffectContext；ExecCalc/AttributeSet 得到最终伤害后生成 `FMHGZHitFeedbackResult`，由目标侧 `UMHGZHitFeedbackRouter` 依次调用 `ExecuteGameplayCue`。DynamicAssetTags 只作为元数据，不承担触发。
 
 ### Buff/Debuff 视觉（Add/Remove——持续触发）
 
@@ -69,91 +69,56 @@ GameplayCue.Monster.Stagger     ← 怪物硬直
 
 ## 架构总览（规划）
 
-```mermaid
-flowchart TB
-    subgraph Attack["攻击链路"]
-        GA[AttackAbility] --> MDS[MakeDamageSpec]
-        MDS --> |"注入 DynamicGameplayCueTags"| Spec[GE Spec]
-        Spec --> |"Hit.Slash + Hit.Fire + Hit.Crit + Hit.DamageNumber"| ASC[ASC::ApplyGE]
-    end
+```text
+AttackAbility
+  → GE EffectContext 携带真实 HitResult/HitType/SourceAction
+  → ExecCalc 输出最终伤害
+  → AttributeSet/结算层生成 FMHGZHitFeedbackResult
+  → UMHGZHitFeedbackRouter 显式 ExecuteGameplayCue
+      ├── Hit.Slash / Hit.Blunt / Hit.Kinsect / IG 特殊命中
+      ├── Hit.Crit（若暴击）
+      └── Hit.DamageNumber（RawMagnitude=最终伤害）
 
-    subgraph Buff["Buff 链路"]
-        BuffGE[Buff GE] --> |"GameplayCueTags = Buff.AttackUp"| ASC
-    end
-
-    ASC --> GCM[UMHGZGameplayCueManager]
-    GCM --> |"Tag → Asset 路由"| Pool[GC Actor 对象池]
-
-    Pool --> HitBase[UMHGZCue_HitBase<br/>Burst Actor]
-    Pool --> BuffBase[UMHGZCue_BuffBase<br/>Latent Actor]
-
-    HitBase --> |"OnBurst"| VFX[粒子系统]
-    HitBase --> |"OnBurst"| SFX[音效]
-    HitBase --> |"GameplayCue.Hit.DamageNumber"| DNPool[UMHGZDamageNumberPool<br/>WorldSubsystem]
-
-    BuffBase --> |"OnActive"| LoopVFX[循环粒子]
-    BuffBase --> |"OnRemove"| BurstVFX[爆发粒子]
-
-    DNPool --> W1[Widget #1]
-    DNPool --> W2[Widget #2]
-    DNPool --> W3[Widget #...]
-    DNPool --> W30[Widget #30]
+Duration Buff GE
+  → GE 自身 GameplayCue 配置
+  → OnActive / WhileActive / OnRemove
 ```
 
 ---
 
-## 基础设施（规划，当前均未创建）
+## 基础设施（Demo 规划）
 
-### UMHGZGameplayCueManager — 自定义 GC 管理器
+### UMHGZHitFeedbackRouter
 
-`Source/MHGZ/GameplayCue/MHGZGameplayCueManager.h/.cpp`，继承 `UGameplayCueManager`。
-
-| 成员 | 类型 | 默认值 | 说明 |
-|------|------|:--:|------|
-| DefaultBurstPoolSize | int32 | 20 | Burst Actor 对象池默认大小 |
-| bEnableSurfaceRouting | bool | false | 是否启用物理表面子 Tag 路由 |
-| bLogMissingCues | bool | true | 开发期输出未找到 GC Notify 的 Tag 警告 |
+由目标 Actor/ASC 侧持有或通过组件取得。输入结构至少包含：最终伤害、bCritical、真实 HitResult、物理命中 CueTag、可选元素 CueTag、Source/Target 和 AttackInstanceID。
 
 | 方法 | 说明 |
 |------|------|
-| `OnGameplayCueNotifyActorLoaded(AssetPath)` | 覆写——GameplayCueNotify 资产异步加载回调 |
-| `RouteGameplayCue(OriginalTag, HitResult)` | 物理表面路由——`Slash` + Wood → `Slash.Wood`。回退规则：子 Tag Notify 不存在→回退到父 Tag；父 Tag 也不存在→静默跳过+日志警告 |
-| `ShouldSuppressCue(CueTag, Location)` | 全局裁剪——距相机超 `GlobalCullDistance` 返回 true |
-| `GetPooledBurstActor(CueClass)` | 从池获取/创建 Burst Actor（LRU 回收） |
-| `DumpPoolStats()` | 调试命令——输出各池的 Active/Idle/Peak 计数 |
+| `RouteHitFeedback(Result)` | 校验 Damage/HitResult，构造 FGameplayCueParameters，并按确定顺序执行物理、元素、暴击、伤害数字 Cue |
+| `BuildCueParameters(Result)` | `Location/Normal` 来自真实 HitResult，`RawMagnitude` 为最终伤害；Crit 等离散结果放入自定义 EffectContext/结果 Tag |
+| `ShouldSuppressCue(CueTag, Location)` | 可选距离裁剪；不得影响伤害结算 |
 
-**DefaultGame.ini 配置：**
+Demo 继续使用引擎默认 GameplayCueManager 和现有扫描路径，不配置 `GlobalGameplayCueManagerClass`。
 
-```ini
-[/Script/GameplayAbilities.AbilitySystemGlobals]
-; 规划：实现类后再启用
-GlobalGameplayCueManagerClass=/Script/MHGZ.MHGZGameplayCueManager
-+GameplayCueNotifyPaths=/Game/GameplayCues
-```
+### UMHGZCue_HitBase — 一次性命中特效
 
-### UMHGZCue_HitBase — 命中特效基类
-
-`Source/MHGZ/GameplayCue/MHGZCue_HitBase.h/.cpp`，继承 `UGameplayCueNotify_Burst`。
+继承 `UGameplayCueNotify_Burst`。该类型是一次性、非实例化 Notify，不把它描述或实现成可池化 Actor；Niagara/音频组件按各自并发和生命周期管理。
 
 | 成员 | 类型 | 默认值 | 说明 |
 |------|------|:--:|------|
-| bAutoPool | bool | true | 启用 GameplayCueManager 自动对象池 |
 | MaxCullDistance | float | 3000 | 距所有玩家相机超此距离不生成粒子 |
-| MaxConcurrent | int32 | 10 | 同类型命中特效同时存在的最大数量（超过则回收最早） |
 | SoundAttenuation | TObjectPtr\<USoundAttenuation\> | — | 音效衰减设置（按相机距离自动调音量） |
 | NiagaraSystem | TObjectPtr\<UNiagaraSystem\> | — | 主粒子系统（蓝图子类配置） |
 | HitSound | TObjectPtr\<USoundBase\> | — | 命中音效（蓝图子类配置） |
 
 | 方法 | 说明 |
 |------|------|
-| `OnBurst(Target, Source, HitResult, Parameters)` | 覆写——1. `CheckDistanceCull` 裁剪；2. `EnforceConcurrencyLimit` 限流+LRU回收；3. Spawn NiagaraSystem at HitLocation, Rotation=ImpactNormal；4. Play HitSound + SoundAttenuation；5. 粒子播完→自动回池 |
+| `OnBurst(Target, Parameters)` | 读取 Parameters.Location/Normal/RawMagnitude，距离裁剪后生成一次 Niagara 和音效 |
 | `CheckDistanceCull(Location)` | 遍历 PlayerController 取最近相机距离，> MaxCullDistance 返回 true |
-| `EnforceConcurrencyLimit()` | ActiveCount ≥ MaxConcurrent 时回收最早 Burst Actor |
-| `GetPooledInstance()` | 从 GameplayCueManager 池获取自身实例（供蓝图 `OnBurst` 覆写转发） |
 
 ### UMHGZCue_BuffBase — Buff 光环基类
 
-`Source/MHGZ/GameplayCue/MHGZCue_BuffBase.h/.cpp`，继承 `UGameplayCueNotify_BurstLatent`。
+持久 Buff 使用 `AGameplayCueNotify_Actor`（或满足相同 Add/Remove 合同的 Looped Notify），由 GAS 按 GE 生命周期创建和移除。`BurstLatent` 不作为通用持久 Buff 基类。
 
 | 成员 | 类型 | 说明 |
 |------|------|------|
@@ -177,14 +142,14 @@ GlobalGameplayCueManagerClass=/Script/MHGZ.MHGZGameplayCueManager
 | 成员 | 类型 | 默认值 | 说明 |
 |------|------|:--:|------|
 | PoolSize | int32 | 30 | 预分配 Widget 数量 |
-| WidgetClass | TSubclassOf\<UUserWidget\> | WBP_DamageNumber | 浮空文字 Widget 类 |
+| ActorClass | TSubclassOf\<AMHGZDamageNumberActor\> | BP_DamageNumberActor | 每个 Actor 自己拥有 WidgetComponent |
 | FloatOffset | FVector | (0,0,80) | Widget 生成位置相对命中点的偏移 |
 | FloatDuration | float | 1.5 | 上浮+淡出动画总时长 |
 
 | 方法 | 说明 |
 |------|------|
-| `Initialize(Collection)` | 覆写——预分配 PoolSize 个 UWidgetComponent，全部 Hidden+CollisionDisabled，加入空闲池 |
-| `Deinitialize()` | 覆写——遍历使用中+空闲池，全部 DestroyComponent |
+| `Initialize(Collection)` | 世界就绪后 Spawn PoolSize 个 DamageNumberActor，隐藏并加入空闲池 |
+| `Deinitialize()` | 销毁由该 WorldSubsystem Spawn 的全部 Actor |
 | `AcquireWidget()` | 从空闲池 Pop→SetHidden(false)→加入使用池→返回。池空返回 nullptr |
 | `ReleaseWidget(Widget)` | 从使用池 Remove→SetHidden(true)→加入空闲池。由动画完成回调调用 |
 | `GetActiveCount()` | BlueprintPure——返回使用池大小，调试用 |
@@ -194,14 +159,14 @@ GlobalGameplayCueManagerClass=/Script/MHGZ.MHGZGameplayCueManager
 ```
 OnBurst(Parameters)
   1. DamageValue = Parameters.RawMagnitude
-  2. bCrit = Parameters.GameplayCueTags.HasTag(Hit.Crit)
+  2. bCrit = 从自定义 EffectContext/HitFeedbackResult Tag 读取
   3. Widget = DamageNumberPool→AcquireWidget()
   4. 若 nullptr → return（池耗尽，静默丢弃）
-  5. 设数值/暴击颜色/字号 → AttachToActor(Target) → SetLocation(HitLocation + FloatOffset)
+  5. 设数值/暴击颜色/字号 → Actor 放到 HitLocation + FloatOffset；默认不附着移动目标
   6. PlayAnimation(上浮+淡出, FloatDuration) → 回调 ReleaseWidget
 ```
 
-> **池耗尽策略：** 不增长、不阻塞、不崩溃。30 个 Widget 足以覆盖最密集的攻击场景（双刀乱舞 4 段 × 7 跳 = 28 并发，仍在池内）。
+> **池耗尽策略：** 不阻塞伤害结算。Demo 记录 Peak/Drop 计数并复用最早已完成淡出的 Actor；PoolSize 是性能参数，不以某个招式的理论数字宣称永远足够。
 
 ---
 
@@ -231,7 +196,7 @@ OnBurst(Parameters)
 
 ---
 
-> **验证方案：** 见 [verification.md](verification.md) #60-#70
+> **验证方案：** 见 [验证清单](../editor/verification.md) #60-#70
 
 ---
 
@@ -241,7 +206,7 @@ OnBurst(Parameters)
 
 ```cpp
 PublicDependencyModuleNames.AddRange(new string[] {
-    "GameplayAbilities",   // UGameplayCueManager, UGameplayCueNotify_Burst, UGameplayCueNotify_BurstLatent
+    "GameplayAbilities",   // GameplayCue Router、Burst 与 Actor/Looping Notify
     "GameplayTags",        // FGameplayTag, FGameplayTagContainer
     "Niagara",             // UNiagaraSystem（GameplayCue 粒子系统）
     "UMG"                  // UUserWidget, UWidgetComponent（伤害数字）

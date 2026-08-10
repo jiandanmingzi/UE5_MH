@@ -1,5 +1,7 @@
 # 资产目录整理规范
 
+> **用途：** 仅在代码重构完成后需要通过 Content Browser/AssetTools 移动、重存或清理 Redirector 时使用。它记录资产目录规则和历史迁移边界，不替代 [编辑器接线指南](demo-setup.md)。
+
 ## 当前结论
 
 项目资产采用“系统域顶层、武器类型作为次级目录”的结构，不额外增加 `/Game/MHGZ` 或 `/Game/Combat` 顶层目录。

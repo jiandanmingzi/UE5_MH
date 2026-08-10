@@ -1,10 +1,10 @@
 # 怪物与靶子系统
 
-> **实施状态说明（以源码与 Content 为准）：** 当前木桩已具备基础 ASC、`UMHGZAttributeSet`、默认 1000 生命、球形 Hitzone、配置驱动 Mesh/Montage 和生命变化委托；没有 AI、攻击、死亡、部位破坏、血条 UI、GameplayCue 或伤害数字。本文继续保留向完整怪物扩展的详细方案。
+> **实施状态说明（以源码与 Content 为准）：** 当前木桩已具备基础 ASC、`UMHGZAttributeSet`、默认 1000 生命、球形 Hitzone、配置驱动 Mesh/Montage 和生命变化委托；尚无本文要求的三色 Hitzone 和确定性反击测试攻击。本轮只设计木桩 Demo，不设计正式怪物 AI。
 
-**设计原则：** 从木桩到怪物渐进式构建——当前版本只需木桩（能挨打、能记录生命变化、球形部位与动画可配置），整体骨架按完整怪物系统设计。
+**设计原则：** 当前木桩负责可重复验证伤害、红/白/橙提取、贯通、多部位轨迹和突进回旋斩反击。反击测试攻击是训练设施，不是怪物 AI。
 
-> **当前范围：** 木桩（Training Dummy）——无 AI、不移动、不攻击、无血条。后续逐步扩展为完整怪物。
+> **当前范围：** 木桩无 AI、不移动；可按配置周期发出一个明确预警的反击测试 HitContext。无死亡、部位破坏和正式怪物行为。
 
 ---
 
@@ -49,6 +49,7 @@ AMHGZMonsterBase (Character)
 | DisplayMesh | TSoftObjectPtr\<USkeletalMesh\> | 主形体（人形靶） |
 | LoopingMontage | TSoftObjectPtr\<UAnimMontage\> | 循环动画（呼吸/挑衅，留空则静止） |
 | Hitzones | TArray\<FDummyHitzoneConfig\> | 球形部位碰撞体配置 |
+| CounterTestAttack | FDummyCounterAttackConfig | Demo 可选的周期反击测试器；默认关闭 |
 
 > `FallbackMesh`、`MeshScale`、`MaterialOverrides`、`PlayRate` 和多碰撞形状仍作为后续配置扩展方案保留，当前 `UMHGZDummyConfig` 没有这些字段。
 
@@ -72,6 +73,7 @@ struct FDummyHitzoneConfig
 
     UPROPERTY(EditAnywhere) FName BoneName;                    // 挂载骨骼
     UPROPERTY(EditAnywhere) FGameplayTag HitzoneTag;           // Hitzone.Head / Hitzone.Torso ...
+    UPROPERTY(EditAnywhere) FGameplayTag ExtractColorTag;      // Extract.Red / Orange / White
     UPROPERTY(EditAnywhere) float DefenseMultiplier = 1.0f;    // 肉质（0.2=坚硬 / 1.0=弱点）
     UPROPERTY(EditAnywhere) float StaggerRate = 0.0f;          // 破坏值吸收率
     UPROPERTY(EditAnywhere) FVector HalfExtent = FVector(30);  // 当前只使用 X 作为球半径
@@ -100,15 +102,40 @@ AMHGZTrainingDummy::ApplyConfig(UMHGZDummyConfig* Config)
 
 ## 部位碰撞（UMonsterHitzoneComponent）
 
-继承 `USphereComponent`，额外持有 Hitzone 元数据。挂载到骨骼上，碰撞通道设 Weapon=Block。
+继承 `USphereComponent`，额外持有 Hitzone 元数据。挂载到骨骼上，Object Type 固定为 `Hitzone`、Collision Enabled 为 QueryOnly、Weapon/Visibility Trace 响应为 Block、Pawn/WorldStatic 为 Ignore。木桩实体 Body 对 Visibility Ignore，WorldStatic 仍 Block，所以准心不会被 Body 抢占，也不会穿墙。
 
 | 成员 | 类型 | 说明 |
 |------|------|------|
 | HitzoneTag | FGameplayTag | 部位标签（Hitzone.Head / Hitzone.Torso ...） |
+| ExtractColorTag | FGameplayTag | 该木桩部位提供的精华颜色；Demo 必须覆盖 Red/Orange/White |
 | DefenseMultiplier | float | 肉质（伤害吸收率） |
 | StaggerRate | float | 破坏值吸收率 |
 
-当前在 `OnRegister` 中设置 QueryOnly、ObjectType=WorldDynamic、Weapon=Block、MonsterAttack=Ignore、Pawn=Block、Visibility=Ignore。
+武器攻击通过 Weapon Trace 查询 Hitzone；Aim 使用 Visibility 并验证命中组件 ObjectType=Hitzone；猎虫以前后帧 Capsule Sweep 显式查询 Hitzone Object。猎虫自身 Collision Root 只处理 WorldStatic 阻挡，不订阅 Hitzone Overlap。木桩的实体阻挡组件与 Hitzone 分离，Hitzone 不承担 Pawn 物理阻挡。
+
+## 突进回旋斩反击测试器（Demo 规划）
+
+`FDummyCounterAttackConfig` 至少包含：
+
+| 字段 | 说明 |
+|---|---|
+| bEnabled | 是否周期运行；最小攻击闭环默认 false，完整 Demo true |
+| InitialDelay / Interval | PIE 后首次攻击延迟和循环间隔 |
+| TelegraphDuration | 预警时长；材质闪烁/声音必须可观察 |
+| ActiveDuration | 有效命中窗口 |
+| Shape / LocalTransform | Box/Capsule 测试区域及相对木桩位置 |
+| Damage / StaggerTag | 未被反击时对玩家结算的 Demo 伤害与硬直 |
+| bCounterable | 是否可被突进回旋斩反击；Demo 默认 true |
+
+每次激活生成唯一 `AttackInstanceID`。多帧碰撞可以重复发现玩家，但都把同一 ID 提交给玩家 `UMHGZIncomingHitResolverComponent`；Resolver 是最终去重与反击消费的权威。处理顺序固定为：
+
+1. Resolver 先检查该 ID 是否已处理；重复提交直接返回 Duplicate。
+2. 按 Priority 调用带完整 ActionToken 所有权的反击 Token，并检查 Context 的 `bCounterable`。
+3. 成功反击时将该 ID 标记 Consumed，不结算伤害/硬直，通知回旋斩触发确定的舞踏自动转移。
+4. 未消费时由 Resolver 标记 Applied，再统一 Apply 玩家伤害和受击事件。
+5. 已处理 ID 缓存按配置 TTL/容量回收；同一 ID 的迟到 Overlap 或多帧 Sweep 不得再次结算。
+
+测试器不得调用怪物决策、追踪玩家或改变朝向；它只提供固定时序、可复现的命中载荷。
 
 > **与玩家 Hitzone 的区别：** 怪物 Hitzone 是独立的碰撞组件挂在骨骼上；玩家没有独立 Hitzone（受击由攻击方的碰撞检测直击 CapsuleComponent）。两者共用同一套 `Hitzone.*` GameplayTag 和肉质计算逻辑。
 
