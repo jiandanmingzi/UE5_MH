@@ -26,12 +26,12 @@
 
 namespace
 {
-UWorld* CreateM2TestWorld()
+UWorld* CreateM2EquipmentTestWorld()
 {
 	return UWorld::CreateWorld(EWorldType::Game, false);
 }
 
-void DestroyM2TestWorld(UWorld* World)
+void DestroyM2EquipmentTestWorld(UWorld* World)
 {
 	if (World)
 	{
@@ -104,7 +104,7 @@ struct FTestHarness
 
 	bool Setup()
 	{
-		World = CreateM2TestWorld();
+		World = CreateM2EquipmentTestWorld();
 		if (!World)
 		{
 			return false;
@@ -152,7 +152,7 @@ struct FTestHarness
 		{
 			Host->ShutdownRuntime(EWeaponRuntimeEndReason::RuntimeShutdown);
 		}
-		DestroyM2TestWorld(World);
+		DestroyM2EquipmentTestWorld(World);
 		World = nullptr;
 	}
 

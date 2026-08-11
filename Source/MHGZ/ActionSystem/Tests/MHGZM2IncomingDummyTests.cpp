@@ -22,12 +22,12 @@
 
 namespace
 {
-UWorld* CreateM2TestWorld()
+UWorld* CreateM2IncomingTestWorld()
 {
 	return UWorld::CreateWorld(EWorldType::Game, false);
 }
 
-void DestroyM2TestWorld(UWorld* World)
+void DestroyM2IncomingTestWorld(UWorld* World)
 {
 	if (World)
 	{
@@ -124,7 +124,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FMHGZM2ResolverPriorityConsumeDuplicateExpiry::RunTest(const FString& Parameters)
 {
-	UWorld* World = CreateM2TestWorld();
+	UWorld* World = CreateM2IncomingTestWorld();
 	if (!World)
 	{
 		return false;
@@ -133,7 +133,7 @@ bool FMHGZM2ResolverPriorityConsumeDuplicateExpiry::RunTest(const FString& Param
 	ACharacter* Character = SpawnM2Character(World);
 	if (!Character)
 	{
-		DestroyM2TestWorld(World);
+		DestroyM2IncomingTestWorld(World);
 		return false;
 	}
 
@@ -190,7 +190,7 @@ bool FMHGZM2ResolverPriorityConsumeDuplicateExpiry::RunTest(const FString& Param
 	ACharacter* OtherCharacter = SpawnM2Character(World);
 	if (!TestNotNull(TEXT("secondary character spawned"), OtherCharacter))
 	{
-		DestroyM2TestWorld(World);
+		DestroyM2IncomingTestWorld(World);
 		return false;
 	}
 	FIncomingHitContext WrongOwnerHit = MakeM2HitContext(
@@ -250,7 +250,7 @@ bool FMHGZM2ResolverPriorityConsumeDuplicateExpiry::RunTest(const FString& Param
 	TestEqual(TEXT("stale runtime token rejected at registration"), StaleID, int64(0));
 	TestEqual(TEXT("no interceptors remain"), Resolver->GetActiveInterceptorCount(), 0);
 
-	DestroyM2TestWorld(World);
+	DestroyM2IncomingTestWorld(World);
 	return true;
 }
 
@@ -264,7 +264,7 @@ bool FMHGZM2ResolverGASApplyAndNonCounterable::RunTest(const FString& Parameters
 {
 	EnsureM2AbilitySystemGlobals();
 
-	UWorld* World = CreateM2TestWorld();
+	UWorld* World = CreateM2IncomingTestWorld();
 	if (!World)
 	{
 		return false;
@@ -274,7 +274,7 @@ bool FMHGZM2ResolverGASApplyAndNonCounterable::RunTest(const FString& Parameters
 	AMHGZTrainingDummy* Dummy = SpawnM2Dummy(World);
 	if (!Character || !Dummy)
 	{
-		DestroyM2TestWorld(World);
+		DestroyM2IncomingTestWorld(World);
 		return false;
 	}
 
@@ -325,7 +325,7 @@ bool FMHGZM2ResolverGASApplyAndNonCounterable::RunTest(const FString& Parameters
 		Resolver->SubmitIncomingHit(Counter), EIncomingHitSubmitResult::Duplicate);
 	TestEqual(TEXT("consumed duplicate deals no damage"), PlayerAttrs->GetHealth(), 80.f);
 
-	DestroyM2TestWorld(World);
+	DestroyM2IncomingTestWorld(World);
 	return true;
 }
 
@@ -405,7 +405,7 @@ bool FMHGZM2DummyCounterTestAttack::RunTest(const FString& Parameters)
 {
 	EnsureM2AbilitySystemGlobals();
 
-	UWorld* World = CreateM2TestWorld();
+	UWorld* World = CreateM2IncomingTestWorld();
 	if (!World)
 	{
 		return false;
@@ -415,7 +415,7 @@ bool FMHGZM2DummyCounterTestAttack::RunTest(const FString& Parameters)
 	AMHGZTrainingDummy* Dummy = SpawnM2Dummy(World);
 	if (!Character || !Dummy)
 	{
-		DestroyM2TestWorld(World);
+		DestroyM2IncomingTestWorld(World);
 		return false;
 	}
 
@@ -449,7 +449,7 @@ bool FMHGZM2DummyCounterTestAttack::RunTest(const FString& Parameters)
 		Dummy->SubmitCounterTestAttack(Character, SecondID), EIncomingHitSubmitResult::Applied);
 	TestEqual(TEXT("health reduced again"), PlayerAttrs->GetHealth(), 90.f);
 
-	DestroyM2TestWorld(World);
+	DestroyM2IncomingTestWorld(World);
 	return true;
 }
 
