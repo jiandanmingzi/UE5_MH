@@ -57,7 +57,7 @@
 37. 动作 GA 为 InstancedPerExecution、协调器为 InstancedPerActor；连续激活同一 GA Class/Spec 时两个实例有不同 ActionToken，旧实例以 Superseded 结束。
 38. 同时存在旧 BlendOut 与新 Montage 时，AttackCollision/Combo/Dodge Notify 只通过 Mesh+MontageInstanceID 调用所属 AbilityInstance；Notify 不遍历全部 Active Specs。旧 NotifyEnd 不关闭新窗口。
 39. InputComponent 是唯一 IMC/Binding 所有者。连续两次 Setup、UnPossess→Possess、死亡重生后，按一次键只收到一次快照；ASC/PlayerController 不持有第二份 UInputAction 绑定。
-40. `Input.Dodge` 只使用 InputSnapshot.Direction；缺 Montage/AnimInstance、Commit 失败、Montage Interrupted 时均无 BlockMovement/Invincible 残留，各碰撞通道恢复 NotifyBegin 前原响应而非固定 Block。
+40. `Input.Dodge` 只使用 InputSnapshot.Direction；缺 Montage/AnimInstance、Commit 失败、Montage Interrupted 时均无 BlockMovement/Invincible 残留，各碰撞通道恢复 NotifyBegin 前原响应而非固定 Block；最终 `PlayerCapsule` 必须恢复为 Weapon=Ignore、MonsterAttack=Block。
 41. 护甲、饰品、镶嵌和同一 WeaponSnapshot 重复广播不重建 Runtime、不清空精华/舞踏/Pending；真正更换武器才执行一次完整 Shutdown/Initialize。
 42. 动作拥有 Movement Token 时 Character locomotion 不覆盖旋转；正常完成、Superseded、受击、死亡、换装和失败早退后不存在本动作 RootMotionSource 或 WarpTarget。
 43. 猎虫第一次回手交付 Red 后 Pending 为空，第二次命中 White 可正常交付；迟到 Return 回调不能重复交付 Red。

@@ -76,22 +76,104 @@ E0 不执行旧动作资产迁移，也不执行删除。记录保留资产的�
 
 ### 3.2 碰撞通道
 
-打开 `Project Settings → Engine → Collision`，保留现有 `Weapon`、`MonsterAttack` Trace Channel，并新增或确认：
+本项目的 M0 已把通道和四个 Preset 写入 `Config/DefaultEngine.ini`。正常情况下，本节执行的是逐项核对；只有目标行确实不存在时才点击 `New...` 创建。不要因为下拉框暂时没刷新而创建同名通道或第二套 Preset。
 
-| 名称 | 类型 | 默认响应 | 用途 |
+#### 3.2.1 先确认三个自定义通道
+
+1. 打开 `Edit → Project Settings → Engine → Collision`。
+2. 展开 `Trace Channels`，确认以下两行存在且类型是 Trace Channel：
+
+   | Name | Default Response | 用途 |
+   |---|---|---|
+   | `Weapon` | Block | 武器 Socket Sweep 使用的 Trace Channel |
+   | `MonsterAttack` | Block | 木桩/怪物攻击玩家时使用的 Trace Channel |
+
+3. 展开 `Object Channels`，确认以下一行存在：
+
+   | Name | Default Response | 用途 |
+   |---|---|---|
+   | `Hitzone` | Ignore | 怪物部位身份；武器、猎虫和 Aim 用各自的查询方式读取 |
+
+4. 如果 `Hitzone` 不存在，点击 `Object Channels → New Object Channel...`，Name 填写区分大小写的 `Hitzone`，Default Response 选择 `Ignore`，确认后关闭并重启编辑器，再继续创建 Preset。
+5. 如果 `Weapon` 或 `MonsterAttack` 缺失，分别使用 `Trace Channels → New Trace Channel...` 创建，Default Response 选 `Block`。如果同名项存在但类型错误，不要再创建近似名称；停止操作并核对 `DefaultEngine.ini`。
+
+选择 `Object Channel` 就代表 `bTraceType=false`，选择 `Trace Channel` 就代表 `bTraceType=true`；编辑器界面不会另外提供 `bTraceType` 复选框。`Kinsect` 是 Collision Preset，不是 Object Channel，不要创建名为 `Kinsect` 的通道。
+
+#### 3.2.2 Preset 创建入口与基础字段
+
+在 `Preset` 区域查找下列四行。已有行点击右侧编辑按钮逐项核对；缺失时点击 `New...`，填写完全相同的名称。先设置基础字段，再按下一节设置全部响应：
+
+| Preset Name | Collision Enabled | Object Type | 建议初始化方式 |
 |---|---|---|---|
-| `Hitzone` | Object Channel，`bTraceType=false` | Ignore | 怪物部位查询身份；武器、猎虫和 Aim 根据各自查询方式命中 |
+| `MonsterBody` | Collision Enabled (Query and Physics) | Pawn | 先 `Block All`，再修改例外项 |
+| `MonsterHitzone` | Query Only (No Physics Collision) | Hitzone | 先 `Ignore All`，再把 Weapon/Visibility 改为 Block |
+| `Kinsect` | Query Only (No Physics Collision) | WorldDynamic | 先 `Ignore All`，再把 WorldStatic 改为 Block |
+| `PlayerCapsule` | Collision Enabled (Query and Physics) | Pawn | 先 `Block All`，再修改例外项 |
 
-创建或校准以下 Collision Preset：
+名称是运行时代码调用 `SetCollisionProfileName` 的契约，必须精确使用上表拼写。不要创建 `MonsterHitZone`、`Player Capsule` 等近似名称。
 
-| Preset | Object Type | Collision Enabled | 关键响应 |
+#### 3.2.3 完整响应矩阵
+
+在每个 Preset 的 `Trace Responses` 和 `Object Responses` 中按下表设置。未列出 Overlap 的位置不要选择 Overlap：
+
+| Channel | MonsterBody | MonsterHitzone | Kinsect | PlayerCapsule |
+|---|---|---|---|---|
+| WorldStatic | Block | Ignore | Block | Block |
+| WorldDynamic | Block | Ignore | Ignore | Block |
+| Pawn | Block | Ignore | Ignore | Block |
+| PhysicsBody | Block | Ignore | Ignore | Block |
+| Vehicle | Block | Ignore | Ignore | Block |
+| Destructible | Block | Ignore | Ignore | Block |
+| Visibility | Ignore | Block | Ignore | Ignore |
+| Camera | Block | Ignore | Ignore | Block |
+| Weapon | Ignore | Block | Ignore | Ignore |
+| MonsterAttack | Ignore | Ignore | Ignore | Block |
+| Hitzone | Ignore | Ignore | Ignore | Ignore |
+
+各项含义：
+
+- `MonsterBody` 只提供角色和场景的实体阻挡。它忽略 Weapon 与 Visibility，因此武器和准心不会把整只怪物当成某个部位；它也忽略 MonsterAttack，避免怪物自己的攻击命中自己的 Body。
+- `MonsterHitzone` 只提供查询身份。Weapon=Block 让武器 Sweep 得到部位 HitResult，Visibility=Block 让准心选中部位；所有物理对象和 MonsterAttack 都 Ignore，防止部位球把角色或怪物顶开。
+- 目标 `Kinsect` 根碰撞只被 WorldStatic 阻挡，因此会撞墙；Pawn/Hitzone 都 Ignore。M3 后猎虫命中部位由代码单独执行 Hitzone Object Capsule Sweep，不依赖根组件 Overlap。
+- `PlayerCapsule` 对 MonsterAttack 常态 Block，闪避窗口临时改为 Ignore，窗口结束后恢复原响应；Weapon 与 Hitzone 始终 Ignore，避免玩家被自己的武器查询或部位查询命中。
+
+#### 3.2.4 把 Preset 用到正确组件
+
+Preset 建好后还必须在对应阶段应用到组件，不能只在 Project Settings 中创建名称。E1 不要求提前创建尚不存在的猎虫/部位资产：
+
+| 执行阶段 | 组件 | Collision Preset | 额外要求 |
 |---|---|---|---|
-| `MonsterBody` | Pawn | Query and Physics | Pawn=Block；Visibility=Ignore；不承担精华/肉质查询 |
-| `MonsterHitzone` | Hitzone | Query Only | Weapon=Block；Visibility=Block；Pawn=Ignore；MonsterAttack=Ignore |
-| `Kinsect` | WorldDynamic | Query Only | WorldStatic=Block；Pawn/Hitzone=Ignore；部位命中由代码 Capsule Sweep 负责 |
-| `PlayerCapsule` | Pawn | Query and Physics | Pawn=Block；Weapon/MonsterAttack 的运行时变化由 Dodge/受击系统管理 |
+| E2 | `BP_IG_Character` 的 CapsuleComponent | `PlayerCapsule` | Collision Enabled 应显示 Query and Physics |
+| E5 | `BP_TrainingDummy` 的 CapsuleComponent | `MonsterBody` | 木桩唯一实体 Body；负责阻挡玩家 |
+| E5 | `BP_TrainingDummy` 的 SkeletalMeshComponent | `NoCollision` | 只负责显示和提供骨骼挂点，不再建立第二个 Body |
+| E5 | 运行时生成的 Head/Torso/Leg Hitzone Sphere | `MonsterHitzone` | Query Only；Generate Overlap Events=false |
+| E5 | `AKinsect` 的 Collision Root | `Kinsect` | Query Only；Generate Overlap Events=false；ProjectileMovement UpdatedComponent 指向它 |
+| E2 | `BP_IG_Character` 的武器 SkeletalMeshComponent | `NoCollision` | 武器命中来自显式 Socket Sweep，不靠 Mesh 物理碰撞 |
 
-保存后重启编辑器，确认 `Hitzone` 在组件 Object Type 下拉框中存在。不要建立第二个 Kinsect Object Channel。
+`AMHGZMonsterBase` 和 `UMHGZMonsterHitzoneComponent` 会在 C++ 中再次设置 `MonsterBody/MonsterHitzone`，这是运行时兜底，不代表可以省略 Project Settings 中的 Preset 定义。若名称不存在，`SetCollisionProfileName` 无法得到本文要求的响应矩阵。
+
+当前旧 `UKinsectCollisionComponent::EnableKinsectCollision` 仍会在运行时直接改 Weapon/WorldStatic 响应，并依赖 Overlap；这是 M3 必须删除的旧实现。E1 只验证 `Kinsect` Preset 静态定义，M3 完成 Collision Root + Hitzone Object Sweep 后，运行时才必须严格呈现本节矩阵；不要为了兼容旧实现把 Preset 改回 Weapon=Overlap。
+
+当前旧 `UMHGZAimComponent::AimChannel` 的 C++ 默认值仍是 Weapon；目标设计要求 M3 改为 Visibility 并验证命中组件确为 Hitzone。`MonsterHitzone` 同时对 Weapon/Visibility Block、`MonsterBody` 同时 Ignore，因此迁移前后都不需要修改 Preset；不要把 Aim 的旧默认值固化成最终配置。
+
+当前旧 `UAnimNotifyState_DodgeWindow::NotifyEnd` 会把 Weapon 和 MonsterAttack 都硬恢复为 Block，和 `PlayerCapsule` 的 Weapon=Ignore 不一致。M1 必须改为缓存并恢复窗口开始前的逐通道响应；M1 完成前不要用旧 Dodge Notify 的结果反向修改 Preset。
+
+#### 3.2.5 保存、重启与最小验证
+
+1. Project Settings 会把修改写入项目配置；关闭编辑器并重启 UE5.6，使通道和 Preset 重新加载。
+2. 再次进入 Collision 页面，确认只存在一组 `Weapon`、`MonsterAttack`、`Hitzone` 和一组四个 Preset。
+3. E1 的完成门槛到此为止：重新打开每个 Preset，逐项对照 §3.2.2～3.2.3；Object Type、Collision Enabled 和 11 个响应都一致。
+
+以下集成验证等表中对应组件完成后，在 E5/E7 执行，不阻塞当前 E1：
+
+4. 打开 Character 与 TrainingDummy 蓝图，逐个选择 Capsule/Mesh，在 Details → Collision 中确认 `Collision Presets` 没有变成 `Custom` 或 `Default`。
+5. PIE 中打开控制台执行 `show collision`：玩家和木桩各只有一个实体 Capsule；三个 Hitzone 不应推开玩家。
+6. 用 Visibility 准心测试：瞄准 Head/Torso/Leg 能命中对应 Hitzone；瞄准 Body 空隙不应由 `MonsterBody` 伪造部位结果；墙后的 Hitzone 被墙遮挡。
+7. 用武器测试：Weapon Sweep 命中 `MonsterHitzone`，不命中 `MonsterBody` 或玩家 Capsule。
+8. M3 完成后用猎虫测试：猎虫根组件被墙阻挡，但不会被 Pawn/Hitzone 物理弹开；代码 Hitzone Sweep 仍能取得部位。
+9. M1 最终 Dodge 完成后用木桩攻击测试：常态 MonsterAttack 命中 `PlayerCapsule`；DodgeWindow 中忽略，窗口结束或中断后 MonsterAttack 恢复 Block、Weapon 恢复 Ignore。
+
+任一验证失败时先回到响应矩阵核对，不要在单个蓝图上改成 `Custom` 来掩盖错误；共享规则只能在这四个 Preset 中维护。
 
 ### 3.3 GameplayTags
 
@@ -133,11 +215,12 @@ E0 不执行旧动作资产迁移，也不执行删除。记录保留资产的�
 打开 `/Game/Blueprints/Characters/Demo/BP_IG_Character`：
 
 1. 确认组件只有一份：WeaponRuntimeHost、AimComponent、MotionWarping、CharacterMovement，以及角色 Mesh/武器 Mesh。
-2. 武器 SkeletalMeshComponent 的 Component Tag 设置为代码约定的 `WeaponTrace`。
-3. 武器附着到角色 `Weapon_R` Socket；武器自身用于判定的 `Root`、`IG_FrontTip`、`IG_RearTip` Socket 必须可在 Skeleton Tree 中预览。
-4. E2 不给默认武器字段接入仍待删除的旧 `DA_IG_HuoLongGun`；保持空值。E3 §5.1 重建同名正式资产后再指向它。Character 不直接引用 ComboData、Resource Class 或 Resource Widget。
-5. Anim Class 指向最终 `ABP_MH_Character`。
-6. 检查 Character 蓝图没有每帧 SetActorRotation、LaunchCharacter 或 Timeline 位移与新的 MovementTask 并行写入。
+2. CapsuleComponent 的 Collision Preset 设为 `PlayerCapsule`；不要在蓝图中改成 Custom 响应。
+3. 武器 SkeletalMeshComponent 的 Collision Preset 设为 `NoCollision`，Component Tag 设置为代码约定的 `WeaponTrace`。NoCollision 不影响代码读取 Socket Transform 执行 Sweep。
+4. 武器附着到角色 `Weapon_R` Socket；武器自身用于判定的 `Root`、`IG_FrontTip`、`IG_RearTip` Socket 必须可在 Skeleton Tree 中预览。
+5. E2 不给默认武器字段接入仍待删除的旧 `DA_IG_HuoLongGun`；保持空值。E3 §5.1 重建同名正式资产后再指向它。Character 不直接引用 ComboData、Resource Class 或 Resource Widget。
+6. Anim Class 指向最终 `ABP_MH_Character`。
+7. 检查 Character 蓝图没有每帧 SetActorRotation、LaunchCharacter 或 Timeline 位移与新的 MovementTask 并行写入。
 
 ### 4.4 GameMode 与 HUD
 
@@ -322,13 +405,15 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 
 ## 7. E5——猎虫、木桩和训练场
 
+**进入条件：** M3 的猎虫 Collision Root、ProjectileMovement UpdatedComponent 和 Hitzone Object Capsule Sweep 已编译通过，旧 Overlap/GetOverlappingActors 命中路径已删除。若源码仍只有 `OnComponentBeginOverlap`，停止 E5，不要关闭 Generate Overlap Events 后继续测试。
+
 ### 7.1 猎虫资产
 
 在 `/Game/Weapons/InsectGlaive` 下配置：
 
 1. `DA_IG_Kinsect_Speed`：引用正式猎虫 Mesh/Material、`ABP_IG_Kinsect`、`AM_IG_Kinsect_Fly`，并填写 Demo 速度/耐力基础值。
 2. 猎虫蓝图若仅用于指定 Mesh/AnimClass，父类使用最终 `AKinsect`，不要在 Tick 蓝图重复飞行、Overlap 或萃取逻辑。
-3. 猎虫 Collision 根组件使用 `Kinsect` Preset，ProjectileMovement 的 UpdatedComponent 指向该根组件。
+3. 在 M3 最终实现上，猎虫 Collision 根组件使用 `Kinsect` Preset，关闭 Generate Overlap Events，ProjectileMovement 的 UpdatedComponent 指向该根组件。
 4. Fly Montage/AnimBP 只负责飞行动画；悬停和附着不需要建立另一套伤害窗口。
 5. 把 Kinsect Data 填入 `DA_IG_Combat` 的唯一 Demo 猎虫引用。
 
@@ -354,7 +439,7 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 
 ### 7.4 BP_TrainingDummy
 
-1. Body Capsule/Mesh 使用 `MonsterBody`。
+1. Body Capsule 使用 `MonsterBody`；SkeletalMesh 使用 `NoCollision`，避免与 Capsule 形成两个实体 Body。
 2. Head、Torso、Leg 分别使用 QueryOnly 的 `MonsterHitzone`，Object Type 必须为 Hitzone。
 3. 调整三个碰撞体，使同一条正面射线不会在同一位置重叠多个部位。
 4. 开启 Debug Draw 时，武器 Sweep、猎虫 Sweep 和 Aim 射线应能明确区分 Body 与 Hitzone。
