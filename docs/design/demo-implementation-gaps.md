@@ -1,6 +1,6 @@
 # 虫棍 Demo 当前实现差距
 
-> **用途：** 本文回答“现有已实现系统是否需要修改”。需要，而且下列项目是从当前源码到 [Demo 目标](../editor/demo-setup.md) 的必要改动清单。本轮只修订文档，不表示这些代码问题已经解决。
+> **用途：** 本文跟踪实际源码到 [Demo 目标](../editor/demo-setup.md) 的必要改动。完成项必须从“当前问题”表移入已解决记录；未完成项继续保留原问题证据和目标里程碑。
 
 > **范围：** 只列完成虫棍木桩 Demo 所必需的改动。装备成长、背包仓库、任务、存档、完整怪物和完整伤害模型即使仍有设计问题，也不在本轮实现范围内。
 
@@ -21,16 +21,23 @@
 
 ## 2. Demo 前必须修改
 
+### 已在 M1 解决
+
+| 系统 | 当前实现证据 | 解决结果 |
+|---|---|---|
+| 成本/冷却与跨系统成本事务 | `MHGZGameplayAbility`、`MHGZAbilityCostGameplayEffects`、`AbilityTask_MHGZStaminaDrain`、Resource reservation 接口 | None/Instant/PerSecond 使用有效原生 GE/Task；reservation→Commit→Consume/Release 事务与幂等 End 已接通 |
+| 输入组合与所有权 | `MHGZInputComponent`、`MHGZWeaponInputRouterComponent`、PlayerController | InputComponent 独占 IMC/Binding；组合键、不可变快照、方向与 Completed 身份已实现；重复 Setup/重绑测试通过 |
+| 姿态生命周期 | `MHGZWeaponRuntimeHostComponent`、Character MovementMode/Landed 转发 | Grounded/Aerial、Sheathed/Unsheathed 改由当前 Pawn RuntimeHost 的 TagLedger 持有，不再由 ASC 一次性默认写入 |
+| 连招与动作实例 | `MHGZComboCoordinatorAbility`、`MHGZGameplayAbility` | Coordinator=InstancedPerActor，Action=InstancedPerExecution；Pending/Confirm/Superseded、自动边、落地与迟到回调隔离已实现 |
+| Notify 归属 | RuntimeHost Montage Registry、`MHGZAnimNotifyActionResolver`、Attack/Combo/Dodge Notify | `(Mesh, MontageInstanceID)` 精确解析 ActionToken；玩家动作 Notify 不再扫描 Active Specs |
+| 闪避 | `MHGZDodgeAbility`、`AnimNotifyState_DodgeWindow` | 使用方向快照和 AbilityTask；窗口由 Ledger 持有并逐通道恢复原碰撞响应；缺 Montage 零副作用测试通过 |
+
+构建、15 项 M1 测试与 5 项 M0 回归证据见 [M1 实施审计](m1-implementation-audit.md)。
+
 ### P0：不先改就无法可靠建立战斗基底
 
 | 系统 | 当前源码证据 | 问题 | Demo 目标 / 里程碑 |
 |---|---|---|---|
-| 成本/冷却 | [MHGZGameplayAbility.cpp](../../Source/MHGZ/ActionSystem/MHGZGameplayAbility.cpp) 61～75、93～114 | `bIsContinuous` 混合生命周期与持续扣耐；空 Cost Spec 不扣费；Loose Cooldown 不回收 | None/Instant/PerSecond + 有效 GE；所有退出路径幂等，M1 |
-| 跨系统成本事务 | 当前 GA Commit 与 Resource 消费无统一事务边界 | GAS Commit 失败可能与三灯等武器资源扣除分离，无法保证无部分消费 | Resource reservation → GAS Commit → 成功后无失败消费；失败释放 reservation，M1 |
-| 输入组合与所有权 | [MHGZAbilitySystemComponent.cpp](../../Source/MHGZ/ActionSystem/MHGZAbilitySystemComponent.cpp) 50、167～180；[MHGZPlayerController.cpp](../../Source/MHGZ/MHGZPlayerController.cpp) 46～48；[MHGZInputComponent.cpp](../../Source/MHGZ/InputSystem/MHGZInputComponent.cpp) 24～26 | ASC 的 `bInputBound` 跨 Avatar；Controller/InputComponent 重复加 IMC；只能转发单 Tag | InputComponent 独占 IMC/Binding，Router 生成快照；LT/RT 可先按或最后补齐组合；重复 Possess 不重复绑定，M1 |
-| 姿态生命周期 | [MHGZAbilitySystemComponent.cpp](../../Source/MHGZ/ActionSystem/MHGZAbilitySystemComponent.cpp) 27～28；[MHGZCharacter.cpp](../../Source/MHGZ/MHGZCharacter.cpp) 落地逻辑 | ASC 初始化一次写 Sheathed/Grounded，Character 与 Coordinator 又分别修改，换 Pawn 后可能失真 | RuntimeHost/CombatState 按当前 Pawn 初始化并以 TagLedger/身份事件维护，M1 |
-| 连招与动作实例 | [MHGZComboCoordinatorAbility.cpp](../../Source/MHGZ/ActionSystem/MHGZComboCoordinatorAbility.cpp) 155～240 | 全局 PreviousState/PendingGrantedTags；未规定同一 Spec 重入、旧实例何时结束和 InstancingPolicy | Coordinator InstancedPerActor；动作 InstancedPerExecution；ActionToken + 两阶段 Confirm/Superseded，M1 |
-| Notify 归属 | [AnimNotifyState_AttackCollision.cpp](../../Source/MHGZ/ActionSystem/AnimNotifyState_AttackCollision.cpp) 31、60、87 | Notify 遍历全部 Active Specs，对每个活动 AttackAbility 启停/更新碰撞；同类并发或迟到 Notify 会串实例 | RuntimeHost 以 Mesh+MontageInstanceID 精确映射 ActionToken；Notify 不扫描 Ability，M1 |
 | 武器资源宿主 | [MHGZEquipmentComponent.cpp](../../Source/MHGZ/Equipment/MHGZEquipmentComponent.cpp) 91～115；[Res_InsectGlaive.cpp](../../Source/MHGZ/AttributeSystem/Res_InsectGlaive.cpp) 136～182 | Resource 在 PlayerState 创建却把 Owner 当 Pawn；直接 DestroyComponent，无统一虫棍清理 | Character RuntimeHost 独占世界/Pawn 运行时并统一 Shutdown，M2 |
 | 装备差分重建 | [MHGZEquipmentComponent.cpp](../../Source/MHGZ/Equipment/MHGZEquipmentComponent.cpp) 77、85、92～115 | 饰品/护甲变化走同一 OnEquipmentChanged，可能销毁 Resource、移除能力并清战斗态 | StatsChanged 与 WeaponChanged Snapshot 分离；相同武器身份 no-op，M2 |
 | 猎虫碰撞 | [KinsectCollisionComponent.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/KinsectCollisionComponent.cpp)；[Kinsect.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/Kinsect.cpp) | 用 Weapon Trace Channel Overlap 充当身份；Root/UpdatedComponent 合同不完整 | Hitzone Object Channel + Collision Root + 前后帧 Capsule Sweep，M0/M3 |
@@ -48,7 +55,6 @@
 | 瞄准重绑 | [MHGZAimComponent.cpp](../../Source/MHGZ/UI/MHGZAimComponent.cpp) 45～100 | BeginPlay 时一次性找 ASC，初始化顺序不对时不会重试；颜色按部位名硬编码 | Runtime/ActorInfo Ready 绑定并可随 Avatar 重绑；直接读 Hitzone 颜色，M3 |
 | 普通猎虫交付 | [Kinsect.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/Kinsect.cpp) 90、239～返回逻辑 | PendingExtract 交付后未清空，后续飞行不能取得新颜色 | 到达时原子取出并清 Pending，再 Apply 一次；下一 Flight 可取新色，M3 |
 | 猎虫耐力归零 | [Res_InsectGlaive.cpp](../../Source/MHGZ/AttributeSystem/Res_InsectGlaive.cpp) 57～61 | 耐力为 0 的每帧重复音效与 ForceRecall | 只在阈值穿越时触发一次，Returning/Attached 不重复，M3 |
-| 闪避 | [MHGZDodgeAbility.cpp](../../Source/MHGZ/ActionSystem/MHGZDodgeAbility.cpp) 135 及依赖检查；[AnimNotifyState_DodgeWindow.cpp](../../Source/MHGZ/ActionSystem/AnimNotifyState_DodgeWindow.cpp) 45～46 | 读取从未由当前移动写入的 LastMovementInput；早退可能遗留 BlockMovement；Montage Delegate/Notify 无动作身份；碰撞通道固定恢复 Block | 输入快照 + AbilityTask + ActionToken + TagLedger；缓存并恢复原碰撞响应；失败路径统一 End，M1 |
 | 木桩 | [MHGZMonsterHitzoneComponent.cpp](../../Source/MHGZ/Monster/MHGZMonsterHitzoneComponent.cpp)；[MHGZTrainingDummy.cpp](../../Source/MHGZ/Monster/MHGZTrainingDummy.cpp) | Hitzone 同时阻挡 Pawn、没有 ExtractColor；不能产生可复现 IncomingHit | 三个分离颜色部位 + 固定 AttackInstance 测试器，M2 |
 | 虫印/粉尘/舞踏 | 当前源码不存在 | 无状态所有者、生命周期和清理入口 | 归属 URes/虫棍派生层；数值来自 CombatConfig，M4～M6 |
 | UI 所有权 | [MHGZUISubsystem](../../Source/MHGZ/UI) 当前为空壳；原文档同时让 WBP_HUD 有资源插槽又让 Subsystem AddToViewport | 两个潜在 Widget 所有者会产生重复显示、解绑和本地玩家生命周期冲突 | HUD 独占 Widget 树；资源面板只作为主 HUD 子控件；删除空壳 Subsystem，M6 |

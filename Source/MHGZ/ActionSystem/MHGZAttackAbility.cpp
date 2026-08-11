@@ -14,6 +14,8 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Camera/CameraShakeBase.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 
 namespace
 {
@@ -61,6 +63,7 @@ namespace
 
 UMHGZAttackAbility::UMHGZAttackAbility()
 {
+	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerExecution;
 	MaxCorrectionAngle = 30.0f;
 }
 
@@ -132,15 +135,16 @@ void UMHGZAttackAbility::ActivateAbility(
 	const FGameplayAbilityActivationInfo ActivationInfo,
 	const FGameplayEventData* TriggerEventData)
 {
-	// 父类：扣耐力/资源 + 启动冷却
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+	if (!IsActionActivationCommitted()) return;
+	ACharacter* Character = Cast<ACharacter>(ActorInfo ? ActorInfo->AvatarActor.Get() : nullptr);
+	UAnimInstance* AnimInstance = Character && Character->GetMesh()
+		? Character->GetMesh()->GetAnimInstance() : nullptr;
 
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (!ASC) return;
-
-	// 添加攻击状态 Tag + 阻断 CMC 移动输入
-	ASC->AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")));
-	ASC->AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
+	FGameplayTagContainer ActionTags;
+	ActionTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")));
+	ActionTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
+	AcquireActionTags(ActionTags, FName(TEXT("AttackState")));
 
 	// 重置状态
 	ActiveCollisionWindows.Empty();
@@ -152,19 +156,12 @@ void UMHGZAttackAbility::ActivateAbility(
 	// 方向修正
 	ApplyDirectionCorrection();
 
-	// 由 GAS AbilityTask 播放并等待 Montage，确保正常完成、取消和被打断都能 EndAbility。
-	if (!AttackMontage)
-	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, false, true);
-		return;
-	}
-
 	ActiveAttackMontage = AttackMontage;
 	MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
 		this, FName(TEXT("AttackMontage")), AttackMontage, 1.0f);
 	if (!MontageTask)
 	{
-		EndAbility(Handle, ActorInfo, ActivationInfo, false, true);
+		RequestEndAction(EWeaponActionEndReason::Cancelled);
 		return;
 	}
 
@@ -172,6 +169,20 @@ void UMHGZAttackAbility::ActivateAbility(
 	MontageTask->OnInterrupted.AddDynamic(this, &UMHGZAttackAbility::OnMontageInterrupted);
 	MontageTask->OnCancelled.AddDynamic(this, &UMHGZAttackAbility::OnMontageInterrupted);
 	MontageTask->ReadyForActivation();
+
+	FAnimMontageInstance* MontageInstance = AnimInstance->GetActiveInstanceForMontage(AttackMontage);
+	if (!MontageInstance
+		|| !RegisterMontageInstance(Character->GetMesh(), MontageInstance->GetInstanceID()))
+	{
+		RequestEndAction(EWeaponActionEndReason::Interrupted);
+	}
+}
+
+bool UMHGZAttackAbility::ValidateActionDependencies() const
+{
+	const ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	return Character && Character->GetMesh() && Character->GetMesh()->GetAnimInstance()
+		&& AttackMontage;
 }
 
 void UMHGZAttackAbility::EndAbility(
@@ -187,19 +198,8 @@ void UMHGZAttackAbility::EndAbility(
 	}
 	bIsEndingAbility = true;
 
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (ASC)
-	{
-		// 移除攻击状态 Tag + 解除 CMC 移动阻断
-		ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")));
-		ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
-	}
-
 	// 关碰撞（幂等安全——清除 MultiHitTimer）
 	DisableCollision();
-
-	// 通知协调器
-	NotifyCoordinatorAttackFinished();
 
 	// AbilityTask 会在 Ability 结束时负责停止 Montage 并解绑委托。
 	MontageTask = nullptr;
@@ -212,7 +212,7 @@ void UMHGZAttackAbility::OnMontageCompleted()
 {
 	if (IsActive() && !bIsEndingAbility)
 	{
-		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, false);
+		RequestEndAction(EWeaponActionEndReason::Normal);
 	}
 }
 
@@ -220,7 +220,7 @@ void UMHGZAttackAbility::OnMontageInterrupted()
 {
 	if (IsActive() && !bIsEndingAbility)
 	{
-		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, true, true);
+		RequestEndAction(EWeaponActionEndReason::Interrupted);
 	}
 }
 
@@ -231,8 +231,8 @@ void UMHGZAttackAbility::ApplyDirectionCorrection()
 	AMHGZCharacter* Character = Cast<AMHGZCharacter>(GetAvatarActorFromActorInfo());
 	if (!Character) return;
 
-	// 读摇杆方向——用 Character::LastMovementInputDir（不受 BlockMovement 影响，始终最新）
-	const FVector MovementInput = Character->GetLastMovementInputDir();
+	// 方向在输入解析时冻结，激活后不重读摇杆。
+	const FVector MovementInput = GetWeaponActivationContext().Input.WorldDirection;
 	if (MovementInput.IsNearlyZero()) return; // 无输入
 
 	const FVector InputDir(MovementInput.X, MovementInput.Y, 0.f);
@@ -833,23 +833,10 @@ bool UMHGZAttackAbility::ShouldContinueAfterHit_Implementation() const
 	return true;
 }
 
-void UMHGZAttackAbility::NotifyCoordinatorAttackFinished()
-{
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (!ASC) return;
-
-	UMHGZAbilitySystemComponent* MHGZASC = Cast<UMHGZAbilitySystemComponent>(ASC);
-	if (MHGZASC)
-	{
-		if (UGA_WeaponComboCoordinator* Coord = MHGZASC->GetActiveComboCoordinator())
-		{
-			Coord->OnAttackFinished();
-		}
-	}
-}
-
 void UMHGZAttackAbility::NotifyCoordinatorFirstHit()
 {
+	const FWeaponActionToken CallbackActionToken = GetActionToken();
+	if (!CallbackActionToken.IsValid()) return;
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (!ASC) return;
 
@@ -858,7 +845,7 @@ void UMHGZAttackAbility::NotifyCoordinatorFirstHit()
 	{
 		if (UGA_WeaponComboCoordinator* Coord = MHGZASC->GetActiveComboCoordinator())
 		{
-			Coord->OnAttackHit();
+			Coord->OnAttackHit(CallbackActionToken);
 		}
 	}
 }

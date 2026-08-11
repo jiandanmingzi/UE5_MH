@@ -7,7 +7,6 @@
 #include "GameplayAbilitySpecHandle.h"
 #include "GameplayTagContainer.h"
 #include "ScalableFloat.h"
-#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "MHGZWeaponRuntimeTypes.generated.h"
 
 class ACharacter;
@@ -17,6 +16,7 @@ class UCurveFloat;
 class UGameplayAbility;
 class UMHGZAbilitySystemComponent;
 class UMHGZEquipmentComponent;
+class UMHGZWeaponRuntimeHostComponent;
 class UMHGZWeaponDefinition;
 class USkeletalMeshComponent;
 
@@ -63,7 +63,8 @@ enum class EWeaponTagOwnerKind : uint8
 	Transition   UMETA(DisplayName = "Transition"),
 	Ability      UMETA(DisplayName = "Ability"),
 	NotifyWindow UMETA(DisplayName = "Notify Window"),
-	Resource     UMETA(DisplayName = "Resource")
+	Resource     UMETA(DisplayName = "Resource"),
+	Pose         UMETA(DisplayName = "Pose")
 };
 
 /** Ability 耐力成本结算策略；PerSecond 由 StaminaDrain 任务按真实经过时间结算 */
@@ -246,6 +247,11 @@ struct FWeaponActionToken
 			&& AbilityHandle == Other.AbilityHandle
 			&& ActivationSequenceID == Other.ActivationSequenceID
 			&& AbilityInstance == Other.AbilityInstance;
+	}
+
+	bool operator!=(const FWeaponActionToken& Other) const
+	{
+		return !(*this == Other);
 	}
 };
 

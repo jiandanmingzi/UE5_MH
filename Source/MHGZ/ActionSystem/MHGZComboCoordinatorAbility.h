@@ -4,20 +4,13 @@
 
 #include "CoreMinimal.h"
 #include "MHGZGameplayAbility.h"
+#include "MHGZWeaponComboData.h"
 #include "MHGZComboCoordinatorAbility.generated.h"
 
 class UMHGZWeaponComboData;
-struct FComboTransition;
+class UMHGZWeaponRuntimeHostComponent;
 
-/**
- * UGA_WeaponComboCoordinator — 连招协调器
- * Infinite 持续型 Ability，整个装备期间保持 Active
- *
- * 核心职责：
- * - HandleWeaponInput：接收 ASC 转发来的输入 Tag → 四级排序匹配 → Activate 匹配的 GA
- * - OnAttackFinished / OnAttackHit：接收攻击 GA 回调 → 状态更新 / Tag 授予
- * - 帧级输入批处理 + 预输入缓冲
- */
+/** Maintained, no-cost weapon FSM. Physical input never enters this class. */
 UCLASS(BlueprintType, Blueprintable)
 class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 {
@@ -26,57 +19,28 @@ class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 public:
 	UGA_WeaponComboCoordinator();
 
-	// ── 配置 ──
-
-	/** 当前状态名 */
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|Combo")
-	FName CurrentState;
+	FName CurrentState = FName(TEXT("Idle"));
 
-	/** 上一个状态名 */
-	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|Combo")
-	FName PreviousState;
-
-	// ═══════════════════════════════════════════
-	// 连招数据注入
-	// ═══════════════════════════════════════════
-
-	/** 注入连招数据（异步加载完成后调用） */
 	void InjectComboData(UMHGZWeaponComboData* Data);
+	void HandleWeaponInput(const FWeaponInputSnapshot& Input);
 
-	// ═══════════════════════════════════════════
-	// 输入处理
-	// ═══════════════════════════════════════════
+	bool ConfirmTransitionActivation(const FWeaponActionToken& ActionToken);
+	void RejectTransitionActivation(const FWeaponActionToken& ActionToken);
+	void OnAttackHit(const FWeaponActionToken& ActionToken);
+	void OnActionFinished(const FWeaponActionToken& ActionToken, EWeaponActionEndReason Reason);
+	bool OnAutoTransition(FName TransitionID, const FWeaponActionToken& SourceAction);
+	void OnLanded(const FHitResult& Hit);
+	void ResetCombo(EWeaponActionEndReason Reason);
 
-	/**
-	 * 处理武器输入（由 ASC 转发）
-	 * 四级排序：Priority → RequiredTags 满足数 → BlockedTags 无命中 → Chord > 单键
-	 */
-	void HandleWeaponInput(FGameplayTag InputTag);
-
-	// ═══════════════════════════════════════════
-	// GA 回调
-	// ═══════════════════════════════════════════
-
-	/** 当前攻击 GA 结束回调 */
-	void OnAttackFinished();
-
-	/** 当前攻击 GA 首次命中回调（触发 PendingGrantedTags） */
-	void OnAttackHit();
-
-	/** 着陆回调 */
-	void OnLanded();
-
-	// ═══════════════════════════════════════════
-	// 查询
-	// ═══════════════════════════════════════════
+	bool OpenComboWindow(const FWeaponActionToken& ActionToken, FName NotifyEventID);
+	void CloseComboWindow(const FWeaponActionToken& ActionToken, FName NotifyEventID);
 
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Combo")
 	FName GetCurrentState() const { return CurrentState; }
 
-	UFUNCTION(BlueprintCallable, Category = "MHGZ|Combo")
-	FName GetPreviousState() const { return PreviousState; }
+	const TOptional<FActiveComboTransition>& GetActiveTransition() const { return ActiveTransition; }
 
-	// ── Ability 覆写 ──
 	virtual void ActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
@@ -90,35 +54,43 @@ public:
 		bool bReplicateEndAbility,
 		bool bWasCancelled) override;
 
-protected:
-	/** 匹配并激活符合条件的 GA */
-	bool TryMatchAndActivate(const FComboTransition& Transition);
-
-	/** 构建 StateIndex（按 SourceState 建索引） */
-	void BuildStateIndex();
-
-	/** 检查节点是否匹配当前状态 */
-	bool DoesTransitionMatchState(const FComboTransition& Transition) const;
-
-	/** 按四级排序获取最佳匹配节点 */
-	const FComboTransition* FindBestMatch(const TArray<const FComboTransition*>& Candidates) const;
-
-	/** 每次有效输入后重置安全超时。 */
-	void ResetComboTimeout();
-
 private:
+	struct FComboWindowEntry
+	{
+		FWeaponActionToken ActionToken;
+		FWeaponOwnedTagToken TagToken;
+	};
+
 	UPROPERTY()
 	TObjectPtr<UMHGZWeaponComboData> ComboData;
 
-	/** SourceState → Transitions 索引列表 */
 	TMap<FName, TArray<int32>> StateIndex;
-
-	/** 待授予的 Tag（首次命中时 Apply） */
-	FGameplayTagContainer PendingGrantedTags;
-
-	/** 当前激活的 GA */
-	FGameplayAbilitySpecHandle ActiveAttackHandle;
-
-	/** 全局超时 Timer */
+	TArray<int32> AnyStateIndices;
+	TMap<FName, int32> TransitionIndex;
+	TOptional<FPendingComboTransition> PendingTransition;
+	TOptional<FActiveComboTransition> ActiveTransition;
+	FWeaponOwnedTagToken ActiveTransitionTagToken;
+	TMap<FName, FComboWindowEntry> ComboWindows;
 	FTimerHandle ComboTimeoutTimer;
+
+	void BuildIndices();
+	const FComboTransition* FindTransition(FName TransitionID) const;
+	const FComboTransition* FindBestMatch(const FWeaponInputSnapshot& Input) const;
+	bool TransitionRequirementsPass(const FComboTransition& Transition,
+		const FWeaponInputSnapshot& Input) const;
+	bool ExecuteTransition(const FComboTransition& Transition,
+		const FWeaponInputSnapshot& Input, const FWeaponActionToken* SourceAction = nullptr);
+	bool ExecuteStateOnlyTransition(const FComboTransition& Transition,
+		const FWeaponActionToken& SourceAction);
+	bool DoesTransitionMatchState(const FComboTransition& Transition) const;
+	bool IsSnapshotPostureCompatible(const FComboTransition& Transition,
+		const FWeaponInputSnapshot& Input) const;
+	bool HasOpenWindowFor(const FWeaponActionToken& ActionToken) const;
+	void GrantActiveTransitionTags(const FComboTransition& Transition);
+	void ReleaseActiveTransitionTags();
+	void CloseWindowsFor(const FWeaponActionToken& ActionToken);
+	void ResetComboTimeout();
+	void OnComboTimeout();
+	UMHGZWeaponRuntimeHostComponent* GetRuntimeHost() const;
+	static FName MakeWindowKey(const FWeaponActionToken& ActionToken, FName NotifyEventID);
 };

@@ -1,18 +1,17 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZPlayerController.h"
-#include "EnhancedInputSubsystems.h"
-#include "Engine/LocalPlayer.h"
-#include "InputMappingContext.h"
 #include "Blueprint/UserWidget.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "InputSystem/MHGZInputComponent.h"
+#include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "InputSystem/MHGZQuickBarComponent.h"
 #include "MHGZ.h"
 
 AMHGZPlayerController::AMHGZPlayerController()
 {
 	InputComponent_MHGZ = CreateDefaultSubobject<UMHGZInputComponent>(TEXT("MHGZInputComponent"));
+	WeaponInputRouterComponent = CreateDefaultSubobject<UMHGZWeaponInputRouterComponent>(TEXT("WeaponInputRouter"));
 	QuickBarComponent = CreateDefaultSubobject<UMHGZQuickBarComponent>(TEXT("QuickBarComponent"));
 }
 
@@ -37,24 +36,48 @@ void AMHGZPlayerController::BeginPlay()
 void AMHGZPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
-
-	if (IsLocalPlayerController())
+	if (InputComponent_MHGZ && WeaponInputRouterComponent)
 	{
-		if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
-			ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
-		{
-			for (UInputMappingContext* IMC : DefaultMappingContexts)
-			{
-				Subsystem->AddMappingContext(IMC, 0);
-			}
-
-			if (!SVirtualJoystick::ShouldDisplayTouchInterface())
-			{
-				for (UInputMappingContext* IMC : MobileExcludedMappingContexts)
-				{
-					Subsystem->AddMappingContext(IMC, 0);
-				}
-			}
-		}
+		WeaponInputRouterComponent->AttachToPawn(GetPawn());
+		InputComponent_MHGZ->InitializeInput(this, WeaponInputRouterComponent);
 	}
+}
+
+void AMHGZPlayerController::OnPossess(APawn* InPawn)
+{
+	Super::OnPossess(InPawn);
+	if (WeaponInputRouterComponent)
+	{
+		WeaponInputRouterComponent->AttachToPawn(InPawn);
+	}
+	if (InputComponent_MHGZ && WeaponInputRouterComponent)
+	{
+		InputComponent_MHGZ->InitializeInput(this, WeaponInputRouterComponent);
+	}
+}
+
+void AMHGZPlayerController::OnUnPossess()
+{
+	if (InputComponent_MHGZ)
+	{
+		InputComponent_MHGZ->ShutdownInput();
+	}
+	if (WeaponInputRouterComponent)
+	{
+		WeaponInputRouterComponent->ShutdownRouter();
+	}
+	Super::OnUnPossess();
+}
+
+void AMHGZPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (InputComponent_MHGZ)
+	{
+		InputComponent_MHGZ->ShutdownInput();
+	}
+	if (WeaponInputRouterComponent)
+	{
+		WeaponInputRouterComponent->ShutdownRouter();
+	}
+	Super::EndPlay(EndPlayReason);
 }

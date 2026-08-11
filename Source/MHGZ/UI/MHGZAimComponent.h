@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZAimComponent.generated.h"
 
 class UAbilitySystemComponent;
@@ -37,6 +38,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Aim")
 	FVector GetCameraForward() const { return CachedCameraDir; }
+
+	/** 输入解析瞬间执行独立射线并返回不可变快照。 */
+	FWeaponAimSnapshot CaptureAimSnapshot(EWeaponAimSnapshotContext Context) const;
 
 	// ── 配置 ──
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim|Config")

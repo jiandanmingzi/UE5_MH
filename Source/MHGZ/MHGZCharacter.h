@@ -16,6 +16,8 @@ class UMHGZAimComponent;
 class UMHGZEdgeVaultComponent;
 class UMHGZAbilitySystemComponent;
 class UMHGZWeaponDefinition;
+class UMHGZWeaponRuntimeHostComponent;
+class UEnhancedInputComponent;
 struct FInputActionValue;
 
 /**
@@ -88,15 +90,18 @@ public:
 
 	// ── GAS 初始化 ──
 	virtual void PossessedBy(AController* NewController) override;
+	virtual void UnPossessed() override;
 
 	// ── 着陆重置 ──
 	virtual void Landed(const FHitResult& Hit) override;
+	virtual void OnMovementModeChanged(EMovementMode PrevMovementMode, uint8 PreviousCustomMode = 0) override;
 
 	// ── 组件访问 ──
 	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 	FORCEINLINE UMotionWarpingComponent* GetMotionWarpingComponent() const { return MotionWarpingComponent; }
 	FORCEINLINE UMHGZAimComponent* GetAimComponent() const { return AimComponent; }
+	UMHGZWeaponRuntimeHostComponent* GetWeaponRuntimeHost() const;
 
 protected:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
@@ -110,6 +115,9 @@ protected:
 	void EquipDefaultWeaponIfConfigured();
 
 public:
+	/** InputComponent 调用并保存返回的绑定句柄；Character 不拥有绑定生命周期。 */
+	void BindCharacterInput(UEnhancedInputComponent* EnhancedInputComponent, TArray<uint32>& OutBindingHandles);
+
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoMove(float Right, float Forward);
 
@@ -130,6 +138,9 @@ public:
 	/** 摇杆输入的世界方向（每帧更新，不受 BlockMovement 影响）——供 MotionWarping / AttackAbility / AnimBP 读取 */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	FVector GetLastMovementInputDir() const;
+
+	UFUNCTION(BlueprintCallable, Category="Input")
+	FVector2D GetRawMoveInput() const { return RawMoveInput; }
 
 	// ── Motion Matching 期望速度 ────────────────────────────────
 
@@ -189,6 +200,9 @@ private:
 
 	/** 摇杆输入世界方向——每帧 DoMove 更新，不受 BlockMovement 影响 */
 	FVector LastMovementInputDir = FVector::ZeroVector;
+
+	/** 相机相对的原始移动轴，供输入快照冻结方向。 */
+	FVector2D RawMoveInput = FVector2D::ZeroVector;
 
 	/** 本帧已处理理论速度的帧号——防止 Tick 和 DoMove 同帧重复处理 */
 	uint64 LastTheoryUpdateFrame = 0;

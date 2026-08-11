@@ -15,8 +15,11 @@
 #include "MotionWarpingComponent.h"
 #include "UI/MHGZAimComponent.h"
 #include "InputSystem/MHGZEdgeVaultComponent.h"
+#include "InputSystem/MHGZInputComponent.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
+#include "MHGZPlayerController.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "Equipment/MHGZEquipmentComponent.h"
 #include "Equipment/MHGZEquipmentDefinition.h"
@@ -85,8 +88,27 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 	{
 		ASC->InitAbilityActorInfo(PS, this);
 		ASC->InitializeAbilitySystem();
+		if (UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost())
+		{
+			RuntimeHost->InitializePawnRuntime(this, Cast<APlayerController>(NewController), ASC,
+				PS->GetEquipmentComponent());
+		}
 		EquipDefaultWeaponIfConfigured();
 	}
+}
+
+void AMHGZCharacter::UnPossessed()
+{
+	if (UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost())
+	{
+		RuntimeHost->ShutdownRuntime(EWeaponRuntimeEndReason::AvatarChanged);
+	}
+	Super::UnPossessed();
+}
+
+UMHGZWeaponRuntimeHostComponent* AMHGZCharacter::GetWeaponRuntimeHost() const
+{
+	return FindComponentByClass<UMHGZWeaponRuntimeHostComponent>();
 }
 
 void AMHGZCharacter::EquipDefaultWeaponIfConfigured()
@@ -111,6 +133,10 @@ void AMHGZCharacter::EquipDefaultWeaponIfConfigured()
 void AMHGZCharacter::Landed(const FHitResult& Hit)
 {
 	Super::Landed(Hit);
+	if (UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost())
+	{
+		RuntimeHost->HandleLanded();
+	}
 
 	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
 	if (!PS) return;
@@ -118,15 +144,20 @@ void AMHGZCharacter::Landed(const FHitResult& Hit)
 	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
 	if (!ASC) return;
 
-	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial")));
-	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.Falling")));
-	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.CantDodge")));
-	ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.CantAttack")));
-	ASC->AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Grounded")));
-
 	if (UGA_WeaponComboCoordinator* Coord = ASC->GetActiveComboCoordinator())
 	{
-		Coord->OnLanded();
+		Coord->OnLanded(Hit);
+	}
+}
+
+void AMHGZCharacter::OnMovementModeChanged(
+	EMovementMode PrevMovementMode, uint8 PreviousCustomMode)
+{
+	Super::OnMovementModeChanged(PrevMovementMode, PreviousCustomMode);
+	if (UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost())
+	{
+		RuntimeHost->SetGrounded(GetCharacterMovement()
+			&& !GetCharacterMovement()->IsFalling());
 	}
 }
 
@@ -220,54 +251,42 @@ float AMHGZCharacter::CalcCruiseSpeed(float StickMagnitude) const
 
 void AMHGZCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)
 {
-	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent))
+	Super::SetupPlayerInputComponent(PlayerInputComponent);
+	if (AMHGZPlayerController* MHGZPC = Cast<AMHGZPlayerController>(GetController()))
 	{
-		// Moving
-		if (MoveAction)
+		if (UMHGZInputComponent* InputOwner = MHGZPC->GetMHGZInputComponent())
 		{
-			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Move);
-			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &AMHGZCharacter::Move);
-		}
-
-		// Looking
-		if (LookAction)
-		{
-			EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look);
-		}
-		if (MouseLookAction)
-		{
-			EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look);
-		}
-
-		// Sprint (LS/L3 hold)
-		if (SprintAction)
-		{
-			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &AMHGZCharacter::SprintPressed);
-			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AMHGZCharacter::SprintReleased);
-			EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Canceled, this, &AMHGZCharacter::SprintReleased);
-		}
-
-		if (AimAction)
-		{
-			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Started,
-				this, &AMHGZCharacter::AimPressed);
-			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed,
-				this, &AMHGZCharacter::AimReleased);
-			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Canceled,
-				this, &AMHGZCharacter::AimReleased);
+			InputOwner->InitializeInput(MHGZPC, MHGZPC->GetWeaponInputRouter());
 		}
 	}
-	else
-	{
-		UE_LOG(LogMHGZ, Error, TEXT("Failed to find Enhanced Input component!"));
-	}
+}
 
-	// PossessedBy 可能早于 PlayerController::InputComponent 创建。此处输入组件已确定就绪，
-	// 再执行一次幂等初始化，保证 ASC 的 IA -> GameplayTag 路由实际完成绑定。
-	if (UMHGZAbilitySystemComponent* ASC =
-		Cast<UMHGZAbilitySystemComponent>(GetAbilitySystemComponent()))
+void AMHGZCharacter::BindCharacterInput(
+	UEnhancedInputComponent* EnhancedInputComponent, TArray<uint32>& OutBindingHandles)
+{
+	if (!EnhancedInputComponent) return;
+	auto Remember = [&OutBindingHandles](FEnhancedInputActionEventBinding& Binding)
 	{
-		ASC->InitializeAbilitySystem();
+		OutBindingHandles.Add(Binding.GetHandle());
+	};
+	if (MoveAction)
+	{
+		Remember(EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Move));
+		Remember(EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &AMHGZCharacter::Move));
+	}
+	if (LookAction)
+	{
+		Remember(EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look));
+	}
+	if (MouseLookAction)
+	{
+		Remember(EnhancedInputComponent->BindAction(MouseLookAction, ETriggerEvent::Triggered, this, &AMHGZCharacter::Look));
+	}
+	if (SprintAction)
+	{
+		Remember(EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &AMHGZCharacter::SprintPressed));
+		Remember(EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AMHGZCharacter::SprintReleased));
+		Remember(EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Canceled, this, &AMHGZCharacter::SprintReleased));
 	}
 }
 
@@ -343,6 +362,7 @@ bool AMHGZCharacter::ShouldBlockMovement() const
 
 void AMHGZCharacter::DoMove(float Right, float Forward)
 {
+	RawMoveInput = FVector2D(Right, Forward);
 	if (!Controller) return;
 
 	// 1. 计算世界方向 + 存储 LastMovementInputDir

@@ -32,7 +32,7 @@
    - `/Game/Weapons/InsectGlaive/Data/DA_IG_Combo`、`DA_IG_HuoLongGun`。
    - `/Game/Blueprints/Ability/InsectGlaive/GA_IG_BaDao`、`GA_IG_R_TuCI`。
    - `/Game/Weapons/InsectGlaive/Anims/Montage/AM_Shth_BaDao`、`AM_Shth_R_TuCi`。
-   - `/Game/Input/Actions/MHGZ/IA_RTA`、`IA_RTB`、`IA_RTY`、`IA_YB`；M1 移除代码读取、E2 清 PlayerState、E3 清 IMC 后，才在 E3 删除。
+   - `/Game/Input/Actions/MHGZ/IA_RTA`、`IA_RTB`、`IA_RTY`、`IA_YB`；M1 已移除代码读取，E2 Compile/Save PlayerState 清旧序列化引用，E3 清 IMC 后才删除。
 
 `BP_MHGZHUD`、WBP 与 `DT_WeaponResourceConfig` 当前不存在，不要把它们写进“待删除”清单。
 
@@ -57,7 +57,7 @@ E0 不执行旧动作资产迁移，也不执行删除。记录保留资产的�
 2. 在 Content Browser 中按引用者到依赖项的顺序删除：`DT_WeaponComboConfig` → 旧 `DA_IG_Combo` → 两个旧 GA → 两个旧 Montage；`DA_IG_HuoLongGun` 无引用，可在同批删除。
 3. 保留两个 Montage 所引用的 `AS_Shth_BaDao`、`AS_Shth_R_TuCi`、`SK_Demo_Body`，以及全部其他原始动画和美术资产。
 4. 关闭并重新打开编辑器，确认这些旧包均不存在且没有 Missing Class/Package，再创建最终资产；不要从旧包复制属性或节点。
-5. M1 只移除代码侧旧输入读取；E2 清空 `BP_PlayerState.ASC.InputBindings`；E3 §5.3 从 `IMC_MHGZ_Demo` 移除旧组合映射。两处资产引用都归零后，才在 E3 删除 `IA_RTA/IA_RTB/IA_RTY/IA_YB`。保留 `IA_A`，直到 E3 明确它是否复用为闪避输入。
+5. M1 已删除代码侧旧输入读取与 `InputBindings` 属性；E2 Compile/Save `BP_PlayerState` 以清除旧序列化引用；E3 §5.3 从 `IMC_MHGZ_Demo` 移除旧组合映射。两处资产引用都归零后，才在 E3 删除 `IA_RTA/IA_RTB/IA_RTY/IA_YB`。保留 `IA_A`，直到 E3 明确它是否复用为闪避输入。
 6. 删除与重建完成后对相关目录执行 `Fix Up Redirectors in Folder`，重启并复查引用闭合。
 7. 同一资产批次完成后更新 `Scripts/AssetOrganization/verify_project_assets.py` 的资产总数、Blueprint 数与关键资产清单；在实际创建最终 GA 之前，不以旧的 `EXPECTED_BLUEPRINT_COUNT=8` 作为验收依据。
 
@@ -197,24 +197,28 @@ Preset 建好后还必须在对应阶段应用到组件，不能只在 Project S
 打开 `/Game/Blueprints/Characters/Demo/BP_PlayerState`：
 
 1. 确认 ASC、AttributeSet、EquipmentComponent 仍由 PlayerState 持有。
-2. Core Abilities 中加入代码要求的通用 Ability（至少基础 Dodge；死亡等未实现项不要伪配空蓝图）。
-3. 删除迁移完成后的 ASC `InputBindings` 配置；ASC 不绑定 `IA_Y/IA_B/IA_LT/IA_RT`。
+2. 选中 ASC 后 Compile。M1 已从 C++ 删除 `InputBindings` 属性，Details 中应不再出现该字段；不要新建替代数组。若蓝图编译仍报告旧输入字段或节点，使用 `Find in Blueprint` 搜索 `InputBindings`/`Bind Action`，只删除命中的旧输入节点后再次 Compile。
+3. E2 暂不把原生 `UMHGZDodgeAbility` 作为临时项塞进 Core Abilities，也不要加入 `MHGZM1Placeholder*` 测试 Ability。E4 创建并配置最终 `GA_Dodge` 后，再回到这里把且只把该最终类加入一次；死亡等未实现项保持为空。
 4. 不在 PlayerState 创建虫棍 Resource、猎虫、粉尘或 Pawn 相关 Timer。
 5. 若 PlayerState Tick 过去只为虫棍 Resource 开启，改为关闭。
 
 ### 4.2 Demo PlayerController
 
-1. 挂载且只挂载一份 `UMHGZInputComponent` 和 `UMHGZWeaponInputRouterComponent`。
-2. `UMHGZInputComponent` 的默认 Mapping Context 只加入 `IMC_MHGZ_Demo` 一次。
-3. 清空 PlayerController 自身旧 `DefaultMappingContexts` 或 BeginPlay `AddMappingContext` 蓝图逻辑。
-4. 不在蓝图中实现 Chord、连招状态或按武器类型分支。
-5. 确认 Possess/UnPossess 后由 C++ 重新绑定，蓝图不重复调用 SetupInput。
+打开 `/Game/Blueprints/PlayerController/Demo/BP_MHGZ_PlayerController`：
+
+1. 先确认 Parent Class 为 `AMHGZPlayerController`，再 Compile。`MHGZInputComponent` 与 `WeaponInputRouter` 是父类构造的 inherited components；不要使用 Add Component 再创建。若 Components 树另有蓝图手工添加的同类组件，只删除蓝图新增的重复项，保留各一份 inherited component。
+2. 选择 inherited `MHGZInputComponent`，在 `Default IMCs` 中把数组设为 1 个元素：`/Game/Input/Contexts/IMC_MHGZ_Demo`。同一 Context 不得出现两次。
+3. M1 已删除 PlayerController 旧 `DefaultMappingContexts` C++ 字段；Compile 后该字段应不存在。打开 Construction Script/Event Graph，搜索 `Add Mapping Context`、`Remove Mapping Context`、`SetupInput`，删除 Controller 蓝图中与默认 IMC/武器按键有关的旧调用；移动端或与本 Demo 输入无关的逻辑不要误删。
+4. Router 的 `InputProfile` 在 E2 保持空；E3 创建最终 `DA_IG_InputProfile` 并由 RuntimeDefinition 接线。不要临时引用旧组合 InputAction。
+5. 不在蓝图中实现 Chord、连招状态或按武器类型分支。保存后关闭再打开蓝图，确认仍只有一份 InputComponent/Router。
 
 ### 4.3 BP_IG_Character
 
 打开 `/Game/Blueprints/Characters/Demo/BP_IG_Character`：
 
 1. 确认组件只有一份：WeaponRuntimeHost、AimComponent、MotionWarping、CharacterMovement，以及角色 Mesh/武器 Mesh。
+   - `AimComponent`、`MotionWarping`、`CharacterMovement` 来自 C++ 父类；不要重复添加。
+   - `WeaponRuntimeHost` 当前不是 C++ 默认子对象：若 Components 树中没有它，使用 `Add → MHGZ Weapon Runtime Host Component` 新增一份并命名 `WeaponRuntimeHost`；若已有则保留原组件，不再新增。
 2. CapsuleComponent 的 Collision Preset 设为 `PlayerCapsule`；不要在蓝图中改成 Custom 响应。
 3. 武器 SkeletalMeshComponent 的 Collision Preset 设为 `NoCollision`，Component Tag 设置为代码约定的 `WeaponTrace`。NoCollision 不影响代码读取 Socket Transform 执行 Sweep。
 4. 武器附着到角色 `Weapon_R` Socket；武器自身用于判定的 `Root`、`IG_FrontTip`、`IG_RearTip` Socket 必须可在 Skeleton Tree 中预览。
@@ -231,12 +235,14 @@ Preset 建好后还必须在对应阶段应用到组件，不能只在 Project S
 | Default Pawn Class | `BP_IG_Character` |
 | Player Controller Class | 最终 Demo PlayerController |
 | Player State Class | `BP_PlayerState` |
-| HUD Class | `BP_MHGZHUD`（父类 `AMHGZHUD`） |
+| HUD Class | E2 暂用原生 `AMHGZHUD`；E6 新建 `BP_MHGZHUD` 后替换 |
 
 在 `Project Settings → Maps & Modes`：
 
 - Editor Startup Map 与 Game Default Map 均使用 `/Game/Maps/L_DemoArena`。
 - Default GameMode 使用上述 Demo GameMode。
+
+E2 完成时逐项 Compile/Save `BP_PlayerState`、`BP_MHGZ_PlayerController`、`BP_IG_Character`、`BP_Demo_GameMode`，然后关闭并重新打开一次确认无 Missing Property/重复组件。此时不要求武器输入可触发具体动作：InputProfile、ComboData、最终 GA/Montage 分别属于 E3/E4。
 
 ## 5. E3——输入与武器运行时 DataAsset
 
@@ -455,6 +461,8 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 ## 8. E6——UI 与 GameplayCue
 
 ### 8.1 Widget
+
+先在 `/Game/UI` 新建 `BP_MHGZHUD`，父类选择 `AMHGZHUD`；不要 Duplicate 其他 HUD。创建完成后回到 `BP_Demo_GameMode`，把 HUD Class 从 E2 的原生 `AMHGZHUD` 替换为该蓝图类。
 
 在 `/Game/UI` 创建：
 

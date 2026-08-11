@@ -51,8 +51,6 @@ void UMHGZAimComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 		ASC->HasMatchingGameplayTag(
 			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Knockdown")))))
 	{
-		ASC->RemoveLooseGameplayTag(
-			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aiming")));
 		return;
 	}
 
@@ -120,6 +118,34 @@ void UMHGZAimComponent::PerformAimTrace()
 			CurrentAimHitzoneTag,
 			CurrentAimExtractColor);
 	}
+}
+
+FWeaponAimSnapshot UMHGZAimComponent::CaptureAimSnapshot(EWeaponAimSnapshotContext Context) const
+{
+	FWeaponAimSnapshot Snapshot;
+	Snapshot.Context = Context;
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	const APlayerController* PC = Character ? Cast<APlayerController>(Character->GetController()) : nullptr;
+	if (!Character || !PC || Context == EWeaponAimSnapshotContext::None)
+	{
+		return Snapshot;
+	}
+
+	FRotator CameraRotation;
+	PC->GetPlayerViewPoint(Snapshot.Origin, CameraRotation);
+	Snapshot.Direction = CameraRotation.Vector().GetSafeNormal();
+	Snapshot.TargetPoint = Snapshot.Origin + Snapshot.Direction * AimMaxDistance;
+
+	FHitResult Hit;
+	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MHGZAimSnapshot), false, Character);
+	if (GetWorld() && GetWorld()->LineTraceSingleByChannel(
+		Hit, Snapshot.Origin, Snapshot.TargetPoint, AimChannel, QueryParams))
+	{
+		Snapshot.bHasHitResult = true;
+		Snapshot.HitResult = Hit;
+		Snapshot.TargetPoint = Hit.ImpactPoint;
+	}
+	return Snapshot;
 }
 
 void UMHGZAimComponent::OnAimingTagChanged(const FGameplayTag Tag, int32 NewCount)

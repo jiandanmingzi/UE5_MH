@@ -74,7 +74,7 @@ Core references independently justify keeping the remaining E0 assets: `DefaultE
 |---|---|---|---|
 | BP_PlayerState (ASC/AttributeSet/Equipment identity) | Keep | Present. Refactor-scope "GAS 身份": remove ASC input binding and pawn-state-init authority (M1). | M1 |
 | BP_IG_Character | Keep | Present. E2.3 keeps the default weapon unset while the old definition exists; E3 reconnects the newly created final `DA_IG_HuoLongGun`. | M1/M2/E3 |
-| BP_MHGZ_PlayerController | Keep | Present. E2.2: clear `DefaultMappingContexts`; single `IMC_MHGZ_Demo` owned by `UMHGZInputComponent`. | M1 |
+| BP_MHGZ_PlayerController | Keep | Present. M1 removed the old `DefaultMappingContexts` field; E2 Compile/Save and remove any Blueprint AddMappingContext logic. One inherited `UMHGZInputComponent` owns the single `IMC_MHGZ_Demo`. | M1/E2 |
 | BP_Demo_GameMode | Keep | Present. E2.4: final class wiring (Pawn/Controller/PlayerState/HUD). | M2 |
 | ABP_MH_Character + PSD/PSS | Keep | Present. Refactor-scope "地面移动": motion-matching locomotion; rotation/movement tokens yield ownership (M5). | M1/M5 |
 | GA_IG_BaDao, GA_IG_R_TuCI | Delete; create final actions | `BaDao` 无引用者；`R_TuCI` 只被旧最小 Combo 引用。两者不 re-parent、不复制旧图，E4 按最终动作清单新建。 | E3 delete / E4 create |
@@ -82,7 +82,7 @@ Core references independently justify keeping the remaining E0 assets: `DefaultE
 | DA_IG_Combo | Delete + recreate same final path | 只有一个 Y→`GA_IG_R_TuCI` 最小节点且验证不通过；不补录、不转存。E3 新建空壳，E4 一次回填完整 Transitions。 | E3/E4 |
 | DA_IG_HuoLongGun | Delete + recreate same final path | UE Asset Registry 证明零引用，只软引用 `SKM_IG_Glaive`；E3 从最终 `UMHGZWeaponDefinition` 新建，按文档填写正式字段。 | E3 |
 | DT_WeaponComboConfig | Delete, no replacement | 仅一行 `IG`，软引用旧 Combo；`DefaultGame.ini` 与 Equipment 旧读取必须先在 M2 解除。 | M2 code / E3 asset |
-| IA_* + IMC_MHGZ_Demo | Keep base; delete old chord IA | M1 删除代码读取，E2 清 PlayerState，E3 清 IMC 后删除 `IA_RTA/RTB/RTY/YB`；Y/B/LT/RT 与移动/视角资产保留。`IA_A` 暂留到 E3 判定闪避绑定。 | M1/E2/E3 |
+| IA_* + IMC_MHGZ_Demo | Keep base; delete old chord IA | M1 已删除代码读取；E2 Compile/Save PlayerState 清旧序列化引用；E3 清 IMC 后删除 `IA_RTA/RTB/RTY/YB`。Y/B/LT/RT 与移动/视角资产保留，`IA_A` 暂留到 E3 判定闪避绑定。 | M1/E2/E3 |
 | DA_TrainingDummy + BP_TrainingDummy | Keep concept | Present. E5/E7.3: `MonsterBody` + three `MonsterHitzone` (Head=Red, Torso=Orange, Leg=White), deterministic `CounterTestAttack`. | M2 |
 | L_DemoArena | Keep | Present; single demo map. | M2/E5 |
 | IG Glaive/Kinsect art | Keep | Present under `/Game/Weapons/InsectGlaive`. | M2/M3 |

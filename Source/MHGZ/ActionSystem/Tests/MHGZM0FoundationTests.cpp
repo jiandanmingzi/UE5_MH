@@ -13,6 +13,7 @@
 #include "GameFramework/Actor.h"
 #include "Misc/DataValidation.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
 namespace
 {

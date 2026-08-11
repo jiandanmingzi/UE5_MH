@@ -6,6 +6,7 @@
 #include "Components/ActorComponent.h"
 #include "GameplayTagContainer.h"
 #include "GameplayEffectTypes.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZWeaponResourceComponent.generated.h"
 
 class UAbilitySystemComponent;
@@ -54,6 +55,28 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|WeaponResource")
 	virtual void Restore(float Amount) {}
+
+	// ═══════════════════════════════════════════
+	// 武器资源成本预留（M1 基础；子类实现具体资源语义）
+	// ═══════════════════════════════════════════
+
+	/** 纯查询：当前能否满足 Specs 的全部预留需求。默认仅接受空 Specs。 */
+	virtual bool CanReserveCosts(const TArray<FWeaponResourceCostSpec>& Specs) const;
+
+	/**
+	 * 尝试为一次 Action 预留资源成本。
+	 * 默认实现无副作用：空 Specs 时返回 true 并产出无效 Reservation，非空时返回 false。
+	 */
+	virtual bool TryReserveCosts(
+		const FWeaponActionToken& ActionToken,
+		const TArray<FWeaponResourceCostSpec>& Specs,
+		FWeaponResourceCostReservation& OutReservation);
+
+	/** 释放未消耗的预留。默认无操作。 */
+	virtual void ReleaseReservation(const FWeaponResourceCostReservation& Reservation);
+
+	/** 结算已预留的成本。默认无操作。 */
+	virtual void ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation);
 
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|WeaponResource")
 	float GetNormalizedValue() const

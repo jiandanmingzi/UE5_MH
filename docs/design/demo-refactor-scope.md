@@ -57,7 +57,7 @@
 | Character Tick 无条件 `SetActorRotation` | Movement/Action Token 仲裁后的 locomotion steering |
 | 旧原型 `DT_WeaponComboConfig`、`DA_IG_Combo`、`GA_IG_BaDao`、`GA_IG_R_TuCI`、`AM_Shth_BaDao`、`AM_Shth_R_TuCi` | M2 退役旧读取链；E3/E4 全新创建最终 Combo、GA 与 Montage |
 | 零引用旧 `DA_IG_HuoLongGun` | E3 使用最终 `UMHGZWeaponDefinition` 全新创建同名正式资产 |
-| 旧组合 InputAction `IA_RTA/IA_RTB/IA_RTY/IA_YB` | M1 删除代码读取，E2 清 PlayerState 引用，E3 清 IMC 映射后删除；InputRouter 直接组合 Y/B/LT/RT |
+| 旧组合 InputAction `IA_RTA/IA_RTB/IA_RTY/IA_YB` | M1 已删除代码读取，E2 Compile/Save PlayerState 清旧序列化引用，E3 清 IMC 映射后删除；InputRouter 直接组合 Y/B/LT/RT |
 
 ## 五、明确延期且 Demo 不得依赖
 
@@ -97,7 +97,7 @@ M0 必须先记录工作树基线并只读清点下列引用：
 ### 6.3 删除与重建
 
 1. E0 只检查保留资产，不补录、不重存、不删除旧动作原型。
-2. M1 清除 ASC 的旧输入读取；E2 清空 `BP_PlayerState.ASC.InputBindings`；E3 清除 IMC 旧组合映射并删除四个旧组合 InputAction。M2 删除 `DefaultGame.ini` 的旧表配置、DataManager Getter、Equipment 旧读取和 Attack 旧字段的运行时读取，但保留旧包加载所需的序列化壳。
+2. M1 已清除 ASC 的旧输入读取及 `InputBindings` 属性；E2 Compile/Save `BP_PlayerState` 清除旧序列化引用；E3 清除 IMC 旧组合映射并删除四个旧组合 InputAction。M2 删除 `DefaultGame.ini` 的旧表配置、DataManager Getter、Equipment 旧读取和 Attack 旧字段的运行时读取，但保留旧包加载所需的序列化壳。
 3. E3 用 Reference Viewer 复核无额外引用后，按引用者到依赖项删除旧 DT、旧 Combo、两个旧 GA、两个旧 Montage及零引用旧武器定义；不使用 Force Delete。
 4. E3 全新创建 `DA_IG_HuoLongGun`、`DA_WeaponRuntime_IG`、`DA_IG_InputProfile`、`DA_IG_Combat` 和空壳 `DA_IG_Combo`，然后才把 Character 默认武器指向新定义；M4 确认旧包已不存在后删除序列化壳；E4 全新创建最终 GA/Montage 后一次回填完整 Transitions。
 5. E3 删除旧组合 InputAction 前，必须先让 E2 的 `BP_PlayerState` 和 E3 的 `IMC_MHGZ_Demo` 对 `IA_RTA/IA_RTB/IA_RTY/IA_YB` 的引用归零。

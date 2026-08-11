@@ -22,6 +22,7 @@
 | [demo-refactor-scope.md](demo-refactor-scope.md) | Keep/Rewrite/Delete/Defer 与一次性迁移合同 |
 | [demo-implementation-plan.md](demo-implementation-plan.md) | M0～M7 实施计划、接口和验收追踪 |
 | [demo-implementation-gaps.md](demo-implementation-gaps.md) | 当前源码 P0/P1 问题和证据 |
+| [m1-implementation-audit.md](m1-implementation-audit.md) | M1 实施范围、验证证据与 E2 交接 |
 | [insect-glaive-actions.md](insect-glaive-actions.md) | 虫棍最终招式、输入和连招规则 |
 | [insect-glaive.md](insect-glaive.md) | 猎虫、精华、三灯、虫印、粉尘和资源状态 |
 | [actions.md](actions.md) | 输入快照、ActionToken、攻击、闪避、Notify 和移动任务 |

@@ -91,7 +91,7 @@
 19. **连招窗口**：Montage 中拖拽 NotifyState 区间 → 窗口内按键触发下一招、窗口外被忽略
 20. **连招安全兜底**：动画被打断超过 GlobalComboTimeout→协调器强切 Idle→清除临时 Tag
 21. **虫棍无收尾招环**：DoubleSlash→△→DoubleSlash 自循环→窗口超时自然回 Idle
-22. **Montage 完成回 Idle**：Montage 自然播完→GA EndAbility→协调器 OnAttackFinished()→CurrentState="Idle"
+22. **Montage 完成回 Idle**：Montage 自然播完→GA EndAbility→协调器 OnActionFinished(ActionToken, Reason)→CurrentState="Idle"
 23. **协调器 Infinite**：装备太刀期间 ASC→GetActiveAbilities() 始终包含 GA_WeaponComboCoordinator
 24. **地面/空中态隔离**：被击飞后 Aerial+Hitstun→地面招式 RequiredTags 不满足→按 △ 无响应；落地恢复
 25. **拔刀/纳刀态**：默认 Sheathed→按 △ 触发拔刀斩→后续地面招式可正常连招；按 R1 纳刀→攻击招式不可用

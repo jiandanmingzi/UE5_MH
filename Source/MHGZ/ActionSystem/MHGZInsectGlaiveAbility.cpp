@@ -45,8 +45,7 @@ bool UMHGZInsectGlaiveAbility::CanActivateAbility(
 		return false;
 	}
 
-	// 子类可覆写 CheckWeaponResourceForAbility 做额外检查
-	return CheckWeaponResourceForAbility();
+	return true;
 }
 
 void UMHGZInsectGlaiveAbility::ActivateAbility(
@@ -57,6 +56,7 @@ void UMHGZInsectGlaiveAbility::ActivateAbility(
 {
 	// 父类（UMHGZAttackAbility）：扣耐力、方向修正、播 Montage
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+	if (!IsActionActivationCommitted()) return;
 
 	// 三灯攻击音效——每个攻击 GA 激活时播放（无论是否命中）
 	if (TripleUpSwingSound)

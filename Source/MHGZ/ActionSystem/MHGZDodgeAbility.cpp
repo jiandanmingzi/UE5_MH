@@ -1,13 +1,21 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZDodgeAbility.h"
-#include "MHGZAbilitySystemComponent.h"
+
+#include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
+#include "AbilitySystemComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
-#include "GameFramework/CharacterMovementComponent.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
 UMHGZDodgeAbility::UMHGZDodgeAbility()
 {
+	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerExecution;
+	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalOnly;
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.Dodge"));
+	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
 	StaminaCost = FScalableFloat(25.f);
 }
 
@@ -22,25 +30,22 @@ bool UMHGZDodgeAbility::CanActivateAbility(
 	{
 		return false;
 	}
-
-	const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
+	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
 	if (!ASC) return false;
-
-	// 受击/击倒中不可翻滚
-	if (ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Hitstun"))) ||
-		ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Knockdown"))))
+	if (ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Hitstun")))
+		|| ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Knockdown"))))
 	{
 		return false;
 	}
+	return !ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")))
+		|| ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.DodgeAcceptOpen")));
+}
 
-	// 攻击中但翻滚窗口未开 → 阻塞
-	if (ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking"))) &&
-		!ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.DodgeAcceptOpen"))))
-	{
-		return false;
-	}
-
-	return true;
+bool UMHGZDodgeAbility::ValidateActionDependencies() const
+{
+	const ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	return Character && Character->GetMesh() && Character->GetMesh()->GetAnimInstance()
+		&& SelectDodgeMontage();
 }
 
 void UMHGZDodgeAbility::ActivateAbility(
@@ -50,33 +55,45 @@ void UMHGZDodgeAbility::ActivateAbility(
 	const FGameplayEventData* TriggerEventData)
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+	if (!IsActionActivationCommitted()) return;
 
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (ASC)
+	bEndingDodge = false;
+	DodgeWindowTokens.Reset();
+	CachedCollisionResponses.Reset();
+	DodgeCapsule.Reset();
+
+	FGameplayTagContainer BlockMovement;
+	BlockMovement.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
+	AcquireActionTags(BlockMovement, FName(TEXT("DodgeMovement")));
+
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	ActiveDodgeMontage = SelectDodgeMontage();
+	UAnimInstance* AnimInstance = Character && Character->GetMesh()
+		? Character->GetMesh()->GetAnimInstance() : nullptr;
+	if (!Character || !ActiveDodgeMontage || !AnimInstance)
 	{
-		// 翻滚蒙太奇用 RootMotion 驱动位移 → 必须阻断 CMC 移动输入
-		ASC->AddLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
+		RequestEndAction(EWeaponActionEndReason::Cancelled);
+		return;
 	}
 
-	ACharacter* Character = Cast<ACharacter>(ActorInfo->AvatarActor.Get());
-	if (!Character) return;
-
-	UAnimMontage* DodgeMontage = SelectDodgeMontage();
-	if (!DodgeMontage) return;
-
-	// 播放 Dodge Montage（含 AnimNotifyState_DodgeWindow 控制无敌帧）
-	UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance();
-	if (AnimInstance)
+	MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+		this, FName(TEXT("DodgeMontage")), ActiveDodgeMontage, 1.f);
+	if (!MontageTask)
 	{
-		AnimInstance->Montage_Play(DodgeMontage);
+		RequestEndAction(EWeaponActionEndReason::Cancelled);
+		return;
+	}
+	MontageTask->OnCompleted.AddDynamic(this, &UMHGZDodgeAbility::OnMontageCompleted);
+	MontageTask->OnInterrupted.AddDynamic(this, &UMHGZDodgeAbility::OnMontageInterrupted);
+	MontageTask->OnCancelled.AddDynamic(this, &UMHGZDodgeAbility::OnMontageInterrupted);
+	MontageTask->ReadyForActivation();
 
-		// 绑定 Montage 结束回调
-		FOnMontageEnded EndDelegate;
-		EndDelegate.BindWeakLambda(this, [this](UAnimMontage* Montage, bool bInterrupted)
-		{
-			EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, false, bInterrupted);
-		});
-		AnimInstance->Montage_SetEndDelegate(EndDelegate, DodgeMontage);
+	FAnimMontageInstance* MontageInstance =
+		AnimInstance->GetActiveInstanceForMontage(ActiveDodgeMontage);
+	if (!MontageInstance
+		|| !RegisterMontageInstance(Character->GetMesh(), MontageInstance->GetInstanceID()))
+	{
+		RequestEndAction(EWeaponActionEndReason::Interrupted);
 	}
 }
 
@@ -87,66 +104,115 @@ void UMHGZDodgeAbility::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (ASC)
-	{
-		ASC->RemoveLooseGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
-	}
-
+	if (bEndingDodge) return;
+	bEndingDodge = true;
+	CloseAllDodgeWindows();
+	MontageTask = nullptr;
+	ActiveDodgeMontage = nullptr;
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
 UAnimMontage* UMHGZDodgeAbility::SelectDodgeMontage() const
 {
-	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (!ASC) return nullptr;
-
-	const EComboDirection Direction = GetDodgeDirection();
-
-	// 收刀态 → 使用 GA_Dodge 自身配置
-	if (ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Sheathed"))))
-	{
-		if (const TSoftObjectPtr<UAnimMontage>* Found = SheathedDodgeMontages.Find(Direction))
-		{
-			return Found->LoadSynchronous();
-		}
-		// 回退到无方向
-		if (const TSoftObjectPtr<UAnimMontage>* Fallback = SheathedDodgeMontages.Find(EComboDirection::None))
-		{
-			return Fallback->LoadSynchronous();
-		}
-	}
-
-	// 拔刀态 → 通过 DataManager 查找武器配置
-	// 简化：回退到收刀态配置
-	if (const TSoftObjectPtr<UAnimMontage>* Found = SheathedDodgeMontages.Find(Direction))
+	const bool bSheathed = GetWeaponActivationContext().Input.ContextTags.HasTagExact(
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Sheathed")));
+	const TMap<EDirectionalInput, TSoftObjectPtr<UAnimMontage>>& Montages =
+		bSheathed ? SheathedDodgeMontages : UnsheathedDodgeMontages;
+	const EDirectionalInput Direction = GetWeaponActivationContext().Input.Direction;
+	if (const TSoftObjectPtr<UAnimMontage>* Found = Montages.Find(Direction))
 	{
 		return Found->LoadSynchronous();
 	}
-
+	if (const TSoftObjectPtr<UAnimMontage>* Fallback = Montages.Find(EDirectionalInput::None))
+	{
+		return Fallback->LoadSynchronous();
+	}
 	return nullptr;
 }
 
-EComboDirection UMHGZDodgeAbility::GetDodgeDirection() const
+bool UMHGZDodgeAbility::BeginDodgeWindow(FName NotifyEventID)
 {
-	const ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-	if (!Character) return EComboDirection::None;
+	if (!IsActionActivationCommitted() || DodgeWindowTokens.Contains(NotifyEventID)) return false;
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	UCapsuleComponent* Capsule = Character ? Character->GetCapsuleComponent() : nullptr;
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	const FWeaponActionToken& Token = GetActionToken();
+	if (!Capsule || !Host || !Token.IsValid()) return false;
 
-	const FVector Input = Character->GetLastMovementInputVector();
-	if (Input.IsNearlyZero())
-		return EComboDirection::None;
+	if (DodgeWindowTokens.IsEmpty())
+	{
+		DodgeCapsule = Capsule;
+		for (const ECollisionChannel Channel : { ECC_GameTraceChannel1, ECC_GameTraceChannel2 })
+		{
+			CachedCollisionResponses.Add(Channel, Capsule->GetCollisionResponseToChannel(Channel));
+			Capsule->SetCollisionResponseToChannel(Channel, ECR_Ignore);
+		}
+	}
 
-	const FVector Forward = Character->GetActorForwardVector();
-	const FVector Right = Character->GetActorRightVector();
-	const FVector InputWorld = Forward * Input.Y + Right * Input.X;
+	FGameplayTagContainer Tags;
+	Tags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Invincible")));
+	FWeaponOwnedTagToken WindowToken = Host->AcquireTags(EWeaponTagOwnerKind::NotifyWindow,
+		Token.AbilityHandle, Token.ActivationSequenceID, NotifyEventID, Tags);
+	if (!WindowToken.IsValid())
+	{
+		if (DodgeWindowTokens.IsEmpty()) RestoreDodgeCollisionResponses();
+		return false;
+	}
+	DodgeWindowTokens.Add(NotifyEventID, WindowToken);
+	return true;
+}
 
-	const float Angle = FMath::RadiansToDegrees(
-		FMath::Atan2(
-			FVector::DotProduct(InputWorld.GetSafeNormal(), Right.GetSafeNormal()),
-			FVector::DotProduct(InputWorld.GetSafeNormal(), Forward.GetSafeNormal())));
+void UMHGZDodgeAbility::EndDodgeWindow(FName NotifyEventID)
+{
+	FWeaponOwnedTagToken* WindowToken = DodgeWindowTokens.Find(NotifyEventID);
+	if (!WindowToken) return;
+	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+	{
+		Host->ReleaseTags(*WindowToken);
+	}
+	DodgeWindowTokens.Remove(NotifyEventID);
+	if (DodgeWindowTokens.IsEmpty()) RestoreDodgeCollisionResponses();
+}
 
-	if (Angle >= -45.f && Angle < 45.f)       return EComboDirection::Forward;
-	if (Angle >= 45.f && Angle < 135.f)       return EComboDirection::Right;
-	if (Angle >= -135.f && Angle < -45.f)     return EComboDirection::Left;
-	return EComboDirection::Back;
+void UMHGZDodgeAbility::CloseAllDodgeWindows()
+{
+	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+	{
+		for (TPair<FName, FWeaponOwnedTagToken>& Pair : DodgeWindowTokens)
+		{
+			Host->ReleaseTags(Pair.Value);
+		}
+	}
+	DodgeWindowTokens.Reset();
+	RestoreDodgeCollisionResponses();
+}
+
+void UMHGZDodgeAbility::RestoreDodgeCollisionResponses()
+{
+	if (UCapsuleComponent* Capsule = DodgeCapsule.Get())
+	{
+		for (const TPair<TEnumAsByte<ECollisionChannel>, ECollisionResponse>& Pair
+			: CachedCollisionResponses)
+		{
+			Capsule->SetCollisionResponseToChannel(Pair.Key, Pair.Value);
+		}
+	}
+	CachedCollisionResponses.Reset();
+	DodgeCapsule.Reset();
+}
+
+void UMHGZDodgeAbility::OnMontageCompleted()
+{
+	if (IsActive() && !bEndingDodge)
+	{
+		RequestEndAction(EWeaponActionEndReason::Normal);
+	}
+}
+
+void UMHGZDodgeAbility::OnMontageInterrupted()
+{
+	if (IsActive() && !bEndingDodge)
+	{
+		RequestEndAction(EWeaponActionEndReason::Interrupted);
+	}
 }

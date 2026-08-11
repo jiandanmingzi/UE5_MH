@@ -1,54 +1,126 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZGameplayAbility.h"
+
+#include "AbilityTask_MHGZStaminaDrain.h"
+#include "MHGZAbilityCostGameplayEffects.h"
 #include "MHGZAbilitySystemComponent.h"
+#include "MHGZComboCoordinatorAbility.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
-#include "AbilitySystemGlobals.h"
+#include "AbilitySystemComponent.h"
 
 UMHGZGameplayAbility::UMHGZGameplayAbility()
 {
-	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
+	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerExecution;
+	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalOnly;
 }
 
-bool UMHGZGameplayAbility::CanActivateAbility(
+// ── 成本 / 冷却（原生 GE） ──────────────────────────────────────────────────
+
+bool UMHGZGameplayAbility::CheckCost(
 	const FGameplayAbilitySpecHandle Handle,
 	const FGameplayAbilityActorInfo* ActorInfo,
-	const FGameplayTagContainer* SourceTags,
-	const FGameplayTagContainer* TargetTags,
 	FGameplayTagContainer* OptionalRelevantTags) const
 {
-	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags))
+	if (StaminaCostPolicy != EAbilityStaminaCostPolicy::Instant)
 	{
-		return false;
+		return true; // PerSecond 由 Drain Task 按实际经过时间结算并在不足时自取消。
 	}
 
-	const UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
-	if (!ASC) return false;
+	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (!ASC)
+	{
+		return true;
+	}
+
+	const float Cost = GetInstantStaminaCost(Handle, ActorInfo);
+	if (Cost <= 0.f)
+	{
+		return true;
+	}
 
 	const UMHGZAttributeSet* AttrSet = ASC->GetSet<UMHGZAttributeSet>();
-	if (!AttrSet) return true; // 无属性集则跳过消耗检查
-
-	// 检查耐力
-	const float RequiredStamina = StaminaCost.GetValueAtLevel(GetAbilityLevel());
-	if (RequiredStamina > 0.f && AttrSet->GetStamina() < RequiredStamina)
-	{
-		return false;
-	}
-
-	// 检查武器资源
-	if (bRequiresWeaponResource && !CheckWeaponResourceForAbility())
-	{
-		return false;
-	}
-
-	// 检查冷却（通过 GAS 内置 Cooldown Tag）
-	if (CooldownTag.IsValid() && ASC->HasMatchingGameplayTag(CooldownTag))
-	{
-		return false;
-	}
-
-	return true;
+	return !AttrSet || AttrSet->GetStamina() >= Cost;
 }
+
+void UMHGZGameplayAbility::ApplyCost(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo) const
+{
+	if (StaminaCostPolicy != EAbilityStaminaCostPolicy::Instant)
+	{
+		return;
+	}
+
+	const float Cost = GetInstantStaminaCost(Handle, ActorInfo);
+	if (Cost <= 0.f)
+	{
+		return;
+	}
+
+	FGameplayEffectSpecHandle Spec = MakeStaminaCostSpec(-Cost);
+	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (ASC && Spec.IsValid())
+	{
+		ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	}
+}
+
+bool UMHGZGameplayAbility::CheckCooldown(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!CooldownTag.IsValid())
+	{
+		return true;
+	}
+
+	const float Duration = CooldownDuration.GetValueAtLevel(
+		GetAbilityLevel(Handle, ActorInfo));
+	if (Duration <= 0.f)
+	{
+		return true;
+	}
+
+	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (!ASC)
+	{
+		return true;
+	}
+
+	return !ASC->HasMatchingGameplayTag(CooldownTag);
+}
+
+void UMHGZGameplayAbility::ApplyCooldown(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo) const
+{
+	if (!CooldownTag.IsValid())
+	{
+		return;
+	}
+
+	const float Duration = CooldownDuration.GetValueAtLevel(
+		GetAbilityLevel(Handle, ActorInfo));
+	if (Duration <= 0.f)
+	{
+		return;
+	}
+
+	FGameplayEffectSpecHandle Spec = MakeCooldownSpec(Duration);
+	UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (ASC && Spec.IsValid())
+	{
+		Spec.Data->DynamicGrantedTags.AddTag(CooldownTag);
+		ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	}
+}
+
+// ── 激活 / 结束 ─────────────────────────────────────────────────────────────
 
 void UMHGZGameplayAbility::ActivateAbility(
 	const FGameplayAbilitySpecHandle Handle,
@@ -58,24 +130,130 @@ void UMHGZGameplayAbility::ActivateAbility(
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 
-	UAbilitySystemComponent* ASC = ActorInfo->AbilitySystemComponent.Get();
-	if (!ASC) return;
+	UMHGZAbilitySystemComponent* MHGZASC =
+		Cast<UMHGZAbilitySystemComponent>(ActorInfo->AbilitySystemComponent.Get());
+	UMHGZWeaponRuntimeHostComponent* Host = MHGZASC ? MHGZASC->GetRuntimeHost() : nullptr;
 
-	if (bIsContinuous)
+	// 1. 消费一次性激活上下文；无则从当前 Host 构建安全直连上下文。
+	FWeaponAbilityActivationContext ConsumedContext;
+	const bool bHasPendingContext =
+		MHGZASC && MHGZASC->ConsumePendingActivationContext(Handle, ConsumedContext);
+	ActivationContext = bHasPendingContext ? ConsumedContext : FWeaponAbilityActivationContext();
+	if (!bHasPendingContext && Host)
 	{
-		// 持续型：启动每帧扣耐 Timer
-		StartContinuousStaminaDrain();
+		ActivationContext.RuntimeToken = Host->GetCurrentToken();
+		ActivationContext.ActivationSequenceID = Host->AllocateActivationSequenceID();
+	}
+
+	// 2. 构建 ActionToken 候选；缺少序列号时由 Host 分配。
+	CurrentActionToken.RuntimeToken = ActivationContext.RuntimeToken;
+	CurrentActionToken.AbilityHandle = Handle;
+	CurrentActionToken.AbilityInstance = this;
+	CurrentActionToken.ActivationSequenceID = ActivationContext.ActivationSequenceID;
+	if (CurrentActionToken.ActivationSequenceID == 0 && Host)
+	{
+		CurrentActionToken.ActivationSequenceID = Host->AllocateActivationSequenceID();
+		ActivationContext.ActivationSequenceID = CurrentActionToken.ActivationSequenceID;
+	}
+
+	const bool bHasTransition = !ActivationContext.TransitionID.IsNone();
+	const auto RejectTransitionAndEnd =
+		[this, Handle, ActorInfo, ActivationInfo, bHasTransition](bool bWasCancelled)
+		{
+			if (bHasTransition)
+			{
+				if (UMHGZAbilitySystemComponent* ASC =
+					Cast<UMHGZAbilitySystemComponent>(ActorInfo->AbilitySystemComponent.Get()))
+				{
+					if (UGA_WeaponComboCoordinator* Coordinator = ASC->GetActiveComboCoordinator())
+					{
+						Coordinator->RejectTransitionActivation(CurrentActionToken);
+					}
+				}
+			}
+			EndAbility(Handle, ActorInfo, ActivationInfo, false, bWasCancelled);
+		};
+
+	// Every action is scoped to one live Pawn runtime. A structurally valid but
+	// stale ActivationContext must fail before reservation, Commit, tags or FSM
+	// confirmation; otherwise a delayed activation could mutate a rebuilt Host.
+	if (!Host || !CurrentActionToken.IsValid()
+		|| !Host->IsTokenCurrent(CurrentActionToken.RuntimeToken))
+	{
+		RejectTransitionAndEnd(true);
+		return;
+	}
+
+	// 3. Action 依赖预检（Commit 前、零副作用；失败不产生预留/成本/冷却/Tag）。
+	if (!ValidateActionDependencies())
+	{
+		RejectTransitionAndEnd(true);
+		return;
+	}
+
+	// 4. 武器资源预留。
+	bool bReservationOK = false;
+	if (Host)
+	{
+		bReservationOK = Host->TryReserveCosts(CurrentActionToken, WeaponResourceCosts, ActiveReservation);
 	}
 	else
 	{
-		// 单次型：一次性扣耐
-		DeductStaminaOnce();
+		bReservationOK = WeaponResourceCosts.IsEmpty();
+		ActiveReservation = FWeaponResourceCostReservation();
+	}
+	if (!bReservationOK)
+	{
+		RejectTransitionAndEnd(true);
+		return;
 	}
 
-	// 启动冷却
-	if (CooldownTag.IsValid())
+	// 5. Commit（CheckCost/ApplyCost/CheckCooldown/ApplyCooldown）。
+	if (!CommitAbility(Handle, ActorInfo, ActivationInfo))
 	{
-		ASC->AddLooseGameplayTag(CooldownTag);
+		if (Host)
+		{
+			Host->ReleaseReservation(ActiveReservation);
+		}
+		ActiveReservation = FWeaponResourceCostReservation();
+		RejectTransitionAndEnd(true);
+		return;
+	}
+
+	// 6. 结算预留。
+	if (Host)
+	{
+		Host->ConsumeReservedCosts(ActiveReservation);
+	}
+	bReservationConsumed = true;
+	bIsActionActivationCommitted = true;
+
+	// 7. 转移确认（仅带 TransitionID 的上下文）。
+	if (bHasTransition)
+	{
+		UGA_WeaponComboCoordinator* Coordinator =
+			MHGZASC ? MHGZASC->GetActiveComboCoordinator() : nullptr;
+		if (!Coordinator || !Coordinator->ConfirmTransitionActivation(CurrentActionToken))
+		{
+			if (Coordinator)
+			{
+				Coordinator->RejectTransitionActivation(CurrentActionToken);
+			}
+			EndAbility(Handle, ActorInfo, ActivationInfo, false, true);
+			return;
+		}
+	}
+
+	// 8. 注册 Active Action。
+	if (Host)
+	{
+		Host->RegisterAction(CurrentActionToken);
+	}
+
+	// 9. PerSecond 耐力消耗任务。
+	if (StaminaCostPolicy == EAbilityStaminaCostPolicy::PerSecond)
+	{
+		StaminaDrainTask = UAbilityTask_MHGZStaminaDrain::StartStaminaDrain(this);
 	}
 }
 
@@ -86,81 +264,194 @@ void UMHGZGameplayAbility::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
-	// 停止持续耗耐
-	if (bIsContinuous)
+	if (bMHGZEndCleanupDone)
 	{
-		StopContinuousStaminaDrain();
+		return; // 幂等：单次清理。
+	}
+	bMHGZEndCleanupDone = true;
+
+	// 1. 结束耐力消耗任务。
+	if (StaminaDrainTask.IsValid())
+	{
+		StaminaDrainTask->EndTask();
+		StaminaDrainTask = nullptr;
+	}
+
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+
+	// 2. 释放未消耗的预留。
+	if (!bReservationConsumed)
+	{
+		if (Host)
+		{
+			Host->ReleaseReservation(ActiveReservation);
+		}
+		ActiveReservation = FWeaponResourceCostReservation();
+	}
+
+	// 3. 注销 Montage 与 Active Action。
+	if (Host && CurrentActionToken.IsValid())
+	{
+		Host->UnregisterMontages(CurrentActionToken);
+		Host->UnregisterAction(CurrentActionToken);
+	}
+
+	// 4. 释放本 Action 拥有的 Ability Tags。
+	ReleaseActionTags();
+
+	// 5. 所有动作类型都以精确 ActionToken 通知 FSM。旧动作、Preserve
+	// 命令与通用动作因 Token 不匹配而安全忽略；当前 Replace 动作正常
+	// 结束时由同一入口关闭窗口、释放转移 Tag 并回到 Idle。
+	if (UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(
+		ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr))
+	{
+		if (UGA_WeaponComboCoordinator* Coordinator = ASC->GetActiveComboCoordinator())
+		{
+			Coordinator->OnActionFinished(CurrentActionToken, GetActionEndReason());
+		}
 	}
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }
 
-void UMHGZGameplayAbility::DeductStaminaOnce()
+// ── M1 Action 运行时 API ────────────────────────────────────────────────────
+
+void UMHGZGameplayAbility::RequestEndAction(EWeaponActionEndReason Reason)
 {
-	const float Cost = StaminaCost.GetValueAtLevel(GetAbilityLevel());
-	if (Cost <= 0.f) return;
+	if (bActionEndRequested)
+	{
+		return; // 首个原因生效。
+	}
 
+	bActionEndRequested = true;
+	ActionEndReason = Reason;
+	EndAbility(
+		CurrentSpecHandle,
+		CurrentActorInfo,
+		CurrentActivationInfo,
+		false,
+		Reason != EWeaponActionEndReason::Normal);
+}
+
+void UMHGZGameplayAbility::HandleInputReleased(const FWeaponInputSnapshot& Snapshot)
+{
+	// 默认 No-Op：普通攻击/闪避不得因按键释放而结束。
+	// 蓄力/按住型子类覆写此方法并按自身策略 RequestEndAction。
+}
+
+void UMHGZGameplayAbility::HandleLanded(const FHitResult& Hit)
+{
+	// 默认无操作；子类按需响应精确 Action 的落地。
+}
+
+bool UMHGZGameplayAbility::RegisterMontageInstance(
+	USkeletalMeshComponent* Mesh,
+	int32 MontageInstanceID)
+{
+	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+	{
+		return Host->RegisterMontage(CurrentActionToken, Mesh, MontageInstanceID);
+	}
+	return false;
+}
+
+FWeaponOwnedTagToken UMHGZGameplayAbility::AcquireActionTags(
+	const FGameplayTagContainer& Tags,
+	FName LocalID)
+{
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	if (!Host || !CurrentActionToken.IsValid() || Tags.IsEmpty())
+	{
+		return FWeaponOwnedTagToken();
+	}
+
+	FWeaponOwnedTagToken Token = Host->AcquireTags(
+		EWeaponTagOwnerKind::Ability,
+		CurrentActionToken.AbilityHandle,
+		CurrentActionToken.ActivationSequenceID,
+		LocalID,
+		Tags);
+	if (Token.IsValid())
+	{
+		OwnedActionTagTokens.Add(Token);
+	}
+	return Token;
+}
+
+void UMHGZGameplayAbility::ReleaseActionTags()
+{
+	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+	{
+		for (const FWeaponOwnedTagToken& Token : OwnedActionTagTokens)
+		{
+			Host->ReleaseTags(Token);
+		}
+	}
+	OwnedActionTagTokens.Reset();
+}
+
+UMHGZWeaponRuntimeHostComponent* UMHGZGameplayAbility::GetRuntimeHost() const
+{
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	const UMHGZAbilitySystemComponent* MHGZASC =
+		Cast<const UMHGZAbilitySystemComponent>(ASC);
+	return MHGZASC ? MHGZASC->GetRuntimeHost() : nullptr;
+}
+
+// ── Spec 构造 ───────────────────────────────────────────────────────────────
+
+FGameplayEffectSpecHandle UMHGZGameplayAbility::MakeStaminaCostSpec(float CostMagnitude) const
+{
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (!ASC) return;
-
-	const UMHGZAttributeSet* AttrSet = ASC->GetSet<UMHGZAttributeSet>();
-	if (!AttrSet) return;
-
-	// Cost × StaminaDeductionRate
-	const float FinalCost = Cost * AttrSet->GetStaminaDeductionRate();
+	if (!ASC)
+	{
+		return FGameplayEffectSpecHandle();
+	}
 
 	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(
-		nullptr, 1.0f, ASC->MakeEffectContext());
+		UMHGZStaminaCostGameplayEffect::StaticClass(),
+		GetAbilityLevel(),
+		ASC->MakeEffectContext());
 	if (Spec.IsValid())
 	{
-		// 直接 ApplyModToAttribute —— 走 ApplyMod 触发 PreAttributeChange Clamp
-		ASC->ApplyModToAttribute(UMHGZAttributeSet::GetStaminaAttribute(),
-			EGameplayModOp::Additive, -FinalCost);
+		Spec.Data->SetSetByCallerMagnitude(
+			UMHGZStaminaCostGameplayEffect::GetStaminaCostSetByCallerTag(),
+			CostMagnitude);
 	}
+	return Spec;
 }
 
-void UMHGZGameplayAbility::StartContinuousStaminaDrain()
-{
-	// 每 0.1s 扣一次耐（10Hz），避免每帧 Timer 开销过大
-	AActor* Owner = GetOwningActorFromActorInfo();
-	if (Owner)
-	{
-		Owner->GetWorldTimerManager().SetTimer(
-			ContinuousStaminaTimer,
-			this, &UMHGZGameplayAbility::OnContinuousStaminaTick,
-			0.1f, true);
-	}
-}
-
-void UMHGZGameplayAbility::StopContinuousStaminaDrain()
-{
-	AActor* Owner = GetOwningActorFromActorInfo();
-	if (Owner)
-	{
-		Owner->GetWorldTimerManager().ClearTimer(ContinuousStaminaTimer);
-	}
-}
-
-void UMHGZGameplayAbility::OnContinuousStaminaTick()
+FGameplayEffectSpecHandle UMHGZGameplayAbility::MakeCooldownSpec(float Duration) const
 {
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (!ASC) return;
-
-	const UMHGZAttributeSet* AttrSet = ASC->GetSet<UMHGZAttributeSet>();
-	if (!AttrSet) return;
-
-	// Rate × ConsumptionRate × Δt（单机，用固定 Δt = 0.1s）
-	const float Rate = StaminaCostRate.GetValueAtLevel(GetAbilityLevel());
-	const float FinalDrain = Rate * AttrSet->GetStaminaConsumptionRate() * 0.1f;
-
-	const float CurrentStamina = AttrSet->GetStamina();
-	if (CurrentStamina <= 0.f)
+	if (!ASC)
 	{
-		// 耐力归零 → 取消此 Ability
-		CancelAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, false);
-		return;
+		return FGameplayEffectSpecHandle();
 	}
 
-	ASC->ApplyModToAttribute(UMHGZAttributeSet::GetStaminaAttribute(),
-		EGameplayModOp::Additive, -FinalDrain);
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(
+		UMHGZCooldownGameplayEffect::StaticClass(),
+		GetAbilityLevel(),
+		ASC->MakeEffectContext());
+	if (Spec.IsValid())
+	{
+		Spec.Data->SetDuration(Duration, true);
+	}
+	return Spec;
+}
+
+float UMHGZGameplayAbility::GetInstantStaminaCost(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo) const
+{
+	const UAbilitySystemComponent* ASC =
+		ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
+	if (!ASC)
+	{
+		return 0.f;
+	}
+
+	const UMHGZAttributeSet* AttrSet = ASC->GetSet<UMHGZAttributeSet>();
+	const float DeductionRate = AttrSet ? AttrSet->GetStaminaDeductionRate() : 1.f;
+	return StaminaCost.GetValueAtLevel(GetAbilityLevel(Handle, ActorInfo)) * DeductionRate;
 }

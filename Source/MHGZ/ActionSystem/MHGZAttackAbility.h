@@ -326,14 +326,13 @@ public:
 	virtual bool ShouldContinueAfterHit_Implementation() const;
 
 protected:
+	virtual bool ValidateActionDependencies() const override;
+
 	/** 执行方向修正（MotionWarping） */
 	void ApplyDirectionCorrection();
 
 	/** 获取 MotionWarpingComponent */
 	UMotionWarpingComponent* GetMotionWarpingComponent() const;
-
-	/** 通知协调器攻击结束 */
-	void NotifyCoordinatorAttackFinished();
 
 	/** 通知协调器首次命中 */
 	void NotifyCoordinatorFirstHit();

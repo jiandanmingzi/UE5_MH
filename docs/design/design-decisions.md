@@ -114,7 +114,7 @@
 | 92 | 仓库 UI 仅显示 InStorage 物品 | 仓库只管存储——已装备/已镶嵌物品不出现在仓库列表中 |
 | 93 | EquippedItems/SocketedAccessories 存指针 | 对象本体始终在 WarehouseComponent::Slots 中 |
 | 94 | WeaponComboData 当前同步加载并通过 InjectComboData 注入 | RequestID 异步竞态保护是保留的后续方案 |
-| 95 | EDirectionalInput 字段已定义但协调器尚未消费 | 方向快照与象限匹配是保留的后续方案 |
+| 95 | EDirectionalInput 由 M1 InputSnapshot 冻结并由协调器消费 | 世界输入相对角色 Forward/Right 分类；角色朝屏幕左且摇杆左为 Forward |
 | 96 | AnimNotifyState_ForesightJudge 协作模式 | NotifyState 管理窗口 + GA 管理事件委托 |
 | 97 | 关卡切换需显式复制持久 DTO 并重建 Pawn 运行时 | Seamless Travel 不保证组件/UObject/Actor 引用图自动保留；具体旅行与存档不阻塞当前单地图 Demo |
 | 98 | MultiHitTimer 清理——三重保障 | `DisableCollision` 正常路径 + `EndAbility` 取消路径 + `BeginDestroy` 销毁兜底均有清除 |

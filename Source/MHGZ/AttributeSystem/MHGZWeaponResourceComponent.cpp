@@ -11,6 +11,37 @@ UMHGZWeaponResourceComponent::UMHGZWeaponResourceComponent()
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
+bool UMHGZWeaponResourceComponent::CanReserveCosts(const TArray<FWeaponResourceCostSpec>& Specs) const
+{
+	return Specs.IsEmpty();
+}
+
+bool UMHGZWeaponResourceComponent::TryReserveCosts(
+	const FWeaponActionToken& ActionToken,
+	const TArray<FWeaponResourceCostSpec>& Specs,
+	FWeaponResourceCostReservation& OutReservation)
+{
+	OutReservation = FWeaponResourceCostReservation();
+	if (!Specs.IsEmpty())
+	{
+		return false;
+	}
+
+	// 空 Specs：预留“成功”，但 ReservationID 保持 0 —— Reservation.IsValid() 为 false，
+	// Release/Consume 对无效预留均为无操作。
+	OutReservation.RuntimeToken = ActionToken.RuntimeToken;
+	OutReservation.ActivationSequenceID = ActionToken.ActivationSequenceID;
+	return true;
+}
+
+void UMHGZWeaponResourceComponent::ReleaseReservation(const FWeaponResourceCostReservation& Reservation)
+{
+}
+
+void UMHGZWeaponResourceComponent::ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation)
+{
+}
+
 UAbilitySystemComponent* UMHGZWeaponResourceComponent::GetPlayerASC() const
 {
 	const AActor* Owner = GetOwner();

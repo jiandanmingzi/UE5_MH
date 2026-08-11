@@ -6,39 +6,11 @@
 #include "MHGZGameplayAbility.h"
 #include "MHGZDodgeAbility.generated.h"
 
-/**
- * 翻滚方向
- */
-UENUM(BlueprintType)
-enum class EComboDirection : uint8
-{
-	None    UMETA(DisplayName = "无方向"),
-	Forward UMETA(DisplayName = "前"),
-	Back    UMETA(DisplayName = "后"),
-	Left    UMETA(DisplayName = "左"),
-	Right   UMETA(DisplayName = "右")
-};
+class UAbilityTask_PlayMontageAndWait;
+class UAnimMontage;
+class UCapsuleComponent;
 
-/**
- * 武器翻滚配置——存于 DT_WeaponDodgeConfig
- */
-USTRUCT(BlueprintType)
-struct FWeaponDodgeConfig : public FTableRowBase
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FGameplayTag WeaponTypeTag;
-
-	/** 拔刀态各方向翻滚 Montage */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	TMap<EComboDirection, TSoftObjectPtr<UAnimMontage>> UnsheathedMontages;
-};
-
-/**
- * UMHGZDodgeAbility — 翻滚/闪避 Ability（不进连招表）
- * 通过 TryActivateAbilityByTag(Input.Dodge) 激活
- */
+/** Snapshot-driven general dodge. It does not enter the weapon combo table. */
 UCLASS(BlueprintType, Blueprintable)
 class UMHGZDodgeAbility : public UMHGZGameplayAbility
 {
@@ -47,17 +19,11 @@ class UMHGZDodgeAbility : public UMHGZGameplayAbility
 public:
 	UMHGZDodgeAbility();
 
-	// ═══════════════════════════════════════════
-	// 配置
-	// ═══════════════════════════════════════════
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Sheathed")
+	TMap<EDirectionalInput, TSoftObjectPtr<UAnimMontage>> SheathedDodgeMontages;
 
-	/** 收刀态各方向翻滚 Montage（所有武器共用） */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge")
-	TMap<EComboDirection, TSoftObjectPtr<UAnimMontage>> SheathedDodgeMontages;
-
-	// ═══════════════════════════════════════════
-	// 覆写
-	// ═══════════════════════════════════════════
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Unsheathed")
+	TMap<EDirectionalInput, TSoftObjectPtr<UAnimMontage>> UnsheathedDodgeMontages;
 
 	virtual bool CanActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
@@ -79,10 +45,31 @@ public:
 		bool bReplicateEndAbility,
 		bool bWasCancelled) override;
 
-protected:
-	/** 根据摇杆方向选择对应 Montage */
-	UAnimMontage* SelectDodgeMontage() const;
+	bool BeginDodgeWindow(FName NotifyEventID);
+	void EndDodgeWindow(FName NotifyEventID);
 
-	/** 从摇杆输入推断翻滚方向 */
-	EComboDirection GetDodgeDirection() const;
+protected:
+	virtual bool ValidateActionDependencies() const override;
+
+private:
+	UPROPERTY()
+	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
+
+	UPROPERTY()
+	TObjectPtr<UAnimMontage> ActiveDodgeMontage;
+
+	TMap<FName, FWeaponOwnedTagToken> DodgeWindowTokens;
+	TMap<TEnumAsByte<ECollisionChannel>, ECollisionResponse> CachedCollisionResponses;
+	TWeakObjectPtr<UCapsuleComponent> DodgeCapsule;
+	bool bEndingDodge = false;
+
+	UAnimMontage* SelectDodgeMontage() const;
+	void CloseAllDodgeWindows();
+	void RestoreDodgeCollisionResponses();
+
+	UFUNCTION()
+	void OnMontageCompleted();
+
+	UFUNCTION()
+	void OnMontageInterrupted();
 };

@@ -3,6 +3,7 @@
 #include "MHGZWeaponComboData.h"
 
 #include "Abilities/GameplayAbility.h"
+#include "MHGZGameplayAbility.h"
 
 #define LOCTEXT_NAMESPACE "MHGZWeaponComboData"
 
@@ -107,6 +108,18 @@ EDataValidationResult UMHGZWeaponComboData::IsDataValid(FDataValidationContext& 
 		if (Transition.ExecutionPolicy == EComboExecutionPolicy::ActivateAbility && !Transition.AbilityClass)
 		{
 			AddError(FText::Format(LOCTEXT("MissingAbilityClass", "Transitions[{0}] uses ActivateAbility but has no AbilityClass."), IndexText));
+		}
+		if (Transition.ExecutionPolicy == EComboExecutionPolicy::ActivateAbility
+			&& Transition.AbilityClass)
+		{
+			const UMHGZGameplayAbility* ActionCDO =
+				Cast<UMHGZGameplayAbility>(Transition.AbilityClass->GetDefaultObject());
+			if (!ActionCDO || ActionCDO->GetInstancingPolicy()
+				!= EGameplayAbilityInstancingPolicy::InstancedPerExecution)
+			{
+				AddError(FText::Format(LOCTEXT("InvalidActionAbilityClass",
+					"Transitions[{0}] ActivateAbility class must derive from UMHGZGameplayAbility and use InstancedPerExecution."), IndexText));
+			}
 		}
 		if (Transition.ExecutionPolicy == EComboExecutionPolicy::StateOnly
 			&& (!Transition.bAutoTransition || Transition.AbilityClass))

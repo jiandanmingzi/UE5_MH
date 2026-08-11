@@ -4,7 +4,7 @@
 
 > **项目动作口径：** 动画和机制可参考《世界》《崛起》《荒野》，但项目采用原创连招规则，不以逐项复刻某一作为目标。虫棍具体动作见 [insect-glaive-actions.md](insect-glaive-actions.md)；通用动作层不得包含翔虫、集中模式、钩爪或虫棍资源判断。
 
-> **冻结实施口径：** 后续代码以 [Demo 冻结实施计划](demo-implementation-plan.md) 为公共接口真相源。当前源码中的 `FComboNode/ComboTable`、全局 `PreviousState`、`bIsContinuous` 成本语义和 ASC 直接解释武器输入都是待迁移旧结构，不得继续扩展。
+> **冻结实施口径：** 后续代码以 [Demo 冻结实施计划](demo-implementation-plan.md) 为公共接口真相源。M1 已删除 `FComboNode/ComboTable` 运行时、全局 `PreviousState`、`bIsContinuous` 成本语义和 ASC 物理输入职责；M2 以后不得恢复这些旧结构。
 > **重构边界：** 具体保留、重写、删除与旧资产处理见 [Demo 重构范围与资产处置](demo-refactor-scope.md)。
 
 ## 当前实现
@@ -459,15 +459,17 @@ CMC 边缘检测 + 自定义组件触发 + GA 播动画。推荐方案 A（组�
 
 ## 输入流
 
-**当前源码：**
+**M1 当前源码：**
 
 ```
-EnhancedInput → InputAction → Tag → ASC→OnInputActionTriggered(Tag)
-  → 武器Tag? → Coordinator→HandleWeaponInput
-  → 非武器Tag? → TryActivateAbilityByTag
+EnhancedInput → UMHGZInputComponent（唯一 Binding/IMC 所有者）
+  → UMHGZWeaponInputRouterComponent
+  → FWeaponInputSnapshot
+     → 武器 Tag：Coordinator→HandleWeaponInput
+     → 通用 Tag：ASC→HandleResolvedInputSnapshot
 ```
 
-**冻结目标：**
+**后续阶段保持的冻结边界：**
 
 ```text
 EnhancedInput
@@ -480,20 +482,9 @@ EnhancedInput
 
 ASC 保留 Ability Spec、GE 和激活能力，但不再直接解释物理按键或把任意 Completed 转成统一 ChargeReleased。
 
-## FAbilityInputBinding — 旧输入结构（M1 删除）
+## FAbilityInputBinding — 已删除的旧输入结构
 
-```
-USTRUCT(BlueprintType)
-struct FAbilityInputBinding
-```
-
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| InputAction | TObjectPtr\<UInputAction\> | nullptr | EnhancedInput 的 InputAction 资产 |
-| AbilityTag | FGameplayTag | 空 | 触发时激活的 Ability Tag，也作为蓄力 GA 的 Completed 事件标识 |
-| bConsumeInput | bool | true | 触发后是否消耗此次输入（防止一个按键触发多个 Ability） |
-
-该结构只记录当前源码，不是目标接口。M1 删除 ASC 的 `InputBindings/ActionToTag/bInputBound` 和 Enhanced Input 回调；不得把它迁移成第二套并行输入系统。
+M1 已从源码删除 `FAbilityInputBinding`、`InputBindings`、`ActionToTag`、`bInputBound` 和 ASC 的 Enhanced Input 回调。旧蓝图在 E2 Compile 后不应再显示该属性；不得建立替代数组或第二套并行输入系统。
 
 ## UMHGZAbilitySystemComponent — 扩展 ASC
 
@@ -502,35 +493,23 @@ UCLASS()
 class UMHGZAbilitySystemComponent : public UAbilitySystemComponent
 ```
 
-扩展 UE 原生 ASC。当前源码包含输入绑定和批量授予；M1 后 ASC 只保留 GAS 身份、Ability 授予/移除、SpecHandle 查找和带 ActivationContext/InputSnapshot 的激活接口。ASC 不拥有 IMC、UInputAction、物理键状态或 Pawn 初始姿态。
+扩展 UE 原生 ASC。M1 当前 ASC 只保留 GAS 身份、Ability 授予/移除、SpecHandle 查找、RuntimeHost 弱引用和带 ActivationContext/InputSnapshot 的激活接口。ASC 不拥有 IMC、UInputAction、物理键状态或 Pawn 初始姿态。
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
-| InputBindings | TArray\<FAbilityInputBinding\> | "Input" | 空 | 输入绑定列表（策划在蓝图中配置） |
 | CoreAbilities | TArray\<TSubclassOf\<UGameplayAbility\>\> | "Ability\|Core" | 空 | 核心能力列表（BeginPlay 时自动授予） |
 | CoreAttributeEffects | TArray\<TSubclassOf\<UGameplayEffect\>\> | "Ability\|Core" | 空 | 核心 GE 列表（BeginPlay 时自动 Apply） |
 
-### 当前旧方法（M1 删除输入职责）
+### M1 当前方法
 
 - `void InitializeAbilitySystem()`
-  - 作用：依次执行：(1) 设置初始 GameplayTag（`Combat.State.Sheathed`、`Combat.State.Grounded`），(2) 授予 CoreAbilities，(3) Apply CoreAttributeEffects，(4) 遍历 `InputBindings` 建立 `ActionToTag`，绑定 EnhancedInput 的 `Started` 和 `Completed`。回调从 `FInputActionInstance::GetSourceAction()` 查回 Tag。
-  - `CoreAbilities` / `CoreAttributeEffects` 的具体内容由 PlayerState 蓝图配置；当前源码和 Content 中没有 `GA_Sprint`，冲刺由 Character 处理。
-    ```cpp
-    for (auto& Binding : InputBindings)
-    {
-        ActionToTag.Add(Binding.InputAction, Binding.AbilityTag);
-        EnhancedInput->BindAction(Binding.InputAction.Get(), ETriggerEvent::Started,
-            this, &UMHGZAbilitySystemComponent::OnInputActionTriggered);
-        EnhancedInput->BindAction(Binding.InputAction.Get(), ETriggerEvent::Completed,
-            this, &UMHGZAbilitySystemComponent::OnInputActionCompleted);
-    }
-    ```
+  - 作用：幂等授予 CoreAbilities 并 Apply CoreAttributeEffects；不写 Pawn 姿态、不绑定输入。
 
-- `void OnInputActionTriggered(const FInputActionInstance& Instance)`
-  - 作用：从 SourceAction 查 `ActionToTag`。武器 Tag 转发给 Active Coordinator，非武器 Tag 调用 `TryActivateAbilitiesByTag`。
+- `void HandleResolvedInputSnapshot(const FWeaponInputSnapshot& Snapshot)`
+  - 作用：武器 Tag 交给当前 Coordinator；通用 Tag 按 `UMHGZGameplayAbility::InputTag` 查 SpecHandle，注册一次性 ActivationContext 后激活。
 
-- `void OnInputActionCompleted(const FInputActionInstance& Instance)`
-  - 作用：若 ASC 持有 `Combat.State.Charging`，发送 `Combat.Event.ChargeReleased`。当前 EventData 不携带 InputTag，且没有已实现的消费 Ability。
+- `void HandleResolvedInputRelease(const FWeaponInputSnapshot& Snapshot)`
+  - 作用：交给当前 RuntimeHost，按 `SourceControlTag + SequenceID` 只通知匹配的 Active Action；默认 Ability 释放回调为 No-Op。
 
 - `void GrantWeaponAbilities(TArray<TSubclassOf<UGameplayAbility>> Abilities)`
   - 输入：武器授予的能力类列表。
@@ -539,10 +518,8 @@ class UMHGZAbilitySystemComponent : public UAbilitySystemComponent
 - `void RemoveWeaponAbilities()`
   - 作用：移除所有武器授予的能力（切换武器时调用）。
 
-- `void BindInputAction(UInputAction* Action, FGameplayTag AbilityTag)`
-  - 输入：InputAction 资产、Ability Tag。
-  - 当前作用：只更新 `InputBindings` 数组；若 ASC 已完成输入初始化，不会立即调用 EnhancedInput `BindAction` 或更新现有 `ActionToTag`，动态补绑仍需实现。
-  - 注意：限制攻击/不可操作场景不通过解绑实现——GAS 的 `CanActivateAbility` 通过 GameplayTag 阻塞拦截激活。
+- `PrepareWeaponAbilityActivation` / `ConsumePendingActivationContext`
+  - 作用：以 SpecHandle 保存并精确一次消费不可变 ActivationContext；TryActivate 直接失败时必须立即丢弃，禁止后续激活读到陈旧快照。
 
 ### 目标统一派发流程
 
@@ -574,18 +551,17 @@ UCLASS(BlueprintType, Blueprintable, Abstract)
 class UMHGZGameplayAbility : public UGameplayAbility
 ```
 
-所有 Ability 的基类，统一处理耐力消耗、冷却、输入标签。下表先记录当前源码字段；目标实现不保留 `bIsContinuous` 的混合语义。
+所有动作 Ability 的 M1 基类，统一处理耐力消耗、冷却、输入标签、ActionToken、reservation 和幂等清理。
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
 | InputTag | FGameplayTag | "Ability\|Input" | 空 | 绑定的输入标签（`Input.Weapon.Y`/`Input.Weapon.B`/`Input.Dodge`…） |
+| StaminaCostPolicy | EAbilityStaminaCostPolicy | "Ability\|Cost" | None | None / Instant / PerSecond；不表达 Ability 生命周期 |
 | StaminaCost | FScalableFloat | "Ability\|Cost" | 0 | 单次耐力扣除量（闪避/单次攻击）。`ActivateAbility` 时一次扣除：`Cost × StaminaDeductionRate` |
-| StaminaCostRate | FScalableFloat | "Ability\|Cost" | 0 | 持续耐力消耗速率。当前用 0.1s Timer，每次扣 `Rate × ConsumptionRate × 0.1` |
-| bIsContinuous | bool | "Ability\|Cost" | false | 是否持续型 Ability；当前协调器设为 true，GA_Dodge 为单次型。GA_Sprint/GA_Aim 不存在 |
-| CooldownDuration | FScalableFloat | "Ability\|Cooldown" | 0 | 字段已定义，当前未使用 |
-| CooldownTag | FGameplayTag | "Ability\|Cooldown" | 空 | 激活时作为 Loose Tag 添加，当前没有定时移除逻辑 |
-| bRequiresWeaponResource | bool | "Ability\|Cost" | false | 是否需要武器专属资源 |
-| WeaponResourceCost | FScalableFloat | "Ability\|Cost" | 0 | 消耗的资源量 |
+| StaminaCostRate | FScalableFloat | "Ability\|Cost" | 0 | PerSecond 速率；Task 按 `Rate × ConsumptionRate × 实际经过时间` 结算 |
+| WeaponResourceCosts | TArray\<FWeaponResourceCostSpec\> | "Ability\|Cost" | 空 | 由当前 ResourceProvider 解释并预留的离散/数值武器资源成本 |
+| CooldownDuration | FScalableFloat | "Ability\|Cooldown" | 0 | 大于 0 且 CooldownTag 有效时写入 HasDuration GE Spec |
+| CooldownTag | FGameplayTag | "Ability\|Cooldown" | 空 | 由 Cooldown GE 的 DynamicGrantedTags 持有，不使用 Loose Tag |
 | MaxCorrectionAngle | float | "Ability\|Correction" | 30.0 | 攻击激活瞬间最大方向修正角度（以角色朝向为基准，扭向摇杆方向）。0=禁止修正 |
 | AudioIdentityTag | FGameplayTag | "Ability\|Audio" | 空 | 挥刀风声身份标签（如 `Audio.Swing.LS_VerticalSlash`）。GA 蓝图必配——`ActivateAbility` 时以此为 Key 查 `WeaponDef.SwingSoundOverrides`，命中则覆盖 `DamageConfig.SwingSound`。不同招式用不同 GA 蓝图→不同 Tag→不同音效，武器覆盖是可选增量 |
 
@@ -600,19 +576,19 @@ class UMHGZGameplayAbility : public UGameplayAbility
 - `None`：协调器等长期 Ability 使用；不扣耐、不伪造 Cooldown Loose Tag。
 - 武器专属资源使用 reservation：`TryReserveCosts(ActionToken)` → `CommitAbility` → 失败 `ReleaseReservation` / 成功 `ConsumeReservedCosts` → Confirm。成功后的 Consume 保证不失败，reservation 期间禁止资源重入改变被锁身份。所有 reservation、任务、GE Handle、Timer 和临时 Tag 由同一个幂等清理出口回收。
 
-当前 `bRequiresWeaponResource/WeaponResourceCost` 是待删除旧字段。目标 Ability 保存 `TArray<FWeaponResourceCostSpec>`：`CostType` 是资源组件解释的 GameplayTag，`Amount` 是可缩放数值；空数组表示无武器成本。通用层只调用当前 Resource 的 Reserve/Release/Consume 接口，不假设资源一定是单个 float。
+M1 当前 Ability 已使用 `TArray<FWeaponResourceCostSpec>`：`CostType` 是资源组件解释的 GameplayTag，`Amount` 是可缩放数值；空数组表示无武器成本。旧 `bRequiresWeaponResource/WeaponResourceCost` 运行时路径已删除。通用层只调用当前 Resource 的 Reserve/Release/Consume 接口，不假设资源一定是单个 float。
 
 ### 核心方法（覆写）
 
 - `bool CanActivateAbility(...) const override`
   - 输出：是否可激活。
-  - 目标作用：只做无副作用的耐力、武器资源、Cooldown 和 Tag 预检；最终仍由 Commit 重新验证。
+  - 作用：只做无副作用的耐力、Cooldown 和 Tag 预检；等级通过 Handle+ActorInfo 查询，兼容 GAS 在 CDO 上执行 CanActivate。武器资源最终在动作实例中 reservation。
 
 - `void ActivateAbility(...) override`
-  - 目标作用：先完成 Resource reservation + GAS Commit；成功后再消费 reservation、Confirm，并根据 CostPolicy 启动持续任务。当前 `MakeOutgoingSpec(nullptr)` 与 Loose Cooldown 路径在 M1 删除。
+  - 作用：验证当前 RuntimeToken/依赖，依次完成 Resource reservation + GAS Commit；成功后消费 reservation、Confirm、注册 Action，并根据 CostPolicy 启动持续任务。无效 Cost Spec 与 Loose Cooldown 路径已删除。
 
 - `void EndAbility(...) override`
-  - 作用：幂等停止持续任务和本 Ability 拥有的运行时对象；Cooldown GE 不在这里手工移除。
+  - 作用：幂等停止持续任务、释放未消费 reservation、注销 Montage/Action、释放本 Ability 的 Ledger Token，并以完整 ActionToken 通知 Coordinator；Cooldown GE 不在这里手工移除。
 
 ## UMHGZAttackAbility — 攻击 Ability 中间层
 
@@ -1244,7 +1220,7 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 | 成员 | 类型 | 说明 |
 |------|------|------|
 | WeaponTypeTag | FGameplayTag | 关联武器种类 |
-| Transitions | TArray\<FComboTransition\> | 连招转移边列表；当前源码旧名为 ComboTable/FComboNode |
+| Transitions | TArray\<FComboTransition\> | 连招转移边列表；旧 ComboTable/FComboNode 只保留精确 Redirect，不参与运行时 |
 | GlobalComboTimeout | float | 全局兜底超时，默认 10 秒 |
 
 ### FComboTransition 结构体
@@ -1271,7 +1247,7 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 | Priority | int32 | 0 | 显式匹配优先级。同层（精确招式/通用招式 + DirectionalInput）内有多个候选行满足 InputAction 条件时，Priority 高的优先匹配 |
 | bAutoTransition | bool | false | 自动 ε 转移由唯一 TransitionID + SourceActionToken 请求 |
 
-#### 冻结后的目标行为（当前尚未接入）
+#### M1 已接入的冻结行为
 
 - `Direction`：输入层先把摇杆转换为世界方向，再与角色 Forward/Right 比较。方向、组合键和修饰态在同一个 InputSnapshot 中冻结；具体方向节点优先于 None。
 - `bRequiresComboWindow`：为 true 时仅在 `Combat.State.ComboWindowOpen` 存在时匹配；为 false 时允许收虫、纳刀等取消动作绕过连招窗口，但仍受 RequiredTags 约束。
@@ -1299,7 +1275,7 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 
 > **核心原则：** EnhancedInput 只采集原始键；通用 ChordResolver 根据当前武器声明的组合表产生稳定 InputTag，并在可配置 Grace Period 内抑制已被组合消费的单键。协调器不硬编码虫棍组合。
 
-### EDirectionalInput 象限规则（规划，协调器尚未消费）
+### EDirectionalInput 象限规则（M1 已接入）
 
 摇杆先按当前控制方案转换为水平世界方向，再以角色 Forward/Right 分象限。虫棍 `前+Y+B` 因此要求输入世界方向与角色面朝方向一致：角色朝屏幕左时，摇杆左才是 Forward。默认半角 45°、最小输入 0.1，具体阈值只由当前 `UWeaponInputProfile` 提供。
 
@@ -1311,7 +1287,7 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 | Left | (45°, 135°) |
 | Right | (-135°, -45°) |
 
-## GA_WeaponComboCoordinator — 连招协调器（基础匹配已实现，扩展流程为规划）
+## GA_WeaponComboCoordinator — 连招协调器（M1 已实现）
 
 ```
 UCLASS(BlueprintType, Blueprintable)
@@ -1331,9 +1307,7 @@ class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 | PendingTransition | FPendingComboTransition | 已通过数据匹配但尚未收到 GA Commit 成功回执的转移；不拥有状态或标签 |
 | ActiveTransition | FActiveComboTransition | 当前转移的 TransitionID、完整 ActionToken、Source/TargetState、OwnedTags 与命中状态；不存在跨 Ability 共用的全局 PendingGrantedTags |
 
-> 当前源码仍维护 `PreviousState`。目标 GA 从不可变 `FWeaponAbilityActivationContext.SourceState` 选择 Montage 入口；M1 删除运行时对全局 PreviousState 的依赖。
-
-> 当前类还没有 PendingTransition 或 PreInputSnapshot。Chord Pending/Timer 明确属于 WeaponInputRouter，协调器不得再维护第二套组合键缓冲。
+M1 已删除运行时 `PreviousState`；GA 从不可变 `FWeaponAbilityActivationContext.SourceState` 选择 Montage 入口。协调器已维护 PendingTransition，但不维护 Chord Pending/Timer；组合缓冲只属于 WeaponInputRouter。
 
 规划成员明细：
 
@@ -1345,8 +1319,7 @@ class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 ### 公共方法
 
 - `void InjectComboData(UMHGZWeaponComboData* Data)`
-  - 当前作用：保存同步加载的旧 ComboTable 并构建部分索引。
-  - 目标作用：验证并索引 Transitions/AnyState，清 Pending/PreInput，重置状态。Demo 由 RuntimeHost 同步注入。
+  - 当前作用：Reset 当前状态，保存最终 Transitions，构建 State/AnyState/TransitionID 索引。M2 完整 RuntimeHost 装备流程负责同步注入。
 
 - 异步 ComboData 的 RequestID 方案延期到完整装备/流送系统；本 Demo 不同时实现同步与异步两条加载路径。其他延迟回调使用完整 `FWeaponRuntimeToken{Host, Generation}` 拒绝旧 Pawn/旧世代。
 
@@ -1354,7 +1327,7 @@ class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
   - 输入：WeaponInputRouter 已解析的组合 Tag、HeldModifiers、姿态 ContextTags、世界方向、Phase、时间与 SequenceID。
   - 作用：若 ComboData 未注入则忽略；按状态/修饰/方向/Priority 匹配后进入统一 `ExecuteTransition`。
 
-- `void ConfirmTransitionActivation(const FWeaponActionToken& ActionToken)`
+- `bool ConfirmTransitionActivation(const FWeaponActionToken& ActionToken)`
   - 只接受 RuntimeToken、SpecHandle、ActivationSequenceID 和 AbilityInstance 与 PendingTransition 全部匹配的成功回执；此时才提交 CurrentState、ActiveTransition 和 OnActivation Tags。
 
 - `void RejectTransitionActivation(const FWeaponActionToken& ActionToken)`
@@ -1363,10 +1336,10 @@ class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 - `void OnAttackHit(const FWeaponActionToken& ActionToken)`
   - 作用：只更新完整匹配 ActionToken 的 ActiveTransition，并按该转移配置从 TagLedger 取得有所有权 Token；同一 Spec 的旧激活迟到回调不能改写新转移。
 
-- `void OnAttackFinished(const FWeaponActionToken& ActionToken, EAbilityEndReason Reason)`
+- `void OnActionFinished(const FWeaponActionToken& ActionToken, EWeaponActionEndReason Reason)`
   - 仅当完整 ActionToken 仍拥有 ActiveTransition 时清理其 Token 并决定回 Idle；被后续动作以 `Superseded` 取代的旧实例不能重置新状态。
 
-- `void OnAutoTransition(FName TransitionID, const FWeaponActionToken& SourceAction)`（目标）
+- `bool OnAutoTransition(FName TransitionID, const FWeaponActionToken& SourceAction)`
   - 输入：确定的自动转移边 ID 和发起它的完整 ActionToken。
   - 作用：验证 SourceAction 仍拥有当前状态、目标边 `bAutoTransition=true` 且 SourceState 匹配，然后执行该边的 AbilityClass 并进入它的 TargetState。
   - 不提供 `FindAbilityClassForState`；同一 SourceState 的不同出边本来就可以激活不同 Ability。
@@ -1381,7 +1354,7 @@ class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 
 **阶段 D（连招下一段）：** 窗口内按同一流程执行下一条边；新实例 Commit+Confirm 后接管 ActiveTransition，协调器再对旧实例调用 `RequestEndAction(Superseded)`。GA 首次命中只更新完整 ActionToken 匹配的转移。
 
-**阶段 E（回 Idle）：** `ComboWindow→NotifyEnd` 释放匹配 Window Token → Montage 播完 → GA `EndAbility` → `Coordinator→OnAttackFinished(ActionToken, Reason)`；只有该完整身份仍拥有 ActiveTransition 时才回 `Idle` 并释放它持有的分支 Token，绝不按 `Combo.Branch.*` 父标签批量清理。
+**阶段 E（回 Idle）：** `ComboWindow→NotifyEnd` 释放匹配 Window Token → Montage 播完 → GA `EndAbility` → `Coordinator→OnActionFinished(ActionToken, Reason)`；只有该完整身份仍拥有 ActiveTransition 时才回 `Idle` 并释放它持有的分支 Token，绝不按 `Combo.Branch.*` 父标签批量清理。
 
 **阶段 F（异常兜底）：** `SafetyTimer` 到期（`GlobalComboTimeout` 秒，仅 Montage 卡死等极端情况）→ `ResetCombo(SafetyTimeout)`，只释放 Pending/ActiveTransition 自己拥有的 Tag，并按真实姿态回 Idle/Aerial.Free。武器卸下由 RuntimeHost 先 Reset/Cancel，再清索引；禁止按父标签无差别删除其他系统拥有的 Branch Tag。
 
