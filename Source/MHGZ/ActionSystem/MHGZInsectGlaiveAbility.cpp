@@ -3,9 +3,9 @@
 #include "MHGZInsectGlaiveAbility.h"
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "MHGZAbilitySystemComponent.h"
-#include "MHGZPlayerState.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameplayEffect.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
 UMHGZInsectGlaiveAbility::UMHGZInsectGlaiveAbility()
 {
@@ -16,21 +16,14 @@ URes_InsectGlaive* UMHGZInsectGlaiveAbility::GetIGResourceComponent() const
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (!ASC) return nullptr;
 
-	const AActor* Owner = ASC->GetOwnerActor();
-	if (const AMHGZPlayerState* PS = Cast<AMHGZPlayerState>(Owner))
-	{
-		TArray<UActorComponent*> Components;
-		PS->GetComponents(Components);
-		for (UActorComponent* Comp : Components)
-		{
-			if (URes_InsectGlaive* IGComp = Cast<URes_InsectGlaive>(Comp))
-			{
-				return IGComp;
-			}
-		}
-	}
+	// M2：资源查找统一走 RuntimeHost 的 ResourceProvider，不再扫描 PlayerState 组件。
+	const UMHGZAbilitySystemComponent* MHGZASC = Cast<UMHGZAbilitySystemComponent>(ASC);
+	if (!MHGZASC) return nullptr;
 
-	return nullptr;
+	const UMHGZWeaponRuntimeHostComponent* Host = MHGZASC->GetRuntimeHost();
+	if (!Host) return nullptr;
+
+	return Cast<URes_InsectGlaive>(Host->GetResourceProvider());
 }
 
 bool UMHGZInsectGlaiveAbility::CanActivateAbility(

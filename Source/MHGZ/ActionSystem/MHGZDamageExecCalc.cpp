@@ -2,64 +2,27 @@
 
 #include "MHGZDamageExecCalc.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
+#include "MHGZGameplayEffectContext.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "AbilitySystemComponent.h"
-
-// 硬编码硬直/霸体等级映射
-static int32 GetStaggerLevel(FGameplayTag Tag)
-{
-	static TMap<FGameplayTag, int32> Map;
-	if (Map.IsEmpty())
-	{
-		Map.Add(FGameplayTag::RequestGameplayTag(TEXT("Combat.Stagger.Light")), 1);
-		Map.Add(FGameplayTag::RequestGameplayTag(TEXT("Combat.Stagger.Medium")), 2);
-		Map.Add(FGameplayTag::RequestGameplayTag(TEXT("Combat.Stagger.Heavy")), 3);
-	}
-	const int32* Found = Map.Find(Tag);
-	return Found ? *Found : 0;
-}
-
-static int32 GetPoiseLevel(FGameplayTag Tag)
-{
-	static TMap<FGameplayTag, int32> Map;
-	if (Map.IsEmpty())
-	{
-		Map.Add(FGameplayTag::RequestGameplayTag(TEXT("Combat.Poise.Light")), 1);
-		Map.Add(FGameplayTag::RequestGameplayTag(TEXT("Combat.Poise.Medium")), 2);
-		Map.Add(FGameplayTag::RequestGameplayTag(TEXT("Combat.Poise.Heavy")), 3);
-		Map.Add(FGameplayTag::RequestGameplayTag(TEXT("Combat.Poise.Super")), 4);
-	}
-	const int32* Found = Map.Find(Tag);
-	return Found ? *Found : 0;
-}
 
 UMHGZDamageExecCalc::UMHGZDamageExecCalc()
 {
 	// 捕获攻击方属性
-	FGameplayEffectAttributeCaptureDefinition AttackPowerDef;
-	AttackPowerDef.AttributeToCapture = UMHGZAttributeSet::GetAttackPowerAttribute();
-	AttackPowerDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Source;
-	AttackPowerDef.bSnapshot = true;
-	RelevantAttributesToCapture.Add(AttackPowerDef);
+	SourceAttackPowerDef.AttributeToCapture = UMHGZAttributeSet::GetAttackPowerAttribute();
+	SourceAttackPowerDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Source;
+	SourceAttackPowerDef.bSnapshot = true;
+	RelevantAttributesToCapture.Add(SourceAttackPowerDef);
 
-	FGameplayEffectAttributeCaptureDefinition CriticalRateDef;
-	CriticalRateDef.AttributeToCapture = UMHGZAttributeSet::GetCriticalRateAttribute();
-	CriticalRateDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Source;
-	CriticalRateDef.bSnapshot = true;
-	RelevantAttributesToCapture.Add(CriticalRateDef);
+	SourceCriticalRateDef.AttributeToCapture = UMHGZAttributeSet::GetCriticalRateAttribute();
+	SourceCriticalRateDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Source;
+	SourceCriticalRateDef.bSnapshot = true;
+	RelevantAttributesToCapture.Add(SourceCriticalRateDef);
 
-	FGameplayEffectAttributeCaptureDefinition StaggerMultDef;
-	StaggerMultDef.AttributeToCapture = UMHGZAttributeSet::GetStaggerMultiplierAttribute();
-	StaggerMultDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Source;
-	StaggerMultDef.bSnapshot = true;
-	RelevantAttributesToCapture.Add(StaggerMultDef);
-
-	// 目标属性（用于扣血）
-	FGameplayEffectAttributeCaptureDefinition HealthDef;
-	HealthDef.AttributeToCapture = UMHGZAttributeSet::GetHealthAttribute();
-	HealthDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Target;
-	HealthDef.bSnapshot = false;
-	RelevantAttributesToCapture.Add(HealthDef);
+	SourceStaggerMultiplierDef.AttributeToCapture = UMHGZAttributeSet::GetStaggerMultiplierAttribute();
+	SourceStaggerMultiplierDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Source;
+	SourceStaggerMultiplierDef.bSnapshot = true;
+	RelevantAttributesToCapture.Add(SourceStaggerMultiplierDef);
 }
 
 void UMHGZDamageExecCalc::Execute_Implementation(
@@ -73,9 +36,29 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 
 	if (!SourceASC || !TargetASC) return;
 
-	AActor* TargetActor = TargetASC->GetOwnerActor();
+	// ── 2. 真实 HitResult 是结算前提：没有命中就没有反馈信号 ──
+	const FMHGZGameplayEffectContext* CombatContext =
+		FMHGZGameplayEffectContext::ExtractEffectContext(Spec.GetContext());
+	const FHitResult* Hit = CombatContext ? CombatContext->GetHitResult() : nullptr;
+	if (!Hit || !Hit->GetComponent())
+	{
+		return;
+	}
 
-	// ── 2. 读取 Source ASC 的属性 ──
+	// ── 3. 从 Context 的真实命中组件读取肉质；不再扫描 DynamicAssetTags ──
+	float HitzoneDefense = 1.0f;
+	float HitzoneStaggerRate = 1.0f;
+	if (const UMHGZMonsterHitzoneComponent* Hitzone =
+		Cast<UMHGZMonsterHitzoneComponent>(Hit->GetComponent()))
+	{
+		if (!CombatContext || CombatContext->bUseHitzoneDefense)
+		{
+			HitzoneDefense = FMath::Max(0.f, Hitzone->DefenseMultiplier);
+		}
+		HitzoneStaggerRate = FMath::Max(0.f, Hitzone->StaggerRate);
+	}
+
+	// ── 4. 读取 Source ASC 的属性 ──
 	FAggregatorEvaluateParameters EvalParams;
 	EvalParams.SourceTags = Spec.CapturedSourceTags.GetAggregatedTags();
 	EvalParams.TargetTags = Spec.CapturedTargetTags.GetAggregatedTags();
@@ -84,100 +67,79 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 	float CriticalRate = 0.f;
 	float StaggerMultiplier = 1.0f;
 
-	// 使用 AttemptCalculateCapturedAttributeMagnitude
-	const TArray<FGameplayEffectAttributeCaptureDefinition>& AttrDefs = RelevantAttributesToCapture;
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
+		SourceAttackPowerDef, EvalParams, AttackPower);
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
+		SourceCriticalRateDef, EvalParams, CriticalRate);
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
+		SourceStaggerMultiplierDef, EvalParams, StaggerMultiplier);
 
-	for (const FGameplayEffectAttributeCaptureDefinition& CaptureDef : AttrDefs)
-	{
-		if (CaptureDef.AttributeToCapture == UMHGZAttributeSet::GetAttackPowerAttribute() &&
-			CaptureDef.AttributeSource == EGameplayEffectAttributeCaptureSource::Source)
-		{
-			ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(CaptureDef, EvalParams, AttackPower);
-		}
-		else if (CaptureDef.AttributeToCapture == UMHGZAttributeSet::GetCriticalRateAttribute() &&
-			CaptureDef.AttributeSource == EGameplayEffectAttributeCaptureSource::Source)
-		{
-			ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(CaptureDef, EvalParams, CriticalRate);
-		}
-		else if (CaptureDef.AttributeToCapture == UMHGZAttributeSet::GetStaggerMultiplierAttribute() &&
-			CaptureDef.AttributeSource == EGameplayEffectAttributeCaptureSource::Source)
-		{
-			ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(CaptureDef, EvalParams, StaggerMultiplier);
-		}
-	}
-
-	// ── 3. 从 Spec 读取 SetByCaller ──
+	// ── 5. 从 Spec 读取 SetByCaller（缺失按默认值：MotionValue 缺失=0） ──
 	const float MotionValue = Spec.GetSetByCallerMagnitude(
-		FGameplayTag::RequestGameplayTag(TEXT("Damage.MotionValue")), true, 1.0f);
+		FGameplayTag::RequestGameplayTag(TEXT("Damage.MotionValue")), true, 0.0f);
 	const float BaseStagger = Spec.GetSetByCallerMagnitude(
 		FGameplayTag::RequestGameplayTag(TEXT("Damage.BaseStagger")), true, 0.f);
 	const float AttackPowerOverride = Spec.GetSetByCallerMagnitude(
-		FGameplayTag::RequestGameplayTag(TEXT("Damage.AttackPower")), true, -1.f);
+		FGameplayTag::RequestGameplayTag(TEXT("Damage.AttackPower")), false, -1.f);
 	const float CritOverride = Spec.GetSetByCallerMagnitude(
-		FGameplayTag::RequestGameplayTag(TEXT("Damage.CritOverride")), true, -1.f);
+		FGameplayTag::RequestGameplayTag(TEXT("Damage.CritOverride")), false, -1.f);
+	const float DanceMultiplier = Spec.GetSetByCallerMagnitude(
+		FGameplayTag::RequestGameplayTag(TEXT("Damage.DanceMultiplier")), false, 1.0f);
 
 	// 猎虫伤害 → 使用覆写的攻击力
-	if (AttackPowerOverride > 0.f)
+	if (AttackPowerOverride >= 0.f)
 	{
 		AttackPower = AttackPowerOverride;
 	}
 
-	// ── 4. 从 DynamicAssetTags 读取 Hitzone 信息 ──
-	float HitzoneDefense = 1.0f;
-	float HitzoneStaggerRate = 1.0f;
-	FGameplayTag HitzoneTag;
-
-	for (const FGameplayTag& Tag : Spec.GetDynamicAssetTags())
-	{
-		if (Tag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone"))))
-		{
-			HitzoneTag = Tag;
-			break;
-		}
-	}
-
-	if (HitzoneTag.IsValid() && TargetActor)
-	{
-		TArray<UMHGZMonsterHitzoneComponent*> Hitzones;
-		TargetActor->GetComponents<UMHGZMonsterHitzoneComponent>(Hitzones);
-		for (UMHGZMonsterHitzoneComponent* HZ : Hitzones)
-		{
-			if (HZ->HitzoneTag == HitzoneTag)
-			{
-				HitzoneDefense = HZ->DefenseMultiplier;
-				HitzoneStaggerRate = HZ->StaggerRate;
-				break;
-			}
-		}
-	}
-
-	// ── 5. 伤害计算 ──
+	// ── 6. 伤害计算 ──
 	float RawDamage = AttackPower * MotionValue * HitzoneDefense;
 
 	// 暴击判定
 	bool bCrit = false;
 	const float EffectiveCritRate = (CritOverride >= 0.f) ? CritOverride : CriticalRate;
-	if (EffectiveCritRate > 0.f && FMath::FRandRange(0.f, 100.f) < EffectiveCritRate)
+	if (RawDamage > 0.f && EffectiveCritRate > 0.f
+		&& FMath::FRandRange(0.f, 100.f) < EffectiveCritRate)
 	{
 		bCrit = true;
 		RawDamage *= 1.25f;
 	}
+	RawDamage *= FMath::Max(1.0f, DanceMultiplier);
 
-	// 至少 1 点伤害
-	const float FinalDamage = FMath::Max(1.0f, RawDamage);
+	// 零/负动作值保持 0 伤害；正动作值最低 1 点。
+	const float FinalDamage = (AttackPower > 0.0f && MotionValue > 0.0f)
+		? FMath::Max(1.0f, FMath::FloorToFloat(RawDamage))
+		: 0.0f;
+
+	const float StaggerValue = FMath::Max(0.f,
+		BaseStagger * StaggerMultiplier * HitzoneStaggerRate);
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[Damage] Source=%s Target=%s Attack=%.2f Motion=%.2f Hitzone=%.2f Final=%.2f"),
-		*GetNameSafe(SourceASC->GetAvatarActor()), *GetNameSafe(TargetActor),
-		AttackPower, MotionValue, HitzoneDefense, FinalDamage);
+		TEXT("[Damage] Source=%s Target=%s Attack=%.2f Motion=%.2f Hitzone=%.2f Final=%.2f Stagger=%.2f"),
+		*GetNameSafe(SourceASC->GetAvatarActor()), *GetNameSafe(TargetASC->GetOwnerActor()),
+		AttackPower, MotionValue, HitzoneDefense, FinalDamage, StaggerValue);
 
-	// ── 6. 写入扣血 ──
+	// ── 7. 只写 Meta Attribute，不直接改 Health/播放 Cue/发 Event ──
+	// 顺序合同（UE5.6 按插入顺序逐项执行并在每项后调用 PostGameplayEffectExecute）：
+	// Damage → Stagger → CriticalFlag → HitSignal（必须最后）。
 	OutExecutionOutput.AddOutputModifier(
 		FGameplayModifierEvaluatedData(
-			UMHGZAttributeSet::GetHealthAttribute(),
+			UMHGZAttributeSet::GetIncomingDamageAttribute(),
 			EGameplayModOp::Additive,
-			-FinalDamage));
-
-	// ── 7. 暴击时标记（GC 标签由 MakeDamageSpec 的 AddDynamicAssetTag 处理） ──
-	// ── 8. 硬直计算（硬直事件由 PostGameplayEffectExecute 广播） ──
+			FinalDamage));
+	OutExecutionOutput.AddOutputModifier(
+		FGameplayModifierEvaluatedData(
+			UMHGZAttributeSet::GetIncomingStaggerAttribute(),
+			EGameplayModOp::Additive,
+			StaggerValue));
+	OutExecutionOutput.AddOutputModifier(
+		FGameplayModifierEvaluatedData(
+			UMHGZAttributeSet::GetIncomingCriticalFlagAttribute(),
+			EGameplayModOp::Additive,
+			bCrit ? 1.f : 0.f));
+	OutExecutionOutput.AddOutputModifier(
+		FGameplayModifierEvaluatedData(
+			UMHGZAttributeSet::GetIncomingHitSignalAttribute(),
+			EGameplayModOp::Additive,
+			1.f));
 }

@@ -2,21 +2,27 @@
 
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
+#include "Abilities/GameplayAbility.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
+#include "ActionSystem/MHGZComboCoordinatorAbility.h"
 #include "ActionSystem/MHGZGameplayAbility.h"
+#include "ActionSystem/MHGZHitStopControllerComponent.h"
+#include "ActionSystem/MHGZWeaponComboData.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
-#include "Equipment/MHGZEquipmentComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "MHGZCharacter.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeDefinition.h"
 
 UMHGZWeaponRuntimeHostComponent::UMHGZWeaponRuntimeHostComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
-// ── 生命周期 ────────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------
+// 生命周期
+// ----------------------------------------------------------------------
 
 void UMHGZWeaponRuntimeHostComponent::InitializePawnRuntime(
 	ACharacter* InCharacter,
@@ -41,9 +47,18 @@ void UMHGZWeaponRuntimeHostComponent::InitializePawnRuntime(
 			return;
 		}
 
-		// 不同 Pawn：清理旧状态（不单独递增 Generation，统一在下方 +1）。
-		ClearRuntimeState();
+		// 不同 Pawn：完整关停旧运行时（含解除 Equipment 订阅）。
+		ShutdownRuntime(EWeaponRuntimeEndReason::AvatarChanged);
 	}
+
+	// 先订阅 Equipment 武器槽委托，再主动读取一次当前快照，避免漏接。
+	if (InEquipment)
+	{
+		BindEquipmentEvents(InEquipment);
+	}
+
+	const FEquippedWeaponSnapshot InitialSnapshot =
+		InEquipment ? InEquipment->GetEquippedWeaponSnapshot() : FEquippedWeaponSnapshot();
 
 	++Generation;
 	if (Generation == 0)
@@ -52,6 +67,9 @@ void UMHGZWeaponRuntimeHostComponent::InitializePawnRuntime(
 	}
 
 	bInitialized = true;
+	bShuttingDown = false;
+	bHasDeferredWeaponSnapshot = false;
+	DeferredWeaponSnapshot = FEquippedWeaponSnapshot();
 	NextActivationSequenceID = 1;
 
 	CurrentContext = FWeaponRuntimeContext();
@@ -62,6 +80,7 @@ void UMHGZWeaponRuntimeHostComponent::InitializePawnRuntime(
 
 	CurrentToken.Host = this;
 	CurrentToken.Generation = Generation;
+	CurrentContext.RuntimeToken = CurrentToken;
 
 	TagLedger.Initialize(CurrentToken, InASC);
 
@@ -71,22 +90,303 @@ void UMHGZWeaponRuntimeHostComponent::InitializePawnRuntime(
 	}
 
 	InitializePoseState(InCharacter);
+	ApplyWeaponSnapshot(InitialSnapshot);
+}
+
+void UMHGZWeaponRuntimeHostComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	ShutdownRuntime(EWeaponRuntimeEndReason::EndPlay);
+	Super::EndPlay(EndPlayReason);
 }
 
 void UMHGZWeaponRuntimeHostComponent::ShutdownRuntime(EWeaponRuntimeEndReason Reason)
 {
-	(void)Reason; // 结束原因当前仅用于日志/扩展；清理逻辑与原因无关。
+	if (!bInitialized)
+	{
+		return; // UnPossessed / EndPlay 双重调用幂等。
+	}
+
+	TeardownRuntime(Reason);
+	bHasDeferredWeaponSnapshot = false;
+	DeferredWeaponSnapshot = FEquippedWeaponSnapshot();
+	UnbindEquipmentEvents();
+
+	if (UMHGZAbilitySystemComponent* ASC = CurrentContext.ASC.Get())
+	{
+		if (ASC->GetRuntimeHost() == this)
+		{
+			ASC->SetRuntimeHost(nullptr);
+		}
+	}
+
+	++Generation;
+	if (Generation == 0)
+	{
+		++Generation;
+	}
+
+	CurrentContext = FWeaponRuntimeContext();
+	CurrentToken = FWeaponRuntimeToken();
+	bInitialized = false;
+}
+
+// ----------------------------------------------------------------------
+// M2 装备差分生命周期
+// ----------------------------------------------------------------------
+
+void UMHGZWeaponRuntimeHostComponent::BindEquipmentEvents(UMHGZEquipmentComponent* InEquipment)
+{
+	if (!InEquipment)
+	{
+		return;
+	}
+
+	if (BoundEquipment.Get() == InEquipment && EquipmentWeaponChangedHandle.IsValid())
+	{
+		return; // 已订阅同一组件，幂等。
+	}
+
+	UnbindEquipmentEvents();
+
+	BoundEquipment = InEquipment;
+	EquipmentWeaponChangedHandle = InEquipment->OnEquippedWeaponChanged.AddUObject(
+		this, &UMHGZWeaponRuntimeHostComponent::HandleEquippedWeaponChanged);
+}
+
+void UMHGZWeaponRuntimeHostComponent::UnbindEquipmentEvents()
+{
+	if (UMHGZEquipmentComponent* Equipment = BoundEquipment.Get())
+	{
+		Equipment->OnEquippedWeaponChanged.Remove(EquipmentWeaponChangedHandle);
+	}
+	BoundEquipment = nullptr;
+	EquipmentWeaponChangedHandle.Reset();
+}
+
+void UMHGZWeaponRuntimeHostComponent::HandleEquippedWeaponChanged(
+	const FEquippedWeaponSnapshot& Snapshot)
+{
+	if (!bInitialized)
+	{
+		return;
+	}
+	// Resource/Ability 的同步关停回调可能再次改装备。只保留最后快照，
+	// 当前重建完成后重放，避免 Equipment 与 Host 长期分歧。
+	if (bShuttingDown)
+	{
+		DeferredWeaponSnapshot = Snapshot;
+		bHasDeferredWeaponSnapshot = true;
+		return;
+	}
+
+	if (HasSameWeaponIdentity(Snapshot))
+	{
+		return; // 同一武器重复广播：护甲/饰品/镶嵌变化，no-op。
+	}
+
+	// 真实武器身份变化：TearDown → Generation+1 → Rebuild。
+	TeardownRuntime(EWeaponRuntimeEndReason::WeaponChanged);
+	RebuildRuntime(Snapshot);
+
+	if (bHasDeferredWeaponSnapshot)
+	{
+		const FEquippedWeaponSnapshot PendingSnapshot = DeferredWeaponSnapshot;
+		bHasDeferredWeaponSnapshot = false;
+		DeferredWeaponSnapshot = FEquippedWeaponSnapshot();
+		if (!HasSameWeaponIdentity(PendingSnapshot))
+		{
+			HandleEquippedWeaponChanged(PendingSnapshot);
+		}
+	}
+}
+
+bool UMHGZWeaponRuntimeHostComponent::HasSameWeaponIdentity(
+	const FEquippedWeaponSnapshot& Snapshot) const
+{
+	return CurrentWeapon.EquipmentInstance.Get() == Snapshot.EquipmentInstance.Get()
+		&& CurrentWeapon.RuntimeDefinition.Get() == Snapshot.RuntimeDefinition.Get();
+}
+
+void UMHGZWeaponRuntimeHostComponent::ApplyWeaponSnapshot(
+	const FEquippedWeaponSnapshot& Snapshot)
+{
+	CurrentWeapon = Snapshot;
+	CurrentContext.WeaponDefinition = Snapshot.WeaponDefinition.Get();
+	BuildWeaponRuntime(Snapshot);
+}
+
+void UMHGZWeaponRuntimeHostComponent::BuildWeaponRuntime(
+	const FEquippedWeaponSnapshot& Snapshot)
+{
+	const UWeaponRuntimeDefinition* RuntimeDef = Snapshot.RuntimeDefinition.Get();
+	if (!RuntimeDef)
+	{
+		return; // 空 RuntimeDefinition：安全结束，不产生任何运行时对象。
+	}
+	if (!RuntimeDef->CombatConfig || !RuntimeDef->CombatConfig->ComboData)
+	{
+		return; // 空 CombatConfig/ComboData：安全结束，不留半初始化状态。
+	}
+
+	UMHGZWeaponComboData* ComboData = RuntimeDef->CombatConfig->ComboData;
+	AActor* OwnerActor = CurrentContext.Character.Get();
+	UMHGZAbilitySystemComponent* ASC = CurrentContext.ASC.Get();
+	if (!OwnerActor || !ASC)
+	{
+		return; // 缺少 Pawn/ASC 时无法承载运行时。
+	}
+
+	// 1) 创建 Resource（Owner=Character/Pawn）。
+	if (RuntimeDef->ResourceComponentClass)
+	{
+		UMHGZWeaponResourceComponent* Resource = NewObject<UMHGZWeaponResourceComponent>(
+			OwnerActor, RuntimeDef->ResourceComponentClass);
+		if (Resource)
+		{
+			OwnerActor->AddInstanceComponent(Resource);
+			Resource->RegisterComponent();
+			Resource->InitializeRuntime(CurrentContext);
+			OwnedResource = Resource;
+			ResourceProvider = Resource;
+		}
+	}
+
+	// 2) 唯一收集 Transition.AbilityClass 授予。
+	TArray<TSubclassOf<UGameplayAbility>> WeaponAbilities;
+	for (const FComboTransition& Transition : ComboData->Transitions)
+	{
+		if (Transition.AbilityClass)
+		{
+			WeaponAbilities.AddUnique(Transition.AbilityClass);
+		}
+	}
+	ASC->GrantWeaponAbilities(WeaponAbilities);
+
+	// 3) 激活唯一 ComboCoordinator 并注入 ComboData；失败则回滚，不留半初始化状态。
+	CoordinatorAbilityHandle = ASC->GiveAbility(
+		FGameplayAbilitySpec(UGA_WeaponComboCoordinator::StaticClass(), 1, INDEX_NONE, ASC));
+	if (!CoordinatorAbilityHandle.IsValid() || !ASC->TryActivateAbility(CoordinatorAbilityHandle))
+	{
+		if (CoordinatorAbilityHandle.IsValid())
+		{
+			ASC->ClearAbility(CoordinatorAbilityHandle);
+			CoordinatorAbilityHandle = FGameplayAbilitySpecHandle();
+		}
+		ASC->RemoveWeaponAbilities();
+		if (OwnedResource.Get())
+		{
+			OwnedResource->ShutdownRuntime(EWeaponRuntimeEndReason::RuntimeShutdown);
+			if (OwnedResource->IsRegistered())
+			{
+				OwnedResource->DestroyComponent();
+			}
+			OwnedResource = nullptr;
+			ResourceProvider = nullptr;
+		}
+		return;
+	}
+
+	if (UGA_WeaponComboCoordinator* ActiveCoordinator = ASC->GetActiveComboCoordinator())
+	{
+		ActiveCoordinator->InjectComboData(ComboData);
+	}
+}
+
+void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Reason)
+{
 	if (!bInitialized)
 	{
 		return;
 	}
 
-	++Generation;
-	ClearRuntimeState();
+	// 1) 拒绝新请求：关停/重建窗口内不接受新的输入、注册与资源预留。
+	bShuttingDown = true;
+
+	// 2) 取消当前武器 Ability 与 ComboCoordinator。
+	if (UMHGZAbilitySystemComponent* ASC = CurrentContext.ASC.Get())
+	{
+		ASC->RemoveWeaponAbilities();
+		if (CoordinatorAbilityHandle.IsValid())
+		{
+			ASC->ClearAbility(CoordinatorAbilityHandle);
+			CoordinatorAbilityHandle = FGameplayAbilitySpecHandle();
+		}
+	}
+
+	// 3) 先广播旧 Token 失效，让所有订阅者在 Resource 发出关停回调前解绑。
+	OnWeaponRuntimeInvalidated.Broadcast(CurrentToken);
+
+	// 4) Resource Shutdown（清 modifiers；IG 走 OnWeaponUnequipped 清理猎虫/萃取 GE）。
+	if (UMHGZWeaponResourceComponent* Provider = ResourceProvider.Get())
+	{
+		Provider->ShutdownRuntime(Reason);
+	}
+
+	// 5) 命中停顿请求不能跨换武器、死亡或 EndPlay 泄漏。
+	if (AActor* Character = CurrentContext.Character.Get())
+	{
+		if (UMHGZHitStopControllerComponent* HitStop =
+			Character->FindComponentByClass<UMHGZHitStopControllerComponent>())
+		{
+			HitStop->ClearAll();
+		}
+	}
+
+	// 6) Ledger ReleaseAll + 注册表清空。
+	TagLedger.ReleaseAll(CurrentToken);
+	ActiveActions.Reset();
+	MontageRegistrations.Reset();
+	PoseTokens = FPoseTokens();
+	bGrounded = true;
+	bSheathed = true;
+
+	// 7) DestroyComponent（Host 自建 Resource 的最后一步）。
+	if (OwnedResource.Get())
+	{
+		if (OwnedResource->IsRegistered())
+		{
+			OwnedResource->DestroyComponent();
+		}
+		OwnedResource = nullptr;
+	}
 	ResourceProvider = nullptr;
+
+	CurrentWeapon = FEquippedWeaponSnapshot();
+	bShuttingDown = false;
 }
 
-// ── Token / Generation ──────────────────────────────────────────────────────
+void UMHGZWeaponRuntimeHostComponent::RebuildRuntime(
+	const FEquippedWeaponSnapshot& Snapshot)
+{
+	// TeardownRuntime 已保留 CurrentContext（Character/Controller/ASC/Equipment）。
+	++Generation;
+	if (Generation == 0)
+	{
+		++Generation;
+	}
+
+	bInitialized = true;
+	bShuttingDown = false;
+	NextActivationSequenceID = 1;
+
+	CurrentToken.Host = this;
+	CurrentToken.Generation = Generation;
+	CurrentContext.RuntimeToken = CurrentToken;
+
+	TagLedger.Initialize(CurrentToken, CurrentContext.ASC.Get());
+
+	if (UMHGZAbilitySystemComponent* ASC = CurrentContext.ASC.Get())
+	{
+		ASC->SetRuntimeHost(this);
+	}
+
+	InitializePoseState(CurrentContext.Character.Get());
+	ApplyWeaponSnapshot(Snapshot);
+}
+
+// ----------------------------------------------------------------------
+// Token / Generation
+// ----------------------------------------------------------------------
 
 bool UMHGZWeaponRuntimeHostComponent::IsTokenCurrent(const FWeaponRuntimeToken& Token) const
 {
@@ -95,7 +395,7 @@ bool UMHGZWeaponRuntimeHostComponent::IsTokenCurrent(const FWeaponRuntimeToken& 
 
 uint32 UMHGZWeaponRuntimeHostComponent::AllocateActivationSequenceID()
 {
-	if (!bInitialized)
+	if (!bInitialized || bShuttingDown)
 	{
 		return 0;
 	}
@@ -103,12 +403,14 @@ uint32 UMHGZWeaponRuntimeHostComponent::AllocateActivationSequenceID()
 	const uint32 SequenceID = NextActivationSequenceID++;
 	if (NextActivationSequenceID == 0)
 	{
-		NextActivationSequenceID = 1; // 永不发出 0。
+		NextActivationSequenceID = 1; // 永不出 0。
 	}
 	return SequenceID;
 }
 
-// ── Loose Tag Ledger ────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------
+// Loose Tag Ledger
+// ----------------------------------------------------------------------
 
 FWeaponTagOwnerID UMHGZWeaponRuntimeHostComponent::MakeOwnerID(
 	EWeaponTagOwnerKind Kind,
@@ -143,7 +445,7 @@ FWeaponOwnedTagToken UMHGZWeaponRuntimeHostComponent::AcquireTags(
 	FName LocalID,
 	const FGameplayTagContainer& Tags)
 {
-	if (!bInitialized)
+	if (!bInitialized || bShuttingDown)
 	{
 		return FWeaponOwnedTagToken();
 	}
@@ -173,11 +475,14 @@ int32 UMHGZWeaponRuntimeHostComponent::ReleaseTagsForOwner(
 		MakeOwnerID(Kind, AbilityHandle, ActivationSequenceID, LocalID));
 }
 
-// ── Active Action 注册表 ────────────────────────────────────────────────────
+// ----------------------------------------------------------------------
+// Active Action 注册表
+// ----------------------------------------------------------------------
 
 bool UMHGZWeaponRuntimeHostComponent::RegisterAction(const FWeaponActionToken& ActionToken)
 {
-	if (!bInitialized || !IsTokenCurrent(ActionToken.RuntimeToken) || !ActionToken.IsValid())
+	if (!bInitialized || bShuttingDown || !IsTokenCurrent(ActionToken.RuntimeToken)
+		|| !ActionToken.IsValid())
 	{
 		return false;
 	}
@@ -201,12 +506,12 @@ bool UMHGZWeaponRuntimeHostComponent::UnregisterAction(const FWeaponActionToken&
 
 void UMHGZWeaponRuntimeHostComponent::DispatchInputRelease(const FWeaponInputSnapshot& Snapshot)
 {
-	if (!bInitialized)
+	if (!bInitialized || bShuttingDown)
 	{
 		return;
 	}
 
-	// 释放身份不变量：仅分发给当前 Token、实例有效、且激活输入快照的
+	// 释放身份不变式：仅分发给当前 Token、实例有效、且激活输入快照的
 	// SourceControlTag + SequenceID 与本次 Release 完全一致的 Active Action。
 	for (FWeaponActionToken Action : ActiveActions)
 	{
@@ -231,14 +536,16 @@ void UMHGZWeaponRuntimeHostComponent::DispatchInputRelease(const FWeaponInputSna
 	}
 }
 
-// ── 精确 Montage 注册表 ─────────────────────────────────────────────────────
+// ----------------------------------------------------------------------
+// 精确 Montage 注册表
+// ----------------------------------------------------------------------
 
 bool UMHGZWeaponRuntimeHostComponent::RegisterMontage(
 	const FWeaponActionToken& ActionToken,
 	USkeletalMeshComponent* Mesh,
 	int32 MontageInstanceID)
 {
-	if (!bInitialized || !IsTokenCurrent(ActionToken.RuntimeToken)
+	if (!bInitialized || bShuttingDown || !IsTokenCurrent(ActionToken.RuntimeToken)
 		|| !ActionToken.IsValid() || !Mesh || MontageInstanceID == INDEX_NONE)
 	{
 		return false;
@@ -300,11 +607,13 @@ bool UMHGZWeaponRuntimeHostComponent::ResolveMontage(
 	return true;
 }
 
-// ── Pawn 姿态 ───────────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------
+// Pawn 姿态
+// ----------------------------------------------------------------------
 
 bool UMHGZWeaponRuntimeHostComponent::SetGrounded(bool bInGrounded)
 {
-	if (!bInitialized || bGrounded == bInGrounded)
+	if (!bInitialized || bShuttingDown || bGrounded == bInGrounded)
 	{
 		return false;
 	}
@@ -314,7 +623,7 @@ bool UMHGZWeaponRuntimeHostComponent::SetGrounded(bool bInGrounded)
 
 bool UMHGZWeaponRuntimeHostComponent::SetSheathed(bool bInSheathed)
 {
-	if (!bInitialized || bSheathed == bInSheathed)
+	if (!bInitialized || bShuttingDown || bSheathed == bInSheathed)
 	{
 		return false;
 	}
@@ -324,7 +633,7 @@ bool UMHGZWeaponRuntimeHostComponent::SetSheathed(bool bInSheathed)
 
 void UMHGZWeaponRuntimeHostComponent::HandleLanded()
 {
-	if (!bInitialized)
+	if (!bInitialized || bShuttingDown)
 	{
 		return;
 	}
@@ -410,7 +719,9 @@ void UMHGZWeaponRuntimeHostComponent::ReleasePoseToken(FWeaponOwnedTagToken& Tok
 	Token = FWeaponOwnedTagToken();
 }
 
-// ── 武器资源预留透传 ────────────────────────────────────────────────────────
+// ----------------------------------------------------------------------
+// 武器资源预留透传
+// ----------------------------------------------------------------------
 
 void UMHGZWeaponRuntimeHostComponent::SetResourceProvider(UMHGZWeaponResourceComponent* InProvider)
 {
@@ -432,7 +743,7 @@ bool UMHGZWeaponRuntimeHostComponent::TryReserveCosts(
 	FWeaponResourceCostReservation& OutReservation)
 {
 	OutReservation = FWeaponResourceCostReservation();
-	if (!bInitialized || !ActionToken.IsValid()
+	if (!bInitialized || bShuttingDown || !ActionToken.IsValid()
 		|| !IsTokenCurrent(ActionToken.RuntimeToken))
 	{
 		return false;
@@ -443,7 +754,7 @@ bool UMHGZWeaponRuntimeHostComponent::TryReserveCosts(
 
 	if (Specs.IsEmpty())
 	{
-		// 空 Specs：预留“成功”，ReservationID 保持 0 —— IsValid() 为 false，
+		// 空 Specs：预留“成功”，ReservationID 保持 0 —— Reservation.IsValid() 为 false，
 		// Release/Consume 对无效预留均为无操作。
 		return true;
 	}
@@ -477,30 +788,4 @@ void UMHGZWeaponRuntimeHostComponent::ConsumeReservedCosts(const FWeaponResource
 	{
 		Provider->ConsumeReservedCosts(Reservation);
 	}
-}
-
-// ── 内部清理 ────────────────────────────────────────────────────────────────
-
-void UMHGZWeaponRuntimeHostComponent::ClearRuntimeState()
-{
-	TagLedger.ReleaseAll(CurrentToken);
-	ResourceProvider = nullptr;
-
-	ActiveActions.Reset();
-	MontageRegistrations.Reset();
-	PoseTokens = FPoseTokens();
-	bGrounded = true;
-	bSheathed = true;
-
-	if (UMHGZAbilitySystemComponent* ASC = CurrentContext.ASC.Get())
-	{
-		if (ASC->GetRuntimeHost() == this)
-		{
-			ASC->SetRuntimeHost(nullptr);
-		}
-	}
-
-	CurrentContext = FWeaponRuntimeContext();
-	CurrentToken = FWeaponRuntimeToken();
-	bInitialized = false;
 }

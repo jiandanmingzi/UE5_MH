@@ -5,14 +5,9 @@
 #include "MHGZEquipmentDefinition.h"
 #include "MHGZPlayerState.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
-#include "ActionSystem/MHGZWeaponComboData.h"
-#include "ActionSystem/MHGZComboCoordinatorAbility.h"
-#include "AttributeSystem/MHGZWeaponResourceComponent.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
-#include "Data/MHGZDataManager.h"
 #include "Inventory/MHGZItemTypes.h"
 #include "AbilitySystemComponent.h"
-#include "GameplayEffect.h"
 
 UMHGZEquipmentComponent::UMHGZEquipmentComponent()
 {
@@ -38,7 +33,7 @@ void UMHGZEquipmentComponent::EquipItem(FGameplayTag SlotTag, UMHGZEquipmentInst
 {
 	if (!Item) return;
 
-	// 若槽位已有装备，先卸载
+	// 若槽位已有装备，先卸下旧装备
 	if (const TObjectPtr<UMHGZEquipmentInstance>* OldItem = EquippedItems.Find(SlotTag))
 	{
 		if (*OldItem)
@@ -91,39 +86,57 @@ void UMHGZEquipmentComponent::RemoveAccessory(UMHGZEquipmentInstance* HostItem, 
 
 void UMHGZEquipmentComponent::OnEquipmentChangedInternal()
 {
-	UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(GetPlayerASC());
-	if (!ASC) return;
-
-	// 先取消旧协调器并移除旧武器能力，随后再按新装备重建。
-	ASC->RemoveWeaponAbilities();
-
-	FGameplayTagContainer EquipmentTags;
-	EquipmentTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Effect.Source.Equipment")));
-
-	// 一行清空全部装备 GE
-	ASC->RemoveActiveEffectsWithAppliedTags(EquipmentTags);
-
-	// 销毁旧 ResourceComponent
-	AMHGZPlayerState* PS = Cast<AMHGZPlayerState>(GetOwner());
-	if (PS)
+	// 1) 解析新武器槽快照；仅在 EquipmentInstance / RuntimeDefinition 身份真实变化时
+	//    递增 WeaponRevision 并广播 WeaponChanged。重复同武器、护甲/饰品/镶嵌均为 no-op。
+	FEquippedWeaponSnapshot NewSnapshot;
+	if (UMHGZEquipmentInstance* Weapon = GetEquippedItem(
+		FGameplayTag::RequestGameplayTag(TEXT("Equipment.Slot.Weapon"))))
 	{
-		TArray<UMHGZWeaponResourceComponent*> ExistingRCs;
-		PS->GetComponents<UMHGZWeaponResourceComponent>(ExistingRCs);
-		for (UMHGZWeaponResourceComponent* RC : ExistingRCs)
+		NewSnapshot.EquipmentInstance = Weapon;
+		if (UMHGZWeaponDefinition* WeaponDef = Cast<UMHGZWeaponDefinition>(Weapon->Definition))
 		{
-			RC->ClearAllEntryModifiers();
-			RC->DestroyComponent();
+			NewSnapshot.WeaponDefinition = WeaponDef;
+			NewSnapshot.RuntimeDefinition = WeaponDef->RuntimeDefinition;
 		}
 	}
 
-	// 遍历所有已装备物品，重新 Apply
-	for (const auto& Pair : EquippedItems)
+	const bool bWeaponIdentityChanged =
+		CurrentWeaponSnapshot.EquipmentInstance.Get() != NewSnapshot.EquipmentInstance.Get()
+		|| CurrentWeaponSnapshot.RuntimeDefinition.Get() != NewSnapshot.RuntimeDefinition.Get();
+
+	if (bWeaponIdentityChanged)
 	{
-		ApplyItemEffects(Pair.Value);
+		NewSnapshot.WeaponRevision = CurrentWeaponSnapshot.WeaponRevision + 1;
+		CurrentWeaponSnapshot = NewSnapshot;
+		OnEquippedWeaponChanged.Broadcast(NewSnapshot);
+	}
+	else
+	{
+		// 同一身份：刷新定义引用但不递增修订，也不广播 WeaponChanged。
+		CurrentWeaponSnapshot.WeaponDefinition = NewSnapshot.WeaponDefinition;
+		CurrentWeaponSnapshot.RuntimeDefinition = NewSnapshot.RuntimeDefinition;
 	}
 
-	RecalculateEquipmentBaseAttributes(ASC);
+	UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(GetPlayerASC());
+	if (ASC)
+	{
+		// 2) 一行清空全部装备 GE
+		FGameplayTagContainer EquipmentTags;
+		EquipmentTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Effect.Source.Equipment")));
+		ASC->RemoveActiveEffectsWithAppliedTags(EquipmentTags);
 
+		// 3) 遍历所有已装备物品，重新 Apply 持久装备效果
+		for (const auto& Pair : EquippedItems)
+		{
+			ApplyItemEffects(Pair.Value);
+		}
+
+		// 4) 重算基础三围
+		RecalculateEquipmentBaseAttributes(ASC);
+	}
+
+	// 5) 属性/词条重算通知 + M1 遗留委托（不再承担武器运行时重建）
+	OnEquipmentStatsChanged.Broadcast();
 	OnEquipmentChanged.Broadcast();
 }
 
@@ -159,79 +172,8 @@ void UMHGZEquipmentComponent::ApplyItemEffects(UMHGZEquipmentInstance* Item)
 	UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(GetPlayerASC());
 	if (!ASC) return;
 
-	// Apply 词条 GE
+	// 仅持久装备效果：词条 GE（当前 Demo 阶段为占位实现）。
 	ApplyEntryGEs(ASC, Item->Definition->Entries);
-
-	// 检查是否为武器定义
-	if (UMHGZWeaponDefinition* WeaponDef = Cast<UMHGZWeaponDefinition>(Item->Definition))
-	{
-		AActor* Owner = GetOwner();
-		UMHGZDataManager* DataMgr = UMHGZDataManager::Get(this);
-
-		// ── ① 创建 ResourceComponent（查 DT_WeaponResourceConfig）──
-		if (DataMgr)
-		{
-			if (UDataTable* ResConfigDT = DataMgr->GetWeaponResourceConfig())
-			{
-				TArray<FWeaponResourceConfigRow*> ResRows;
-				ResConfigDT->GetAllRows<FWeaponResourceConfigRow>(TEXT("MHGZ"), ResRows);
-				for (const FWeaponResourceConfigRow* ResRow : ResRows)
-				{
-					if (ResRow && ResRow->WeaponTypeTag == WeaponDef->WeaponTypeTag
-						&& ResRow->ResourceComponentClass)
-					{
-						if (Owner)
-						{
-							UMHGZWeaponResourceComponent* RC = NewObject<UMHGZWeaponResourceComponent>(
-								Owner, ResRow->ResourceComponentClass);
-							RC->RegisterComponent();
-						}
-						break;
-					}
-				}
-			}
-		}
-
-		// ── ② 查连招表映射 → ③ 激活协调器 + 注入 → ④ 授予武器技能 ──
-		if (DataMgr)
-		{
-			if (UDataTable* ComboConfigDT = DataMgr->GetWeaponComboConfig())
-			{
-				TArray<FWeaponComboConfigRow*> ComboRows;
-				ComboConfigDT->GetAllRows<FWeaponComboConfigRow>(TEXT("MHGZ"), ComboRows);
-				for (const FWeaponComboConfigRow* ComboRow : ComboRows)
-				{
-					if (!ComboRow || ComboRow->WeaponTypeTag != WeaponDef->WeaponTypeTag
-						|| ComboRow->ComboDataAsset.IsNull())
-					{
-						continue;
-					}
-
-					UMHGZWeaponComboData* ComboData = ComboRow->ComboDataAsset.LoadSynchronous();
-					if (!ComboData) break;
-
-					// ③ 授予所有武器 Ability（从 Transitions 收集）
-					TArray<TSubclassOf<UGameplayAbility>> WeaponAbilities;
-					for (const FComboTransition& Transition : ComboData->Transitions)
-					{
-						if (Transition.AbilityClass)
-						{
-							WeaponAbilities.AddUnique(Transition.AbilityClass);
-						}
-					}
-					ASC->GrantWeaponAbilities(WeaponAbilities);
-
-					// ④ 激活连招协调器并注入连招表。协调器输入只激活上一步的 Handle。
-					UGA_WeaponComboCoordinator* Coord = NewObject<UGA_WeaponComboCoordinator>(Owner);
-					FGameplayAbilitySpec CoordSpec(Coord, 1, INDEX_NONE, ASC);
-					ASC->GiveAbilityAndActivateOnce(CoordSpec);
-					Coord->InjectComboData(ComboData);
-
-					break;  // 一个武器只匹配一行
-				}
-			}
-		}
-	}
 
 	// 遍历镶嵌的饰品
 	for (const auto& SocketPair : Item->SocketedAccessories)
@@ -250,7 +192,7 @@ void UMHGZEquipmentComponent::ApplyEntryGEs(UAbilitySystemComponent* ASC,
 
 	for (const FEntryReference& EntryRef : Entries)
 	{
-		// Demo 阶段简化：不实现完整词条系统
-		// 完整实现见 attributes.md §DT_EntryCatalog + UExecCalc_EntryStat
+		// Demo 阶段简化：不实现完整词条系统。
+		// 完整实现见 attributes.md §DT_EntryCatalog + UExecCalc_EntryStat。
 	}
 }

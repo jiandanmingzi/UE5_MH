@@ -29,16 +29,6 @@ UDataTable* UMHGZDataManager::GetEntryCatalog() const
 	return EntryCatalog.LoadSynchronous();
 }
 
-UDataTable* UMHGZDataManager::GetWeaponComboConfig() const
-{
-	return WeaponComboConfig.LoadSynchronous();
-}
-
-UDataTable* UMHGZDataManager::GetWeaponResourceConfig() const
-{
-	return WeaponResourceConfig.LoadSynchronous();
-}
-
 UCurveTable* UMHGZDataManager::GetAbilityScalars() const
 {
 	return AbilityScalars.LoadSynchronous();

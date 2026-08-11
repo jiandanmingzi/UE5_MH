@@ -12,13 +12,13 @@ class UMHGZAttributeSet;
 class UMHGZEquipmentComponent;
 class UMHGZBackpackComponent;
 class UMHGZWarehouseComponent;
-class UMHGZWeaponResourceComponent;
 
 /**
  * AMHGZPlayerState
  * - ASC 挂载于此（跨 Character 生命周期）
- * - 装备/背包/仓库/武器资源组件全部挂载于此
- * - 必须启用 Tick（WeaponResourceComponent 依赖）
+ * - 装备/背包/仓库等持久数据组件挂载于此
+ * - Pawn 世界运行时（武器 Resource、猎虫、动作）由 Character RuntimeHost 持有
+ * - PlayerState 自身不需要 Tick
  */
 UCLASS()
 class AMHGZPlayerState : public APlayerState, public IAbilitySystemInterface

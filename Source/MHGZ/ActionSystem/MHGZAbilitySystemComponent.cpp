@@ -66,6 +66,9 @@ void UMHGZAbilitySystemComponent::RemoveWeaponAbilities()
 		ClearAbility(Handle);
 	}
 	WeaponAbilityHandles.Empty();
+
+	// 旧武器的一次性激活上下文全部作废，防止换武器后被新激活误消费。
+	PendingActivationContexts.Empty();
 }
 
 FGameplayAbilitySpecHandle UMHGZAbilitySystemComponent::FindWeaponAbilityHandle(

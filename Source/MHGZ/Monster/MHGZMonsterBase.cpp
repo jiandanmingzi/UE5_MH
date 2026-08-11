@@ -3,6 +3,7 @@
 #include "MHGZMonsterBase.h"
 #include "MHGZMonsterHitzoneComponent.h"
 #include "MHGZDummyConfig.h"
+#include "ActionSystem/MHGZHitFeedbackRouterComponent.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "AbilitySystemComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -11,6 +12,11 @@ AMHGZMonsterBase::AMHGZMonsterBase()
 {
 	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AttributeSet = CreateDefaultSubobject<UMHGZAttributeSet>(TEXT("AttributeSet"));
+	AbilitySystemComponent->AddAttributeSetSubobject(AttributeSet.Get());
+
+	// M2 parallel-domain dependency: this header is provided by the feedback writer.
+	// The dummy routes AttributeSet -> Router through this component.
+	HitFeedbackRouter = CreateDefaultSubobject<UMHGZHitFeedbackRouterComponent>(TEXT("HitFeedbackRouter"));
 
 	// 实体 Body 只负责物理阻挡；Hitzone 独立承担武器、准心与肉质查询。
 	GetCapsuleComponent()->SetCollisionProfileName(TEXT("MonsterBody"));
@@ -63,6 +69,7 @@ void AMHGZMonsterBase::GenerateHitzonesFromConfig(UMHGZDummyConfig* Config)
 			NewObject<UMHGZMonsterHitzoneComponent>(this, ComponentName);
 		Hitzone->BoneName = HZConfig.BoneName;
 		Hitzone->HitzoneTag = HZConfig.HitzoneTag;
+		Hitzone->ExtractColorTag = HZConfig.ExtractColorTag;
 		Hitzone->DefenseMultiplier = HZConfig.DefenseMultiplier;
 		Hitzone->StaggerRate = HZConfig.StaggerRate;
 
@@ -73,6 +80,7 @@ void AMHGZMonsterBase::GenerateHitzonesFromConfig(UMHGZDummyConfig* Config)
 			HZConfig.BoneName);
 		AddInstanceComponent(Hitzone);
 		Hitzone->RegisterComponent();
-		Hitzone->SetSphereRadius(FMath::Max(1.f, HZConfig.HalfExtent.X));
+		Hitzone->SetRelativeLocation(HZConfig.RelativeLocation);
+		Hitzone->SetSphereRadius(FMath::Max(1.f, HZConfig.Radius));
 	}
 }

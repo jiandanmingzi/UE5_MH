@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "GameplayEffectAttributeCaptureDefinition.h"
 #include "GameplayEffectExecutionCalculation.h"
 #include "MHGZDamageExecCalc.generated.h"
 
@@ -25,4 +26,9 @@ public:
 	virtual void Execute_Implementation(
 		const FGameplayEffectCustomExecutionParameters& ExecutionParams,
 		FGameplayEffectCustomExecutionOutput& OutExecutionOutput) const override;
+
+private:
+	FGameplayEffectAttributeCaptureDefinition SourceAttackPowerDef;
+	FGameplayEffectAttributeCaptureDefinition SourceCriticalRateDef;
+	FGameplayEffectAttributeCaptureDefinition SourceStaggerMultiplierDef;
 };

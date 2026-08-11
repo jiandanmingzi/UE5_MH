@@ -21,7 +21,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnTripleUpChanged);
 
 /**
  * URes_InsectGlaive — 虫棍资源组件
- * 挂载到 PlayerState。管理猎虫生命周期、猎虫耐力、三灯萃取、灯消耗。
+ * 由 Character RuntimeHost 动态创建。管理猎虫生命周期、猎虫耐力、三灯萃取、灯消耗。
  */
 UCLASS(ClassGroup = (MHGZ), BlueprintType)
 class URes_InsectGlaive : public UMHGZWeaponResourceComponent
@@ -34,6 +34,7 @@ public:
 	virtual void BeginPlay() override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
+	virtual void ShutdownRuntime(EWeaponRuntimeEndReason Reason) override;
 
 	// ═══════════════════════════════════════════
 	// 猎虫生命周期

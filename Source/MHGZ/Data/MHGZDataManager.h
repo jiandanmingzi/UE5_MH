@@ -11,9 +11,9 @@ class UDataTable;
 class UCurveTable;
 
 /**
- * UMHGZDataManager — 全局 DataTable/CurveTable 集中管理
+ * UMHGZDataManager —— 全局 DataTable/CurveTable 集中管理
  * GameInstanceSubsystem，生命周期与 GameInstance 相同
- * 策划一处配置，所有系统通过 GetSubsystem 获取
+ * 策画一处配置，所有系统通过 GetSubsystem 获取
  */
 UCLASS(Config = Game, DefaultConfig)
 class UMHGZDataManager : public UGameInstanceSubsystem
@@ -24,21 +24,12 @@ public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
 
-	// ═══════════════════════════════════════════
+	// ----------------------------------------------------------------------
 	// DataTable 引用
-	// ═══════════════════════════════════════════
-
+	// ----------------------------------------------------------------------
 	/** 词条目录 */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
 	TSoftObjectPtr<UDataTable> EntryCatalog;
-
-	/** 武器→连招表映射 */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
-	TSoftObjectPtr<UDataTable> WeaponComboConfig;
-
-	/** 武器→资源组件映射 */
-	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
-	TSoftObjectPtr<UDataTable> WeaponResourceConfig;
 
 	/** Ability 标量曲线表 */
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
@@ -52,15 +43,12 @@ public:
 	UPROPERTY(Config, EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Data")
 	TSoftObjectPtr<UDataTable> DodgeConfig;
 
-	// ═══════════════════════════════════════════
+	// ----------------------------------------------------------------------
 	// 查询接口
-	// ═══════════════════════════════════════════
-
+	// ----------------------------------------------------------------------
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|DataManager")
 	static UMHGZDataManager* Get(const UObject* WorldContext);
 
 	UDataTable* GetEntryCatalog() const;
-	UDataTable* GetWeaponComboConfig() const;
-	UDataTable* GetWeaponResourceConfig() const;
 	UCurveTable* GetAbilityScalars() const;
 };

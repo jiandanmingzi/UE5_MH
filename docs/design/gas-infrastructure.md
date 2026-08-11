@@ -1,8 +1,8 @@
 # GAS 基础设施
 
-> **实施状态说明：** ASC/AttributeSet/装备/背包/仓库的挂载位置和 `InitAbilityActorInfo` 已按本文实现；背包、仓库仍是桩组件，武器资源组件只会在装备表配置匹配行时动态创建。Seamless Travel、SaveGame 与 QuestManager 均为保留的后续方案，当前项目没有对应实现。
+> **实施状态说明：** M1/M2 已完成 ASC/AttributeSet 挂载、`InitAbilityActorInfo`、输入/动作 Token、装备 Snapshot 和 Pawn RuntimeHost 生命周期。背包、仓库仍是桩组件；武器 Resource 现由 Character 上的 RuntimeHost 根据 `WeaponDefinition → RuntimeDefinition` 动态创建，不再读取装备 DataTable。Seamless Travel、SaveGame 与 QuestManager 均为后续方案。
 
-> **Demo 冻结目标：** 当前 Weapon Resource 实际仍创建在 PlayerState，尚未达到下表的 RuntimeHost 归属。迁移接口和固定 Shutdown 顺序见 [Demo 实施计划 §3.4](demo-implementation-plan.md#34-武器资源宿主与清理顺序)。
+> **Demo 冻结目标：** Weapon Resource 已迁移到 Pawn RuntimeHost 归属；换武器、死亡、UnPossess 与 EndPlay 统一走固定 Shutdown 顺序。虫棍 Resource 内部的精华/猎虫最终状态机仍由 M3 完成，接口和顺序见 [Demo 实施计划 §3.4](demo-implementation-plan.md#34-武器资源宿主与清理顺序)。
 
 > 以下三节为 GAS 初始化必须明确的架构决策，是先决条件而非可选设计。
 

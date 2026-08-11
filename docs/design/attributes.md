@@ -1,18 +1,18 @@
 # 角色属性与装备系统
 
-> **实施状态说明（以源码为准）：** 本文保留完整属性、装备、词条和受击设计。当前已实现 AttributeSet、装备定义/实例、装备槽管理、基础三围重算、武器 Ability/连招表注入和资源组件动态创建；词条执行计算、完整受击/霸体链路及部分数据资产仍是下文保留方案。
+> **实施状态说明（以源码为准）：** M2 已实现 AttributeSet 四个 Incoming Meta 的原子结算、装备 Snapshot 差分、Pawn RuntimeHost 动态授予/撤销武器 Ability 与 Resource，以及玩家 IncomingHitResolver/反击 Token 基底。词条执行计算、正式受击/霸体 Ability、虫棍资源状态机及最终数据资产仍是后续方案。
 
 ## 当前实现
 
 | 模块 | 当前状态 |
 |------|----------|
-| AttributeSet | `Health/MaxHealth`、`Stamina/MaxStamina`、耐力三倍率、`AttackPower`、`Defense`、`CriticalRate`、`StaggerMultiplier`、`MoveSpeedMultiplier` 已实现并带 Clamp。 |
+| AttributeSet | 常规属性与 Clamp 已实现；`IncomingDamage/IncomingStagger/IncomingCriticalFlag/IncomingHitSignal` 为非复制 Meta，HitSignal 到达时一次读取清零、扣血、发硬直事件并组装反馈。Health 首次归零会关停 Pawn RuntimeHost。 |
 | 装备基础属性 | `UMHGZEquipmentComponent` 当前通过 `SetNumericAttributeBase` 汇总 Attack/Defense/Crit，不是通过装备 GE 写入基础三围。 |
-| 装备效果重建 | 装备变化会移除带 `Effect.Source.Equipment` 的 Active GE、销毁旧资源组件、重新遍历装备，并重授武器 Ability/协调器。 |
+| 装备效果重建 | `OnEquipmentStatsChanged` 与 `OnEquippedWeaponChanged(FEquippedWeaponSnapshot)` 已分离。相同武器实例/RuntimeDefinition 不重建；真正换武器由 Character RuntimeHost 统一撤销 Coordinator/Ability、关闭 Resource、使旧 Token 失效并重建。 |
 | 词条 | `FEntryReference/FEntryDefinition/FEntryModifier` 已定义，但 `ApplyEntryGEs` 当前为空；`GE_EntryStat` 与 `UExecCalc_EntryStat` 未实现。 |
-| 武器资源映射 | `FWeaponResourceConfigRow` 和同步 Getter 已实现；当前没有 `DT_WeaponResourceConfig` 资产或配置路径。 |
+| 武器资源映射 | 运行时只走 `UMHGZWeaponDefinition::RuntimeDefinition`，再取得 ResourceClass/InputProfile/CombatConfig；旧 WeaponComboConfig/DataManager Getter 与 Equipment DataTable 查询已删除。 |
 | MoveSpeedMultiplier | 属性与 Clamp 已实现，但当前 Motion Matching 速度计算尚未读取该值。 |
-| 受击/霸体 | Tag 与部分事件骨架存在；Damage ExecCalc 尚未输出硬直，完整玩家受击 Ability/霸体比较属于规划。 |
+| 受击/霸体 | `IncomingHitResolver` 已支持目标校验、AttackInstance 去重和按优先级/TTL 的当前 ActionToken 拦截；Damage ExecCalc 输出硬直 Meta，AttributeSet 发送硬直事件。正式受击 Ability、霸体比较和动画仍待后续。 |
 
 **目标设计：** 装备基础数值与词条最终统一通过 GAS 表达。当前实现会直接用 `SetNumericAttributeBase` 重算 AttackPower/Defense/CriticalRate；只有后续词条/效果方案计划使用 GameplayEffect。装备变化时，已存在的装备 GE 通过 `RemoveActiveEffectsWithAppliedTags(Effect.Source.Equipment)` 清理。
 

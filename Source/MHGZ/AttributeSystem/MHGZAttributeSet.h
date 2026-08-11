@@ -91,6 +91,26 @@ public:
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, StaggerMultiplier)
 
 	// ═══════════════════════════════════════════
+	// 命中结算 Meta（非复制，只由 ExecCalc 写入，HitSignal 时原子读取并清零）
+	// ═══════════════════════════════════════════
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
+	FGameplayAttributeData IncomingDamage;
+	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, IncomingDamage)
+
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
+	FGameplayAttributeData IncomingStagger;
+	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, IncomingStagger)
+
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
+	FGameplayAttributeData IncomingCriticalFlag;
+	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, IncomingCriticalFlag)
+
+	/** ExecCalc 最后输出的结算信号；AttributeSet 只在此属性到达时生成一次反馈。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
+	FGameplayAttributeData IncomingHitSignal;
+	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, IncomingHitSignal)
+
+	// ═══════════════════════════════════════════
 	// 移速
 	// ═══════════════════════════════════════════
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Movement", ReplicatedUsing = OnRep_MoveSpeedMultiplier)

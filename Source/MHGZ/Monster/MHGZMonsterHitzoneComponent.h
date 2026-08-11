@@ -36,6 +36,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	FGameplayTag HitzoneTag;
 
+	/** Extract color provided by this part (leaf Red/White/Orange). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
+	FGameplayTag ExtractColorTag;
+
 	/** 肉质——伤害倍率（典型值 0.2~1.5） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	float DefenseMultiplier = 1.0f;
@@ -43,6 +47,10 @@ public:
 	/** 硬直肉质——硬直倍率（典型值 0.2~1.0） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	float StaggerRate = 1.0f;
+
+	/** Sphere radius in cm; runtime generation uses this, not the old HalfExtent. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone", meta = (ClampMin = "0.0"))
+	float Radius = 30.f;
 
 	/** 强制恢复所有通道到常态 */
 	void ForceRestoreAllChannels();

@@ -8,6 +8,8 @@
 #include "GameplayTagContainer.h"
 #include "MHGZGameplayEffectContext.generated.h"
 
+class UCameraShakeBase;
+
 UENUM(BlueprintType)
 enum class EMHGZDamageSourceType : uint8
 {
@@ -37,6 +39,10 @@ struct MHGZ_API FMHGZGameplayEffectContext : public FGameplayEffectContext
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FGameplayTag HitzoneTag;
 
+	/** false 时该伤害段忽略 Hitzone DefenseMultiplier；硬直肉质仍正常参与。 */
+	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
+	bool bUseHitzoneDefense = true;
+
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	EMHGZDamageSourceType DamageSourceType = EMHGZDamageSourceType::Weapon;
 
@@ -45,6 +51,22 @@ struct MHGZ_API FMHGZGameplayEffectContext : public FGameplayEffectContext
 
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FGameplayTag ElementCueTag;
+
+	/** 硬直等级 Tag（Combat.Stagger.Light/Medium/Heavy）；AttributeSet 按它广播 HitStagger 事件。 */
+	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
+	FGameplayTag HitStaggerTag;
+
+	/** 卡肉时长（秒）；Router 提交给 SourceActor 的 HitStopController。 */
+	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
+	float HitStopDuration = 0.f;
+
+	/** 镜头震动类（可空）。 */
+	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
+	TSubclassOf<UCameraShakeBase> CameraShakeClass;
+
+	/** 镜头震动强度倍率（0.0~1.0）。 */
+	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
+	float CameraShakeScale = 0.f;
 
 	virtual UScriptStruct* GetScriptStruct() const override;
 	virtual FMHGZGameplayEffectContext* Duplicate() const override;

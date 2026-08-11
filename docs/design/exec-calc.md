@@ -1,6 +1,6 @@
 # 伤害执行计算（ExecCalc）
 
-> **实施状态说明（以源码与 Content 为准）：** 单一 `UMHGZDamageExecCalc` 和原生 `UMHGZDamageGameplayEffect` 已实现武器伤害；硬直输出、暴击 GameplayCue、伤害数字和猎虫伤害资产尚未接通。本文保留这些模块的完整目标方案，规划伪代码不表示当前已经运行。
+> **实施状态说明（以源码与 Content 为准）：** M2 已把武器/木桩 Demo 伤害接入单一 `UMHGZDamageExecCalc`、自定义 EffectContext、四个 Incoming Meta、AttributeSet 原子结算和 FeedbackRouter。硬直事件与伤害数字 Cue 路由已存在，但 GameplayCue Content 资产尚未创建；猎虫伤害仍沿用旧硬编码资产路径，必须由 M3 改接统一 Context/GE 后才可用。
 
 > **Demo 范围：** 当前只需要稳定验证动作值、命中部位、会心、舞踏倍率和木桩扣血。斩味、斩/打肉质、属性、异常、眩晕、耐力伤害、部位破坏和任务倍率属于后续扩展；它们通过 `FCombatDamageContext` 和 ExecCalc 阶段增加，不要求在本次 Demo 先完整设计。
 
@@ -8,10 +8,10 @@
 
 | 项目 | 当前状态 |
 |------|----------|
-| 伤害公式 | `max(1, AttackPower × MotionValue × HitzoneDefense × (暴击?1.25:1))`，已输出到 Target Health。 |
-| 输入 | 已读取 `Damage.MotionValue`、`Damage.BaseStagger`、`Damage.AttackPower`、`Damage.CritOverride`；Hitzone 通过 DynamicAssetTags 查目标部位组件。 |
-| 硬直 | `BaseStagger`、`StaggerMultiplier`、`StaggerRate` 会被读取，但没有产生 Output/Event；等级映射函数也未被 Execute 调用。 |
-| GameplayCue | Attack/Kinsect 代码把 Cue Tag 加入 DynamicAssetTags；ExecCalc 不触发暴击 Cue，当前没有 GC 资产或对象池。 |
+| 伤害公式 | `AttackPower × MotionValue × HitzoneDefense × Crit × DanceMultiplier`；零/负动作值为 0，正动作值最低 1。ExecCalc 只写 Meta，不直接扣 Health。 |
+| 输入 | SetByCaller 读取 MotionValue/BaseStagger/可选 AttackPower/Crit/Dance；Hitzone Defense/StaggerRate 从 EffectContext 的真实 HitComponent 读取，DynamicAssetTags 仅作调试镜像。 |
+| 硬直 | `BaseStagger × SourceStaggerMultiplier × HitzoneStaggerRate` 输出 `IncomingStagger`；AttributeSet 仅在有效 StaggerTag 且值大于 0 时发送硬直事件。 |
+| GameplayCue | AttributeSet 结算后构造唯一 `FMHGZHitFeedbackResult`；目标侧 Router 显式执行 Hit/Element/DamageNumber Cue，并提交 HitStop/CameraShake。Content 资产仍待 E6。 |
 | GameplayEffect | 通用伤害是 C++ 类 `UMHGZDamageGameplayEffect`（Instant + `UMHGZDamageExecCalc`），不是 `GE_Damage.uasset`。 |
 | 猎虫伤害 | 代码硬编码加载 `/Game/GameplayEffects/Core/GE_KinsectDamage`，但资产不存在，因此该路径当前无法结算。 |
 

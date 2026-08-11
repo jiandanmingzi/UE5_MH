@@ -1,6 +1,6 @@
 # 怪物与靶子系统
 
-> **实施状态说明（以源码与 Content 为准）：** 当前木桩已具备基础 ASC、`UMHGZAttributeSet`、默认 1000 生命、球形 Hitzone、配置驱动 Mesh/Montage 和生命变化委托；尚无本文要求的三色 Hitzone 和确定性反击测试攻击。本轮只设计木桩 Demo，不设计正式怪物 AI。
+> **实施状态说明（以源码与 Content 为准）：** M2 已完成木桩侧 C++ 基底：ASC 正式注册 AttributeSet、配置可生成恰好 Red/White/Orange 三个互不重叠球形 Hitzone，并可用固定 `AttackInstanceID` 向玩家 `IncomingHitResolver` 提交确定性攻击。实际 `DA_TrainingDummy` 的三部位位置、碰撞与测试攻击数值仍须在 E5 配置；周期预警/自动触发、正式怪物 AI、死亡和部位破坏仍未实现。
 
 **设计原则：** 当前木桩负责可重复验证伤害、红/白/橙提取、贯通、多部位轨迹和突进回旋斩反击。反击测试攻击是训练设施，不是怪物 AI。
 

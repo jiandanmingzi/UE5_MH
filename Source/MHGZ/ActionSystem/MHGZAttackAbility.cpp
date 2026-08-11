@@ -3,6 +3,7 @@
 #include "MHGZAttackAbility.h"
 #include "MHGZAbilitySystemComponent.h"
 #include "MHGZComboCoordinatorAbility.h"
+#include "MHGZGameplayEffectContext.h"
 #include "MHGZCharacter.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
@@ -19,13 +20,6 @@
 
 namespace
 {
-	FName ResolveLegacyTraceEndSocket(const FAttackCollisionConfig& Collision)
-	{
-		return !Collision.TraceEndSocketName.IsNone()
-			? Collision.TraceEndSocketName
-			: Collision.AttachSocketName;
-	}
-
 	FVector EvaluateRotatingRegionPoint(
 		const FVector& PreviousStart,
 		const FVector& PreviousEnd,
@@ -152,6 +146,12 @@ void UMHGZAttackAbility::ActivateAbility(
 	bHasHitThisActivation = false;
 	bHasActiveRootMotionTask = false;
 	bIsEndingAbility = false;
+	// 每次激活生成稳定攻击身份：一次激活内所有伤害/多跳/反馈共享同一 ID。
+	ActivationAttackInstanceID = FGuid::NewGuid();
+	DirectionWarpTargetName = FName(*FString::Printf(
+		TEXT("AttackDirection_%llu_%u"),
+		GetActionToken().RuntimeToken.Generation,
+		GetActionToken().ActivationSequenceID));
 
 	// 方向修正
 	ApplyDirectionCorrection();
@@ -198,8 +198,18 @@ void UMHGZAttackAbility::EndAbility(
 	}
 	bIsEndingAbility = true;
 
-	// 关碰撞（幂等安全——清除 MultiHitTimer）
+	// 关碰撞（幂等安全——清除全部窗口与每目标 LockedTarget Timer）
 	DisableCollision();
+
+	// 移除本实例遗留的方向修正 WarpTarget，防止跨激活残留。
+	if (!DirectionWarpTargetName.IsNone())
+	{
+		if (UMotionWarpingComponent* MotionWarping = GetMotionWarpingComponent())
+		{
+			MotionWarping->RemoveWarpTarget(DirectionWarpTargetName);
+		}
+		DirectionWarpTargetName = NAME_None;
+	}
 
 	// AbilityTask 会在 Ability 结束时负责停止 Montage 并解绑委托。
 	MontageTask = nullptr;
@@ -253,7 +263,7 @@ void UMHGZAttackAbility::ApplyDirectionCorrection()
 		{
 			const FVector TargetLocation = Character->GetActorLocation() + InputDir.GetSafeNormal() * 500.f;
 			MotionWarping->AddOrUpdateWarpTargetFromLocation(
-				FName("AttackDirection"),
+				DirectionWarpTargetName,
 				TargetLocation);
 		}
 	}
@@ -288,7 +298,10 @@ void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)
 
 	if (FCollisionWindowRuntimeState* ExistingState = ActiveCollisionWindows.Find(SegmentIndex))
 	{
-		Character->GetWorldTimerManager().ClearTimer(ExistingState->MultiHitTimer);
+		for (TPair<TWeakObjectPtr<AActor>, FHitTargetRuntimeState>& Pair : ExistingState->HitTargets)
+		{
+			Character->GetWorldTimerManager().ClearTimer(Pair.Value.TickTimer);
+		}
 		ActiveCollisionWindows.Remove(SegmentIndex);
 	}
 
@@ -341,30 +354,18 @@ void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)
 		WindowState.Regions.Add(MoveTemp(RuntimeRegion));
 	};
 
-	if (!Seg.Collision.TraceRegions.IsEmpty())
+	// 运行时只接受非空 TraceRegions；旧 Collision/Socket 字段只作序列化壳，不参与决策。
+	if (Seg.Collision.TraceRegions.IsEmpty())
 	{
-		for (const FWeaponTraceRegion& Region : Seg.Collision.TraceRegions)
-		{
-			AddRuntimeRegion(Region);
-		}
+		UE_LOG(LogTemp, Warning,
+			TEXT("[Attack] Segment %d has no TraceRegions configured; collision window will not open (legacy fields are no longer read)."),
+			SegmentIndex);
+		return;
 	}
-	else
+
+	for (const FWeaponTraceRegion& Region : Seg.Collision.TraceRegions)
 	{
-		FWeaponTraceRegion LegacyRegion;
-		LegacyRegion.StartSocketName = Seg.Collision.TraceStartSocketName;
-		LegacyRegion.EndSocketName = ResolveLegacyTraceEndSocket(Seg.Collision);
-		LegacyRegion.Radius = FMath::Max(1.0f, Seg.Collision.ShapeExtent.X);
-		LegacyRegion.MaxSampleSpacing = LegacyRegion.Radius * 2.0f;
-		LegacyRegion.MaxSampleCount = FMath::Clamp(Seg.Collision.TraceSampleCount, 1, 8);
-		AddRuntimeRegion(LegacyRegion);
-		if (!WindowState.Regions.IsEmpty())
-		{
-			FTraceRegionRuntimeState& RuntimeRegion = WindowState.Regions.Last();
-			RuntimeRegion.FixedSampleCount = FMath::Clamp(Seg.Collision.TraceSampleCount, 1, 8);
-			RuntimeRegion.LegacyShape = Seg.Collision.Shape;
-			RuntimeRegion.LegacyShapeExtent = Seg.Collision.ShapeExtent;
-			RuntimeRegion.bUseLegacyShape = true;
-		}
+		AddRuntimeRegion(Region);
 	}
 
 	if (WindowState.Regions.IsEmpty())
@@ -395,7 +396,10 @@ void UMHGZAttackAbility::DisableCollision(int32 SegmentIndex)
 
 	if (ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
 	{
-		Character->GetWorldTimerManager().ClearTimer(WindowState->MultiHitTimer);
+		for (TPair<TWeakObjectPtr<AActor>, FHitTargetRuntimeState>& Pair : WindowState->HitTargets)
+		{
+			Character->GetWorldTimerManager().ClearTimer(Pair.Value.TickTimer);
+		}
 	}
 
 	CurrentSegmentIndex = SegmentIndex;
@@ -468,9 +472,8 @@ void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
 		const int32 DesiredSampleCount = RegionLength <= KINDA_SMALL_NUMBER
 			? 1
 			: FMath::CeilToInt(RegionLength / SafeSpacing) + 1;
-		const int32 SampleCount = RegionState.FixedSampleCount > 0
-			? RegionState.FixedSampleCount
-			: FMath::Clamp(DesiredSampleCount, 1, RegionState.MaxSampleCount);
+		const int32 SampleCount =
+			FMath::Clamp(DesiredSampleCount, 1, RegionState.MaxSampleCount);
 
 		const FVector PreviousSpan = RegionState.PreviousEnd - RegionState.PreviousStart;
 		const FVector CurrentSpan = CurrentEnd - CurrentStart;
@@ -486,28 +489,9 @@ void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
 			FMath::CeilToInt(AngularDeltaDegrees /
 				FMath::Max(1.0f, RegionState.MaxAngularStepDegrees)), 1, 8);
 
-		FCollisionShape QueryShape = FCollisionShape::MakeSphere(RegionState.Radius);
-		FQuat QueryRotation = FQuat::Identity;
-		if (RegionState.bUseLegacyShape)
-		{
-			switch (RegionState.LegacyShape)
-			{
-			case EAttackCollisionShape::Capsule:
-				QueryShape = FCollisionShape::MakeCapsule(
-					FMath::Max(1.0f, RegionState.LegacyShapeExtent.X),
-					FMath::Max(RegionState.LegacyShapeExtent.X, RegionState.LegacyShapeExtent.Z));
-				QueryRotation = Mesh->GetComponentQuat();
-				break;
-			case EAttackCollisionShape::Box:
-				QueryShape = FCollisionShape::MakeBox(
-					RegionState.LegacyShapeExtent.GetAbs().ComponentMax(FVector(1.0f)));
-				QueryRotation = Mesh->GetComponentQuat();
-				break;
-			case EAttackCollisionShape::Sphere:
-			default:
-				break;
-			}
-		}
+		// 新 TraceRegions 全部按球形 Sweep 结算；旧 Shape/ShapeExtent 不参与决策。
+		const FCollisionShape QueryShape = FCollisionShape::MakeSphere(RegionState.Radius);
+		const FQuat QueryRotation = FQuat::Identity;
 
 		for (int32 TemporalStep = 0; TemporalStep < TemporalStepCount; ++TemporalStep)
 		{
@@ -530,12 +514,12 @@ void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
 					Hits, SweepFrom, SweepTo, QueryRotation,
 					Collision.CollisionChannel, QueryShape, QueryParams);
 
+				// 同帧多 Region/时间子步只保留每 Actor 帧时间最早的命中。
 				for (const FHitResult& Hit : Hits)
 				{
 					AActor* OtherActor = Hit.GetActor();
 					const TWeakObjectPtr<AActor> ActorKey(OtherActor);
-					if (!OtherActor || OtherActor == Character ||
-						WindowState->HitTargets.Contains(ActorKey))
+					if (!OtherActor || OtherActor == Character)
 					{
 						continue;
 					}
@@ -595,8 +579,7 @@ void UMHGZAttackAbility::ProcessSweepHit(const FHitResult& Hit, int32 SegmentInd
 
 	AActor* OtherActor = Hit.GetActor();
 	const TWeakObjectPtr<AActor> ActorKey(OtherActor);
-	if (!OtherActor || OtherActor == GetAvatarActorFromActorInfo() ||
-		WindowState->HitTargets.Contains(ActorKey))
+	if (!OtherActor || OtherActor == GetAvatarActorFromActorInfo())
 	{
 		return;
 	}
@@ -604,134 +587,226 @@ void UMHGZAttackAbility::ProcessSweepHit(const FHitResult& Hit, int32 SegmentInd
 	UMHGZMonsterHitzoneComponent* Hitzone = Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
 	if (!Hitzone) return;
 
-	if (AttackSegments.IsValidIndex(SegmentIndex))
+	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
+	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
 	{
-		const FGameplayTag& QueryTag = AttackSegments[SegmentIndex].Collision.HitzoneQueryTag;
+		const FGameplayTag& QueryTag = Seg.Collision.HitzoneQueryTag;
 		if (QueryTag.IsValid() && !Hitzone->HitzoneTag.MatchesTagExact(QueryTag))
 		{
 			return;
 		}
 	}
 
-	WindowState->HitTargets.Add(ActorKey, Hitzone->BoneName);
-	ApplyDamage(OtherActor, Hitzone->BoneName, SegmentIndex);
+	UWorld* World = GetWorld();
+	if (!World) return;
 
-	// GE/GameplayCue 回调可能同步结束 Ability；重新按 Index 查找，避免使用失效引用。
+	// 每目标独立 Count + LastHitTime：ContactOnly 只靠真实后续 Sweep 接触重复。
+	FHitTargetRuntimeState& TargetState = WindowState->HitTargets.FindOrAdd(ActorKey);
+	if (TargetState.HitCount >= Seg.MultiHitCount)
+	{
+		return;
+	}
+	const float Now = World->GetTimeSeconds();
+	if (TargetState.HitCount > 0 &&
+		(Now - TargetState.LastHitTime) < Seg.MultiHitInterval)
+	{
+		return;
+	}
+	// LockedTargetTicks 的后续跳数由每目标 Timer 独占，避免真实 Sweep 重复触发双跳。
+	if (Seg.MultiHitPolicy == EAttackMultiHitPolicy::LockedTargetTicks &&
+		TargetState.TickTimer.IsValid())
+	{
+		return;
+	}
+
+	TargetState.TargetActor = OtherActor;
+	TargetState.Hitzone = Hitzone;
+	TargetState.LastHit = Hit;
+	TargetState.HitCount++;
+	TargetState.LastHitTime = Now;
+
+	ApplyDamage(Hit, SegmentIndex);
+
+	// GE 回调可能同步结束 Ability；重新按 Index 查找，避免使用失效引用。
 	if (ActiveCollisionWindows.Contains(SegmentIndex))
 	{
-		StartMultiHitTimerIfNeeded(SegmentIndex);
+		// 只有显式 LockedTargetTicks 才启动缓存目标 Timer；ContactOnly 绝不启动。
+		if (Seg.MultiHitPolicy == EAttackMultiHitPolicy::LockedTargetTicks)
+		{
+			StartLockedTargetTickTimer(SegmentIndex, ActorKey);
+		}
 	}
 }
 
-void UMHGZAttackAbility::StartMultiHitTimerIfNeeded(int32 SegmentIndex)
+void UMHGZAttackAbility::StartLockedTargetTickTimer(
+	int32 SegmentIndex, const TWeakObjectPtr<AActor>& TargetKey)
 {
 	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
 	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
 	if (!WindowState) return;
 	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
-	if (Seg.MultiHitCount <= 1 || WindowState->MultiHitCurrentCount > 0) return;
+	FHitTargetRuntimeState* TargetState = WindowState->HitTargets.Find(TargetKey);
+	if (!TargetState) return;
 
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (!Character) return;
 
-	WindowState->MultiHitCurrentCount = 1; // 首次接触已立即结算第一跳。
-	FTimerDelegate MultiHitDelegate;
-	MultiHitDelegate.BindUObject(this, &UMHGZAttackAbility::OnMultiHitTick, SegmentIndex);
+	if (TargetState->HitCount >= Seg.MultiHitCount || TargetState->TickTimer.IsValid())
+	{
+		return;
+	}
+
+	FTimerDelegate TickDelegate;
+	TickDelegate.BindUObject(
+		this, &UMHGZAttackAbility::OnLockedTargetTick, SegmentIndex, TargetKey);
 	Character->GetWorldTimerManager().SetTimer(
-		WindowState->MultiHitTimer, MultiHitDelegate,
+		TargetState->TickTimer, TickDelegate,
 		FMath::Max(0.01f, Seg.MultiHitInterval), true);
 }
 
-void UMHGZAttackAbility::OnMultiHitTick(int32 SegmentIndex)
+void UMHGZAttackAbility::OnLockedTargetTick(
+	int32 SegmentIndex, TWeakObjectPtr<AActor> TargetKey)
 {
 	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
 	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
 	if (!WindowState) return;
 	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
+	FHitTargetRuntimeState* TargetState = WindowState->HitTargets.Find(TargetKey);
+	if (!TargetState) return;
 
-	TArray<TPair<TWeakObjectPtr<AActor>, FName>> HitTargetSnapshot;
-	HitTargetSnapshot.Reserve(WindowState->HitTargets.Num());
-	for (const TPair<TWeakObjectPtr<AActor>, FName>& Pair : WindowState->HitTargets)
+	// 每跳重验：弱引用、Hitzone 组件仍有效、目标/部位存活、攻击者到部位距离。
+	AActor* Target = TargetState->TargetActor.Get();
+	UMHGZMonsterHitzoneComponent* Hitzone = TargetState->Hitzone.Get();
+	AActor* Source = GetAvatarActorFromActorInfo();
+	if (!Target || !Hitzone || !IsValid(Hitzone) || !Hitzone->IsRegistered() ||
+		!IsValid(Target) || !IsTargetAlive(Target) || !Source)
 	{
-		HitTargetSnapshot.Add(Pair);
+		StopLockedTarget(SegmentIndex, TargetKey);
+		return;
 	}
 
-	for (const TPair<TWeakObjectPtr<AActor>, FName>& Pair : HitTargetSnapshot)
+	const FVector HitzoneLocation = Hitzone->GetComponentLocation();
+	if (FVector::Dist(Source->GetActorLocation(), HitzoneLocation) >
+		Seg.LockedTargetMaxDistance)
 	{
-		if (AActor* Target = Pair.Key.Get())
-		{
-			ApplyDamage(Target, Pair.Value, SegmentIndex);
-			if (!ActiveCollisionWindows.Contains(SegmentIndex))
-			{
-				return;
-			}
-		}
+		// 离区：停止该目标（清 Timer 并移除状态；再次接触按新目标重新计数）。
+		StopLockedTarget(SegmentIndex, TargetKey);
+		return;
 	}
 
+	if (TargetState->HitCount >= Seg.MultiHitCount)
+	{
+		FinishLockedTarget(SegmentIndex, TargetKey);
+		return;
+	}
+
+	// 用当前部位位置刷新真实 HitResult，反馈位置跟随部位。
+	FHitResult TickHit = TargetState->LastHit;
+	TickHit.Location = HitzoneLocation;
+	TickHit.ImpactPoint = HitzoneLocation;
+	TickHit.Component = Hitzone;
+	TargetState->LastHit = TickHit;
+	TargetState->HitCount++;
+
+	UWorld* World = GetWorld();
+	TargetState->LastHitTime = World ? World->GetTimeSeconds() : 0.f;
+
+	ApplyDamage(TickHit, SegmentIndex);
+
+	// Apply 后 Ability 可能已结束；重新获取状态。
 	WindowState = ActiveCollisionWindows.Find(SegmentIndex);
-	if (!WindowState) return;
-	WindowState->MultiHitCurrentCount++;
-	if (WindowState->MultiHitCurrentCount >= Seg.MultiHitCount)
+	TargetState = WindowState ? WindowState->HitTargets.Find(TargetKey) : nullptr;
+	if (TargetState && TargetState->HitCount >= Seg.MultiHitCount)
 	{
-		ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-		if (Character)
-		{
-			Character->GetWorldTimerManager().ClearTimer(WindowState->MultiHitTimer);
-		}
+		FinishLockedTarget(SegmentIndex, TargetKey);
 	}
 }
 
-void UMHGZAttackAbility::ApplyDamage(AActor* Target, FName HitzoneBoneName, int32 SegmentIndex)
+void UMHGZAttackAbility::FinishLockedTarget(
+	int32 SegmentIndex, const TWeakObjectPtr<AActor>& TargetKey)
 {
-	if (!Target || !AttackSegments.IsValidIndex(SegmentIndex)) return;
+	// 次数耗尽：只停 Timer，保留状态条目（HitCount 已满）用于后续 Sweep 去重，
+	// 避免目标仍在接触时重新开链无限跳伤。
+	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
+	if (!WindowState) return;
+	FHitTargetRuntimeState* TargetState = WindowState->HitTargets.Find(TargetKey);
+	if (!TargetState) return;
 
-	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
-
-	// 卡肉
-	const float HitStop = Seg.Damage.HitStopBase.GetValueAtLevel(GetAbilityLevel());
-	if (HitStop > 0.f)
+	if (ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
 	{
-		// 简化：通过 CustomTimeDilation 实现
-		if (ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
+		Character->GetWorldTimerManager().ClearTimer(TargetState->TickTimer);
+	}
+	TargetState->TickTimer.Invalidate();
+}
+
+void UMHGZAttackAbility::StopLockedTarget(
+	int32 SegmentIndex, const TWeakObjectPtr<AActor>& TargetKey)
+{
+	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
+	if (!WindowState) return;
+	FHitTargetRuntimeState* TargetState = WindowState->HitTargets.Find(TargetKey);
+	if (!TargetState) return;
+
+	if (ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Character->GetWorldTimerManager().ClearTimer(TargetState->TickTimer);
+	}
+	WindowState->HitTargets.Remove(TargetKey);
+}
+
+bool UMHGZAttackAbility::IsTargetAlive(AActor* Target) const
+{
+	if (!IsValid(Target))
+	{
+		return false;
+	}
+
+	UAbilitySystemComponent* TargetASC =
+		UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
+	if (!TargetASC)
+	{
+		return true;
+	}
+
+	if (TargetASC->HasMatchingGameplayTag(
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Dead"))))
+	{
+		return false;
+	}
+
+	if (TargetASC->HasAttributeSetForAttribute(UMHGZAttributeSet::GetHealthAttribute()))
+	{
+		if (TargetASC->GetNumericAttribute(UMHGZAttributeSet::GetHealthAttribute()) <= 0.f)
 		{
-			Character->CustomTimeDilation = 0.05f;
-			FTimerHandle HitStopTimer;
-			TWeakObjectPtr<ACharacter> WeakCharacter(Character);
-			Character->GetWorldTimerManager().SetTimer(HitStopTimer, [WeakCharacter]()
-			{
-				if (ACharacter* ValidCharacter = WeakCharacter.Get())
-				{
-					ValidCharacter->CustomTimeDilation = 1.0f;
-				}
-			}, HitStop, false);
+			return false;
 		}
 	}
+	return true;
+}
+
+void UMHGZAttackAbility::ApplyDamage(const FHitResult& Hit, int32 SegmentIndex)
+{
+	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
+
+	AActor* Target = Hit.GetActor();
+	if (!Target) return;
+
+	UAbilitySystemComponent* SourceASC = GetAbilitySystemComponentFromActorInfo();
+	if (!SourceASC) return;
 
 	// 构造并 Apply GE
-	FGameplayEffectSpecHandle Spec = MakeDamageSpec(Target, HitzoneBoneName, SegmentIndex);
-	if (Spec.IsValid())
+	FGameplayEffectSpecHandle Spec = MakeDamageSpec(Hit, SegmentIndex);
+	UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
+	bool bApplied = false;
+	if (Spec.IsValid() && TargetASC)
 	{
-		UAbilitySystemComponent* SourceASC = GetAbilitySystemComponentFromActorInfo();
-		UAbilitySystemComponent* TargetASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
-		if (SourceASC && TargetASC)
-		{
-			SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC);
-		}
+		bApplied = SourceASC->ApplyGameplayEffectSpecToTarget(
+			*Spec.Data, TargetASC).WasSuccessfullyApplied();
 	}
 
-	// 震屏
-	if (Seg.Damage.CameraShakeClass && Seg.Damage.CameraShakeScale > 0.f)
-	{
-		if (APlayerController* PC = Cast<APlayerController>(
-			Cast<ACharacter>(GetAvatarActorFromActorInfo())->GetController()))
-		{
-			PC->ClientStartCameraShake(
-				Seg.Damage.CameraShakeClass, Seg.Damage.CameraShakeScale);
-		}
-	}
-
-	// 首次命中逻辑
-	if (!bHasHitThisActivation)
+	// 首次命中逻辑（成功 Apply 后）：通知协调器 + 施加 OnHitSelfEffect。
+	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
+	if (bApplied && !bHasHitThisActivation)
 	{
 		bHasHitThisActivation = true;
 		NotifyCoordinatorFirstHit();
@@ -739,19 +814,15 @@ void UMHGZAttackAbility::ApplyDamage(AActor* Target, FName HitzoneBoneName, int3
 		// Apply OnHitSelfEffect
 		if (Seg.Damage.OnHitSelfEffect)
 		{
-			UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-			if (ASC)
-			{
-				ASC->ApplyGameplayEffectToSelf(
-					Seg.Damage.OnHitSelfEffect->GetDefaultObject<UGameplayEffect>(),
-					1.0f, ASC->MakeEffectContext());
-			}
+			SourceASC->ApplyGameplayEffectToSelf(
+				Seg.Damage.OnHitSelfEffect->GetDefaultObject<UGameplayEffect>(),
+				1.0f, SourceASC->MakeEffectContext());
 		}
 	}
 }
 
 FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
-	AActor* Target, FName HitzoneBoneName, int32 SegmentIndex)
+	const FHitResult& Hit, int32 SegmentIndex)
 {
 	if (!AttackSegments.IsValidIndex(SegmentIndex))
 	{
@@ -764,8 +835,40 @@ FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
 	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (!ASC) return FGameplayEffectSpecHandle();
 
+	// 自定义 EffectContext 写满真实 HitResult/攻击身份/Cue/反馈参数。
+	FGameplayEffectContextHandle ContextHandle = ASC->MakeEffectContext();
+	FMHGZGameplayEffectContext* Context =
+		FMHGZGameplayEffectContext::ExtractEffectContext(ContextHandle);
+	if (!Context)
+	{
+		return FGameplayEffectSpecHandle();
+	}
+	else
+	{
+		Context->AddHitResult(Hit, true);
+		Context->AttackInstanceID = ActivationAttackInstanceID;
+		Context->SourceActionTag = InputTag; // 输入标签即动作身份
+		Context->DamageSourceType = EMHGZDamageSourceType::Weapon;
+		Context->bUseHitzoneDefense = Seg.Damage.bUseHitzoneDefense;
+		Context->HitStaggerTag = Seg.Damage.HitStaggerTag;
+		Context->HitCueTag = Seg.Damage.HitCueTag;
+		Context->ElementCueTag = Seg.Damage.ElementalCueTag;
+		Context->HitStopDuration = Seg.Damage.HitStopBase.GetValueAtLevel(GetAbilityLevel());
+		Context->CameraShakeClass = Seg.Damage.CameraShakeClass;
+		Context->CameraShakeScale = Seg.Damage.CameraShakeScale;
+		if (const UMHGZMonsterHitzoneComponent* Hitzone =
+			Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent()))
+		{
+			Context->HitzoneTag = Hitzone->HitzoneTag;
+		}
+		if (AActor* Source = GetAvatarActorFromActorInfo())
+		{
+			Context->AddInstigator(Source, Source);
+		}
+	}
+
 	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(
-		Seg.Damage.DamageEffectClass, 1.0f, ASC->MakeEffectContext());
+		Seg.Damage.DamageEffectClass, 1.0f, ContextHandle);
 
 	if (!Spec.IsValid()) return Spec;
 
@@ -779,20 +882,19 @@ FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
 		FGameplayTag::RequestGameplayTag(TEXT("Damage.BaseStagger")),
 		Seg.Damage.BaseStaggerValue.GetValueAtLevel(GetAbilityLevel()));
 
-	// 部位 HitzoneTag
-	UMHGZMonsterHitzoneComponent* Hitzone = FindHitzoneComponent(Target, HitzoneBoneName);
+	// DynamicAssetTag 只作调试镜像；结算与反馈以 Context 为真相源。
+	const UMHGZMonsterHitzoneComponent* Hitzone =
+		Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
 	if (Seg.Damage.bUseHitzoneDefense && Hitzone && Hitzone->HitzoneTag.IsValid())
 	{
 		Spec.Data->AddDynamicAssetTag(Hitzone->HitzoneTag);
 	}
 
-	// 硬直等级
 	if (Seg.Damage.HitStaggerTag.IsValid())
 	{
 		Spec.Data->AddDynamicAssetTag(Seg.Damage.HitStaggerTag);
 	}
 
-	// GameplayCue —— 命中反馈
 	if (Seg.Damage.HitCueTag.IsValid())
 	{
 		Spec.Data->AddDynamicAssetTag(Seg.Damage.HitCueTag);
@@ -805,17 +907,19 @@ FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
 	Spec.Data->AddDynamicAssetTag(
 		FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.DamageNumber")));
 
-	// GameplayEffectContext —— HitResult
-	if (Hitzone)
-	{
-		FGameplayAbilityTargetDataHandle TargetData;
-		FGameplayAbilityTargetData_SingleTargetHit* HitData = new FGameplayAbilityTargetData_SingleTargetHit();
-		HitData->HitResult.Location = Hitzone->GetComponentLocation();
-		TargetData.Add(HitData);
-		Spec.Data->GetContext().AddHitResult(HitData->HitResult);
-	}
-
 	return Spec;
+}
+
+FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
+	AActor* Target, FName HitzoneBoneName, int32 SegmentIndex)
+{
+	(void)Target;
+	(void)HitzoneBoneName;
+	// 旧签名序列化兼容壳：运行时攻击链路只走 FHitResult 版本。
+	UE_LOG(LogTemp, Warning,
+		TEXT("[Attack] Legacy MakeDamageSpec(Actor, Bone) is not supported at runtime; returning an invalid spec. Segment=%d"),
+		SegmentIndex);
+	return FGameplayEffectSpecHandle();
 }
 
 bool UMHGZAttackAbility::ShouldContinueAfterHit_Implementation() const
@@ -848,25 +952,6 @@ void UMHGZAttackAbility::NotifyCoordinatorFirstHit()
 			Coord->OnAttackHit(CallbackActionToken);
 		}
 	}
-}
-
-UMHGZMonsterHitzoneComponent* UMHGZAttackAbility::FindHitzoneComponent(
-	AActor* Target, FName BoneName) const
-{
-	if (!Target) return nullptr;
-
-	TArray<UMHGZMonsterHitzoneComponent*> Hitzones;
-	Target->GetComponents<UMHGZMonsterHitzoneComponent>(Hitzones);
-
-	for (UMHGZMonsterHitzoneComponent* HZ : Hitzones)
-	{
-		if (BoneName == NAME_None || HZ->BoneName == BoneName)
-		{
-			return HZ;
-		}
-	}
-
-	return nullptr;
 }
 
 USkeletalMeshComponent* UMHGZAttackAbility::FindTraceMeshComponent(
@@ -918,28 +1003,26 @@ bool UMHGZAttackAbility::HasRequiredTraceSockets(
 {
 	if (!Mesh) return false;
 
-	if (!Collision.TraceRegions.IsEmpty())
+	// 运行时只接受非空 TraceRegions；无配置返回 false，由调用方干净失败。
+	if (Collision.TraceRegions.IsEmpty())
 	{
-		bool bHasAtLeastOneRegion = false;
-		for (const FWeaponTraceRegion& Region : Collision.TraceRegions)
-		{
-			if (Region.EndSocketName.IsNone())
-			{
-				continue;
-			}
-			bHasAtLeastOneRegion = true;
-			if (!Mesh->DoesSocketExist(Region.EndSocketName) ||
-				(!Region.StartSocketName.IsNone() &&
-					!Mesh->DoesSocketExist(Region.StartSocketName)))
-			{
-				return false;
-			}
-		}
-		return bHasAtLeastOneRegion;
+		return false;
 	}
 
-	const FName EndSocketName = ResolveLegacyTraceEndSocket(Collision);
-	return !EndSocketName.IsNone() && Mesh->DoesSocketExist(EndSocketName) &&
-		(Collision.TraceStartSocketName.IsNone() ||
-			Mesh->DoesSocketExist(Collision.TraceStartSocketName));
+	bool bHasAtLeastOneRegion = false;
+	for (const FWeaponTraceRegion& Region : Collision.TraceRegions)
+	{
+		if (Region.EndSocketName.IsNone())
+		{
+			continue;
+		}
+		bHasAtLeastOneRegion = true;
+		if (!Mesh->DoesSocketExist(Region.EndSocketName) ||
+			(!Region.StartSocketName.IsNone() &&
+				!Mesh->DoesSocketExist(Region.StartSocketName)))
+		{
+			return false;
+		}
+	}
+	return bHasAtLeastOneRegion;
 }

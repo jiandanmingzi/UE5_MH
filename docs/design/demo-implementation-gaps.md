@@ -34,28 +34,35 @@
 
 构建、15 项 M1 测试与 5 项 M0 回归证据见 [M1 实施审计](m1-implementation-audit.md)。
 
+### 已在 M2 解决
+
+| 系统 | 当前实现证据 | 解决结果 |
+|---|---|---|
+| 武器运行时与装备差分 | `MHGZEquipmentComponent`、`MHGZWeaponRuntimeHostComponent`、`MHGZWeaponResourceComponent` | Stats 与 Weapon Snapshot 事件分离；相同武器身份 no-op；真正换武器按旧 Token 失效、Ability/Coordinator、Resource、HitStop、Ledger/Registry 的固定顺序清理并以新 Generation 重建 |
+| 命中、伤害与反馈 | `MHGZGameplayEffectContext`、`MHGZDamageExecCalc`、`MHGZAttributeSet`、`MHGZHitFeedbackRouterComponent` | 真实 HitResult/AttackInstanceID 进入自定义 Context；四个 Incoming Meta 原子结算；MotionValue=0 不扣血；Cue、伤害数字、卡肉和镜头只消费已结算结果 |
+| 攻击轨迹与多跳 | `MHGZAttackAbility` | 运行时只读 TraceRegions；同帧多 Region 选最早命中；默认接触式去重，只有显式 LockedTargetTicks 才能离散复击且逐跳重验；每个动作使用独占 WarpTarget 名称 |
+| 玩家来袭与反击窗口 | `MHGZIncomingHitResolverComponent` | Hit 必须属于 Resolver Owner；AttackInstanceID 权威去重；反击 Token 绑定当前 Runtime/Action 身份、优先级和 TTL；Apply 失败回滚去重记录 |
+| 木桩与部位 | `MHGZDummyConfig`、`MHGZMonsterBase`、`MHGZTrainingDummy` | C++ 可生成恰好 Red/White/Orange 三个互不重叠球形 Hitzone，并提供固定 HitResult/AttackInstanceID 的确定性提交入口；E5 仍需配置实际 DataAsset/蓝图位置 |
+| 旧运行时桥接 | `DefaultGame.ini`、`MHGZDataManager`、`MHGZEquipmentComponent`、`MHGZAttackAbility` | 旧 WeaponComboConfig/DataTable 查询和 Attack 旧字段兼容读取已归零；旧字段只剩不参与决策的序列化壳，待 E3 删除旧包后由 M4 移除 |
+
+构建、10 项 M2 测试及 M0～M2 共 30 项联合回归证据见 [M2 实施审计](m2-implementation-audit.md)。
+
 ### P0：不先改就无法可靠建立战斗基底
 
 | 系统 | 当前源码证据 | 问题 | Demo 目标 / 里程碑 |
 |---|---|---|---|
-| 武器资源宿主 | [MHGZEquipmentComponent.cpp](../../Source/MHGZ/Equipment/MHGZEquipmentComponent.cpp) 91～115；[Res_InsectGlaive.cpp](../../Source/MHGZ/AttributeSystem/Res_InsectGlaive.cpp) 136～182 | Resource 在 PlayerState 创建却把 Owner 当 Pawn；直接 DestroyComponent，无统一虫棍清理 | Character RuntimeHost 独占世界/Pawn 运行时并统一 Shutdown，M2 |
-| 装备差分重建 | [MHGZEquipmentComponent.cpp](../../Source/MHGZ/Equipment/MHGZEquipmentComponent.cpp) 77、85、92～115 | 饰品/护甲变化走同一 OnEquipmentChanged，可能销毁 Resource、移除能力并清战斗态 | StatsChanged 与 WeaponChanged Snapshot 分离；相同武器身份 no-op，M2 |
 | 猎虫碰撞 | [KinsectCollisionComponent.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/KinsectCollisionComponent.cpp)；[Kinsect.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/Kinsect.cpp) | 用 Weapon Trace Channel Overlap 充当身份；Root/UpdatedComponent 合同不完整 | Hitzone Object Channel + Collision Root + 前后帧 Capsule Sweep，M0/M3 |
 | 精华状态机 | [Res_InsectGlaive.cpp](../../Source/MHGZ/AttributeSystem/Res_InsectGlaive.cpp) 255～378 | 部位名/Yellow/硬编码路径；三灯先创建单灯；bool 与 GE Handle 可失步 | Hitzone 直接给颜色；唯一 CombatConfig；Active GE Handle 为真相源；原子三灯，M3 |
-| 资产双结构 | [MHGZAttackAbility.h](../../Source/MHGZ/ActionSystem/MHGZAttackAbility.h) 中旧 Socket/Collision/成本字段；旧 Combo DataTable/最小 Combo/GA/Montage | 旧、新字段和 DataTable 并存会让蓝图继续保存错误语义，重构后无法证明使用哪条路径 | M0 已审计引用；M2 删除旧运行时读取，E3/E4 删除旧原型并从最终类型重建；禁止永久兼容分支 |
+| 旧资产包 | 旧 Combo/GA/Montage/WeaponDefinition 与旧组合 InputAction 仍在 Content | C++ 已不再读取，但旧包会继续保存过时结构并干扰最终数据制作 | E3 按引用顺序删除并从最终类型建壳；E4 创建最终动作资产 |
 
 ### P1：链路局部能跑，但 Demo 会出现错误或遗留状态
 
 | 系统 | 当前源码证据 | 问题 | Demo 目标 / 里程碑 |
 |---|---|---|---|
-| 攻击多跳 | [MHGZAttackAbility.cpp](../../Source/MHGZ/ActionSystem/MHGZAttackAbility.cpp) 564～619 | 首次接触后 Timer 对缓存目标继续跳伤，离开接触区仍受伤 | 默认 PerContactTrace；LockedTarget 每跳重验，M2 |
-| 命中与反馈 | [MHGZAttackAbility.cpp](../../Source/MHGZ/ActionSystem/MHGZAttackAbility.cpp) 628～754；[MHGZAttributeSet.cpp](../../Source/MHGZ/AttributeSystem/MHGZAttributeSet.cpp) 92～119 | 丢失真实命中点；Cue 不执行；HitStop 覆盖全局倍率；PlayerState 被当物理目标 | 保留真实 HitResult/AttackInstanceID；从 Avatar 解析表现目标；统一 FeedbackRouter，M2 |
-| 伤害零值 | [MHGZDamageExecCalc.cpp](../../Source/MHGZ/ActionSystem/MHGZDamageExecCalc.cpp) 154～181 | `max(1)` 让反击判定段和零动作值段扣血 | MotionValue≤0 为 0，正值最低 1，M2 |
-| 位移/旋转/Warp | [MHGZCharacter.cpp](../../Source/MHGZ/MHGZCharacter.cpp) 176；[MHGZAttackAbility.cpp](../../Source/MHGZ/ActionSystem/MHGZAttackAbility.cpp) 193 | Character 每帧按输入 SetActorRotation；动作复用 `AttackDirection` WarpTarget 且无完整回收 | Action/Movement Token 同时拥有平移、旋转、steering、唯一 WarpTarget；全路径释放，M2/M5 |
+| 位移/旋转所有权 | [MHGZCharacter.cpp](../../Source/MHGZ/MHGZCharacter.cpp) 与未来 MovementTask | M2 已消除攻击 GA 间共享 `AttackDirection`；完整平移、旋转、steering 与取消后速度交接仍未统一 | Action/Movement Token 独占写入并全路径释放，M5 |
 | 瞄准重绑 | [MHGZAimComponent.cpp](../../Source/MHGZ/UI/MHGZAimComponent.cpp) 45～100 | BeginPlay 时一次性找 ASC，初始化顺序不对时不会重试；颜色按部位名硬编码 | Runtime/ActorInfo Ready 绑定并可随 Avatar 重绑；直接读 Hitzone 颜色，M3 |
 | 普通猎虫交付 | [Kinsect.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/Kinsect.cpp) 90、239～返回逻辑 | PendingExtract 交付后未清空，后续飞行不能取得新颜色 | 到达时原子取出并清 Pending，再 Apply 一次；下一 Flight 可取新色，M3 |
 | 猎虫耐力归零 | [Res_InsectGlaive.cpp](../../Source/MHGZ/AttributeSystem/Res_InsectGlaive.cpp) 57～61 | 耐力为 0 的每帧重复音效与 ForceRecall | 只在阈值穿越时触发一次，Returning/Attached 不重复，M3 |
-| 木桩 | [MHGZMonsterHitzoneComponent.cpp](../../Source/MHGZ/Monster/MHGZMonsterHitzoneComponent.cpp)；[MHGZTrainingDummy.cpp](../../Source/MHGZ/Monster/MHGZTrainingDummy.cpp) | Hitzone 同时阻挡 Pawn、没有 ExtractColor；不能产生可复现 IncomingHit | 三个分离颜色部位 + 固定 AttackInstance 测试器，M2 |
 | 虫印/粉尘/舞踏 | 当前源码不存在 | 无状态所有者、生命周期和清理入口 | 归属 URes/虫棍派生层；数值来自 CombatConfig，M4～M6 |
 | UI 所有权 | [MHGZUISubsystem](../../Source/MHGZ/UI) 当前为空壳；原文档同时让 WBP_HUD 有资源插槽又让 Subsystem AddToViewport | 两个潜在 Widget 所有者会产生重复显示、解绑和本地玩家生命周期冲突 | HUD 独占 Widget 树；资源面板只作为主 HUD 子控件；删除空壳 Subsystem，M6 |
 

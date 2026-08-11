@@ -15,6 +15,9 @@ class UMotionWarpingComponent;
 class UMHGZAimComponent;
 class UMHGZEdgeVaultComponent;
 class UMHGZAbilitySystemComponent;
+class UMHGZIncomingHitResolverComponent;
+class UMHGZHitFeedbackRouterComponent;
+class UMHGZHitStopControllerComponent;
 class UMHGZWeaponDefinition;
 class UMHGZWeaponRuntimeHostComponent;
 class UEnhancedInputComponent;
@@ -53,6 +56,18 @@ class AMHGZCharacter : public ACharacter, public IAbilitySystemInterface
 	/** 边缘跳越组件 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	UMHGZEdgeVaultComponent* EdgeVaultComponent;
+
+	/** Target-side IncomingHit resolver: authoritative dedupe + counter tokens. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UMHGZIncomingHitResolverComponent> IncomingHitResolver;
+
+	/** Settled-hit feedback router (parallel M2 domain). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UMHGZHitFeedbackRouterComponent> HitFeedbackRouter;
+
+	/** Hit-stop request controller (parallel M2 domain). */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<UMHGZHitStopControllerComponent> HitStopController;
 
 protected:
 	/** Move Input Action */
@@ -101,6 +116,9 @@ public:
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 	FORCEINLINE UMotionWarpingComponent* GetMotionWarpingComponent() const { return MotionWarpingComponent; }
 	FORCEINLINE UMHGZAimComponent* GetAimComponent() const { return AimComponent; }
+	FORCEINLINE UMHGZIncomingHitResolverComponent* GetIncomingHitResolver() const { return IncomingHitResolver; }
+	FORCEINLINE UMHGZHitFeedbackRouterComponent* GetHitFeedbackRouter() const { return HitFeedbackRouter; }
+	FORCEINLINE UMHGZHitStopControllerComponent* GetHitStopController() const { return HitStopController; }
 	UMHGZWeaponRuntimeHostComponent* GetWeaponRuntimeHost() const;
 
 protected:

@@ -9,8 +9,8 @@
 
 AMHGZPlayerState::AMHGZPlayerState()
 {
-	// ★ I-4 修复：PlayerState 必须启用 Tick（WeaponResourceComponent 依赖）
-	PrimaryActorTick.bCanEverTick = true;
+	// ★ I-4 修复：PlayerState 不再为动态 Resource 永久 Tick（M2 起 Resource 挂在 Character/Pawn）
+	PrimaryActorTick.bCanEverTick = false;
 
 	AbilitySystemComponent = CreateDefaultSubobject<UMHGZAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
 	AttributeSet = CreateDefaultSubobject<UMHGZAttributeSet>(TEXT("AttributeSet"));

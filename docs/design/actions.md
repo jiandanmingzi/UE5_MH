@@ -4,7 +4,7 @@
 
 > **项目动作口径：** 动画和机制可参考《世界》《崛起》《荒野》，但项目采用原创连招规则，不以逐项复刻某一作为目标。虫棍具体动作见 [insect-glaive-actions.md](insect-glaive-actions.md)；通用动作层不得包含翔虫、集中模式、钩爪或虫棍资源判断。
 
-> **冻结实施口径：** 后续代码以 [Demo 冻结实施计划](demo-implementation-plan.md) 为公共接口真相源。M1 已删除 `FComboNode/ComboTable` 运行时、全局 `PreviousState`、`bIsContinuous` 成本语义和 ASC 物理输入职责；M2 以后不得恢复这些旧结构。
+> **冻结实施口径：** 后续代码以 [Demo 冻结实施计划](demo-implementation-plan.md) 为公共接口真相源。M1 已删除 `FComboNode/ComboTable` 运行时、全局 `PreviousState`、`bIsContinuous` 成本语义和 ASC 物理输入职责；M2 已完成 RuntimeHost 装备重建、真实命中上下文、多跳策略和反馈基底，后续阶段不得恢复旧结构或旧运行时读取。
 > **重构边界：** 具体保留、重写、删除与旧资产处理见 [Demo 重构范围与资产处置](demo-refactor-scope.md)。
 
 ## 当前实现
@@ -13,12 +13,12 @@
 |------|----------|
 | 移动 | `AMHGZCharacter::DoMove` 只计算 `InputMagnitude`、`TargetCruiseSpeed` 和 `DesiredSpeed`，不调用 `AddMovementInput`；AnimBP 使用 Motion Matching/Root Motion。角色在 `Tick` 中按 `TurnRate` 限制最大转角，默认 `360°/s`，180° 不再瞬转。 |
 | 冲刺与瞄准 | 冲刺是 Character 上的 `bSprintHeld`；当前瞄准只有一个宽泛 `Combat.State.Aiming`，目标设计会拆成 Kinsect/Action/Slinger 上下文。当前不是 `GA_Sprint`/`GA_Aim` 驱动。 |
-| GAS 输入 | ASC 在初始化时把 InputAction 的 `Started`/`Completed` 绑定到 GameplayTag 路由；`BindInputAction` 只更新配置数组，不会在初始化完成后补绑 EnhancedInput。 |
-| 攻击 | `UMHGZAttackAbility`、Montage Task、Socket Sweep、多段/多跳伤害和 `AnimNotifyState_AttackCollision` 已实现。当前 Sweep 直接查询，不创建临时碰撞组件。 |
-| 连招 | `UGA_WeaponComboCoordinator` 使用 `UMHGZWeaponComboData::ComboTable` 和 `FComboNode::InputTag`。当前只匹配状态、输入、Required/Blocked Tags、耐力门槛和优先级；`DirectionalInput`、`bRequiresWindowOpen`、`bAutoTransition`、`bRequiresHitToGrantTags` 尚未接入匹配流程。 |
-| 闪避 | `UMHGZDodgeAbility` 与 `AnimNotifyState_DodgeWindow` 已有骨架；方向仍读取 `GetLastMovementInputVector()`，而当前移动不写 CMC 输入向量，因此方向闪避尚未完成接入。 |
+| GAS 输入 | `UMHGZInputComponent` 独占 Enhanced Input 绑定，`UMHGZWeaponInputRouterComponent` 生成组合键、方向、姿态、Aim 与释放身份不可变快照；ASC 只接收已解析输入，不拥有物理键。 |
+| 攻击 | `UMHGZAttackAbility` 使用 Montage Task、多 `TraceRegions` 自适应 Socket Sweep 和真实 `FHitResult`。同帧多 Region 选最早命中；默认接触式去重，只有显式 `LockedTargetTicks` 才离散复击并逐跳重验；旧 Socket/Shape 字段只剩序列化壳。 |
+| 连招 | `UGA_WeaponComboCoordinator` 使用 `FComboTransition/Transitions`、不可变 ActivationContext 与 Pending/Confirm/Active 两阶段状态；方向、窗口、自动边、StateOnly、命中授予和 Superseded 实例隔离均已接通。最终虫棍 Transitions 仍待 E4 配置。 |
+| 闪避 | `UMHGZDodgeAbility` 使用输入方向快照和 Montage Task；`AnimNotifyState_DodgeWindow` 通过 ActionToken 精确定位实例，并以 TagLedger 持有窗口、逐通道恢复原碰撞响应。最终 Dodge Montage/资产仍待 E4。 |
 | 边缘跳越 | `UMHGZEdgeVaultComponent` 目前仅为关闭 Tick 的桩组件；检测链和 `GA_EdgeVault` 属于下文保留方案。 |
-| 基础消耗/冷却 | 持续扣耐可用；单次扣耐被无效的 `MakeOutgoingSpec(nullptr)` 条件包住，当前可能不生效。`CooldownTag` 只添加不移除，`CooldownDuration` 尚未使用。 |
+| 基础消耗/冷却 | None/Instant/PerSecond 已分别使用有效原生 GE/Drain Task；Cooldown 使用 HasDuration GE 与动态 GrantedTag；武器资源走 reservation→Commit→Consume/Release 事务。具体虫棍三灯消费由 M3/M6 完成。 |
 
 **设计原则：** GAS + EnhancedInput 驱动，通过输入快照和 GameplayTag 桥接 Ability。协调器只处理武器无关的状态转移；武器能力、资源和特殊判定由装备时动态授予的派生层提供。**无独立跳跃键——边缘跳越（Edge Vault）替代。**
 
@@ -639,7 +639,7 @@ class UMHGZAttackAbility : public UMHGZGameplayAbility
 | bUseHitzoneDefense | bool | true | 是否按命中部位的 `DefenseMultiplier` 修正伤害。怪物侧每个 hitzone 碰撞体持有 `DefenseMultiplier`（肉质）和 `StaggerRate`（硬直肉质） |
 | bRequiresHitToContinue | bool | false | 招式内空挥截断：为 true 时，本段碰撞窗口结束后检查该窗口自己的 `HitTargets`——若该段空挥，提前 `EndAbility`。同时也是 `ShouldContinueAfterHit()` 的默认判断依据 |
 | OnHitSelfEffect | TSubclassOf\<UGameplayEffect\> | nullptr | 命中时对自身施加的 GE（如虫棍三灯）。仅首次命中时 Apply 一次 |
-| HitCueTag | FGameplayTag | 空 | 物理命中 Cue Tag。目标链路把它写入 HitFeedbackResult，由 Router 显式执行；当前代码仍只加入 DynamicAssetTags |
+| HitCueTag | FGameplayTag | 空 | 物理命中 Cue Tag。目标链路把它写入 HitFeedbackResult，由 Router 显式执行；DynamicAssetTags 只保留调试镜像 |
 | ElementalCueTag | FGameplayTag | 空 | 元素附魔命中 GC 标签（可选——留空则无元素特效）。如 `GameplayCue.Hit.Fire` |
 | CameraShakeClass | TSubclassOf\<UCameraShakeBase\> | nullptr | 震屏类（按武器种类选不同类；留空则无震屏）。在 `ApplyDamage` 中通过 `ClientStartCameraShake` 执行 |
 | CameraShakeScale | float | 0.0 | 震屏强度倍率（0.0~1.0）。同武器不同招式改此值，不产生新蓝图 |
@@ -708,8 +708,8 @@ struct FAttackSegmentConfig
     1. 调用 `MakeDamageSpec(Hit, SegmentIndex, AttackInstanceID)` 构造 GE Spec
     2. `SourceASC→ApplyGameplayEffectSpecToTarget(Spec, TargetASC)`；AttributeSet 结算后由 HitFeedbackRouter 请求 Cue、伤害数字、镜头和可叠加卡肉 Token
     3. **首次命中时（`bHasHitThisActivation==false`）：** 设 `bHasHitThisActivation=true` → 携带完整 ActionToken 通知协调器 `OnAttackHit`；段 `Damage.OnHitSelfEffect` 非空时 Apply 到自身 ASC
-    4. 多段碰撞/多怪物场景下，后续命中跳过步骤 3。多跳每次都提交独立真实 HitResult/AttackInstance 子序号，但不重复触发首次命中逻辑
-  - 当前源码仍在步骤前直接覆盖 `CustomTimeDilation` 并自行震屏；M2 删除该路径。
+    4. 多段碰撞/多怪物场景下，后续命中跳过步骤 3。一次 GA 激活的全部段、目标和跳伤共享稳定 `AttackInstanceID`，但每次结算携带各自真实 HitResult；逐目标/逐跳去重由 Attack 窗口状态负责，不重复触发首次命中逻辑
+  - M2 已删除 Attack 直接写 `CustomTimeDilation`/自行震屏的路径；结算后统一交给 FeedbackRouter 与 HitStopController。
 - `FGameplayEffectSpecHandle MakeDamageSpec(const FHitResult& Hit, int32 SegmentIndex)`
   - 输入：真实 HitResult 和段索引。
   - 输出：构造好的 GE Spec。
@@ -737,7 +737,7 @@ struct FAttackSegmentConfig
 
 ### GameplayCue 集成 — HitFeedbackResult
 
-当前 `MakeDamageSpec` 仍把 Cue Tag 放入 DynamicAssetTags，目标链路改为由结算结果显式路由：
+`MakeDamageSpec` 同时把 Cue 写入自定义 Context 与调试 DynamicAssetTags；运行时表现只由结算结果显式路由：
 
 | 步骤 | Tag 来源 | 说明 |
 |:--:|------|------|

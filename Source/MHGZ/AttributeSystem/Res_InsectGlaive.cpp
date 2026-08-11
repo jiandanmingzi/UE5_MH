@@ -12,6 +12,16 @@
 #include "GameplayEffect.h"
 #include "Camera/PlayerCameraManager.h"
 
+namespace
+{
+const FGameplayTag& GetKinsectActiveTag()
+{
+	static const FGameplayTag Tag =
+		FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Kinsect.Active"));
+	return Tag;
+}
+}
+
 URes_InsectGlaive::URes_InsectGlaive()
 {
 	PrimaryComponentTick.bCanEverTick = true;
@@ -120,6 +130,9 @@ void URes_InsectGlaive::OnWeaponUnequipped()
 	// 清除所有萃取 GE
 	if (UAbilitySystemComponent* ASC = GetPlayerASC())
 	{
+		// 该 Loose Tag 由本 Resource 独占；强制归零可同时修复旧版重复 Deploy 的计数残留。
+		ASC->SetLooseGameplayTagCount(GetKinsectActiveTag(), 0);
+
 		for (auto& Pair : ActiveExtractHandles)
 		{
 			ASC->RemoveActiveGameplayEffect(Pair.Value);
@@ -131,6 +144,13 @@ void URes_InsectGlaive::OnWeaponUnequipped()
 			ASC->RemoveActiveGameplayEffect(TripleUpHandle);
 		}
 	}
+}
+
+void URes_InsectGlaive::ShutdownRuntime(EWeaponRuntimeEndReason Reason)
+{
+	// 最小生命周期适配：先走既有卸下逻辑，确保猎虫 Actor 与萃取/三灯 GE 被清理。
+	OnWeaponUnequipped();
+	Super::ShutdownRuntime(Reason);
 }
 
 void URes_InsectGlaive::DeployKinsect()
@@ -191,8 +211,7 @@ void URes_InsectGlaive::DeployKinsect()
 
 	if (UAbilitySystemComponent* ASC = GetPlayerASC())
 	{
-		ASC->AddLooseGameplayTag(
-			FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Kinsect.Active")));
+		ASC->SetLooseGameplayTagCount(GetKinsectActiveTag(), 1);
 	}
 
 	bKinsectDeployed = true;
@@ -214,8 +233,7 @@ void URes_InsectGlaive::DeployKinsectAlongDirection(FVector Direction, float Dis
 
 	if (UAbilitySystemComponent* ASC = GetPlayerASC())
 	{
-		ASC->AddLooseGameplayTag(
-			FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Kinsect.Active")));
+		ASC->SetLooseGameplayTagCount(GetKinsectActiveTag(), 1);
 	}
 
 	bKinsectDeployed = true;
@@ -246,8 +264,7 @@ void URes_InsectGlaive::OnKinsectReachedPlayer(FGameplayTag ExtractColor)
 	// 移除 Kinsect.Active Tag
 	if (UAbilitySystemComponent* ASC = GetPlayerASC())
 	{
-		ASC->RemoveLooseGameplayTag(
-			FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Kinsect.Active")));
+		ASC->SetLooseGameplayTagCount(GetKinsectActiveTag(), 0);
 	}
 
 	bForceRecalling = false;

@@ -1,6 +1,6 @@
 # 虫棍木桩 Demo 冻结实施计划
 
-> **当前状态：** 已进入分阶段实施。M0、E0、E1 与 M1 代码阶段已完成；M1 的构建、15 项 M1 自动化测试和 5 项 M0 回归记录见 [M1 实施审计](m1-implementation-audit.md)。下一步是 E2 核心蓝图接线，完成并提交后进入 M2。旧 DT/Combo/GA/Montage 与零引用武器定义仍须等 M2 退役旧读取链后由 E3/E4 删除重建。
+> **当前状态：** M0、M1、M2 代码阶段与 E0～E2 编辑器阶段已完成。M2 的 Development Editor 构建、10 项 M2 自动化测试及 M0～M2 共 30 项联合回归见 [M2 实施审计](m2-implementation-audit.md)。下一步是 E3：先删除已退役的旧 DT/Combo/GA/Montage/零引用武器定义与旧组合 InputAction，再从最终类型创建 Runtime/Input/Combat/Combo/WeaponDefinition 数据壳；E3 完成后进入 M3，最终动作 GA/Montage 仍在 E4 创建。
 
 > **用途：** 当本文的公共接口、所有权和阶段退出条件确定后，再按里程碑逐步修改代码。实施时不得跨阶段顺手重构未列入范围的系统；每一阶段验收通过后才进入下一阶段。
 

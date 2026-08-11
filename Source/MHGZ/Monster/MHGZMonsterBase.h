@@ -10,6 +10,7 @@
 class UAbilitySystemComponent;
 class UMHGZMonsterHitzoneComponent;
 class UMHGZAttributeSet;
+class UMHGZHitFeedbackRouterComponent;
 
 /**
  * AMHGZMonsterBase — 怪物基类
@@ -29,6 +30,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Monster")
 	UMHGZAttributeSet* GetAttributeSet() const { return AttributeSet; }
 
+	/** Read-only accessor for the settled-hit feedback router (parallel M2 domain). */
+	UFUNCTION(BlueprintCallable, Category = "MHGZ|Monster")
+	UMHGZHitFeedbackRouterComponent* GetHitFeedbackRouter() const { return HitFeedbackRouter; }
+
 	/** 强制恢复所有部位通道 */
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Monster")
 	void ForceRestoreAllChannels();
@@ -45,4 +50,8 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UMHGZAttributeSet> AttributeSet;
+
+	/** Settled-hit feedback router; lets the dummy route AttributeSet -> Router. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
+	TObjectPtr<UMHGZHitFeedbackRouterComponent> HitFeedbackRouter;
 };

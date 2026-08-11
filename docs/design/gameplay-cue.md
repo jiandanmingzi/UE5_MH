@@ -1,6 +1,6 @@
 # GameplayCue 系统
 
-> **实施状态说明（以源码、配置和 Content 为准）：** 当前只完成 GameplayCue Tag 注册以及扫描路径配置；Content 中没有 GC 资产。攻击代码把 Cue Tag 当 DynamicAssetTag 保存，但 DynamicAssetTag 不会自动触发 GameplayCue。本文给出木桩 Demo 所需的修订目标，本轮不修改代码。
+> **实施状态说明（以源码、配置和 Content 为准）：** M2 已实现 `FMHGZHitFeedbackResult` 与目标侧 `UMHGZHitFeedbackRouterComponent`，AttributeSet 在伤害结算后显式执行命中、元素与伤害数字 Cue，并把卡肉/镜头请求转给对应控制器。GameplayCue Tag 与扫描路径已配置，但 Content 中仍没有 GC 资产，因此 E6 前只有路由能力、没有最终 VFX/音效表现。
 
 ## 当前实现
 
@@ -8,7 +8,7 @@
 |------|----------|
 | 配置 | `/Game/GameplayCues` 扫描路径已配置；没有 `GlobalGameplayCueManagerClass`。 |
 | Tag | Slash/Blunt/Fire/Crit/DamageNumber/Kinsect、IG 三灯反馈、Monster.Roar、Weapon.Trail 等部分 Tag 已注册；本文其他 Tag 是规划。 |
-| C++ | `UMHGZGameplayCueManager`、`UMHGZCue_HitBase`、`UMHGZCue_BuffBase`、`UMHGZDamageNumberPool` 均未创建。 |
+| C++ | `UMHGZHitFeedbackRouterComponent` 与 `UMHGZHitStopControllerComponent` 已创建；自定义 CueManager、Hit/Buff Cue 基类和 DamageNumberPool 均未创建。 |
 | 资产 | `Content/GameplayCues` 只有目录占位文件，没有任何 GameplayCueNotify 或伤害数字 Widget。 |
 | 模块 | Build.cs 已有 GameplayAbilities/GameplayTags/UMG，尚未添加 Niagara。 |
 
@@ -16,7 +16,7 @@
 
 > **适用范围：** 当前版本仅单机。GameplayCue 在单机模式下等价于本地函数调用，零网络开销。
 
-> **与 AnimNotify 的职责边界：** 帧同步 VFX（武器拖尾、脚步声）由 AnimNotify 驱动；状态驱动 VFX（命中反馈、Buff 光环、死亡）由 GameplayCue 驱动；镜头效果由 Ability 内 CameraModifier 管理。三者互补，不重叠。
+> **与 AnimNotify 的职责边界：** 帧同步 VFX（武器拖尾、脚步声）由 AnimNotify 驱动；状态驱动 VFX（命中反馈、Buff 光环、死亡）由 GameplayCue 驱动；命中镜头请求由结算后的 FeedbackRouter 交给源 PlayerController，动作自身的连续镜头才由 Ability/CameraModifier 管理。三者互补，不重叠。
 
 ---
 

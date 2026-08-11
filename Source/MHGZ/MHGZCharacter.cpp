@@ -16,6 +16,9 @@
 #include "UI/MHGZAimComponent.h"
 #include "InputSystem/MHGZEdgeVaultComponent.h"
 #include "InputSystem/MHGZInputComponent.h"
+#include "ActionSystem/MHGZIncomingHitResolverComponent.h"
+#include "ActionSystem/MHGZHitFeedbackRouterComponent.h"
+#include "ActionSystem/MHGZHitStopControllerComponent.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
@@ -65,6 +68,16 @@ AMHGZCharacter::AMHGZCharacter()
 
 	// EdgeVault
 	EdgeVaultComponent = CreateDefaultSubobject<UMHGZEdgeVaultComponent>(TEXT("EdgeVaultComponent"));
+
+	// IncomingHitResolver
+	IncomingHitResolver =
+		CreateDefaultSubobject<UMHGZIncomingHitResolverComponent>(TEXT("IncomingHitResolver"));
+
+	// M2 parallel-domain dependencies: these headers are provided by the feedback writer.
+	HitFeedbackRouter =
+		CreateDefaultSubobject<UMHGZHitFeedbackRouterComponent>(TEXT("HitFeedbackRouter"));
+	HitStopController =
+		CreateDefaultSubobject<UMHGZHitStopControllerComponent>(TEXT("HitStopController"));
 }
 
 UAbilitySystemComponent* AMHGZCharacter::GetAbilitySystemComponent() const

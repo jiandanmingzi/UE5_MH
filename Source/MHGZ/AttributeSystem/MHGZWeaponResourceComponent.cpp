@@ -11,6 +11,19 @@ UMHGZWeaponResourceComponent::UMHGZWeaponResourceComponent()
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
+void UMHGZWeaponResourceComponent::InitializeRuntime(const FWeaponRuntimeContext& Context)
+{
+	RuntimeContext = Context;
+	// 新运行期绝不继承上一把武器的词条修饰器。
+	ClearAllEntryModifiers();
+}
+
+void UMHGZWeaponResourceComponent::ShutdownRuntime(EWeaponRuntimeEndReason Reason)
+{
+	(void)Reason; // 结束原因当前仅用于日志/子类扩展；清理逻辑与原因无关。
+	ClearAllEntryModifiers();
+}
+
 bool UMHGZWeaponResourceComponent::CanReserveCosts(const TArray<FWeaponResourceCostSpec>& Specs) const
 {
 	return Specs.IsEmpty();
@@ -44,6 +57,13 @@ void UMHGZWeaponResourceComponent::ConsumeReservedCosts(const FWeaponResourceCos
 
 UAbilitySystemComponent* UMHGZWeaponResourceComponent::GetPlayerASC() const
 {
+	// M2：优先从 RuntimeHost 注入的上下文读取 ASC。
+	if (UAbilitySystemComponent* ContextASC = RuntimeContext.ASC.Get())
+	{
+		return ContextASC;
+	}
+
+	// 兼容旧路径：无上下文时回退到 PlayerState 挂载的 ASC。
 	const AActor* Owner = GetOwner();
 	if (const AMHGZPlayerState* PS = Cast<AMHGZPlayerState>(Owner))
 	{
@@ -78,7 +98,7 @@ float UMHGZWeaponResourceComponent::GetModifiedParam(FName ParamName) const
 	const float* Base = BaseParams.Find(ParamName);
 	float Result = Base ? *Base : 1.0f;
 
-	// 遍历所有修饰器，累积倍率
+	// 遍历所有修饰器，累计倍率
 	for (const auto& Pair : ActiveModifiers)
 	{
 		const FActiveModifier& Mod = Pair.Value;

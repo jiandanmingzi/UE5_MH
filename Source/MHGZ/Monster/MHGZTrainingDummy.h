@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "MHGZMonsterBase.h"
+#include "ActionSystem/MHGZIncomingHitResolverComponent.h"
 #include "MHGZTrainingDummy.generated.h"
 
 struct FOnAttributeChangeData;
@@ -43,6 +44,15 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MHGZ|Dummy")
 	float GetMaxHealth() const;
+
+	/**
+	 * Deterministic counter-test attack: builds a fixed real FHitResult against the
+	 * target character's capsule and submits it to the target IncomingHitResolver.
+	 * Re-submitting the same AttackInstanceID is settled at most once by the resolver.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MHGZ|Dummy")
+	EIncomingHitSubmitResult SubmitCounterTestAttack(
+		ACharacter* TargetCharacter, FGuid AttackInstanceID);
 
 protected:
 	virtual void BeginPlay() override;

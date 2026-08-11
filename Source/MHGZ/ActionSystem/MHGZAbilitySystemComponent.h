@@ -125,6 +125,4 @@ private:
 
 	/** 是否已经授予核心能力并应用核心 GE。 */
 	bool bAbilitySystemInitialized = false;
-
-	friend class UMHGZEquipmentComponent;
 };

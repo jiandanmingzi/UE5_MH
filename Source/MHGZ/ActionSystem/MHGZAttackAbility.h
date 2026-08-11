@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/HitResult.h"
 #include "MHGZGameplayAbility.h"
 #include "GameplayTagContainer.h"
 #include "Misc/DataValidation.h"
@@ -44,7 +45,7 @@ struct FWeaponTraceRegion
 {
 	GENERATED_BODY()
 
-	/** 有效攻击区域起点 Socket 或骨骼；留空时退化为 EndSocketName 单点 Sweep。 */
+	/** 可选起点 Socket/骨骼；留空表示本 TraceRegion 以 EndSocketName 做单点球 Sweep，不读取旧碰撞字段。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
 	FName StartSocketName;
 
@@ -84,32 +85,27 @@ struct FAttackCollisionConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FName TraceMeshComponentTag = FName(TEXT("WeaponTrace"));
 
-	/**
-	 * 本碰撞窗口内同时生效的武器轨迹区域。非空时覆盖下面的旧版单区域字段。
-	 * 虫棍通常配置 Front、Rear 或两者同时启用。
-	 */
+	/** ★ 本碰撞窗口内同时生效的武器轨迹区域；运行时只接受非空配置，为空则干净失败。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
 	TArray<FWeaponTraceRegion> TraceRegions;
 
-	/** 新版单区域终点；TraceRegions 为空时使用。 */
+	/** 旧版序列化壳；运行时不再读取，TraceRegions 为空时干净失败。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
 	FName TraceEndSocketName;
 
-	/** 旧版字段：实际含义是轨迹终点。保留用于读取现有蓝图。 */
+	/** 旧版序列化壳；运行时不再读取。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DeprecatedProperty, DeprecationMessage = "Use TraceEndSocketName or TraceRegions"))
 	FName AttachSocketName;
 
-	/**
-	 * 旧版单区域起点。TraceRegions 为空时仍与 TraceEndSocketName/AttachSocketName 配合使用。
-	 */
+	/** 旧版序列化壳；运行时不再读取。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FName TraceStartSocketName;
 
-	/** 碰撞形状 */
+	/** 旧版序列化壳；运行时不再读取。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EAttackCollisionShape Shape = EAttackCollisionShape::Sphere;
 
-	/** 形状参数：Sphere→X=Radius；Capsule→X=Radius+Z=HalfHeight；Box→HalfExtent */
+	/** 旧版序列化壳；运行时不再读取。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FVector ShapeExtent = FVector(20, 20, 20);
 
@@ -121,7 +117,7 @@ struct FAttackCollisionConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag HitzoneQueryTag;
 
-	/** 旧版单区域固定采样数。TraceRegions 非空时改为按长度自动计算。 */
+	/** 旧版序列化壳；运行时不再读取。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "8"))
 	int32 TraceSampleCount = 3;
 
@@ -142,9 +138,9 @@ struct FAttackDamageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TSubclassOf<class UGameplayEffect> DamageEffectClass;
 
-	/** ★ 动作值（倍率） */
+	/** ★ 动作值（倍率）。伤害段必须显式设置为正值；0 表示合法的无伤害命中，缺失不回退到 1。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FScalableFloat MotionValue = -1.0f;
+	FScalableFloat MotionValue = 0.0f;
 
 	/** ★ 基础破坏值 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -162,7 +158,7 @@ struct FAttackDamageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag HitStaggerTag;
 
-	/** SetByCaller 伤害值 Tag */
+	/** 旧版序列化壳；伤害 SetByCaller 键统一为 Damage.MotionValue/BaseStagger。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag DamageSetByCallerTag;
 
@@ -252,6 +248,9 @@ class UMHGZAttackAbility : public UMHGZGameplayAbility
 public:
 	UMHGZAttackAbility();
 
+	/** 本次 GA 激活生成的稳定攻击身份；一次激活内所有伤害 Spec 共享。 */
+	const FGuid& GetActivationAttackInstanceID() const { return ActivationAttackInstanceID; }
+
 	// ═══════════════════════════════════════════
 	// 配置
 	// ═══════════════════════════════════════════
@@ -304,17 +303,18 @@ public:
 	// 伤害构造与 Apply
 	// ═══════════════════════════════════════════
 
-	/**
-	 * 构造伤害 GE Spec
-	 * 子类（如 UMHGZInsectGlaiveAbility）可覆写以注入额外 GC Tag
-	 */
+	/** 构造伤害 GE Spec：写满真实 HitResult/攻击身份/反馈参数。 */
+	virtual FGameplayEffectSpecHandle MakeDamageSpec(
+		const FHitResult& Hit, int32 SegmentIndex);
+
+	/** 旧签名序列化兼容壳（已无运行时调用方；保留以兼容子类覆写）。 */
 	virtual FGameplayEffectSpecHandle MakeDamageSpec(
 		AActor* Target,
 		FName HitzoneBoneName,
 		int32 SegmentIndex);
 
-	/** Apply 伤害到目标 */
-	void ApplyDamage(AActor* Target, FName HitzoneBoneName, int32 SegmentIndex);
+	/** Apply 伤害到目标；真实 Sweep HitResult 全程不降级。 */
+	void ApplyDamage(const FHitResult& Hit, int32 SegmentIndex);
 
 	// ═══════════════════════════════════════════
 	// 命中/派生判断
@@ -347,6 +347,12 @@ protected:
 	/** 本次 GA 激活后是否已有命中 */
 	bool bHasHitThisActivation = false;
 
+	/** 本次激活的稳定攻击身份（ActivateAbility 时生成）。 */
+	FGuid ActivationAttackInstanceID;
+
+	/** 本次 Ability 实例独占的方向修正目标名，禁止与并发动作共享固定名称。 */
+	FName DirectionWarpTargetName = NAME_None;
+
 	/** 是否有活跃的 RootMotion Task */
 	bool bHasActiveRootMotionTask = false;
 
@@ -363,20 +369,25 @@ private:
 		float MaxSampleSpacing = 20.0f;
 		float MaxAngularStepDegrees = 15.0f;
 		int32 MaxSampleCount = 16;
-		int32 FixedSampleCount = 0;
-		EAttackCollisionShape LegacyShape = EAttackCollisionShape::Sphere;
-		FVector LegacyShapeExtent = FVector(14.0f);
-		bool bUseLegacyShape = false;
 		FVector PreviousStart = FVector::ZeroVector;
 		FVector PreviousEnd = FVector::ZeroVector;
+	};
+
+	/** 单目标多跳运行时状态：ContactOnly 与 LockedTargetTicks 共用。 */
+	struct FHitTargetRuntimeState
+	{
+		TWeakObjectPtr<AActor> TargetActor;
+		TWeakObjectPtr<UMHGZMonsterHitzoneComponent> Hitzone;
+		FHitResult LastHit;
+		int32 HitCount = 0;
+		float LastHitTime = -1.f;
+		FTimerHandle TickTimer;
 	};
 
 	struct FCollisionWindowRuntimeState
 	{
 		TArray<FTraceRegionRuntimeState> Regions;
-		TMap<TWeakObjectPtr<AActor>, FName> HitTargets;
-		FTimerHandle MultiHitTimer;
-		int32 MultiHitCurrentCount = 0;
+		TMap<TWeakObjectPtr<AActor>, FHitTargetRuntimeState> HitTargets;
 	};
 
 	/** GAS Montage 任务——统一处理完成、取消和被其他 Montage 打断 */
@@ -392,14 +403,20 @@ private:
 	/** 处理本帧为某个怪物选出的最早 Sweep 命中。 */
 	void ProcessSweepHit(const FHitResult& Hit, int32 SegmentIndex);
 
-	/** 首次命中后启动本段独立的多跳 Timer。 */
-	void StartMultiHitTimerIfNeeded(int32 SegmentIndex);
+	/** LockedTargetTicks：首次命中后为该目标启动独立跳伤 Timer。 */
+	void StartLockedTargetTickTimer(int32 SegmentIndex, const TWeakObjectPtr<AActor>& TargetKey);
 
-	/** 指定段的一次多跳伤害。 */
-	void OnMultiHitTick(int32 SegmentIndex);
+	/** LockedTargetTicks：单目标逐跳重验并结算一次伤害。 */
+	void OnLockedTargetTick(int32 SegmentIndex, TWeakObjectPtr<AActor> TargetKey);
 
-	/** 查找怪物 HitzoneComponent */
-	UMHGZMonsterHitzoneComponent* FindHitzoneComponent(AActor* Target, FName BoneName) const;
+	/** 次数耗尽：只停该目标 Timer，保留状态条目用于去重。 */
+	void FinishLockedTarget(int32 SegmentIndex, const TWeakObjectPtr<AActor>& TargetKey);
+
+	/** 停止并移除该目标（离区/失效），同时清其 Timer；再次接触按新目标重新计数。 */
+	void StopLockedTarget(int32 SegmentIndex, const TWeakObjectPtr<AActor>& TargetKey);
+
+	/** 目标/部位存活校验（ASC 死亡 Tag 或 Health<=0 视为不存活）。 */
+	bool IsTargetAlive(AActor* Target) const;
 
 	/** 根据组件 Tag 和 Socket 配置找到实际参与武器轨迹检测的骨骼网格。 */
 	USkeletalMeshComponent* FindTraceMeshComponent(const FAttackCollisionConfig& Collision) const;

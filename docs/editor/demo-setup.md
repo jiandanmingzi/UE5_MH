@@ -244,6 +244,17 @@ Preset 建好后还必须在对应阶段应用到组件，不能只在 Project S
 
 E2 完成时逐项 Compile/Save `BP_PlayerState`、`BP_MHGZ_PlayerController`、`BP_IG_Character`、`BP_Demo_GameMode`，然后关闭并重新打开一次确认无 Missing Property/重复组件。此时不要求武器输入可触发具体动作：InputProfile、ComboData、最终 GA/Montage 分别属于 E3/E4。
 
+### 4.5 M2 代码完成后的 E3 前检查
+
+M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资产前，先关闭编辑器完成一次 Development Editor 编译，再重新打开项目并执行：
+
+1. 打开并 Compile/Save `BP_PlayerState`。确认旧 `WeaponComboConfig`/DataManager 表路径属性不再出现；`AbilitySystemComponent` 仍只有一份。`AttributeSet` 是 PlayerState 的原生默认子对象，可能只显示在 Class Defaults 的 Components/属性区域，不要求它出现在左侧“添加组件”树中，也不要手工再加一份。
+2. 打开并 Compile/Save `BP_IG_Character`。父类现在提供 `IncomingHitResolver`、`HitFeedbackRouter`、`HitStopController` 三个 inherited component；每种必须恰好一份。E2 手工添加的 `WeaponRuntimeHost` 仍保留恰好一份，不要因为前三个是 inherited component 而重建 Host。
+3. 打开并 Compile/Save `BP_TrainingDummy`。父类提供 `AbilitySystemComponent`、`AttributeSet` 与 `HitFeedbackRouter`；Hitzone 在运行时由 `DA_TrainingDummy` 生成，蓝图 Components 树中不要再手工添加 Head/Torso/Leg 碰撞体。
+4. 打开 `BP_MHGZ_PlayerController` 和 `BP_Demo_GameMode`，Compile/Save 后关闭再重开上述四个核心蓝图。Message Log 不得出现 Missing Property、Unknown Struct、失效 Pin 或重复 inherited component。
+5. 在 Output Log 执行 `Automation RunTests MHGZ.M2`（或 Session Frontend 中运行 `MHGZ.M2`）。10 项均通过才继续。若命令行环境使用只读系统 DDC，可给 `UnrealEditor-Cmd` 增加 `-DDC-ForceMemoryCache`；这不需要改项目配置。
+6. 用 Reference Viewer 复核 §2.3 的旧包引用链。M2 已解除代码/ini 读取，但 Content 引用仍必须按实际结果处理；出现文档未列出的引用者就停止，不使用 Force Delete。
+
 ## 5. E3——输入与武器运行时 DataAsset
 
 所有虫棍运行时资产放在 `/Game/Weapons/InsectGlaive/Data`。同一用途只保留一个正式资产。
@@ -448,6 +459,7 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 1. Body Capsule 使用 `MonsterBody`；SkeletalMesh 使用 `NoCollision`，避免与 Capsule 形成两个实体 Body。
 2. Head、Torso、Leg 分别使用 QueryOnly 的 `MonsterHitzone`，Object Type 必须为 Hitzone。
 3. 调整三个碰撞体，使同一条正面射线不会在同一位置重叠多个部位。
+   `UMHGZDummyConfig` 的静态校验只能比较各项填写的 `RelativeLocation + Radius`，无法预测不同骨骼在全部动画帧中的最终世界变换；因此必须在本节用 Debug Draw 和实际 LoopingMontage 人工确认 Head/Torso/Leg 全程不重叠。静态校验通过不能替代此项。
 4. 开启 Debug Draw 时，武器 Sweep、猎虫 Sweep 和 Aim 射线应能明确区分 Body 与 Hitzone。
 5. 启用确定性 CounterTestAttack：固定 InitialDelay、Telegraph、ActiveDuration、Interval 和唯一 AttackInstanceID；不加入随机、寻路或自动转向。
 

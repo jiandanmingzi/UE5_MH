@@ -2,6 +2,8 @@
 
 #include "MHGZGameplayEffectContext.h"
 
+#include "Camera/CameraShakeBase.h"
+
 UScriptStruct* FMHGZGameplayEffectContext::GetScriptStruct() const
 {
 	return StaticStruct();
@@ -29,10 +31,18 @@ bool FMHGZGameplayEffectContext::NetSerialize(FArchive& Ar, UPackageMap* Map, bo
 	bool bHitzoneSuccess = false;
 	bool bHitCueSuccess = false;
 	bool bElementCueSuccess = false;
+	bool bHitStaggerSuccess = false;
 	SourceActionTag.NetSerialize(Ar, Map, bSourceActionSuccess);
 	HitzoneTag.NetSerialize(Ar, Map, bHitzoneSuccess);
 	HitCueTag.NetSerialize(Ar, Map, bHitCueSuccess);
 	ElementCueTag.NetSerialize(Ar, Map, bElementCueSuccess);
+	HitStaggerTag.NetSerialize(Ar, Map, bHitStaggerSuccess);
+
+	Ar.SerializeBits(&bUseHitzoneDefense, 1);
+
+	Ar << HitStopDuration;
+	Ar << CameraShakeClass;
+	Ar << CameraShakeScale;
 
 	uint8 SourceType = static_cast<uint8>(DamageSourceType);
 	Ar.SerializeBits(&SourceType, 3);
@@ -42,7 +52,7 @@ bool FMHGZGameplayEffectContext::NetSerialize(FArchive& Ar, UPackageMap* Map, bo
 	}
 
 	bOutSuccess = bParentSuccess && bSourceActionSuccess && bHitzoneSuccess
-		&& bHitCueSuccess && bElementCueSuccess && !Ar.IsError();
+		&& bHitCueSuccess && bElementCueSuccess && bHitStaggerSuccess && !Ar.IsError();
 	return true;
 }
 
