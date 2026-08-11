@@ -17,6 +17,7 @@ AMHGZPlayerState::AMHGZPlayerState()
 	EquipmentComponent = CreateDefaultSubobject<UMHGZEquipmentComponent>(TEXT("EquipmentComponent"));
 	BackpackComponent = CreateDefaultSubobject<UMHGZBackpackComponent>(TEXT("BackpackComponent"));
 	WarehouseComponent = CreateDefaultSubobject<UMHGZWarehouseComponent>(TEXT("WarehouseComponent"));
+	AbilitySystemComponent->AddAttributeSetSubobject(AttributeSet.Get());
 }
 
 UAbilitySystemComponent* AMHGZPlayerState::GetAbilitySystemComponent() const
