@@ -18,6 +18,7 @@ class UMHGZAbilitySystemComponent;
 class UMHGZEquipmentComponent;
 class UMHGZWeaponRuntimeHostComponent;
 class UMHGZWeaponDefinition;
+class UWeaponCombatConfigBase;
 class USkeletalMeshComponent;
 
 /** 输入产生时冻结的方向分类。None 表示该转移不要求方向。 */
@@ -215,6 +216,10 @@ struct FWeaponRuntimeContext
 	/** 当前武器定义（物品攻击力/外观/词条）；消费者只读。 */
 	UPROPERTY()
 	TObjectPtr<UMHGZWeaponDefinition> WeaponDefinition;
+
+	/** 当前武器类型的战斗配置；RuntimeHost 从 RuntimeDefinition 注入，消费者只读。 */
+	UPROPERTY()
+	TObjectPtr<UWeaponCombatConfigBase> CombatConfig;
 };
 
 /** 一次武器动作激活的精确身份；Notify/位移/命中/资源回调用它解析归属 */
@@ -430,6 +435,10 @@ struct FWeaponInputSnapshot
 
 	UPROPERTY(BlueprintReadOnly)
 	FVector WorldDirection = FVector::ForwardVector;
+
+	/** 输入解析瞬间的角色 Forward；收刀拔刀等动作不得在 GA 激活后重新采样。 */
+	UPROPERTY(BlueprintReadOnly)
+	FVector ActorForward = FVector::ForwardVector;
 
 	UPROPERTY(BlueprintReadOnly)
 	EDirectionalInput Direction = EDirectionalInput::None;

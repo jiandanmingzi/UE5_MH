@@ -152,11 +152,11 @@ Preset 建好后还必须在对应阶段应用到组件，不能只在 Project S
 
 `AMHGZMonsterBase` 和 `UMHGZMonsterHitzoneComponent` 会在 C++ 中再次设置 `MonsterBody/MonsterHitzone`，这是运行时兜底，不代表可以省略 Project Settings 中的 Preset 定义。若名称不存在，`SetCollisionProfileName` 无法得到本文要求的响应矩阵。
 
-当前旧 `UKinsectCollisionComponent::EnableKinsectCollision` 仍会在运行时直接改 Weapon/WorldStatic 响应，并依赖 Overlap；这是 M3 必须删除的旧实现。E1 只验证 `Kinsect` Preset 静态定义，M3 完成 Collision Root + Hitzone Object Sweep 后，运行时才必须严格呈现本节矩阵；不要为了兼容旧实现把 Preset 改回 Weapon=Overlap。
+M3 已删除旧 Overlap 命中路径；`EnableKinsectCollision` 现在只打开 `Kinsect` Preset 的 QueryOnly，猎虫命中由 Hitzone Object Capsule Sweep 完成。不要把 Preset 改回 Weapon=Overlap。
 
-当前旧 `UMHGZAimComponent::AimChannel` 的 C++ 默认值仍是 Weapon；目标设计要求 M3 改为 Visibility 并验证命中组件确为 Hitzone。`MonsterHitzone` 同时对 Weapon/Visibility Block、`MonsterBody` 同时 Ignore，因此迁移前后都不需要修改 Preset；不要把 Aim 的旧默认值固化成最终配置。
+M3 已把 `UMHGZAimComponent::AimChannel` 默认值改为 Visibility，并在命中后验证组件确为 Hitzone ObjectType。`MonsterHitzone` 仍对 Weapon/Visibility Block，`MonsterBody` 仍同时 Ignore；不要用资产覆盖回旧 Weapon 默认值。
 
-当前旧 `UAnimNotifyState_DodgeWindow::NotifyEnd` 会把 Weapon 和 MonsterAttack 都硬恢复为 Block，和 `PlayerCapsule` 的 Weapon=Ignore 不一致。M1 必须改为缓存并恢复窗口开始前的逐通道响应；M1 完成前不要用旧 Dodge Notify 的结果反向修改 Preset。
+M1 已将 `UAnimNotifyState_DodgeWindow` 改为缓存并恢复窗口开始前的逐通道响应；不要用旧版“结束时强制 Block”的行为反向修改 Preset。
 
 #### 3.2.5 保存、重启与最小验证
 
@@ -221,7 +221,7 @@ Preset 建好后还必须在对应阶段应用到组件，不能只在 Project S
    - `WeaponRuntimeHost` 当前不是 C++ 默认子对象：若 Components 树中没有它，使用 `Add → MHGZ Weapon Runtime Host Component` 新增一份并命名 `WeaponRuntimeHost`；若已有则保留原组件，不再新增。
 2. CapsuleComponent 的 Collision Preset 设为 `PlayerCapsule`；不要在蓝图中改成 Custom 响应。
 3. 武器 SkeletalMeshComponent 的 Collision Preset 设为 `NoCollision`，Component Tag 设置为代码约定的 `WeaponTrace`。NoCollision 不影响代码读取 Socket Transform 执行 Sweep。
-4. 武器附着到角色 `Weapon_R` Socket；武器自身用于判定的 `Root`、`IG_FrontTip`、`IG_RearTip` Socket 必须可在 Skeleton Tree 中预览。
+4. 武器附着到角色左手 `Weapon_L` Socket；武器自身用于判定的 `Root`、`IG_FrontTip`、`IG_RearTip` Socket 必须可在 Skeleton Tree 中预览。`Weapon_L` 只挂虫棍本体，不挂猎虫。
 5. E2 不给默认武器字段接入仍待删除的旧 `DA_IG_HuoLongGun`；保持空值。E3 §5.1 重建同名正式资产后再指向它。Character 不直接引用 ComboData、Resource Class 或 Resource Widget。
 6. Anim Class 指向最终 `ABP_MH_Character`。
 7. 检查 Character 蓝图没有每帧 SetActorRotation、LaunchCharacter 或 Timeline 位移与新的 MovementTask 并行写入。
@@ -275,7 +275,7 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 | WeaponTypeTag | `Weapon.InsectGlaive` |
 | RuntimeDefinition | `DA_WeaponRuntime_IG` |
 | Mesh | 当前正式虫棍 Mesh |
-| AttachSocket | `Weapon_R` |
+| AttachSocket | `Weapon_L` |
 | AttackPower | Demo 初值，例如 100；后续可调 |
 
 不得在该资产中再填写旧 Combo/Resource DataTable 行。保存并验证后回到 `BP_IG_Character`，将默认武器设为这个新建的正式 `DA_IG_HuoLongGun`；此后 Character 只通过它的 RuntimeDefinition 间接取得 Input/Combat/Resource/UI。
@@ -317,19 +317,21 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 | YB | Y+B | — | None | 四连印斩/前向回旋斩 |
 | LTY | Y | LT | Kinsect | 地面送虫；操虫斩舞踏中可派生穿刺 |
 | LTB | B | LT | Kinsect | 地面召回；空中操虫斩 |
-| LTRT | RT | LT | Kinsect | 虫印弹；LT/RT 任意顺序均可成立 |
+| LTRT | RT | LT | Kinsect | 虫印弹；`RequiredContextTags={Combat.State.Unsheathed, Combat.State.Grounded}`；LT/RT 任意顺序均可成立 |
 | RTY | Y | RT | Action | 猎虫滑翔 |
 | LTYB | Y+B | LT | None | 地面粉尘集约；空中降龙 |
 | RTYB | Y+B | RT | Action | 觉虫击 |
-| Sheathe（`Input.Sheathe`） | RB（`Input.Modifier.Sheathed`） | — | None | 纳刀：通用路由（同 `Input.Dodge`）按 InputTag 激活 `GA_Sheathe`，不进入 ComboData；`ReleaseControlTag=RB`；持刀按下立即触发 |
+| RT（`Input.Weapon.RT`） | RT | — | None | 收刀拔刀直飞；`RequiredContextTags={Combat.State.Sheathed, Combat.State.Grounded}`，`ReleaseControlTag=RT`，按下立即触发 |
+| Sheathe（`Input.Sheathe`） | RB（`Input.Modifier.Sheathed`） | — | None | 纳刀：`RequiredContextTags={Combat.State.Unsheathed}`；通用路由（同 `Input.Dodge`）按 InputTag 激活 `GA_Sheathe`，不进入 ComboData；`ReleaseControlTag=RB`；持刀按下立即触发 |
 
 设置：
 
 - `bRequireExactModifiers=true`。
 - TriggerControls 必须在 ChordGracePeriod 内；LT/RT 可预先持有或在等待期内最后补齐。
 - DirectionInputThreshold、ForwardConeHalfAngle 和 ChordGracePeriod 使用一个明确 Demo 初值，并保留为 DataAsset 可调参数。
+- `RequiredContextTags/BlockedContextTags` 在组合解析瞬间读取当前 RuntimeHost/ASC 姿态。RT 单键必须限定 `Sheathed+Grounded`，LTRT 必须限定 `Unsheathed+Grounded`；这样收刀 RT 不等待 LT+RT 的 GracePeriod，而持刀态 RT 仍可等待 LT 组成虫印。
 - 角色面向画面左时，摇杆左必须解析为 Forward。
-- Sheathe 是唯一通用路由输出（同 `Input.Dodge` 按 InputTag 激活 `GA_Sheathe`），不是武器连招输入；持刀态按下立即触发，攻击/硬直中由 `GA_Sheathe` 的 BlockedTags 拒绝；收刀态按下不激活 GA，由 Character 的 `SprintPressed` 分流为奔跑（0.1s 阈值）。
+- Sheathe 是唯一通用路由输出（同 `Input.Dodge` 按 InputTag 激活 `GA_Sheathe`），不是武器连招输入；Chord 本身要求 `Unsheathed`，持刀态按下立即触发，攻击/硬直中再由 `GA_Sheathe` 的 BlockedTags 拒绝；收刀态不产生 Sheathe 快照，只由 Character 的 `SprintPressed` 分流为奔跑（0.1s 阈值）。
 
 运行 Data Validation，故意制造一个重复 Chord/Priority 并确认能报错，再恢复正确配置。
 
@@ -346,7 +348,7 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 7. 配置四连/回旋、滑翔、操虫斩、穿刺、跳跃斩、急袭突刺、降龙、觉虫击的位移/修正角度参数。
 8. 觉虫击修正角固定支持正前方上下左右 ±60°，猎人飞行距离另设上限。
 9. 引用唯一 Demo 猎虫品种（`DA_IG_Kinsect_Speed`；品种资产只含外观/速度/耐力等品种数值，不写武器机制），并配置虫印弹/粉尘 Class 和粉尘参数。
-10. 指定萃取成功、三灯激活/到期、猎虫耐力归零等资源音效；没有正式资源时可用明确命名的临时音效，但不能留空后再用硬编码路径加载。依赖 M3 的 CombatConfig 音效接线：当前 `InsectGlaiveCombatConfig` 尚无音效字段，Resource 为运行时 NewObject 创建、编辑器无可填槽位；M3 补字段并注入后，E4 用 `Tmp_SFX_*` 临时音效回填。
+10. 指定萃取成功、三灯激活/到期、猎虫耐力归零等资源音效；没有正式资源时可用明确命名的临时音效，但不能留空后再用硬编码路径加载。M3 已在 `DA_IG_Combat` 暴露并接通 `ExtractCollectedSound`、`TripleUpActivatedSound`、`TripleUpExpiredSound`、`KinsectDepletedSound`；E4 创建 `Tmp_SFX_*` 临时音效后回填四个槽位。
 11. 不配置 WeaponResource EntryModifier；本 Demo 明确禁用该路径。
 
 ### 5.6 DA_IG_Combo
@@ -369,6 +371,8 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 
 ## 6. E4——GameplayEffect、Ability 与 Montage
 
+E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlaiveKinsectData`），填写飞行/召回/耐力/攻击力的 Demo 初值并回填 `DA_IG_Combat.KinsectData`。E5 再为同一资产接正式 Mesh、Anim Class、Material 和 Fly Montage，不创建第二个 Kinsect Data。这样 M3 Resource 的必需引用与 E4 Data Validation 一致。
+
 ### 6.1 精华 GameplayEffect
 
 在 `/Game/GameplayEffects/InsectGlaive` 创建或迁移：
@@ -387,15 +391,17 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 旧 `GA_IG_BaDao`、`GA_IG_R_TuCI` 只属于已删除原型，不 re-parent、不 Duplicate、不复制 Event Graph。基于最终原生父类，在 `/Game/Blueprints/Ability/InsectGlaive` 全新创建以下 Demo 必需 Ability：
 
 - 现有《世界》地面基底和四个 Starter 动作。
-- `GA_IG_SendKinsect`、`GA_IG_DrawAndSendKinsect`、`GA_IG_RecallKinsect`。
+- `GA_IG_SendKinsect`（父类 `UMHGZSendKinsectAbility`）、`GA_IG_DrawAndSendKinsect`（父类 `UMHGZDrawAndSendKinsectAbility`）、`GA_IG_RecallKinsect`（父类 `UMHGZRecallKinsectAbility`）。
 - `GA_IG_TetrasealSlash`、`GA_IG_AdvancingRoundslash`。
-- `GA_IG_MarkTarget`、`GA_IG_PowderVortex`、`GA_IG_KinsectGlide`。
+- `GA_IG_MarkTarget`（父类 `UMHGZMarkKinsectTargetAbility`）、`GA_IG_PowderVortex`、`GA_IG_KinsectGlide`。
 - `GA_IG_AwakenedKinsectAttack`。
 - `GA_IG_KinsectSlash`、`GA_IG_EnhancedKinsectSpiker`。
 - `GA_IG_StrongJumpingSlash`、`GA_IG_DescendingThrust`、`GA_IG_DivingWyvern`。
 - `GA_Sheathe`（通用路由 `InputTag=Input.Sheathe`；播放 `AM_Shth_ShouDao`，静止/移动选段；完成时 `RuntimeHost->SetSheathed(true)`；攻击/硬直中不可激活）。
 
 每个蓝图只配置数据：Montage、AttackSegments、成本、位移请求和动作特有参数；不要在 Event Graph 复制 Coordinator、资源状态机或直接操作 UI。武器动作必须继承重构后的虫棍动作基类，并保持 native `InstancedPerExecution`。旧拼音 GA 名称不作为最终资产名占位；最终名称按本节动作清单建立。
+
+`GA_Sheathe` 不进入虫棍 ComboData；把它加入 `BP_PlayerState` 继承的 `MHGZAbilitySystemComponent.CoreAbilities`（与 `GA_Dodge` 同一通用授予入口）。其余 `Input.Weapon.*` 猎虫 GA 必须由 `DA_IG_Combo` 的 Transition 引用，RuntimeHost 才会按武器授予。
 
 拔刀路径（Y 拔刀攻击、收刀 RT 拔刀直飞、奔跑中拔刀）激活时调用 `RuntimeHost->SetSheathed(false)` 并清 `bSprintHeld`；纳刀由 `GA_Sheathe` 调用 `SetSheathed(true)`。
 
@@ -439,10 +445,11 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 在 `/Game/Weapons/InsectGlaive` 下配置：
 
 1. `DA_IG_Kinsect_Speed`：引用正式猎虫 Mesh/Material、`ABP_IG_Kinsect`、`AM_IG_Kinsect_Fly`，并填写 Demo 品种数值（飞行速度、最大距离、RT 直飞距离、耐力池/回复/悬停与飞行耗耐、基础攻击力；召回速度等 M3 新增字段到齐后一并填写）。
-2. 猎虫蓝图若仅用于指定 Mesh/AnimClass，父类使用最终 `AKinsect`，不要在 Tick 蓝图重复飞行、Overlap 或萃取逻辑。
-3. 在 M3 最终实现上，猎虫 Collision 根组件使用 `Kinsect` Preset，关闭 Generate Overlap Events，ProjectileMovement 的 UpdatedComponent 指向该根组件。
-4. Fly Montage/AnimBP 只负责飞行动画；悬停和附着不需要建立另一套伤害窗口。
-5. 把 Kinsect Data 填入 `DA_IG_Combat` 的唯一 Demo 猎虫引用。
+2. 在角色 Skeleton 上创建并校准独立 `Kinsect_Arm_Socket`，用于猎虫附着/召回终点；它不能与虫棍本体使用的左手 `Weapon_L` 重合。把 `DA_IG_Combat.KinsectAttachSocket` 设为 `Kinsect_Arm_Socket`。虫印弹发射点使用武器 Mesh（Component Tag=`WeaponTrace`）上的 `IG_FrontTip`，并把 `KinsectMarkLaunchSocket` 设为该名称；弹道方向由冻结的 Aim TargetPoint 与该 Socket 共同计算，不从相机位置直接生成。
+3. 猎虫蓝图若仅用于指定 Mesh/AnimClass，父类使用最终 `AKinsect`，不要在 Tick 蓝图重复飞行、Overlap 或萃取逻辑。
+4. 在 M3 最终实现上，猎虫 Collision 根组件使用 `Kinsect` Preset，关闭 Generate Overlap Events，ProjectileMovement 的 UpdatedComponent 指向该根组件。
+5. Fly Montage/AnimBP 只负责飞行动画；悬停和附着不需要建立另一套伤害窗口。
+6. 把 Kinsect Data 填入 `DA_IG_Combat` 的唯一 Demo 猎虫引用；M3 起该引用是运行时必需项，留空时 Resource 明确保持 inert，不再生成带默认数值的临时猎虫。
 
 ### 7.2 虫印弹与粉尘表现资产
 

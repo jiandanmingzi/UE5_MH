@@ -127,6 +127,7 @@ private:
 	void EvaluateChords(double Now);
 	bool IsChordComplete(int32 ChordIndex) const;
 	bool IsPossiblyCompletable(int32 ChordIndex, double Now) const;
+	bool DoChordContextRequirementsPass(int32 ChordIndex) const;
 	double GetFirstTriggerTime(int32 ChordIndex) const;
 	FGameplayTag GetLastMemberTag(int32 ChordIndex) const;
 	FWeaponInputSnapshot BuildSnapshot(
@@ -165,6 +166,8 @@ private:
 	TArray<bool> ResolvedChords;
 	TMap<int32, FDeferredChord> DeferredChords;
 	TSet<FGameplayTag> ConfiguredModifierTags;
+	/** 被单成员 Chord 拥有的物理键；上下文不满足时静默，不回退发出原始 PhysicalTag。 */
+	TSet<FGameplayTag> SingleChordOwnedTags;
 	TSet<FGameplayTag> DelayedTags;
 	TMap<FGameplayTag, TArray<FReleaseRegistration>> ReleaseRegistry;
 	TArray<FWeaponInputSnapshot> CapturedSnapshots;

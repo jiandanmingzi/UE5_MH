@@ -220,6 +220,7 @@ void UMHGZWeaponInputRouterComponent::RebuildChordCache()
 {
 	Chords.Reset();
 	ConfiguredModifierTags.Reset();
+	SingleChordOwnedTags.Reset();
 	DelayedTags.Reset();
 	DeferredChords.Reset();
 
@@ -246,6 +247,10 @@ void UMHGZWeaponInputRouterComponent::RebuildChordCache()
 			if (Info.bMultiMember)
 			{
 				DelayedTags.Add(Trigger);
+			}
+			else if (Info.TriggerCount == 1)
+			{
+				SingleChordOwnedTags.Add(Trigger);
 			}
 		}
 		for (const FGameplayTag& Modifier : Definition.RequiredHeldModifiers)
@@ -389,8 +394,31 @@ bool UMHGZWeaponInputRouterComponent::IsChordComplete(int32 ChordIndex) const
 			}
 		}
 	}
+	if (!DoChordContextRequirementsPass(ChordIndex))
+	{
+		return false;
+	}
 
 	return true;
+}
+
+bool UMHGZWeaponInputRouterComponent::DoChordContextRequirementsPass(int32 ChordIndex) const
+{
+	if (!Chords.IsValidIndex(ChordIndex) || !Chords[ChordIndex].Definition)
+	{
+		return false;
+	}
+	const FWeaponChordDefinition& Definition = *Chords[ChordIndex].Definition;
+	if (Definition.RequiredContextTags.IsEmpty() && Definition.BlockedContextTags.IsEmpty())
+	{
+		return true;
+	}
+	const UMHGZAbilitySystemComponent* ASC = CachedASC.Get();
+	return ASC
+		&& (Definition.RequiredContextTags.IsEmpty()
+			|| ASC->HasAllMatchingGameplayTags(Definition.RequiredContextTags))
+		&& (Definition.BlockedContextTags.IsEmpty()
+			|| !ASC->HasAnyMatchingGameplayTags(Definition.BlockedContextTags));
 }
 
 bool UMHGZWeaponInputRouterComponent::IsPossiblyCompletable(int32 ChordIndex, double Now) const
@@ -427,6 +455,10 @@ bool UMHGZWeaponInputRouterComponent::IsPossiblyCompletable(int32 ChordIndex, do
 	if (Now > FirstTriggerTime + Grace)
 	{
 		return false; // its own trigger window has already closed
+	}
+	if (!DoChordContextRequirementsPass(ChordIndex))
+	{
+		return false;
 	}
 
 	// If exact modifiers are already violated by held keys, the chord can never complete.
@@ -673,6 +705,10 @@ void UMHGZWeaponInputRouterComponent::FlushExpiredInputs(double Now)
 		{
 			continue;
 		}
+		if (SingleChordOwnedTags.Contains(Pair.Key))
+		{
+			continue;
+		}
 		if (Now < State.StartedTime + Grace)
 		{
 			continue;
@@ -703,6 +739,9 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalStarted(FGameplayTag Physica
 		EWeaponInputPhase::Started, Now, EWeaponAimSnapshotContext::None);
 	HeldControls.Add(PhysicalTag, MoveTemp(State));
 
+	// 修饰键可能是最后补齐的成员；必须先建立 Aim 子标签，再冻结 Chord 的
+	// ContextTags/AimSnapshot 并让 Coordinator 检查 RequiredTags。
+	RecomputeAimChildTags();
 	EvaluateChords(Now);
 
 	// Keys that cannot participate in any multi-member chord dispatch immediately;
@@ -710,14 +749,14 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalStarted(FGameplayTag Physica
 	// chord consumed it.
 	FPhysicalInputState* Held = HeldControls.Find(PhysicalTag);
 	if (Held && !Held->bSingleConsumed && !DelayedTags.Contains(PhysicalTag)
-		&& !ConfiguredModifierTags.Contains(PhysicalTag))
+		&& !ConfiguredModifierTags.Contains(PhysicalTag)
+		&& !SingleChordOwnedTags.Contains(PhysicalTag))
 	{
 		Held->bSingleEmitted = true;
 		RegisterRelease(Held->FrozenSingleSnapshot, PhysicalTag);
 		EmitSnapshot(Held->FrozenSingleSnapshot);
 	}
 
-	RecomputeAimChildTags();
 }
 
 void UMHGZWeaponInputRouterComponent::HandlePhysicalCompleted(FGameplayTag PhysicalTag, double Now)
@@ -766,7 +805,8 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalCompleted(FGameplayTag Physi
 	if (FPhysicalInputState* State = HeldControls.Find(PhysicalTag))
 	{
 		if (!State->bSingleEmitted && !State->bSingleConsumed
-			&& !ConfiguredModifierTags.Contains(PhysicalTag))
+			&& !ConfiguredModifierTags.Contains(PhysicalTag)
+			&& !SingleChordOwnedTags.Contains(PhysicalTag))
 		{
 			State->bSingleEmitted = true;
 			RegisterRelease(State->FrozenSingleSnapshot, PhysicalTag);
@@ -956,6 +996,7 @@ FWeaponInputSnapshot UMHGZWeaponInputRouterComponent::BuildSnapshot(
 		Snapshot.WorldDirection = Character->GetLastMovementInputDir();
 		CharacterForward = Character->GetActorForwardVector();
 		CharacterRight = Character->GetActorRightVector();
+		Snapshot.ActorForward = CharacterForward;
 	}
 
 	const float Threshold = CurrentProfile ? CurrentProfile->DirectionInputThreshold : 0.0f;
@@ -1094,7 +1135,9 @@ void UMHGZWeaponInputRouterComponent::RecomputeAimChildTags()
 	// Release tokens no longer desired.
 	for (int32 Index = AimChildTokens.Num() - 1; Index >= 0; --Index)
 	{
-		if (Desired.Contains(AimChildTags[Index]))
+		const bool bCurrentToken = Host
+			&& AimChildTokens[Index].RuntimeToken == Host->GetCurrentToken();
+		if (Desired.Contains(AimChildTags[Index]) && bCurrentToken)
 		{
 			continue;
 		}

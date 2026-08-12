@@ -7,8 +7,9 @@
 #include "KinsectCollisionComponent.generated.h"
 
 /**
- * UKinsectCollisionComponent — 猎虫专用碰撞组件
- * 胶囊体：飞行时 Weapon 通道 = Overlap（萃取判定），WordStatic = Block（撞墙停止）
+ * UKinsectCollisionComponent — 猎虫专用碰撞胶囊（AKinsect 的 Root）。
+ * 使用 "Kinsect" preset：QueryOnly / WorldStatic=Block / Weapon=Ignore / Hitzone=Ignore；
+ * 不生成 Overlap 事件，命中判定由 AKinsect 的代码 Capsule Sweep 完成。
  */
 UCLASS(ClassGroup = (MHGZ), BlueprintType, meta = (BlueprintSpawnableComponent))
 class UKinsectCollisionComponent : public UCapsuleComponent
@@ -18,9 +19,12 @@ class UKinsectCollisionComponent : public UCapsuleComponent
 public:
 	UKinsectCollisionComponent();
 
-	/** 启用碰撞（飞行/悬停中） */
+	/** 启用碰撞：仅 QueryOnly，重新应用 Kinsect preset。 */
 	void EnableKinsectCollision();
 
-	/** 关闭碰撞（停手臂时） */
+	/** 关闭碰撞：NoCollision。 */
 	void DisableKinsectCollision();
+
+protected:
+	virtual void OnRegister() override;
 };

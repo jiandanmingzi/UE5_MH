@@ -107,16 +107,35 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 				PS->GetEquipmentComponent());
 		}
 		EquipDefaultWeaponIfConfigured();
+
+		// ASC Init 完成后显式绑定 Aim 生命周期（BeginPlay 的尝试可能早于 Possession）
+		if (AimComponent)
+		{
+			AimComponent->BindToAbilitySystem(ASC);
+		}
 	}
 }
 
 void AMHGZCharacter::UnPossessed()
 {
+	// Aim 解绑先于武器运行时关闭，避免 Tick 期间访问失效 ASC
+	if (AimComponent)
+	{
+		AimComponent->UnbindFromAbilitySystem();
+	}
+	ClearSprintHeld();
+
 	if (UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost())
 	{
 		RuntimeHost->ShutdownRuntime(EWeaponRuntimeEndReason::AvatarChanged);
 	}
 	Super::UnPossessed();
+}
+
+void AMHGZCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	ClearSprintHeld();
+	Super::EndPlay(EndPlayReason);
 }
 
 UMHGZWeaponRuntimeHostComponent* AMHGZCharacter::GetWeaponRuntimeHost() const
@@ -317,42 +336,55 @@ void AMHGZCharacter::Look(const FInputActionValue& Value)
 
 void AMHGZCharacter::SprintPressed(const FInputActionValue& Value)
 {
-	// 拔刀态不可奔跑（决策 #61）
-	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
-	if (PS)
+	// RB（0.1s 判定）：仅收刀态记录按下；持刀态按下不启动
+	if (!IsSheathedForSprint())
 	{
-		UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
-		if (ASC && ASC->HasMatchingGameplayTag(
-			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Unsheathed"))))
-		{
-			return;
-		}
+		return;
 	}
 
-	bSprintHeld = true;
+	bSprintPressed = true;
+	GetWorldTimerManager().SetTimer(
+		SprintHoldTimer, this, &AMHGZCharacter::OnSprintHoldTimerExpired,
+		FMath::Max(0.f, SprintHoldThreshold), false);
 }
 
 void AMHGZCharacter::SprintReleased(const FInputActionValue& Value)
 {
+	ClearSprintHeld();
+}
+
+void AMHGZCharacter::ClearSprintHeld()
+{
+	GetWorldTimerManager().ClearTimer(SprintHoldTimer);
+	bSprintPressed = false;
 	bSprintHeld = false;
 }
 
-void AMHGZCharacter::AimPressed()
+void AMHGZCharacter::OnSprintHoldTimerExpired()
 {
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	SprintHoldTimer.Invalidate();
+
+	// 到期仍按住且仍收刀 → 冲刺成立
+	if (bSprintPressed && IsSheathedForSprint())
 	{
-		ASC->AddLooseGameplayTag(
-			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aiming")));
+		bSprintHeld = true;
 	}
 }
 
-void AMHGZCharacter::AimReleased()
+bool AMHGZCharacter::IsSheathedForSprint() const
 {
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponent())
+	// 优先 RuntimeHost 权威状态；无 Host（未挂载/测试环境）时回退 ASC Sheathed tag
+	if (UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost())
 	{
-		ASC->RemoveLooseGameplayTag(
-			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aiming")));
+		return RuntimeHost->IsSheathed();
 	}
+
+	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+	if (!PS) return false;
+
+	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+	return ASC && ASC->HasMatchingGameplayTag(
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Sheathed")));
 }
 
 FVector AMHGZCharacter::GetLastMovementInputDir() const

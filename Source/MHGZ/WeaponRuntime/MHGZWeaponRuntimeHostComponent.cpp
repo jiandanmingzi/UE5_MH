@@ -9,6 +9,7 @@
 #include "ActionSystem/MHGZHitStopControllerComponent.h"
 #include "ActionSystem/MHGZWeaponComboData.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
+#include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -212,6 +213,18 @@ void UMHGZWeaponRuntimeHostComponent::ApplyWeaponSnapshot(
 {
 	CurrentWeapon = Snapshot;
 	CurrentContext.WeaponDefinition = Snapshot.WeaponDefinition.Get();
+	CurrentContext.CombatConfig = Snapshot.RuntimeDefinition
+		? Snapshot.RuntimeDefinition->CombatConfig.Get()
+		: nullptr;
+	if (APlayerController* Controller = CurrentContext.Controller.Get())
+	{
+		if (UMHGZWeaponInputRouterComponent* Router =
+			Controller->FindComponentByClass<UMHGZWeaponInputRouterComponent>())
+		{
+			Router->SetInputProfile(Snapshot.RuntimeDefinition
+				? Snapshot.RuntimeDefinition->InputProfile.Get() : nullptr);
+		}
+	}
 	BuildWeaponRuntime(Snapshot);
 }
 
@@ -321,6 +334,14 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 	{
 		Provider->ShutdownRuntime(Reason);
 	}
+	if (APlayerController* Controller = CurrentContext.Controller.Get())
+	{
+		if (UMHGZWeaponInputRouterComponent* Router =
+			Controller->FindComponentByClass<UMHGZWeaponInputRouterComponent>())
+		{
+			Router->SetInputProfile(nullptr);
+		}
+	}
 
 	// 5) 命中停顿请求不能跨换武器、死亡或 EndPlay 泄漏。
 	if (AActor* Character = CurrentContext.Character.Get())
@@ -352,6 +373,8 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 	ResourceProvider = nullptr;
 
 	CurrentWeapon = FEquippedWeaponSnapshot();
+	CurrentContext.WeaponDefinition = nullptr;
+	CurrentContext.CombatConfig = nullptr;
 	bShuttingDown = false;
 }
 
@@ -513,9 +536,11 @@ void UMHGZWeaponRuntimeHostComponent::DispatchInputRelease(const FWeaponInputSna
 
 	// 释放身份不变式：仅分发给当前 Token、实例有效、且激活输入快照的
 	// SourceControlTag + SequenceID 与本次 Release 完全一致的 Active Action。
-	for (FWeaponActionToken Action : ActiveActions)
+	const TArray<FWeaponActionToken> ActionsSnapshot = ActiveActions;
+	for (const FWeaponActionToken& Action : ActionsSnapshot)
 	{
-		if (!IsTokenCurrent(Action.RuntimeToken) || !Action.IsValid())
+		if (!IsTokenCurrent(Action.RuntimeToken) || !Action.IsValid()
+			|| !ActiveActions.Contains(Action))
 		{
 			continue;
 		}

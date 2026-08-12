@@ -12,7 +12,7 @@
 | 模块 | 当前状态 |
 |------|----------|
 | 移动 | `AMHGZCharacter::DoMove` 只计算 `InputMagnitude`、`TargetCruiseSpeed` 和 `DesiredSpeed`，不调用 `AddMovementInput`；AnimBP 使用 Motion Matching/Root Motion。角色在 `Tick` 中按 `TurnRate` 限制最大转角，默认 `360°/s`，180° 不再瞬转。 |
-| 冲刺与瞄准 | 冲刺是 Character 上的 `bSprintHeld`；当前瞄准只有一个宽泛 `Combat.State.Aiming`，目标设计会拆成 Kinsect/Action/Slinger 上下文。当前不是 `GA_Sprint`/`GA_Aim` 驱动。 |
+| 冲刺与瞄准 | 冲刺是 Character 上的 `bSprintHeld`，RB 收刀态持有 0.1s 后成立；M3 已将瞄准拆成 `Combat.State.Aiming.Kinsect/Action/Slinger`，由 InputRouter 通过 TagLedger Token 按 LT/RT 与收刀姿态派生。它们不是 `GA_Sprint`/`GA_Aim` 驱动。 |
 | GAS 输入 | `UMHGZInputComponent` 独占 Enhanced Input 绑定，`UMHGZWeaponInputRouterComponent` 生成组合键、方向、姿态、Aim 与释放身份不可变快照；ASC 只接收已解析输入，不拥有物理键。 |
 | 攻击 | `UMHGZAttackAbility` 使用 Montage Task、多 `TraceRegions` 自适应 Socket Sweep 和真实 `FHitResult`。同帧多 Region 选最早命中；默认接触式去重，只有显式 `LockedTargetTicks` 才离散复击并逐跳重验；旧 Socket/Shape 字段只剩序列化壳。 |
 | 连招 | `UGA_WeaponComboCoordinator` 使用 `FComboTransition/Transitions`、不可变 ActivationContext 与 Pending/Confirm/Active 两阶段状态；方向、窗口、自动边、StateOnly、命中授予和 Superseded 实例隔离均已接通。最终虫棍 Transitions 仍待 E4 配置。 |

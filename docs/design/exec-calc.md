@@ -264,7 +264,7 @@ float DamageValue = Parameters.RawMagnitude;
 
 ### 猎虫/粉尘伤害
 
-目标不创建第二套 `GE_KinsectDamage` 资产。武器、猎虫和粉尘统一使用原生 `UMHGZDamageGameplayEffect`；通过 Context.DamageSourceType、CueTag 和 `Damage.AttackPower` 覆写区分来源。当前猎虫代码硬编码加载不存在的 `/Game/GameplayEffects/Core/GE_KinsectDamage`，M3 必须迁移。
+不创建第二套 `GE_KinsectDamage` 资产。武器、猎虫和粉尘统一使用原生 `UMHGZDamageGameplayEffect`；通过 Context.DamageSourceType、CueTag 和 `Damage.AttackPower` 覆写区分来源。M3 已删除猎虫对 `/Game/GameplayEffects/Core/GE_KinsectDamage` 的硬编码加载。
 
 ---
 

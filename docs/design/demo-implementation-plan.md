@@ -1,6 +1,6 @@
 # 虫棍木桩 Demo 冻结实施计划
 
-> **当前状态：** M0、M1、M2 代码阶段与 E0～E2 编辑器阶段已完成。M2 的 Development Editor 构建、10 项 M2 自动化测试及 M0～M2 共 30 项联合回归见 [M2 实施审计](m2-implementation-audit.md)。下一步是 E3：先删除已退役的旧 DT/Combo/GA/Montage/零引用武器定义与旧组合 InputAction，再从最终类型创建 Runtime/Input/Combat/Combo/WeaponDefinition 数据壳；E3 完成后进入 M3，最终动作 GA/Montage 仍在 E4 创建。
+> **当前状态：** M0～M3 代码与 E0～E3 已完成；DebugGame/Development 构建均成功，`MHGZ.M3` 9/9 与 `MHGZ` 全量 39/39 自动化测试已通过。可用新反射类重开编辑器并进入 E4，详见 [M3 实施审计](m3-implementation-audit.md)。
 
 > **2026-08-11 追加冻结：** RB 双语义——持刀态按 RB=纳刀（`Input.Sheathe` 通用路由，按下立即触发，攻击/硬直中无效）；收刀态按住 RB ≥0.1s=奔跑（`Input.Sprint` 键位由 LS 改为 RB，LS 释放）。文档已按此更新（§1.4、§3.2、M3/M4、E3/E4、验证清单），不要求回改已完成的 M0～M2 代码。
 
@@ -611,6 +611,10 @@ ActiveReservations            // 本资源发起的粉尘预留
 6. 修正 PendingExtract 到达时原子取出并清空、连续飞行取不同颜色、返回中保留规则，以及耐力归零阈值只触发一次召回/音效；冻结起飞点距离和 ToPoint 到达半径；`UInsectGlaiveKinsectData` 新增 `ReturnSpeed`（召回速度）字段并接入召回飞行。
 7. Character 侧 RB 奔跑分流：`SprintAction` 键位改 RB；`SprintPressed` 收刀态按住 ≥0.1s 置 `bSprintHeld`，拔刀态 return。持刀态 RB 在 M3 阶段只由 Router 输出 `Input.Sheathe`（E3 已配），`GA_Sheathe` 在 M4/E4 实现前为 no-op。
 8. 资源音效接线：`InsectGlaiveCombatConfig` 新增萃取成功、三灯激活/到期、猎虫耐力归零四个 `USoundBase` 字段；把 CombatConfig 传入 `URes_InsectGlaive::InitializeRuntime`，`PlayResourceSound` 改从配置读取，并删除 `URes_InsectGlaive` 遗留的硬编码资产路径依赖。
+
+M3 输入接线补充：`FWeaponChordDefinition` 增加通用 `RequiredContextTags/BlockedContextTags`。`Input.Weapon.RT` 使用单成员 RT Chord，并要求 `Sheathed+Grounded`，因此收刀按下立即冻结 ActorForward；持刀态该候选不成立，RT 可继续作为 modifier 与 LT 组成 `Input.Weapon.LTRT`。四个基础猎虫动作由原生 GA 父类构造完整 Flight/Aim 请求，E4 蓝图子类只做资产接线。
+
+贯通伤害身份补充：`FKinsectFlightRequest.AttackInstanceID` 表示整次 Flight；每次实际命中再生成独立 HitInstanceID 写入 GameplayEffectContext，避免 IncomingHitResolver 的“同 AttackInstanceID 只结算一次”规则把觉虫击后续贯通 Tick 误判为重复命中。
 
 **退出条件：** 三部位都能正确点灯；三灯期间所有吸收路径只吞灯且不刷新；Triple GE Apply 失败不会丢单灯；猎虫高速穿过 Hitzone 仍可 Sweep 命中；回手后 Pending 为空且下一次能取得另一颜色；耐力持续为 0 时只播放一次警告并只请求一次召回；收刀保留虫印而卸装清除。
 

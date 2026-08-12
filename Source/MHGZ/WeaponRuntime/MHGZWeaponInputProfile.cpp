@@ -27,6 +27,11 @@ bool SameTagSet(const TArray<FGameplayTag>& A, const TArray<FGameplayTag>& B)
 	}
 	return true;
 }
+
+bool SameTagContainer(const FGameplayTagContainer& A, const FGameplayTagContainer& B)
+{
+	return A.Num() == B.Num() && A.HasAllExact(B);
+}
 }
 
 FPrimaryAssetId UWeaponInputProfile::GetPrimaryAssetId() const
@@ -170,6 +175,31 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 			}
 		}
 
+		for (const FGameplayTag& RequiredContext : Chord.RequiredContextTags)
+		{
+			if (!RequiredContext.IsValid())
+			{
+				AddError(FText::Format(
+					LOCTEXT("InvalidRequiredContext", "Chords[{0}] contains an invalid RequiredContextTag."),
+					IndexText));
+			}
+			if (Chord.BlockedContextTags.HasTagExact(RequiredContext))
+			{
+				AddError(FText::Format(
+					LOCTEXT("ContextTagConflict", "Chords[{0}] requires and blocks context tag '{1}'."),
+					IndexText, FText::FromString(RequiredContext.ToString())));
+			}
+		}
+		for (const FGameplayTag& BlockedContext : Chord.BlockedContextTags)
+		{
+			if (!BlockedContext.IsValid())
+			{
+				AddError(FText::Format(
+					LOCTEXT("InvalidBlockedContext", "Chords[{0}] contains an invalid BlockedContextTag."),
+					IndexText));
+			}
+		}
+
 		// Trigger 与 Modifier 不得重叠
 		for (const FGameplayTag& Overlap : TriggerSet.Intersect(ModifierSet))
 		{
@@ -195,7 +225,9 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 			if (Chord.Priority == Other.Priority
 				&& Chord.bRequireExactModifiers == Other.bRequireExactModifiers
 				&& SameTagSet(Chord.TriggerControls, Other.TriggerControls)
-				&& SameTagSet(Chord.RequiredHeldModifiers, Other.RequiredHeldModifiers))
+				&& SameTagSet(Chord.RequiredHeldModifiers, Other.RequiredHeldModifiers)
+				&& SameTagContainer(Chord.RequiredContextTags, Other.RequiredContextTags)
+				&& SameTagContainer(Chord.BlockedContextTags, Other.BlockedContextTags))
 			{
 				AddError(FText::Format(
 					LOCTEXT("AmbiguousChord", "Chords[{0}] and Chords[{1}] have tied members and Priority; outputs cannot be resolved deterministically (current '{2}')."),

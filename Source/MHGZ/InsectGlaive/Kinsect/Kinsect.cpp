@@ -7,33 +7,53 @@
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/CapsuleComponent.h"
+#include "Engine/World.h"
+
+namespace
+{
+constexpr float FALLBACK_FLIGHT_SPEED = 2000.f;
+constexpr float FALLBACK_RETURN_SPEED = 2500.f;
+constexpr float FALLBACK_HOVER_DRAIN = 3.f;
+constexpr float FALLBACK_FLIGHT_DRAIN = 8.f;
+}
 
 AKinsect::AKinsect()
 {
 	PrimaryActorTick.bCanEverTick = true;
 
-	Mesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh"));
-	RootComponent = Mesh;
-
+	// Collision 为 Root；Mesh 纯视觉，附着在 Collision 上
 	Collision = CreateDefaultSubobject<UKinsectCollisionComponent>(TEXT("Collision"));
-	Collision->SetupAttachment(Mesh);
+	RootComponent = Collision;
+
+	Mesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("Mesh"));
+	Mesh->SetupAttachment(Collision);
+	Mesh->SetCollisionProfileName(TEXT("NoCollision"));
+	Mesh->SetGenerateOverlapEvents(false);
 
 	Movement = CreateDefaultSubobject<UProjectileMovementComponent>(TEXT("Movement"));
-	Movement->bAutoActivate = false;
+	Movement->UpdatedComponent = Collision;
+	Movement->bAutoActivate = false;   // 仅 BeginFlight/StartReturn 显式激活
 	Movement->InitialSpeed = 0.f;
-	Movement->MaxSpeed = 3000.f;
-	Movement->ProjectileGravityScale = 0.f; // 无重力，可悬停
+	Movement->MaxSpeed = 0.f;
+	Movement->ProjectileGravityScale = 0.f; // 无重力
+	Movement->bShouldBounce = false;        // 不反弹
+	Movement->bRotationFollowsVelocity = true;
 }
 
 void AKinsect::BeginPlay()
 {
 	Super::BeginPlay();
 
-	// 绑定 Overlap/Hit 事件
 	if (Collision)
 	{
-		Collision->OnComponentBeginOverlap.AddDynamic(this, &AKinsect::OnHitMonsterHitzone);
 		Collision->OnComponentHit.AddDynamic(this, &AKinsect::OnWorldCollision);
+	}
+
+	if (Movement)
+	{
+		// 确保 Movement 先于 Actor Tick 推进，Previous→Current 扫描才能覆盖本帧位移
+		AddTickPrerequisiteComponent(Movement);
 	}
 }
 
@@ -41,315 +61,490 @@ void AKinsect::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	if (State != EKinsectState::Flying && State != EKinsectState::Returning)
+	{
+		return;
+	}
+
+	// 飞行/返回期间每帧核对 Runtime Token；资源失效则安全停住
+	if (!ResourceComponent.IsValid() ||
+		!ResourceComponent->IsRuntimeRequestCurrent(ActiveRequest.RuntimeToken))
+	{
+		Interrupt();
+		return;
+	}
+
 	switch (State)
 	{
 	case EKinsectState::Flying:
-	{
-		TimeSinceLastDamage += DeltaTime;
-
-		// 贯穿伤害
-		if (DamageMode == EKinsectDamageMode::Piercing)
+		// 先 Hitzone Sweep，再处理墙
+		SweepHitzones(DeltaTime);
+		if (State != EKinsectState::Flying)
 		{
-			TryApplyKinsectDamage(DeltaTime);
+			break; // SingleHit 已结束飞行
 		}
-
-		// 检查是否应停止
-		if (ShouldStopFlying())
+		if (PendingWorldHit.bBlockingHit)
 		{
-			OnFlightEnded();
+			HandleWorldHit();
+			break;
 		}
-
-		// 检查是否超过最大距离
-		if (bFollowRay)
-		{
-			const float Dist = FVector::Dist(GetActorLocation(),
-				OwnerActor.IsValid() ? OwnerActor->GetActorLocation() : FVector::ZeroVector);
-			if (Dist >= MaxFlightRange)
-			{
-				OnFlightEnded();
-			}
-		}
+		CheckFlightProgress();
 		break;
-	}
+
 	case EKinsectState::Returning:
-	{
-		// 每帧追踪玩家位置
-		if (OwnerActor.IsValid() && Movement)
-		{
-			const FVector PlayerLoc = OwnerActor->GetActorLocation();
-			const FVector ToPlayer = PlayerLoc - GetActorLocation();
-			const float Dist = ToPlayer.Size();
-
-			if (Dist < 50.f) // 到达
-			{
-				Movement->Velocity = FVector::ZeroVector;
-				// AttachToPlayer 由 ResourceComponent 回调处理
-				if (ResourceComponent.IsValid())
-				{
-					State = EKinsectState::Recalled;
-					ResourceComponent->OnKinsectReachedPlayer(PendingExtractColor);
-				}
-			}
-			else
-			{
-				Movement->Velocity = ToPlayer.GetSafeNormal() * GetFlightSpeed();
-			}
-		}
+		TickReturn();
 		break;
-	}
+
 	default:
 		break;
 	}
 }
 
-void AKinsect::StartFlightAlongRay(FVector InRayDirection, float MaxDistance)
+bool AKinsect::IsFlightRequestValid(const FKinsectFlightRequest& Request) const
 {
-	InRayDirection = InRayDirection.GetSafeNormal();
-	MaxFlightRange = MaxDistance;
+	if (!Request.RuntimeToken.IsValid() || !ResourceComponent.IsValid())
+	{
+		return false;
+	}
+	if (!ResourceComponent->IsRuntimeRequestCurrent(Request.RuntimeToken))
+	{
+		return false;
+	}
+	if (!FMath::IsFinite(Request.FlightSpeed) || Request.FlightSpeed <= 0.f)
+	{
+		return false;
+	}
+	if (!FMath::IsFinite(Request.MaxDistance) || Request.MaxDistance <= 0.f)
+	{
+		return false;
+	}
+	if (!FMath::IsFinite(Request.ArrivalRadius) || Request.ArrivalRadius <= 0.f)
+	{
+		return false;
+	}
+	if (!FMath::IsFinite(Request.RehitInterval) || Request.RehitInterval < 0.f)
+	{
+		return false;
+	}
+	if (!FMath::IsFinite(Request.MotionValue) || Request.MotionValue < 0.f)
+	{
+		return false;
+	}
+	if (!Request.FlightInstanceID.IsValid())
+	{
+		return false;
+	}
+	if (Request.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection)
+	{
+		if (Request.DirectionSnapshot.ContainsNaN() ||
+			Request.DirectionSnapshot.GetSafeNormal().IsNearlyZero())
+		{
+			return false;
+		}
+	}
+	else if (Request.TrajectoryMode == EKinsectTrajectoryMode::ToPoint)
+	{
+		if (Request.TargetPointSnapshot.ContainsNaN())
+		{
+			return false;
+		}
+	}
+	else
+	{
+		return false;
+	}
+	return true;
+}
 
-	State = EKinsectState::Flying;
-	bFollowRay = true;
-	FlyDestination = FVector::ZeroVector;
+bool AKinsect::BeginFlight(const FKinsectFlightRequest& Request)
+{
+	// 完整校验，全部通过后才提交，保证原子性
+	if (!IsFlightRequestValid(Request))
+	{
+		return false;
+	}
 
-	Movement->Velocity = InRayDirection * GetFlightSpeed();
+	FVector FlightDirection;
+	if (Request.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection)
+	{
+		FlightDirection = Request.DirectionSnapshot.GetSafeNormal();
+	}
+	else
+	{
+		FlightDirection = (Request.TargetPointSnapshot - GetActorLocation()).GetSafeNormal();
+	}
+	if (FlightDirection.IsNearlyZero())
+	{
+		return false; // 目标点与当前位置重合
+	}
+
+	// 原子提交
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Movement->MaxSpeed = Request.FlightSpeed;
+	Movement->Activate();
+	Movement->Velocity = FlightDirection * Request.FlightSpeed;
 	Collision->EnableKinsectCollision();
 
-	TimeSinceLastDamage = 999.f;
+	ActiveRequest = Request;
+	FlightStartLocation = GetActorLocation();
+	LastTickLocation = GetActorLocation();
+	PendingWorldHit.Reset();
 	bHasDealtDamage = false;
-
-	FlyPlayRate = 1.5f;
-}
-
-void AKinsect::StartFlightToPoint(FVector Destination)
-{
-	FlyDestination = Destination;
-	bFollowRay = false;
-
+	HitzoneHitTimers.Reset();
 	State = EKinsectState::Flying;
-
-	const FVector Dir = (Destination - GetActorLocation()).GetSafeNormal();
-	Movement->Velocity = Dir * GetFlightSpeed();
-	Collision->EnableKinsectCollision();
-
-	TimeSinceLastDamage = 999.f;
-	bHasDealtDamage = false;
-
-	FlyPlayRate = 1.5f;
-}
-
-void AKinsect::SetDamageParams(EKinsectDamageMode InDamageMode, float InMotionValue,
-	float InDamageInterval, EKinsectExtractMode InExtractMode)
-{
-	DamageMode = InDamageMode;
-	CurrentMotionValue = InMotionValue;
-	CurrentDamageInterval = InDamageInterval;
-	ExtractMode = InExtractMode;
-
-	TimeSinceLastDamage = 999.f;
-	bHasDealtDamage = false;
-}
-
-void AKinsect::StopAndHover()
-{
-	Movement->Velocity = FVector::ZeroVector;
-	State = EKinsectState::Hovering;
-	FlyPlayRate = 0.3f;
-}
-
-void AKinsect::StartReturn()
-{
-	if (State == EKinsectState::Returning) return; // 已在返回中
-
-	State = EKinsectState::Returning;
-	FlyPlayRate = 1.0f;
-}
-
-void AKinsect::ForceRecall()
-{
-	StartReturn();
-	// ★ 不清除 PendingExtractColor——耐力归零保留已萃取灯
+	return true;
 }
 
 void AKinsect::Interrupt()
 {
-	Movement->Velocity = FVector::ZeroVector;
-	bFollowRay = false;
-	FlyDestination = FVector::ZeroVector;
-	// ★ 不修改 PendingExtractColor——若已萃取则保留
-}
-
-void AKinsect::AttachToPlayer(USceneComponent* ArmSocket)
-{
-	AttachToComponent(ArmSocket, FAttachmentTransformRules::SnapToTargetIncludingScale);
-	State = EKinsectState::Attached;
-	OwnerActor = ArmSocket->GetOwner();
-	Collision->DisableKinsectCollision();
-	Movement->Velocity = FVector::ZeroVector;
-}
-
-void AKinsect::OnHitMonsterHitzone(UPrimitiveComponent* OverlappedComp, AActor* OtherActor,
-	UPrimitiveComponent* OtherComp, int32 OtherBodyIndex, bool bFromSweep, const FHitResult& SweepResult)
-{
-	if (State != EKinsectState::Flying) return;
-
-	UMHGZMonsterHitzoneComponent* Hitzone = Cast<UMHGZMonsterHitzoneComponent>(OtherComp);
-	if (!Hitzone) return;
-
-	// 同一帧命中怪物+墙壁 → 怪物优先（先处理 Overlap，后续 Hit 中 State 已非 Flying 则忽略）
-
-	// 记录萃取
-	TryRecordExtract(Hitzone);
-
-	// 单发模式 → Apply 伤害 + 标记
-	if (DamageMode == EKinsectDamageMode::SingleHit && !bHasDealtDamage)
+	if (State == EKinsectState::Attached)
 	{
-		ApplyDamageOnce(Hitzone, CurrentMotionValue);
-		bHasDealtDamage = true;
-		// 下帧 Tick 中 ShouldStopFlying() 返回 true
+		return;
 	}
-}
 
-void AKinsect::OnWorldCollision(UPrimitiveComponent* HitComp, AActor* OtherActor,
-	UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
-{
-	if (State != EKinsectState::Flying) return;
-
-	// 撞墙 → 立即悬停
-	Movement->Velocity = FVector::ZeroVector;
+	// 停旧飞行但不清除 Pending 萃取
+	Movement->StopMovementImmediately();
+	Movement->Deactivate();
+	if (Collision)
+	{
+		Collision->DisableKinsectCollision();
+	}
+	PendingWorldHit.Reset();
+	HitzoneHitTimers.Reset();
+	bHasDealtDamage = false;
 	State = EKinsectState::Hovering;
-	FlyPlayRate = 0.3f;
 }
 
-void AKinsect::TryRecordExtract(UMHGZMonsterHitzoneComponent* Hitzone)
+void AKinsect::StartReturn()
 {
-	if (!Hitzone || ExtractMode == EKinsectExtractMode::NoExtract) return;
-
-	// 部位→萃取颜色映射（委托 ResourceComponent）
-	FGameplayTag NewColor;
-	if (ResourceComponent.IsValid())
+	if (State == EKinsectState::Attached || State == EKinsectState::Returning)
 	{
-		NewColor = ResourceComponent->MapHitzoneToExtract(Hitzone->HitzoneTag);
+		return; // 幂等
 	}
 
-	if (!NewColor.IsValid()) return;
-
-	switch (ExtractMode)
+	const float ReturnSpeed = KinsectData ? KinsectData->ReturnSpeed : FALLBACK_RETURN_SPEED;
+	if (ReturnSpeed <= 0.f)
 	{
-	case EKinsectExtractMode::FirstHitOnly:
-		if (!PendingExtractColor.IsValid())
+		StopAndHover();
+		return;
+	}
+
+	State = EKinsectState::Returning;
+	// 返回不再参与攻击或世界阻挡；否则被墙截停后将永远无法交付 Pending 精华。
+	if (Collision)
+	{
+		Collision->DisableKinsectCollision();
+	}
+	Movement->MaxSpeed = ReturnSpeed;
+	Movement->Activate();
+	PendingWorldHit.Reset();
+	HitzoneHitTimers.Reset();
+	bHasDealtDamage = false;
+	// Velocity 在 TickReturn 中每帧指向实时 Socket 位置
+}
+
+void AKinsect::AttachToPlayer(USceneComponent* InAttachComponent, FName InSocketName)
+{
+	AttachComponent = InAttachComponent;
+	AttachSocketName = InSocketName;
+
+	if (InAttachComponent)
+	{
+		AttachToComponent(InAttachComponent,
+			FAttachmentTransformRules::SnapToTargetIncludingScale, InSocketName);
+		OwnerActor = InAttachComponent->GetOwner();
+	}
+
+	Movement->StopMovementImmediately();
+	Movement->Deactivate();
+	PendingWorldHit.Reset();
+	State = EKinsectState::Attached;
+
+	if (Collision)
+	{
+		Collision->DisableKinsectCollision();
+	}
+}
+
+FGameplayTag AKinsect::TakePendingExtractColor()
+{
+	const FGameplayTag Extracted = PendingExtractColor;
+	PendingExtractColor = FGameplayTag();
+	return Extracted;
+}
+
+float AKinsect::GetFlightSpeed() const
+{
+	return KinsectData ? KinsectData->FlightSpeed : FALLBACK_FLIGHT_SPEED;
+}
+
+float AKinsect::GetHoverDrainRate() const
+{
+	return KinsectData ? KinsectData->HoverDrainRate : FALLBACK_HOVER_DRAIN;
+}
+
+float AKinsect::GetFlightDrainRate() const
+{
+	return KinsectData ? KinsectData->FlightDrainRate : FALLBACK_FLIGHT_DRAIN;
+}
+
+void AKinsect::SweepHitzones(float DeltaTime)
+{
+	if (!Collision || !GetWorld())
+	{
+		return;
+	}
+
+	const FVector CurrentLocation = GetActorLocation();
+
+	// 仅 Hitzone Object Channel（ECC_GameTraceChannel3）
+	FCollisionObjectQueryParams ObjectQueryParams;
+	ObjectQueryParams.AddObjectTypesToQuery(ECC_GameTraceChannel3);
+
+	FCollisionQueryParams QueryParams(FName(TEXT("KinsectHitzoneSweep")), false);
+	QueryParams.AddIgnoredActor(this);
+	if (OwnerActor.IsValid())
+	{
+		QueryParams.AddIgnoredActor(OwnerActor.Get());
+	}
+
+	// 与 Collision 同尺寸的 Capsule
+	const FCollisionShape CapsuleShape = FCollisionShape::MakeCapsule(
+		Collision->GetUnscaledCapsuleRadius(),
+		Collision->GetUnscaledCapsuleHalfHeight());
+
+	TArray<FHitResult> Hits;
+	GetWorld()->SweepMultiByObjectType(Hits, LastTickLocation, CurrentLocation,
+		Collision->GetComponentQuat(), ObjectQueryParams, CapsuleShape, QueryParams);
+	LastTickLocation = CurrentLocation;
+
+	if (Hits.Num() == 0)
+	{
+		return;
+	}
+
+	// 按 Hit.Time 排序
+	Hits.Sort([](const FHitResult& A, const FHitResult& B)
+	{
+		return A.Time < B.Time;
+	});
+
+	// 清理已失效组件的计时
+	for (auto It = HitzoneHitTimers.CreateIterator(); It; ++It)
+	{
+		if (!It.Key().IsValid())
 		{
-			PendingExtractColor = NewColor;
+			It.RemoveCurrent();
 		}
-		break;
+	}
 
-	case EKinsectExtractMode::AlwaysOverwrite:
+	for (const FHitResult& Hit : Hits)
 	{
-		// 红(3) > 橙(2) > 白(1)
-		static const TMap<FGameplayTag, int32> PriorityMap = {
-			{FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White")), 1},
-			{FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange")), 2},
-			{FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red")), 3}
-		};
-
-		const int32* NewPrio = PriorityMap.Find(NewColor);
-		const int32* OldPrio = PriorityMap.Find(PendingExtractColor);
-		if (!OldPrio || (NewPrio && *NewPrio > *OldPrio))
+		UMHGZMonsterHitzoneComponent* Hitzone =
+			Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+		if (!Hitzone)
 		{
-			PendingExtractColor = NewColor;
+			continue;
 		}
-		break;
-	}
-
-	default:
-		break;
-	}
-}
-
-void AKinsect::TryApplyKinsectDamage(float DeltaTime)
-{
-	if (TimeSinceLastDamage < CurrentDamageInterval) return;
-
-	UMHGZMonsterHitzoneComponent* Hitzone = GetOverlappingHitzone();
-	if (!Hitzone) return;
-
-	ApplyDamageOnce(Hitzone, CurrentMotionValue);
-	TimeSinceLastDamage = 0.f;
-}
-
-void AKinsect::ApplyDamageOnce(UMHGZMonsterHitzoneComponent* Hitzone, float MotionValue)
-{
-	if (!Hitzone || !ResourceComponent.IsValid()) return;
-
-	AActor* Monster = Hitzone->GetOwner();
-	ResourceComponent->ApplyKinsectDamage(Hitzone, Monster, MotionValue);
-}
-
-UMHGZMonsterHitzoneComponent* AKinsect::GetOverlappingHitzone() const
-{
-	if (!Collision) return nullptr;
-
-	TArray<AActor*> OverlappingActors;
-	Collision->GetOverlappingActors(OverlappingActors);
-
-	for (AActor* Actor : OverlappingActors)
-	{
-		TArray<UMHGZMonsterHitzoneComponent*> Hitzones;
-		Actor->GetComponents<UMHGZMonsterHitzoneComponent>(Hitzones);
-		if (Hitzones.Num() > 0)
+		HandleHitzoneHit(Hit, DeltaTime);
+		if (State != EKinsectState::Flying)
 		{
-			return Hitzones[0];
+			break; // 飞行已结束（SingleHit 立即结束）
 		}
 	}
-	return nullptr;
 }
 
-bool AKinsect::ShouldStopFlying() const
+void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 {
-	// 单发模式已伤害 → 停止
-	if (DamageMode == EKinsectDamageMode::SingleHit && bHasDealtDamage)
+	UMHGZMonsterHitzoneComponent* Hitzone =
+		Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+	if (!Hitzone || !ResourceComponent.IsValid())
 	{
+		return;
+	}
+
+	// 萃取：无颜色优先级、无部位名映射，直接用 Hitzone 的 ExtractColorTag
+	if (ActiveRequest.ExtractMode == EKinsectExtractMode::FirstHitOnly)
+	{
+		if (!PendingExtractColor.IsValid() && Hitzone->ExtractColorTag.IsValid())
+		{
+			PendingExtractColor = Hitzone->ExtractColorTag;
+		}
+	}
+	if (ActiveRequest.DamageMode == EKinsectDamageMode::None)
+	{
+		return;
+	}
+
+	if (ActiveRequest.DamageMode == EKinsectDamageMode::SingleHit)
+	{
+		if (bHasDealtDamage)
+		{
+			return;
+		}
+		bHasDealtDamage = true;
+
+		// 真实 FHitResult 全程保留并透传给 Resource
+		const bool bDamageApplied = ResourceComponent->ApplyKinsectDamage(
+			Hit, ActiveRequest.MotionValue, FGuid::NewGuid());
+
+		if (ActiveRequest.ExtractMode == EKinsectExtractMode::ApplyPerValidHit
+			&& bDamageApplied && Hitzone->ExtractColorTag.IsValid())
+		{
+			ResourceComponent->ApplyExtract(Hitzone->ExtractColorTag);
+		}
+
+		// 单发命中：立即结束飞行；结束策略由 PostFlightPolicy 决定
+		EndFlight(EKinsectFlightEndReason::HitzoneHit);
+		return;
+	}
+
+	// Piercing：首碰立即命中；之后按绝对世界时间对每个 Hitzone 独立限频。
+	// 不能只在重叠帧累计 DeltaTime，否则高速穿过部位时首击会被错误吞掉。
+	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
+	if (const float* LastHitTime = HitzoneHitTimers.Find(Hitzone);
+		LastHitTime && Now - *LastHitTime < ActiveRequest.RehitInterval)
+	{
+		return;
+	}
+
+	const bool bDamageApplied = ResourceComponent->ApplyKinsectDamage(
+		Hit, ActiveRequest.MotionValue, FGuid::NewGuid());
+	if (!bDamageApplied)
+	{
+		return;
+	}
+	HitzoneHitTimers.Add(Hitzone, Now);
+
+	// 伤害成功且 ExtractMode=ApplyPerValidHit 后立即 Apply
+	if (ActiveRequest.ExtractMode == EKinsectExtractMode::ApplyPerValidHit
+		&& Hitzone->ExtractColorTag.IsValid())
+	{
+		ResourceComponent->ApplyExtract(Hitzone->ExtractColorTag);
+	}
+}
+
+void AKinsect::HandleWorldHit()
+{
+	PendingWorldHit.Reset();
+	EndFlight(EKinsectFlightEndReason::WorldHit);
+}
+
+void AKinsect::CheckFlightProgress()
+{
+	const FVector CurrentLocation = GetActorLocation();
+
+	// 距离从 FlightStartLocation 计算
+	const float Travelled = FVector::Dist(CurrentLocation, FlightStartLocation);
+	if (Travelled >= ActiveRequest.MaxDistance)
+	{
+		EndFlight(EKinsectFlightEndReason::MaxDistance);
+		return;
+	}
+
+	if (ActiveRequest.TrajectoryMode == EKinsectTrajectoryMode::ToPoint)
+	{
+		const FVector ToTarget = ActiveRequest.TargetPointSnapshot - CurrentLocation;
+		const bool bWithinArrivalRadius =
+			ToTarget.SizeSquared() <= FMath::Square(ActiveRequest.ArrivalRadius);
+		const bool bPassedTarget =
+			FVector::DotProduct(ToTarget, Movement->Velocity.GetSafeNormal()) < 0.f;
+		if (bWithinArrivalRadius || bPassedTarget)
+		{
+			EndFlight(EKinsectFlightEndReason::Arrival);
+		}
+	}
+}
+
+void AKinsect::EndFlight(EKinsectFlightEndReason Reason)
+{
+	if (ActiveRequest.PostFlightPolicy == EKinsectPostFlightPolicy::ReturnToOwner)
+	{
+		StartReturn();
+	}
+	else
+	{
+		StopAndHover();
+	}
+}
+
+void AKinsect::StopAndHover()
+{
+	Movement->StopMovementImmediately();
+	Movement->Deactivate();
+	if (Collision)
+	{
+		Collision->DisableKinsectCollision();
+	}
+	State = EKinsectState::Hovering;
+}
+
+void AKinsect::TickReturn()
+{
+	FVector SocketLocation;
+	if (!ResolveAttachSocketLocation(SocketLocation))
+	{
+		// 无有效附着目标：安全悬停
+		StopAndHover();
+		return;
+	}
+
+	const FVector ToTarget = SocketLocation - GetActorLocation();
+	const float Distance = ToTarget.Size();
+
+	const float ReturnArrivalRadius = ActiveRequest.ArrivalRadius > 0.f
+		? ActiveRequest.ArrivalRadius : RETURN_ARRIVAL_DISTANCE;
+	if (Distance <= ReturnArrivalRadius)
+	{
+		if (!ResourceComponent.IsValid())
+		{
+			StopAndHover();
+			return;
+		}
+		// 先局部取出并清 Pending，再 Attach，再回调一次
+		const FGameplayTag DeliveredColor = TakePendingExtractColor();
+		AttachToPlayer(AttachComponent.Get(), AttachSocketName);
+		ResourceComponent->OnKinsectReachedPlayer(DeliveredColor);
+		return;
+	}
+
+	const float ReturnSpeed = KinsectData ? KinsectData->ReturnSpeed : FALLBACK_RETURN_SPEED;
+	Movement->MaxSpeed = ReturnSpeed;
+	Movement->Velocity = ToTarget.GetSafeNormal() * ReturnSpeed;
+}
+
+bool AKinsect::ResolveAttachSocketLocation(FVector& OutLocation) const
+{
+	if (AttachComponent.IsValid())
+	{
+		if (AttachSocketName != NAME_None && AttachComponent->DoesSocketExist(AttachSocketName))
+		{
+			OutLocation = AttachComponent->GetSocketLocation(AttachSocketName);
+		}
+		else
+		{
+			OutLocation = AttachComponent->GetComponentLocation();
+		}
+		return true;
+	}
+
+	if (OwnerActor.IsValid())
+	{
+		OutLocation = OwnerActor->GetActorLocation();
 		return true;
 	}
 	return false;
 }
 
-void AKinsect::OnFlightEnded()
+void AKinsect::OnWorldCollision(UPrimitiveComponent* HitComp, AActor* OtherActor,
+	UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
-	if (PendingExtractColor.IsValid())
+	if (State != EKinsectState::Flying)
 	{
-		// 有萃取 → 自动返回
-		StartReturn();
+		return;
 	}
-	else
-	{
-		// 无萃取 → 悬停等待
-		StopAndHover();
-	}
-}
 
-float AKinsect::GetFlightSpeed() const
-{
-	if (KinsectData)
-	{
-		return KinsectData->FlightSpeed;
-	}
-	return 2000.f;
-}
-
-float AKinsect::GetHoverDrainRate() const
-{
-	if (KinsectData)
-	{
-		return KinsectData->HoverDrainRate;
-	}
-	return 3.f;
-}
-
-float AKinsect::GetFlightDrainRate() const
-{
-	if (KinsectData)
-	{
-		return KinsectData->FlightDrainRate;
-	}
-	return 8.f;
+	// 只缓存真实 HitResult 并停 Movement；墙处理统一放在 Actor Tick（先 Hitzone Sweep 再处理墙）
+	PendingWorldHit = Hit;
+	Movement->StopMovementImmediately();
 }

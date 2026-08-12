@@ -3,126 +3,118 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "MHGZWeaponResourceComponent.h"
-#include "GameplayTagContainer.h"
 #include "ActiveGameplayEffectHandle.h"
+#include "GameplayTagContainer.h"
+#include "MHGZWeaponResourceComponent.h"
 #include "Res_InsectGlaive.generated.h"
 
+class AIGMarkProjectile;
 class AKinsect;
+class UInsectGlaiveCombatConfig;
 class UInsectGlaiveKinsectData;
 class UMHGZMonsterHitzoneComponent;
-class UGameplayEffect;
-class USoundBase;
-class UAbilitySystemComponent;
+struct FGameplayEffectRemovalInfo;
+struct FKinsectFlightRequest;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnKinsectStaminaChanged, float, Current, float, Max);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnExtractTimeUpdated, FGameplayTag, ExtractColor, float, Ratio);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnTripleUpChanged);
 
+UENUM(BlueprintType)
+enum class EIGMarkClearReason : uint8
+{
+	Replaced,
+	Expired,
+	TargetInvalid,
+	WeaponChanged,
+	RuntimeShutdown
+};
+
 /**
- * URes_InsectGlaive — 虫棍资源组件
- * 由 Character RuntimeHost 动态创建。管理猎虫生命周期、猎虫耐力、三灯萃取、灯消耗。
+ * 虫棍运行时资源。由 Character 的 RuntimeHost 动态创建；只保存当前 Pawn/武器实例状态，
+ * 所有可调规则与资产引用均来自唯一 UInsectGlaiveCombatConfig。
  */
 UCLASS(ClassGroup = (MHGZ), BlueprintType)
-class URes_InsectGlaive : public UMHGZWeaponResourceComponent
+class MHGZ_API URes_InsectGlaive : public UMHGZWeaponResourceComponent
 {
 	GENERATED_BODY()
 
 public:
 	URes_InsectGlaive();
 
-	virtual void BeginPlay() override;
+	virtual void InitializeRuntime(const FWeaponRuntimeContext& Context) override;
+	virtual void ShutdownRuntime(EWeaponRuntimeEndReason Reason) override;
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
-	virtual void ShutdownRuntime(EWeaponRuntimeEndReason Reason) override;
 
-	// ═══════════════════════════════════════════
-	// 猎虫生命周期
-	// ═══════════════════════════════════════════
-
-	/** 装备虫棍时——Spawn 猎虫 */
-	void OnWeaponEquipped(UInsectGlaiveKinsectData* Data, USceneComponent* ArmSocket);
-
-	/** 卸下虫棍时——销毁猎虫 */
+	// ── 猎虫生命周期与飞行请求 ─────────────────────────────────
+	bool OnWeaponEquipped(UInsectGlaiveKinsectData* Data, USceneComponent* AttachComponent,
+		FName AttachSocket);
 	void OnWeaponUnequipped();
-
-	/** 送虫——瞄准送虫（沿相机方向） */
-	void DeployKinsect();
-
-	/** 送虫——沿指定方向（收刀 RT 直飞） */
-	void DeployKinsectAlongDirection(FVector Direction, float Distance);
-
-	/** 召回猎虫 */
-	void RecallKinsect();
-
-	/** 猎虫回到玩家回调 */
+	bool CanDeployKinsect(const FKinsectFlightRequest& Request) const;
+	bool DeployKinsect(const FKinsectFlightRequest& Request);
+	bool RecallKinsect();
 	void OnKinsectReachedPlayer(FGameplayTag ExtractColor);
+	bool IsRuntimeRequestCurrent(const FWeaponRuntimeToken& Token) const;
 
-	// ═══════════════════════════════════════════
-	// 萃取系统
-	// ═══════════════════════════════════════════
+	UFUNCTION(BlueprintPure, Category = "MHGZ|IG")
+	AKinsect* GetKinsectActor() const { return KinsectActor; }
 
-	/**
-	 * 部位→萃取颜色映射（虚函数，支持不同猎虫品种覆写）
-	 */
+	UFUNCTION(BlueprintPure, Category = "MHGZ|IG")
+	float GetKinsectStamina() const { return KinsectStamina; }
+
+	UFUNCTION(BlueprintPure, Category = "MHGZ|IG")
+	float GetMaxKinsectStamina() const { return MaxKinsectStamina; }
+
+	const UInsectGlaiveKinsectData* GetKinsectData() const { return KinsectData; }
+
+	// ── 萃取与三灯 ─────────────────────────────────────────────
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|IG")
-	virtual FGameplayTag MapHitzoneToExtract(FGameplayTag HitzoneTag) const;
+	bool ApplyExtract(FGameplayTag ExtractColor);
 
-	/** ★ 静态版本——UMHGZAimComponent 共用同一份映射 */
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|IG")
-	static FGameplayTag StaticMapHitzoneToExtract(FGameplayTag HitzoneTag);
+	bool ApplyExtractFromHitzone(const UMHGZMonsterHitzoneComponent* Hitzone);
 
-	/** Apply 萃取（召回时调用） */
-	void ApplyExtract(FGameplayTag ExtractColor);
-
-	/** 消耗指定灯 */
-	void ConsumeExtract(FGameplayTag ExtractType);
-
-	/** 消耗三灯 */
-	void ConsumeTripleUp();
-
-	/** 检查是否持有指定灯 */
+	UFUNCTION(BlueprintPure, Category = "MHGZ|IG")
 	bool HasExtract(FGameplayTag ExtractType) const;
 
-	/** 检查是否处于三灯 */
-	bool IsTripleUpActive() const { return bTripleUpActive; }
+	UFUNCTION(BlueprintPure, Category = "MHGZ|IG")
+	bool IsTripleUpActive() const;
 
-	// ═══════════════════════════════════════════
-	// 猎虫伤害
-	// ═══════════════════════════════════════════
+	UFUNCTION(BlueprintCallable, Category = "MHGZ|IG")
+	bool TryConsumeTripleUpAtomic();
 
-	/** Apply 猎虫伤害——通过玩家 ASC 的统一 GE 管道 */
-	void ApplyKinsectDamage(UMHGZMonsterHitzoneComponent* Hitzone, AActor* Monster, float MotionValue);
+	/** 兼容旧调用名；语义为原子清空完整三灯，不恢复单灯。 */
+	void ConsumeTripleUp() { TryConsumeTripleUpAtomic(); }
 
-	/** 获取修正后的猎虫攻击力 */
+	/** 单灯消费仅供未来动作；三灯状态下拒绝部分消费。 */
+	bool ConsumeExtract(FGameplayTag ExtractType);
+
+	// ── 猎虫伤害 ───────────────────────────────────────────────
+	bool ApplyKinsectDamage(const FHitResult& Hit, float MotionValue,
+		const FGuid& HitInstanceID);
 	float GetModifiedKinsectAttackPower() const;
 
-	// ═══════════════════════════════════════════
-	// 词条修饰器覆写
-	// ═══════════════════════════════════════════
+	// ── 唯一虫印 ───────────────────────────────────────────────
+	bool LaunchKinsectMark(const FWeaponAimSnapshot& AimSnapshot);
+	bool SetKinsectMark(UMHGZMonsterHitzoneComponent* Hitzone,
+		const FVector& ImpactPoint, AIGMarkProjectile* Projectile);
+	void ClearKinsectMark(EIGMarkClearReason Reason);
+	bool HasValidKinsectMark() const;
+	bool GetKinsectMarkWorldLocation(FVector& OutLocation) const;
 
-	virtual void ApplyEntryModifier(FGameplayTag AttributeTag, float Value, TEnumAsByte<EGameplayModOp::Type> Op) override;
+	// ── 武器资源成本 Reservation ───────────────────────────────
+	virtual bool CanReserveCosts(const TArray<FWeaponResourceCostSpec>& Specs) const override;
+	virtual bool TryReserveCosts(const FWeaponActionToken& ActionToken,
+		const TArray<FWeaponResourceCostSpec>& Specs,
+		FWeaponResourceCostReservation& OutReservation) override;
+	virtual void ReleaseReservation(const FWeaponResourceCostReservation& Reservation) override;
+	virtual void ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation) override;
+
+	// Demo 禁用词条入口，但保留幂等清理兼容。
+	virtual void ApplyEntryModifier(FGameplayTag AttributeTag, float Value,
+		TEnumAsByte<EGameplayModOp::Type> Op) override;
 	virtual void ClearAllEntryModifiers() override;
-
-	// ═══════════════════════════════════════════
-	// 音效
-	// ═══════════════════════════════════════════
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IG|Audio")
-	TObjectPtr<USoundBase> ExtractCollectedSound;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IG|Audio")
-	TObjectPtr<USoundBase> TripleUpActivatedSound;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IG|Audio")
-	TObjectPtr<USoundBase> TripleUpExpiredSound;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IG|Audio")
-	TObjectPtr<USoundBase> KinsectDepletedSound;
-
-	// ═══════════════════════════════════════════
-	// Delegate
-	// ═══════════════════════════════════════════
 
 	UPROPERTY(BlueprintAssignable, Category = "IG|Delegate")
 	FOnKinsectStaminaChanged OnKinsectStaminaChanged;
@@ -133,45 +125,39 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "IG|Delegate")
 	FOnTripleUpChanged OnTripleUpChanged;
 
-	// ═══════════════════════════════════════════
-	// 配置
-	// ═══════════════════════════════════════════
-
-	/** 三灯固定时长（秒） */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "IG|Config")
-	float TripleUpDuration = 90.f;
-
-protected:
-	/** 检查并激活三灯 */
-	void CheckAndActivateTripleUp();
-
-	/** 重新 Apply 剩余时长的单灯 GE（三灯被破后） */
-	void ReapplyRemainingExtracts(const TArray<FGameplayTag>& RemainingColors);
+	const UInsectGlaiveCombatConfig* GetCombatConfig() const { return CombatConfig; }
 
 private:
-	// ── 猎虫 ──
+	bool IsLeafExtractTag(const FGameplayTag& ExtractColor) const;
+	bool IsHandleActive(const FActiveGameplayEffectHandle& Handle) const;
+	bool ApplySingleExtractEffect(FGameplayTag ExtractColor);
+	void CheckAndActivateTripleUp();
+	void HandleSingleExtractRemoved(const FGameplayEffectRemovalInfo& RemovalInfo,
+		FGameplayTag Color, FActiveGameplayEffectHandle ExpectedHandle);
+	void HandleTripleUpRemoved(const FGameplayEffectRemovalInfo& RemovalInfo,
+		FActiveGameplayEffectHandle ExpectedHandle);
+	void BroadcastExtractState();
+	void SetKinsectActiveTag(bool bActive);
+	void SetMarkActiveTag(bool bActive);
+	void ClearAllResourceGameplayEffects();
+	bool AreTripleCostSpecs(const TArray<FWeaponResourceCostSpec>& Specs) const;
+
+	UPROPERTY()
+	TObjectPtr<UInsectGlaiveCombatConfig> CombatConfig;
+
 	UPROPERTY()
 	TObjectPtr<AKinsect> KinsectActor;
 
 	UPROPERTY()
 	TObjectPtr<UInsectGlaiveKinsectData> KinsectData;
 
-	bool bKinsectDeployed = false;
+	UPROPERTY()
+	TWeakObjectPtr<USceneComponent> KinsectAttachComponent;
 
-	/** 耐力归零强制召回中——不可被放虫打断 */
-	bool bForceRecalling = false;
-
-	// ── 猎虫耐力 ──
-	float KinsectStamina = 100.f;
-	float MaxKinsectStamina = 100.f;
-
-	// 耐力倍率（词条修饰后）
-	float KinsectRegenRateMultiplier = 1.0f;
-	float HoverDrainRateMultiplier = 1.0f;
-	float FlightDrainRateMultiplier = 1.0f;
-
-	// ── 三灯状态 ──
-	bool bTripleUpActive = false;
+	FName KinsectAttachSocket = NAME_None;
+	float KinsectStamina = 0.f;
+	float MaxKinsectStamina = 0.f;
+	bool bDepletionEdgeTriggered = false;
 
 	UPROPERTY()
 	TMap<FGameplayTag, FActiveGameplayEffectHandle> ActiveExtractHandles;
@@ -179,8 +165,22 @@ private:
 	UPROPERTY()
 	FActiveGameplayEffectHandle TripleUpHandle;
 
-	// 单灯基础时长
-	static constexpr float WHITE_DURATION = 90.f;
-	static constexpr float ORANGE_DURATION = 120.f;
-	static constexpr float RED_DURATION = 60.f;
+	bool bExtractTransitionGuard = false;
+	bool bRuntimeShuttingDown = false;
+
+	UPROPERTY()
+	TWeakObjectPtr<UMHGZMonsterHitzoneComponent> ActiveMarkHitzone;
+
+	UPROPERTY()
+	TWeakObjectPtr<AIGMarkProjectile> ActiveMarkProjectile;
+
+	FVector ActiveMarkLocalPoint = FVector::ZeroVector;
+	FTimerHandle MarkExpiryTimer;
+	uint64 MarkSerial = 0;
+
+	FWeaponOwnedTagToken KinsectActiveTagToken;
+	FWeaponOwnedTagToken MarkActiveTagToken;
+
+	uint64 NextReservationID = 1;
+	TMap<uint64, FActiveGameplayEffectHandle> TripleReservations;
 };

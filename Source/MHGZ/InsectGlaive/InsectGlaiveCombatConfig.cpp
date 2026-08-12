@@ -56,6 +56,34 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	{
 		AddError(LOCTEXT("MissingTripleUpEffect", "TripleUpEffectClass must be assigned."));
 	}
+	if (ExtractCollectedSound == nullptr)
+	{
+		AddError(LOCTEXT("MissingExtractCollectedSound", "ExtractCollectedSound must be assigned."));
+	}
+	if (TripleUpActivatedSound == nullptr)
+	{
+		AddError(LOCTEXT("MissingTripleActivatedSound", "TripleUpActivatedSound must be assigned."));
+	}
+	if (TripleUpExpiredSound == nullptr)
+	{
+		AddError(LOCTEXT("MissingTripleExpiredSound", "TripleUpExpiredSound must be assigned."));
+	}
+	if (KinsectDepletedSound == nullptr)
+	{
+		AddError(LOCTEXT("MissingKinsectDepletedSound", "KinsectDepletedSound must be assigned."));
+	}
+	if (KinsectAttachSocket.IsNone())
+	{
+		AddError(LOCTEXT("MissingKinsectAttachSocket", "KinsectAttachSocket must be assigned."));
+	}
+	if (KinsectData == nullptr)
+	{
+		AddError(LOCTEXT("MissingKinsectData", "KinsectData must be assigned."));
+	}
+	if (KinsectMarkLaunchSocket.IsNone())
+	{
+		AddError(LOCTEXT("MissingKinsectMarkLaunchSocket", "KinsectMarkLaunchSocket must be assigned."));
+	}
 
 	// 时长/间隔必须为正
 	CheckPositive(TEXT("WhiteExtractDuration"), WhiteExtractDuration);
@@ -63,6 +91,7 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckPositive(TEXT("OrangeExtractDuration"), OrangeExtractDuration);
 	CheckPositive(TEXT("TripleUpDuration"), TripleUpDuration);
 	CheckPositive(TEXT("AwakenedPierceHitInterval"), AwakenedPierceHitInterval);
+	CheckPositive(TEXT("KinsectArrivalRadius"), KinsectArrivalRadius);
 	CheckPositive(TEXT("KinsectSlashMaxDistance"), KinsectSlashMaxDistance);
 	CheckPositive(TEXT("KinsectGlideMarkMaxDistance"), KinsectGlideMarkMaxDistance);
 	CheckPositive(TEXT("KinsectMarkMaxDistance"), KinsectMarkMaxDistance);

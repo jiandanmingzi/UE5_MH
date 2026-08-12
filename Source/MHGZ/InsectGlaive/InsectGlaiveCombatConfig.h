@@ -8,6 +8,9 @@
 #include "InsectGlaiveCombatConfig.generated.h"
 
 class UGameplayEffect;
+class UInsectGlaiveKinsectData;
+class USoundBase;
+class AIGMarkProjectile;
 
 /** 红灯（Red Extract）动作模式 */
 UENUM(BlueprintType)
@@ -46,6 +49,19 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extract|Effects")
 	TSubclassOf<UGameplayEffect> TripleUpEffectClass;
+
+	/** 资源状态音效与精华 GE 一样由唯一 CombatConfig 提供，运行时 Resource 不保存第二份默认值。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extract|Audio")
+	TObjectPtr<USoundBase> ExtractCollectedSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extract|Audio")
+	TObjectPtr<USoundBase> TripleUpActivatedSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extract|Audio")
+	TObjectPtr<USoundBase> TripleUpExpiredSound;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Audio")
+	TObjectPtr<USoundBase> KinsectDepletedSound;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extract|Tuning", meta = (ClampMin = "0.01"))
 	float WhiteExtractDuration = 90.0f;
@@ -89,6 +105,18 @@ public:
 	/** 觉虫击贯通对同一 Hitzone 重复命中的最小间隔（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.01"))
 	float AwakenedPierceHitInterval = 0.25f;
+
+	/** Demo 唯一猎虫品种；飞行速度、距离、耐力和攻击力归该品种资产所有。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Data")
+	TObjectPtr<UInsectGlaiveKinsectData> KinsectData;
+
+	/** 猎虫附着到角色手臂的独立 Socket；不得与虫棍本体的 Weapon_L 共用。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Data")
+	FName KinsectAttachSocket = TEXT("Kinsect_Arm_Socket");
+
+	/** ToPoint 终点与回手附着共用的到达半径（cm）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Movement", meta = (ClampMin = "0.01"))
+	float KinsectArrivalRadius = 50.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance", meta = (ClampMin = "0"))
 	int32 MaxDanceStacks = 0;
@@ -134,6 +162,14 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MarkProjectile", meta = (ClampMin = "0.01"))
 	float KinsectMarkProjectileLifetime = 5.0f;
+
+	/** M3 原生虫印弹行为类；E5 可填只负责表现配置的蓝图子类。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MarkProjectile")
+	TSubclassOf<AIGMarkProjectile> KinsectMarkProjectileClass;
+
+	/** 虫印弹从带 WeaponTrace ComponentTag 的武器 Mesh 上该 Socket 发射。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MarkProjectile")
+	FName KinsectMarkLaunchSocket = TEXT("IG_FrontTip");
 
 	/** 无虫印时滑翔沿角色 Forward 的兜底飞行距离（cm） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Glide", meta = (ClampMin = "0.01"))

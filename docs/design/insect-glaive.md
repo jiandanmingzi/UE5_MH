@@ -1,6 +1,6 @@
 # 虫棍资源系统（操虫棍·Insect Glaive）
 
-> **实施状态说明（以源码、配置和 Content 为准）：** 本文负责猎虫实体、耐力、三色精华、三灯、UI 与词条；具体地面/空中动作、舞踏、位移和粉尘规则以 [insect-glaive-actions.md](insect-glaive-actions.md) 为唯一真相源。当前只有 C++ 骨架和单次虫棍地面攻击资产，完整猎虫流程尚不可运行。
+> **实施状态说明（以源码、配置和 Content 为准）：** 本文负责猎虫实体、耐力、三色精华、三灯、UI 与词条；具体地面/空中动作、舞踏、位移和粉尘规则以 [insect-glaive-actions.md](insect-glaive-actions.md) 为唯一真相源。M3 已完成 Resource、基础猎虫飞行/召回、单灯/三灯、基础瞄准、虫印弹与四个猎虫原生 GA 父类；E4 仍需创建和接线 DataAsset/GE/GA 蓝图资产，舞踏、粉尘和后续动作由 M4～M6 完成。
 
 > **目标口径：** 项目以《世界》的猎虫与地面虫棍为基底，吸收并改造《崛起》的部分动作，形成原创连招。不是《崛起》逐项复刻；不使用翔虫资源、集中模式或钩爪。
 
@@ -8,18 +8,18 @@
 
 | 模块 | 当前状态 |
 |------|----------|
-| C++ 类型 | `AKinsect`、`UKinsectCollisionComponent`、`UInsectGlaiveKinsectData`、`URes_InsectGlaive`、`UMHGZInsectGlaiveAbility` 已存在。 |
-| 装备接入 | `DT_WeaponResourceConfig` 资产及配置路径不存在；装备系统不会创建 `URes_InsectGlaive`。`OnWeaponEquipped` 没有调用者，所以猎虫不会自动 Spawn。 |
-| GA/连招资产 | 当前磁盘只有旧原型 `GA_IG_BaDao`、`GA_IG_R_TuCI` 和一个 Y→`GA_IG_R_TuCI` 的不完整 Combo；UE 5.6 审计确认其内容过少，E3/E4 将删除重建，不作为最终实现输入。没有 Send/Recall/特殊技 GA。 |
-| 猎虫与萃取资产 | 猎虫 Mesh 已存在，但 Kinsect DataAsset、White/Orange/Red/TripleUp GE 均不存在；当前代码还硬编码加载不存在的 `GE_KinsectDamage`。目标删除该加载并复用原生通用 Damage GE，不创建同名资产。 |
-| UI/反馈 | AimComponent C++ 射线检测已实现；Crosshair/三灯/耐力 Widget 与 GameplayCue 资产不存在。当前把 Cue Tag 加入 DynamicAssetTags，不会形成已接通的 GC 自动路由。 |
-| 运行时接线缺口 | 当前 `URes_InsectGlaive` 目标宿主与 Pawn/猎虫需求冲突。目标设计由 Character 的 WeaponRuntimeHost 持有；召回、换装、死亡和 PIE End 均需统一清理。 |
+| C++ 类型 | `AKinsect`、`UKinsectCollisionComponent`、`AIGMarkProjectile`、`UInsectGlaiveKinsectData`、`URes_InsectGlaive`、`UMHGZInsectGlaiveAbility` 及四个基础猎虫 GA 父类已存在；M3 自动化 9/9 通过。 |
+| 装备接入 | RuntimeHost 已按 `DA_WeaponRuntime_IG` 的 ResourceClass/CombatConfig 动态创建 `URes_InsectGlaive`，Resource 自动 Spawn 并挂载猎虫；装备更换和卸下清理已纳入 M2/M3 回归。 |
+| GA/连招资产 | 原生 Send/Recall/DrawAndSend/Mark 父类已实现。E3 数据资产已存在；E4 需创建对应 GA 蓝图子类、填入 CoreAbilities/Combo 并完成最终转移配置。 |
+| 猎虫与萃取资产 | 猎虫 Mesh 已存在；Kinsect DataAsset 与 White/Orange/Red/TripleUp GE 待 E4 创建。生产代码已删除硬编码 `/Game/...` 加载，猎虫伤害直接复用原生 `UMHGZDamageGameplayEffect`。 |
+| UI/反馈 | AimComponent 已使用 `Aiming.Kinsect` + Visibility/Hitzone 验证并输出颜色 Delegate；Crosshair/三灯/耐力 Widget 与 GameplayCue 资产仍待 E6。 |
+| 运行时接线缺口 | Character WeaponRuntimeHost 已统一持有 Resource，并清理召回、换装、UnPossess 和 EndPlay 的当前 M3 资源。未实现的粉尘/舞踏/位移对象待后续阶段纳入同一所有权模型。 |
 
 **设计原则：** 虫棍专属规则由猎虫实体、猎虫耐力、三色精华/三灯、虫印/粉尘、舞踏与虫棍 CombatConfig 共同组成。通用 GA 和连招协调器只处理输入、状态转移、攻击窗口和通用位移，不包含虫棍类型判断。红灯动作模式由 `UInsectGlaiveCombatConfig::RedExtractMode` 决定，默认使用经典动作门控，也可切换为只提供数值 Buff。
 
 ---
 
-## 系统总览（目标架构；当前仅 C++ 骨架）
+## 系统总览（M3 基底 + 后续目标架构）
 
 ```
 AKinsect (独立 Actor, 由 URes_InsectGlaive 管理生命周期)
@@ -97,7 +97,7 @@ class AKinsect : public AActor
 | State | EKinsectState | "Kinsect\|State" | Attached | 目标状态：Attached / Flying / Hovering / Returning；当前重复的 Recalled 在 M3 删除，到达手臂后直接 Attached |
 | OwnerActor | TWeakObjectPtr\<AActor\> | "Kinsect\|State" | nullptr | 玩家引用——收虫时每 Tick 读取实时坐标动态修正回归路径。`AttachToPlayer` 时设置 |
 | ActiveRequest | FKinsectFlightRequest | "Kinsect\|State" | 空 | 当前 Flight 的完整不可变请求；替代 bFollowRay/RayDirection/FlyDestination 和分散伤害字段 |
-| FlightInstanceID | uint64 | "Kinsect\|State" | 0 | 每次 BeginFlight 递增；所有 Tick/碰撞/伤害回调必须匹配 |
+| FlightInstanceID | FGuid | "Kinsect\|State" | 无效 | 每次 BeginFlight 使用新 Guid；作为 Flight 请求身份，不直接作为目标侧逐击去重身份 |
 | FlightStartLocation | FVector | "Kinsect\|State" | ZeroVector | 沿 Direction 模式按“本次起点→当前位置”判断 MaxDistance，不以会移动的玩家位置计算 |
 | PreviousFlightTransform | FTransform | "Kinsect\|State" | Identity | ProjectileMovement 更新前的位置，用于连续 Sweep |
 | PendingWorldHit | FHitResult | "Kinsect\|State" | 空 | 世界阻挡先暂存，Hitzone Sweep 后处理，防止同帧顺序不确定 |
@@ -114,24 +114,17 @@ class AKinsect : public AActor
   - 原子校验并提交整个请求：先生成 FlightInstanceID、清命中表、保存起点/PreviousTransform 和全部参数，再启动 ProjectileMovement/Sweep；失败不打断当前状态。
   - AlongDirection 以 `DirectionSnapshot` 与 FlightStartLocation 计算；ToPoint 以 `TargetPointSnapshot` 计算。Actor 不访问相机或 InputRouter。
 
-- `void SetDamageParams(EKinsectDamageMode InDamageMode, float InMotionValue, float InDamageInterval, EKinsectExtractMode InExtractMode = FirstHitOnly)`
-  - 当前旧接口：GA 可能在飞行已经开始后才调用，存在首帧竞态。
-  - 目标：删除公开调用，合并进 `BeginFlight(const FKinsectFlightRequest&)`；先写参数/新 FlightInstanceID/每部位命中表，再启动移动与查询。
-
-- `void TryApplyKinsectDamage(float DeltaTime)`（当前旧路径，目标删除）
-  - 当前通过 Overlap + 全局冷却处理 Piercing；M3 由每帧 `SweepHitzones` 和每 Hitzone 间隔表替换。
+- 已删除旧 `SetDamageParams` 与 `TryApplyKinsectDamage` 公开路径。轨迹、伤害、萃取和身份只能通过 `BeginFlight(const FKinsectFlightRequest&)` 原子提交，Piercing 使用每帧 `SweepHitzones` 与每 Hitzone 绝对时间间隔表。
 
 - `void TryRecordExtract(const FHitResult& Hit)`
   - 输入：命中的怪物部位碰撞体。
   - 作用：直接读取 Hitzone 的 `ExtractColorTag`。None→跳过；FirstHitOnly→仅在 PendingExtractColor 为空时缓存；ApplyPerValidHit→只有对应伤害 Spec 成功提交后才立即调用 Resource 的普通 `ApplyExtract`。不采用“红色优先覆盖”的隐式规则。
 
-- `void ApplyDamageOnce(const FHitResult& Hit, float MotionValue, const FGuid& AttackInstanceID)`（目标）
+- `bool ApplyKinsectDamage(const FHitResult& Hit, float MotionValue, const FGuid& HitInstanceID)`
   - 输入：真实 Hitzone 命中、当前动作值和攻击身份。
   - 作用：委托 Resource 走玩家 ASC 的原生通用 Damage GE/EffectContext/HitFeedbackRouter 管道。
 
-- `bool ShouldStopFlying() const`
-  - 输出：本次飞行是否应立即终止。
-  - 当前逻辑：仅 `SingleHit && bHasDealtDamage` 返回 true。撞墙由 `OnWorldCollision` 直接切悬停，射线模式的极限距离由 Tick 独立处理；点目标到达判定尚未实现。
+- 飞行结束已集中在 `EndFlight(Reason)`：SingleHit 命中、撞墙、最大距离和 ToPoint 到达/越过目标都执行 Request 的 PostFlightPolicy。
 
 - `void StopAndHover()`
   - 作用：`Movement->Velocity = FVector::ZeroVector`（立即停止）→ State=Hovering。有 PendingExtractColor 则保留，等待召回；无则等待玩家重新送虫。
@@ -143,15 +136,14 @@ class AKinsect : public AActor
   - 作用：耐力归零强制召回。调用 `StartReturn()`，**不清除 `PendingExtractColor`**——已萃取到的灯保留，召回后正常 Apply。
 
 - `void Interrupt()`
-  - 当前作用仍只停速度和清旧轨迹字段；目标仅由 Resource 在新 Request 已通过校验后调用，终止旧 FlightInstance 的移动/查询，不修改 `PendingExtractColor`。
+  - 已实现为停止移动/查询并转 Hovering，不修改 `PendingExtractColor`；新 Request 必须先完整校验再原子提交。
 
 - `void AttachToPlayer(USceneComponent* ArmSocket)`
   - 输入：玩家手臂 Socket 组件。
   - 作用：只完成 `AttachToComponent`、State=Attached、OwnerActor 更新和 Collision Disable。`CompleteReturn` 在调用它之前已把 PendingExtractColor 原子移入局部变量并清空，Attach 后再用局部颜色调用一次 Resource `ApplyExtract`；回调重入也不能重复交付。
 
 - `void EnableKinsectCollision()` / `void DisableKinsectCollision()`
-  - 当前作用：飞行时启用 QueryOnly，对 Weapon Trace 设 Overlap、对 WorldStatic 设 Block；这是待迁移实现。
-  - 目标作用：Collision 作为猎虫 Root/ProjectileMovement UpdatedComponent，只处理 WorldStatic 阻挡；Hitzone 命中由前后帧显式 Capsule Sweep 负责。
+  - 已实现：Collision 是猎虫 Root/ProjectileMovement UpdatedComponent，使用 `Kinsect` Preset 只处理 WorldStatic 阻挡；Hitzone 命中由前后帧显式 Capsule Sweep 负责。
 
 - `void ProcessKinsectSweepHit(const FHitResult& Hit)`（目标）
   - 输入：前后帧 Capsule Sweep 得到的真实 Hitzone 命中。
@@ -168,7 +160,7 @@ class AKinsect : public AActor
   - 目标作用：ProjectileMovement 命中 WorldStatic 时先缓存 PendingWorldHit/停止速度，不立即把 State 改出 Flying。Actor Tick 在 Movement 之后对 Previous→Current 做 Hitzone Sweep，再处理缓存的 World Hit；由于 Current 已被世界阻挡截断，不会命中墙后的 Hitzone。
 
 - `float GetFlightSpeed() const`
-  - 输出：当前直接返回 `KinsectData->FlightSpeed`（无 Data 时回退 2000），尚未接入速度词条修正。
+  - 输出：当前返回 `KinsectData->FlightSpeed`；生产 Resource 要求 KinsectData 必填，词条修正在 Demo 中明确禁用。
 
 - `float GetHoverDrainRate() const` / `float GetFlightDrainRate() const`
   - 输出：当前耐力消耗速率。供 ResourceComponent Tick 读取。
@@ -216,7 +208,7 @@ class AKinsect : public AActor
 | FlightDrainRate | float | 飞行耐力消耗速率 |
 | KinsectAttackPower | float | 猎虫基础攻击力（默认 10.0）——当前品种未分化时所有猎虫共用。后续品种分化时可覆写 |
 
-### 飞行请求与轨迹（目标方案；GA 与装备接线未实现）
+### 飞行请求与轨迹（M3 基础路径已实现）
 
 所有送虫路径只接受一个完整请求，不提供无参 `DeployKinsect()`、方向重载或“启动后再补伤害参数”的接口：
 
@@ -234,7 +226,7 @@ struct FKinsectFlightRequest
     EKinsectPostFlightPolicy PostFlightPolicy; // Hover / Return；普通命中项待用户冻结
     float MotionValue;
     float RehitInterval;
-    FGuid AttackInstanceID;
+    FGuid FlightInstanceID; // 飞行身份；每次伤害另生成 HitInstanceID
 };
 ```
 
@@ -259,7 +251,7 @@ Request 由 GA 根据不可变 ActivationContext 构造，Resource 负责校验�
 
 `EKinsectState` 是部署状态唯一真相源，不再并行维护 `bKinsectDeployed`。`WeaponResource.IG.Kinsect.Active` 如需供分支/UI 查询，由 Resource 按所有权从 State 派生并在 Attached/Shutdown 时成对移除，不能由 GA 添加无所有者 Loose Tag。
 
-### 猎虫生命周期（详细方案；当前没有调用入口）
+### 猎虫生命周期（M3 已接通基础入口）
 
 ```
 装备虫棍
@@ -322,7 +314,7 @@ Request 由 GA 根据不可变 ActivationContext 构造，Resource 负责校验�
 
 ---
 
-## 零-A、猎虫伤害系统（C++ 骨架已存在；GE 资产与入口未实现）
+## 零-A、猎虫伤害系统（M3 C++ 管道已接通；基础 GA 蓝图资产待 E4）
 
 **设计原则：** 猎虫不挂载 ASC、不新增 GA——伤害走玩家 ASC 的统一 GE 管道。伤害参数（动作值、贯穿间隔、萃取行为）由送虫 GA 传入，不存 DataAsset。飞行结束条件按 `EKinsectDamageMode` 区分：普通放虫命中即停，贯穿放虫碰怪不停、撞墙或飞满距离才停。
 
@@ -373,16 +365,16 @@ GA 送虫
   → Hitzone Object Capsule Sweep，按 Hit.Time 排序
   ├─ SingleHit：取首个有效 Hit
   │     → TryRecordExtract(Hit.Component->ExtractColorTag)
-  │     → ApplyKinsectDamage(Hit, MotionValue, FlightInstanceID)
+  │     → ApplyKinsectDamage(Hit, MotionValue, NewHitInstanceID)
   │     → 结束本次飞行并按是否取得精华返回/悬停
   └─ Piercing：遍历有效 Hit
         → 按 Hitzone Component 检查本次 FlightInstanceID 的命中间隔
         → 按 ExtractMode 决定是否记录颜色
-        → ApplyKinsectDamage(Hit, MotionValue, FlightInstanceID)
+        → ApplyKinsectDamage(Hit, MotionValue, NewHitInstanceID)
         → 继续飞行；离开本次 Sweep 的目标不再由 Timer 继续受伤
 
 ApplyDamageOnce 内部：
-  → ResourceComponent->ApplyKinsectDamage(Hit, MotionValue, FlightInstanceID)
+  → ResourceComponent->ApplyKinsectDamage(Hit, MotionValue, HitInstanceID)
     → 自定义 EffectContext 保存真实 HitResult、HitzoneTag、Kinsect 来源和攻击身份
     → PlayerASC->MakeOutgoingSpec(UMHGZDamageGameplayEffect)
     → SetByCaller: "Damage.MotionValue" = MotionValue
@@ -401,7 +393,7 @@ ApplyDamageOnce 内部：
 
 ### URes_InsectGlaive 新增方法
 
-- `void ApplyKinsectDamage(const FHitResult& Hit, float MotionValue, const FGuid& AttackInstanceID)`
+- `bool ApplyKinsectDamage(const FHitResult& Hit, float MotionValue, const FGuid& HitInstanceID)`
   - 输入：真实部位命中、当前招式动作值和攻击身份。
   - 作用：借玩家 ASC 构造原生通用 Damage GE Spec；Context 保存 Hit/Cue/来源，SetByCaller 传 `MotionValue` 和 `KinsectAttackPower`，最终反馈由目标 HitFeedbackRouter 显式执行。
 
@@ -428,7 +420,7 @@ GameplayCue.Hit.Kinsect              ← 猎虫命中反馈（小号火花+音�
 
 ---
 
-## 一、猎虫耐力（逻辑已写入资源组件，尚未接入装备流程）
+## 一、猎虫耐力（M3 已接入 RuntimeHost 装备流程）
 
 ### 数据流
 

@@ -82,13 +82,9 @@ protected:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* MouseLookAction;
 
-	/** Sprint Input Action (LS/L3) */
+	/** Sprint/Run Input Action (RB) — 仅收刀态生效，0.1s 判定见 SprintHoldThreshold */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* SprintAction;
-
-	/** LT/L2 瞄准输入；Started/Completed 维护 Combat.State.Aiming。 */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
-	UInputAction* AimAction;
 
 	/** Demo 固定武器；ASC 初始化完成后自动装备。留空则由背包/装备 UI 决定。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Equipment|Demo")
@@ -106,6 +102,7 @@ public:
 	// ── GAS 初始化 ──
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void UnPossessed() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	// ── 着陆重置 ──
 	virtual void Landed(const FHitResult& Hit) override;
@@ -128,8 +125,6 @@ protected:
 	void Look(const FInputActionValue& Value);
 	void SprintPressed(const FInputActionValue& Value);
 	void SprintReleased(const FInputActionValue& Value);
-	void AimPressed();
-	void AimReleased();
 	void EquipDefaultWeaponIfConfigured();
 
 public:
@@ -141,6 +136,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Input")
 	virtual void DoLook(float Yaw, float Pitch);
+
+	/** RB 冲刺状态清理：拔刀 GA 在进入拔刀态时调用（清计时器/按下标志/bSprintHeld）。 */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	void ClearSprintHeld();
 
 	/** 检查是否应屏蔽移动输入——单一 Tag 控制：Combat.State.BlockMovement */
 	bool ShouldBlockMovement() const;
@@ -213,8 +212,21 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Movement|Rotation")
 	float TurnRate = 360.f;
 
-	/** Sprint 是否按住中 */
+	/** RB 冲刺长按判定阈值（秒）：按下后持续按住该时长且仍收刀才进入冲刺。 */
+	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed", meta=(ClampMin="0.0"))
+	float SprintHoldThreshold = 0.1f;
+
+	/** RB 是否已按下（等待判定窗口）。 */
+	bool bSprintPressed = false;
+
+	/** Sprint 是否按住中（判定窗口结束后仍按住）。 */
 	bool bSprintHeld = false;
+
+	/** RB 0.1s 判定窗口计时器。 */
+	FTimerHandle SprintHoldTimer;
+
+	void OnSprintHoldTimerExpired();
+	bool IsSheathedForSprint() const;
 
 	/** 摇杆输入世界方向——每帧 DoMove 更新，不受 BlockMovement 影响 */
 	FVector LastMovementInputDir = FVector::ZeroVector;

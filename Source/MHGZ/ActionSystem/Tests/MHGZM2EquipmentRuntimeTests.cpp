@@ -19,6 +19,7 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
+#include "InsectGlaive/Kinsect/InsectGlaiveKinsectData.h"
 #include "MHGZPlayerState.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeDefinition.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
@@ -58,6 +59,7 @@ struct FTestWeaponChain
 	UMHGZWeaponDefinition* Definition = nullptr;
 	UWeaponRuntimeDefinition* RuntimeDefinition = nullptr;
 	UInsectGlaiveCombatConfig* CombatConfig = nullptr;
+	UInsectGlaiveKinsectData* KinsectData = nullptr;
 	UMHGZWeaponComboData* ComboData = nullptr;
 
 	void Build(UObject* Outer, bool bWithAbility)
@@ -67,6 +69,10 @@ struct FTestWeaponChain
 		RuntimeDefinition = NewObject<UWeaponRuntimeDefinition>(Outer);
 		RuntimeDefinition->ResourceComponentClass = URes_InsectGlaive::StaticClass();
 		CombatConfig = NewObject<UInsectGlaiveCombatConfig>(Outer);
+		KinsectData = NewObject<UInsectGlaiveKinsectData>(Outer);
+		CombatConfig->KinsectData = KinsectData;
+		// The transient ACharacter test mesh has no production sockets.
+		CombatConfig->KinsectAttachSocket = NAME_None;
 		ComboData = NewObject<UMHGZWeaponComboData>(Outer);
 		CombatConfig->ComboData = ComboData;
 		RuntimeDefinition->CombatConfig = CombatConfig;

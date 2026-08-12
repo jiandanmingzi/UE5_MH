@@ -1,23 +1,62 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "Res_InsectGlaive.h"
-#include "InsectGlaive/Kinsect/Kinsect.h"
-#include "InsectGlaive/Kinsect/KinsectCollisionComponent.h"
-#include "InsectGlaive/Kinsect/InsectGlaiveKinsectData.h"
-#include "Monster/MHGZMonsterHitzoneComponent.h"
-#include "ActionSystem/MHGZAbilitySystemComponent.h"
-#include "MHGZPlayerState.h"
-#include "AttributeSystem/MHGZAttributeSet.h"
+
 #include "AbilitySystemGlobals.h"
+#include "ActionSystem/MHGZAbilitySystemComponent.h"
+#include "ActionSystem/MHGZDamageGameplayEffect.h"
+#include "ActionSystem/MHGZGameplayEffectContext.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Character.h"
+#include "Materials/MaterialInstance.h"
 #include "GameplayEffect.h"
-#include "Camera/PlayerCameraManager.h"
+#include "InsectGlaive/InsectGlaiveCombatConfig.h"
+#include "InsectGlaive/Kinsect/IGMarkProjectile.h"
+#include "InsectGlaive/Kinsect/InsectGlaiveKinsectData.h"
+#include "InsectGlaive/Kinsect/Kinsect.h"
+#include "Monster/MHGZMonsterHitzoneComponent.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
 namespace
 {
-const FGameplayTag& GetKinsectActiveTag()
+const FGameplayTag& WhiteExtractTag()
 {
-	static const FGameplayTag Tag =
-		FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Kinsect.Active"));
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+		TEXT("WeaponResource.IG.Extract.White"));
+	return Tag;
+}
+
+const FGameplayTag& OrangeExtractTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+		TEXT("WeaponResource.IG.Extract.Orange"));
+	return Tag;
+}
+
+const FGameplayTag& RedExtractTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+		TEXT("WeaponResource.IG.Extract.Red"));
+	return Tag;
+}
+
+const FGameplayTag& TripleCostTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Cost.IG.TripleUp"));
+	return Tag;
+}
+
+const FGameplayTag& KinsectActiveTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+		TEXT("WeaponResource.IG.Kinsect.Active"));
+	return Tag;
+}
+
+const FGameplayTag& MarkActiveTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+		TEXT("WeaponResource.IG.Mark.Active"));
 	return Tag;
 }
 }
@@ -25,547 +64,824 @@ const FGameplayTag& GetKinsectActiveTag()
 URes_InsectGlaive::URes_InsectGlaive()
 {
 	PrimaryComponentTick.bCanEverTick = true;
+	PrimaryComponentTick.bStartWithTickEnabled = true;
 	WeaponTypeTag = FGameplayTag::RequestGameplayTag(TEXT("Weapon.InsectGlaive"));
 }
 
-void URes_InsectGlaive::BeginPlay()
+void URes_InsectGlaive::InitializeRuntime(const FWeaponRuntimeContext& Context)
 {
-	Super::BeginPlay();
-	if (!IsComponentTickEnabled())
+	Super::InitializeRuntime(Context);
+	bRuntimeShuttingDown = false;
+	CombatConfig = Cast<UInsectGlaiveCombatConfig>(Context.CombatConfig.Get());
+	if (!CombatConfig || !Context.Character.IsValid() || !Context.ASC.IsValid())
 	{
-		SetComponentTickEnabled(true);
+		UE_LOG(LogTemp, Error, TEXT("[IG Resource] Invalid runtime context; resource remains inert."));
+		return;
 	}
+
+	SetComponentTickEnabled(true);
+	KinsectData = CombatConfig->KinsectData;
+	if (!KinsectData)
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("[IG Resource] CombatConfig has no KinsectData; resource remains inert."));
+		return;
+	}
+
+	USceneComponent* AttachComponent = Context.Character->GetMesh();
+	OnWeaponEquipped(KinsectData, AttachComponent, CombatConfig->KinsectAttachSocket);
+}
+
+void URes_InsectGlaive::ShutdownRuntime(EWeaponRuntimeEndReason Reason)
+{
+	if (bRuntimeShuttingDown)
+	{
+		return;
+	}
+	bRuntimeShuttingDown = true;
+	SetComponentTickEnabled(false);
+
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(MarkExpiryTimer);
+	}
+	ClearKinsectMark(Reason == EWeaponRuntimeEndReason::WeaponChanged
+		? EIGMarkClearReason::WeaponChanged : EIGMarkClearReason::RuntimeShutdown);
+	OnWeaponUnequipped();
+	ClearAllResourceGameplayEffects();
+	TripleReservations.Reset();
+	CombatConfig = nullptr;
+
+	Super::ShutdownRuntime(Reason);
 }
 
 void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 	FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	if (KinsectActor == nullptr) return;
-
-	// 猎虫耐力管理
-	if (bKinsectDeployed)
+	if (bRuntimeShuttingDown || !KinsectActor || !KinsectData)
 	{
-		float DrainRate = 0.f;
-		switch (KinsectActor->GetState())
-		{
-		case EKinsectState::Flying:
-			DrainRate = KinsectActor->GetFlightDrainRate() * FlightDrainRateMultiplier;
-			break;
-		case EKinsectState::Hovering:
-			DrainRate = KinsectActor->GetHoverDrainRate() * HoverDrainRateMultiplier;
-			break;
-		case EKinsectState::Returning:
-			DrainRate = KinsectActor->GetFlightDrainRate() * 0.5f * FlightDrainRateMultiplier;
-			break;
-		default:
-			break;
-		}
-
-		KinsectStamina -= DrainRate * DeltaTime;
-		if (KinsectStamina <= 0.f)
-		{
-			KinsectStamina = 0.f;
-			PlayResourceSound(KinsectDepletedSound);
-			bForceRecalling = true;
-			KinsectActor->ForceRecall();
-		}
-	}
-	else
-	{
-		// 回复耐力
-		KinsectStamina += KinsectData->StaminaRegenRate * KinsectRegenRateMultiplier * DeltaTime;
-		KinsectStamina = FMath::Min(KinsectStamina, MaxKinsectStamina);
+		return;
 	}
 
-	// 广播耐力变化
-	OnKinsectStaminaChanged.Broadcast(KinsectStamina, MaxKinsectStamina);
+	const EKinsectState State = KinsectActor->GetState();
+	const float PreviousStamina = KinsectStamina;
+	if (State == EKinsectState::Flying)
+	{
+		KinsectStamina = FMath::Max(0.f,
+			KinsectStamina - KinsectData->FlightDrainRate * DeltaTime);
+	}
+	else if (State == EKinsectState::Hovering)
+	{
+		KinsectStamina = FMath::Max(0.f,
+			KinsectStamina - KinsectData->HoverDrainRate * DeltaTime);
+	}
+	else if (State == EKinsectState::Attached)
+	{
+		KinsectStamina = FMath::Min(MaxKinsectStamina,
+			KinsectStamina + KinsectData->StaminaRegenRate * DeltaTime);
+	}
+
+	if (PreviousStamina > 0.f && KinsectStamina <= 0.f
+		&& (State == EKinsectState::Flying || State == EKinsectState::Hovering))
+	{
+		bDepletionEdgeTriggered = true;
+		PlayResourceSound(CombatConfig ? CombatConfig->KinsectDepletedSound : nullptr);
+		KinsectActor->ForceRecall();
+	}
+	else if (KinsectStamina > 0.f)
+	{
+		bDepletionEdgeTriggered = false;
+	}
+
+	if (!FMath::IsNearlyEqual(PreviousStamina, KinsectStamina))
+	{
+		OnKinsectStaminaChanged.Broadcast(KinsectStamina, MaxKinsectStamina);
+	}
+
+	const bool bHasTrackedMark = ActiveMarkHitzone.IsValid()
+		|| ActiveMarkProjectile.IsValid() || MarkActiveTagToken.IsValid();
+	if (bHasTrackedMark
+		&& (!ActiveMarkHitzone.IsValid() || !ActiveMarkProjectile.IsValid()
+			|| !IsValid(ActiveMarkHitzone->GetOwner())))
+	{
+		ClearKinsectMark(EIGMarkClearReason::TargetInvalid);
+	}
 }
 
-// ═══════════════════════════════════════════
-// 猎虫生命周期
-// ═══════════════════════════════════════════
-
-void URes_InsectGlaive::OnWeaponEquipped(UInsectGlaiveKinsectData* Data, USceneComponent* ArmSocket)
+bool URes_InsectGlaive::OnWeaponEquipped(UInsectGlaiveKinsectData* Data,
+	USceneComponent* AttachComponent, FName AttachSocket)
 {
-	if (!Data) return;
+	if (!Data || !AttachComponent
+		|| (!AttachSocket.IsNone() && !AttachComponent->DoesSocketExist(AttachSocket))
+		|| !GetWorld() || KinsectActor)
+	{
+		UE_LOG(LogTemp, Error,
+			TEXT("[IG Resource] Cannot spawn kinsect: attach component/socket '%s' is invalid."),
+			*AttachSocket.ToString());
+		return false;
+	}
 
-	KinsectData = Data;
-
-	// Spawn 猎虫
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.Owner = GetOwner();
+	SpawnParams.Instigator = Cast<APawn>(GetOwner());
 	KinsectActor = GetWorld()->SpawnActor<AKinsect>(AKinsect::StaticClass(), SpawnParams);
-
-	if (KinsectActor!= nullptr)
+	if (!KinsectActor)
 	{
-		KinsectActor->KinsectData = Data;
-		KinsectActor->ResourceComponent = this;
-
-		// 加载模型
-		if (USkeletalMesh* Mesh = Data->KinsectMesh.LoadSynchronous())
-		{
-			KinsectActor->Mesh->SetSkeletalMesh(Mesh);
-		}
-
-		KinsectActor->AttachToPlayer(ArmSocket);
-
-		// 初始化耐力
-		MaxKinsectStamina = Data->StaminaPool;
-		KinsectStamina = MaxKinsectStamina;
+		return false;
 	}
+
+	KinsectData = Data;
+	KinsectAttachComponent = AttachComponent;
+	KinsectAttachSocket = AttachSocket;
+	KinsectActor->KinsectData = Data;
+	KinsectActor->ResourceComponent = this;
+	if (USkeletalMesh* Mesh = Data->KinsectMesh.LoadSynchronous())
+	{
+		KinsectActor->Mesh->SetSkeletalMesh(Mesh);
+	}
+	if (Data->KinsectAnimClass)
+	{
+		KinsectActor->Mesh->SetAnimInstanceClass(Data->KinsectAnimClass);
+	}
+	for (const TPair<FName, TSoftObjectPtr<UMaterialInstance>>& Pair : Data->MaterialOverrides)
+	{
+		if (UMaterialInstance* Material = Pair.Value.LoadSynchronous())
+		{
+			const int32 Index = KinsectActor->Mesh->GetMaterialIndex(Pair.Key);
+			if (Index != INDEX_NONE)
+			{
+				KinsectActor->Mesh->SetMaterial(Index, Material);
+			}
+		}
+	}
+	KinsectActor->AttachToPlayer(AttachComponent, AttachSocket);
+	MaxKinsectStamina = FMath::Max(0.f, Data->StaminaPool);
+	KinsectStamina = MaxKinsectStamina;
+	OnKinsectStaminaChanged.Broadcast(KinsectStamina, MaxKinsectStamina);
+	return true;
 }
 
 void URes_InsectGlaive::OnWeaponUnequipped()
 {
-	if (KinsectActor!= nullptr)
+	SetKinsectActiveTag(false);
+	// Kinsect.Active is Resource-exclusive. Normalize any pre-TagLedger count left
+	// by an older runtime so a weapon swap cannot carry that stale state forward.
+	if (UAbilitySystemComponent* ASC = GetPlayerASC())
+	{
+		ASC->SetLooseGameplayTagCount(KinsectActiveTag(), 0);
+	}
+	if (KinsectActor)
 	{
 		KinsectActor->Destroy();
 		KinsectActor = nullptr;
 	}
-	bKinsectDeployed = false;
-	bTripleUpActive = false;
-
-	// 清除所有萃取 GE
-	if (UAbilitySystemComponent* ASC = GetPlayerASC())
-	{
-		// 该 Loose Tag 由本 Resource 独占；强制归零可同时修复旧版重复 Deploy 的计数残留。
-		ASC->SetLooseGameplayTagCount(GetKinsectActiveTag(), 0);
-
-		for (auto& Pair : ActiveExtractHandles)
-		{
-			ASC->RemoveActiveGameplayEffect(Pair.Value);
-		}
-		ActiveExtractHandles.Empty();
-
-		if (TripleUpHandle.IsValid())
-		{
-			ASC->RemoveActiveGameplayEffect(TripleUpHandle);
-		}
-	}
+	KinsectData = nullptr;
+	KinsectAttachComponent.Reset();
+	KinsectAttachSocket = NAME_None;
+	KinsectStamina = 0.f;
+	MaxKinsectStamina = 0.f;
+	bDepletionEdgeTriggered = false;
 }
 
-void URes_InsectGlaive::ShutdownRuntime(EWeaponRuntimeEndReason Reason)
+bool URes_InsectGlaive::CanDeployKinsect(const FKinsectFlightRequest& Request) const
 {
-	// 最小生命周期适配：先走既有卸下逻辑，确保猎虫 Actor 与萃取/三灯 GE 被清理。
-	OnWeaponUnequipped();
-	Super::ShutdownRuntime(Reason);
+	return !bRuntimeShuttingDown && KinsectActor && KinsectData
+		&& KinsectStamina > 0.f && IsRuntimeRequestCurrent(Request.RuntimeToken)
+		&& Request.MaxDistance > 0.f && Request.FlightSpeed > 0.f
+		&& Request.ArrivalRadius > 0.f;
 }
 
-void URes_InsectGlaive::DeployKinsect()
+bool URes_InsectGlaive::DeployKinsect(const FKinsectFlightRequest& Request)
 {
-	if (KinsectActor == nullptr) return;
-
-	// 耐力归零强制召回时不可放虫打断
-	if (bForceRecalling) return;
-
-	// 互斥打断
-	if (bKinsectDeployed)
-		KinsectActor->Interrupt();
-
-	KinsectActor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-
-	const EKinsectState CurrentState = KinsectActor->GetState();
-	if (CurrentState == EKinsectState::Attached)
+	if (!CanDeployKinsect(Request) || !KinsectActor->BeginFlight(Request))
 	{
-		// 臂上放虫——沿准心方向
-		FVector CameraLoc;
-		FRotator CameraRot;
-		if (APlayerController* PC = Cast<APlayerController>(
-			Cast<APawn>(GetOwner())->GetController()))
-		{
-			PC->GetPlayerViewPoint(CameraLoc, CameraRot);
-		}
-		KinsectActor->StartFlightAlongRay(CameraRot.Vector(), KinsectData->MaxFlightRange);
+		return false;
 	}
-	else
-	{
-		// 悬停放虫——直线飞向准心命中点
-		FVector CameraLoc;
-		FRotator CameraRot;
-		if (APlayerController* PC = Cast<APlayerController>(
-			Cast<APawn>(GetOwner())->GetController()))
-		{
-			PC->GetPlayerViewPoint(CameraLoc, CameraRot);
-		}
-		const FVector CameraDir = CameraRot.Vector();
-		const FVector TraceEnd = CameraLoc + CameraDir * KinsectData->MaxFlightRange;
-
-		// 射线检测——找到准心实际命中的位置
-		FVector TargetPoint = TraceEnd; // 默认：射程终点
-		FHitResult Hit;
-		FCollisionQueryParams QueryParams;
-		QueryParams.AddIgnoredActor(GetOwner());
-		if (GetWorld()->LineTraceSingleByChannel(Hit, CameraLoc, TraceEnd,
-			ECC_GameTraceChannel1, QueryParams))
-		{
-			// 准心命中物体 → 猎虫飞向命中点
-			TargetPoint = Hit.Location;
-		}
-
-		KinsectActor->StartFlightToPoint(TargetPoint);
-	}
-
-	KinsectActor->Collision->EnableKinsectCollision();
-
-	if (UAbilitySystemComponent* ASC = GetPlayerASC())
-	{
-		ASC->SetLooseGameplayTagCount(GetKinsectActiveTag(), 1);
-	}
-
-	bKinsectDeployed = true;
+	SetKinsectActiveTag(true);
+	return true;
 }
 
-void URes_InsectGlaive::DeployKinsectAlongDirection(FVector Direction, float Distance)
+bool URes_InsectGlaive::RecallKinsect()
 {
-	if (KinsectActor == nullptr) return;
-
-	// 耐力归零强制召回时不可放虫打断
-	if (bForceRecalling) return;
-
-	if (bKinsectDeployed)
-		KinsectActor->Interrupt();
-
-	KinsectActor->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-	KinsectActor->StartFlightAlongRay(Direction.GetSafeNormal(), Distance);
-	KinsectActor->Collision->EnableKinsectCollision();
-
-	if (UAbilitySystemComponent* ASC = GetPlayerASC())
+	if (bRuntimeShuttingDown || !KinsectActor
+		|| KinsectActor->GetState() == EKinsectState::Attached)
 	{
-		ASC->SetLooseGameplayTagCount(GetKinsectActiveTag(), 1);
+		return false;
 	}
-
-	bKinsectDeployed = true;
-}
-
-void URes_InsectGlaive::RecallKinsect()
-{
-	if (KinsectActor == nullptr) return;
-	if (KinsectActor->GetState() == EKinsectState::Returning) return;
-
 	KinsectActor->StartReturn();
+	return true;
 }
 
 void URes_InsectGlaive::OnKinsectReachedPlayer(FGameplayTag ExtractColor)
 {
-	// 先吸附
-	if (KinsectActor!= nullptr)
-	{
-		// AttachToPlayer 由 Kinsect::Tick 的到达检测外调处理
-	}
-
-	// Apply 萃取
+	SetKinsectActiveTag(false);
+	bDepletionEdgeTriggered = false;
 	if (ExtractColor.IsValid())
 	{
 		ApplyExtract(ExtractColor);
 	}
+}
 
-	// 移除 Kinsect.Active Tag
-	if (UAbilitySystemComponent* ASC = GetPlayerASC())
+bool URes_InsectGlaive::IsRuntimeRequestCurrent(const FWeaponRuntimeToken& Token) const
+{
+	return !bRuntimeShuttingDown && Token.IsValid()
+		&& RuntimeContext.RuntimeToken == Token
+		&& Token.Host.IsValid() && Token.Host->IsTokenCurrent(Token);
+}
+
+bool URes_InsectGlaive::IsLeafExtractTag(const FGameplayTag& ExtractColor) const
+{
+	return ExtractColor.MatchesTagExact(WhiteExtractTag())
+		|| ExtractColor.MatchesTagExact(OrangeExtractTag())
+		|| ExtractColor.MatchesTagExact(RedExtractTag());
+}
+
+bool URes_InsectGlaive::IsHandleActive(const FActiveGameplayEffectHandle& Handle) const
+{
+	const UAbilitySystemComponent* ASC = GetPlayerASC();
+	return ASC && Handle.IsValid() && ASC->GetActiveGameplayEffect(Handle) != nullptr;
+}
+
+bool URes_InsectGlaive::ApplyExtract(FGameplayTag ExtractColor)
+{
+	if (!IsLeafExtractTag(ExtractColor) || !CombatConfig || !GetPlayerASC())
 	{
-		ASC->SetLooseGameplayTagCount(GetKinsectActiveTag(), 0);
+		return false;
 	}
 
-	bForceRecalling = false;
-	bKinsectDeployed = false;
+	// 三灯期间所有吸收入口都统一吞灯，绝不生成/缓存/刷新任何 GE。
+	if (IsTripleUpActive())
+	{
+		PlayResourceSound(CombatConfig->ExtractCollectedSound);
+		return true;
+	}
+
+	const bool bApplied = ApplySingleExtractEffect(ExtractColor);
+	if (bApplied)
+	{
+		PlayResourceSound(CombatConfig->ExtractCollectedSound);
+		CheckAndActivateTripleUp();
+		BroadcastExtractState();
+	}
+	return bApplied;
 }
 
-// ═══════════════════════════════════════════
-// 萃取系统
-// ═══════════════════════════════════════════
-
-FGameplayTag URes_InsectGlaive::StaticMapHitzoneToExtract(FGameplayTag HitzoneTag)
+bool URes_InsectGlaive::ApplyExtractFromHitzone(
+	const UMHGZMonsterHitzoneComponent* Hitzone)
 {
-	// 默认部位→颜色映射（M-10 修复：单一静态函数，AimComponent 共用）
-	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Head"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
-	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.TailTip"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
-	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Torso"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
-	if (HitzoneTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.LeftWing"))) ||
-		HitzoneTag.MatchesTagExact(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.RightWing"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
-	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Back"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
-	if (HitzoneTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Neck"))))
-		return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
-
-	return FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"));
+	return Hitzone && ApplyExtract(Hitzone->ExtractColorTag);
 }
 
-FGameplayTag URes_InsectGlaive::MapHitzoneToExtract(FGameplayTag HitzoneTag) const
+bool URes_InsectGlaive::ApplySingleExtractEffect(FGameplayTag ExtractColor)
 {
-	return StaticMapHitzoneToExtract(HitzoneTag);
-}
-
-void URes_InsectGlaive::ApplyExtract(FGameplayTag ExtractColor)
-{
-	if (!ExtractColor.IsValid()) return;
-
 	UAbilitySystemComponent* ASC = GetPlayerASC();
-	if (!ASC) return;
-
-	// ★ H-8 修复：同色灯已存在 → 移除旧 GE
-	if (FActiveGameplayEffectHandle* OldHandle = ActiveExtractHandles.Find(ExtractColor))
+	if (!ASC || !CombatConfig)
 	{
-		if (OldHandle->IsValid())
-		{
-			ASC->RemoveActiveGameplayEffect(*OldHandle);
-		}
+		return false;
 	}
 
-	// 选择对应 GE 类
-	TSubclassOf<UGameplayEffect> GEClass = nullptr;
+	TSubclassOf<UGameplayEffect> EffectClass;
 	float Duration = 0.f;
-
-	if (ExtractColor.MatchesTag(
-		FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"))))
+	FGameplayTag MultiplierTag;
+	float Multiplier = 1.f;
+	if (ExtractColor.MatchesTagExact(WhiteExtractTag()))
 	{
-		GEClass = LoadClass<UGameplayEffect>(nullptr,
-			TEXT("/Game/GameplayEffects/InsectGlaive/GE_IG_WhiteExtract.GE_IG_WhiteExtract_C"));
-		Duration = WHITE_DURATION;
+		EffectClass = CombatConfig->WhiteEffectClass;
+		Duration = CombatConfig->WhiteExtractDuration;
+		MultiplierTag = FGameplayTag::RequestGameplayTag(
+			TEXT("Data.IG.Buff.MoveSpeedMultiplier"));
+		Multiplier = CombatConfig->WhiteMoveSpeedMultiplier;
 	}
-	else if (ExtractColor.MatchesTag(
-		FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"))))
+	else if (ExtractColor.MatchesTagExact(OrangeExtractTag()))
 	{
-		GEClass = LoadClass<UGameplayEffect>(nullptr,
-			TEXT("/Game/GameplayEffects/InsectGlaive/GE_IG_OrangeExtract.GE_IG_OrangeExtract_C"));
-		Duration = ORANGE_DURATION;
+		EffectClass = CombatConfig->OrangeEffectClass;
+		Duration = CombatConfig->OrangeExtractDuration;
+		MultiplierTag = FGameplayTag::RequestGameplayTag(
+			TEXT("Data.IG.Buff.DefenseMultiplier"));
+		Multiplier = CombatConfig->OrangeDefenseMultiplier;
 	}
-	else if (ExtractColor.MatchesTag(
-		FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"))))
+	else if (ExtractColor.MatchesTagExact(RedExtractTag()))
 	{
-		GEClass = LoadClass<UGameplayEffect>(nullptr,
-			TEXT("/Game/GameplayEffects/InsectGlaive/GE_IG_RedExtract.GE_IG_RedExtract_C"));
-		Duration = RED_DURATION;
-	}
-
-	if (!GEClass) return;
-
-	// Apply GE
-	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(GEClass, 1.0f, ASC->MakeEffectContext());
-	if (Spec.IsValid())
-	{
-		Spec.Data->SetDuration(Duration, true);
-		FActiveGameplayEffectHandle Handle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
-		ActiveExtractHandles.Add(ExtractColor, Handle);
+		EffectClass = CombatConfig->RedEffectClass;
+		Duration = CombatConfig->RedExtractDuration;
+		MultiplierTag = FGameplayTag::RequestGameplayTag(
+			TEXT("Data.IG.Buff.AttackMultiplier"));
+		Multiplier = CombatConfig->RedAttackMultiplier;
 	}
 
-	PlayResourceSound(ExtractCollectedSound);
+	if (!EffectClass || Duration <= 0.f)
+	{
+		return false;
+	}
 
-	// 检查三灯
-	CheckAndActivateTripleUp();
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(
+		EffectClass, 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return false;
+	}
+	Spec.Data->SetDuration(Duration, true);
+	Spec.Data->SetSetByCallerMagnitude(MultiplierTag, Multiplier);
+	const FActiveGameplayEffectHandle NewHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
+	if (!IsHandleActive(NewHandle))
+	{
+		return false;
+	}
+
+	const FActiveGameplayEffectHandle OldHandle = ActiveExtractHandles.FindRef(ExtractColor);
+	ActiveExtractHandles.Add(ExtractColor, NewHandle);
+	if (FOnActiveGameplayEffectRemoved_Info* Delegate =
+		ASC->OnGameplayEffectRemoved_InfoDelegate(NewHandle))
+	{
+		Delegate->AddUObject(this, &URes_InsectGlaive::HandleSingleExtractRemoved,
+			ExtractColor, NewHandle);
+	}
+	// 新 Handle 确实 Active 后才删旧 Handle；Apply 失败会保留旧灯与剩余时间。
+	if (IsHandleActive(OldHandle))
+	{
+		ASC->RemoveActiveGameplayEffect(OldHandle);
+	}
+	return true;
 }
 
 void URes_InsectGlaive::CheckAndActivateTripleUp()
 {
-	if (bTripleUpActive) return; // 不可刷新
-
-	UAbilitySystemComponent* ASC = GetPlayerASC();
-	if (!ASC) return;
-
-	// 检查是否同时持有三种灯
-	static const FGameplayTag WhiteTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"));
-	static const FGameplayTag OrangeTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
-	static const FGameplayTag RedTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
-
-	if (!ASC->HasMatchingGameplayTag(WhiteTag) ||
-		!ASC->HasMatchingGameplayTag(OrangeTag) ||
-		!ASC->HasMatchingGameplayTag(RedTag))
+	if (IsTripleUpActive() || !CombatConfig)
+	{
+		return;
+	}
+	if (!IsHandleActive(ActiveExtractHandles.FindRef(WhiteExtractTag()))
+		|| !IsHandleActive(ActiveExtractHandles.FindRef(OrangeExtractTag()))
+		|| !IsHandleActive(ActiveExtractHandles.FindRef(RedExtractTag())))
 	{
 		return;
 	}
 
-	// 移除三个单灯 GE
-	for (auto& Pair : ActiveExtractHandles)
+	UAbilitySystemComponent* ASC = GetPlayerASC();
+	if (!ASC || !CombatConfig->TripleUpEffectClass)
 	{
-		if (Pair.Value.IsValid())
+		return;
+	}
+	FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(
+		CombatConfig->TripleUpEffectClass, 1.f, ASC->MakeEffectContext());
+	if (!Spec.IsValid())
+	{
+		return;
+	}
+	Spec.Data->SetDuration(CombatConfig->TripleUpDuration, true);
+	Spec.Data->SetSetByCallerMagnitude(
+		FGameplayTag::RequestGameplayTag(TEXT("Data.IG.Buff.AttackMultiplier")),
+		CombatConfig->TripleAttackMultiplier);
+	Spec.Data->SetSetByCallerMagnitude(
+		FGameplayTag::RequestGameplayTag(TEXT("Data.IG.Buff.MoveSpeedMultiplier")),
+		CombatConfig->TripleMoveSpeedMultiplier);
+	Spec.Data->SetSetByCallerMagnitude(
+		FGameplayTag::RequestGameplayTag(TEXT("Data.IG.Buff.DefenseMultiplier")),
+		CombatConfig->TripleDefenseMultiplier);
+
+	const FActiveGameplayEffectHandle NewTriple = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
+	if (!IsHandleActive(NewTriple))
+	{
+		return; // 三灯 Apply 失败：三个单灯完整保留。
+	}
+
+	bExtractTransitionGuard = true;
+	TripleUpHandle = NewTriple;
+	if (FOnActiveGameplayEffectRemoved_Info* Delegate =
+		ASC->OnGameplayEffectRemoved_InfoDelegate(NewTriple))
+	{
+		Delegate->AddUObject(this, &URes_InsectGlaive::HandleTripleUpRemoved, NewTriple);
+	}
+	const TArray<FActiveGameplayEffectHandle> OldSingleHandles = {
+		ActiveExtractHandles.FindRef(WhiteExtractTag()),
+		ActiveExtractHandles.FindRef(OrangeExtractTag()),
+		ActiveExtractHandles.FindRef(RedExtractTag())
+	};
+	ActiveExtractHandles.Reset();
+	for (const FActiveGameplayEffectHandle& Handle : OldSingleHandles)
+	{
+		if (IsHandleActive(Handle))
 		{
-			ASC->RemoveActiveGameplayEffect(Pair.Value);
+			ASC->RemoveActiveGameplayEffect(Handle);
 		}
 	}
-	ActiveExtractHandles.Empty();
-
-	// Apply 三灯 GE
-	TSubclassOf<UGameplayEffect> TripleUpGEClass = LoadClass<UGameplayEffect>(nullptr,
-		TEXT("/Game/GameplayEffects/InsectGlaive/GE_IG_TripleUp.GE_IG_TripleUp_C"));
-
-	if (TripleUpGEClass)
-	{
-		FGameplayEffectSpecHandle Spec = ASC->MakeOutgoingSpec(TripleUpGEClass, 1.0f, ASC->MakeEffectContext());
-		if (Spec.IsValid())
-		{
-			Spec.Data->SetDuration(TripleUpDuration, true);
-			TripleUpHandle = ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data);
-		}
-	}
-
-	bTripleUpActive = true;
-	PlayResourceSound(TripleUpActivatedSound);
+	bExtractTransitionGuard = false;
+	PlayResourceSound(CombatConfig->TripleUpActivatedSound);
 	OnTripleUpChanged.Broadcast();
-}
-
-void URes_InsectGlaive::ConsumeExtract(FGameplayTag ExtractType)
-{
-	UAbilitySystemComponent* ASC = GetPlayerASC();
-	if (!ASC) return;
-
-	const bool bWasTripleUp = bTripleUpActive;
-
-	if (bWasTripleUp)
-	{
-		// 解除三灯
-		if (TripleUpHandle.IsValid())
-		{
-			ASC->RemoveActiveGameplayEffect(TripleUpHandle);
-		}
-		bTripleUpActive = false;
-
-		// 重新 Apply 剩余灯（白+橙）
-		static const FGameplayTag WhiteTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"));
-		static const FGameplayTag OrangeTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
-		static const FGameplayTag RedTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
-
-		TArray<FGameplayTag> Remaining;
-		if (ExtractType != WhiteTag) Remaining.Add(WhiteTag);
-		if (ExtractType != OrangeTag) Remaining.Add(OrangeTag);
-		if (ExtractType != RedTag) Remaining.Add(RedTag);
-		ReapplyRemainingExtracts(Remaining);
-	}
-	else
-	{
-		// 移除指定单灯
-		if (FActiveGameplayEffectHandle* Handle = ActiveExtractHandles.Find(ExtractType))
-		{
-			if (Handle->IsValid())
-			{
-				ASC->RemoveActiveGameplayEffect(*Handle);
-			}
-			ActiveExtractHandles.Remove(ExtractType);
-		}
-	}
-}
-
-void URes_InsectGlaive::ConsumeTripleUp()
-{
-	if (!bTripleUpActive) return;
-
-	UAbilitySystemComponent* ASC = GetPlayerASC();
-	if (!ASC) return;
-
-	if (TripleUpHandle.IsValid())
-	{
-		ASC->RemoveActiveGameplayEffect(TripleUpHandle);
-	}
-	bTripleUpActive = false;
-	// 三灯全清，不 Reapply 单灯
-}
-
-void URes_InsectGlaive::ReapplyRemainingExtracts(const TArray<FGameplayTag>& RemainingColors)
-{
-	for (const FGameplayTag& Color : RemainingColors)
-	{
-		ApplyExtract(Color);
-	}
+	BroadcastExtractState();
 }
 
 bool URes_InsectGlaive::HasExtract(FGameplayTag ExtractType) const
 {
-	if (UAbilitySystemComponent* ASC = GetPlayerASC())
-	{
-		return ASC->HasMatchingGameplayTag(ExtractType);
-	}
-	return false;
+	return IsHandleActive(ActiveExtractHandles.FindRef(ExtractType));
 }
 
-// ═══════════════════════════════════════════
-// 猎虫伤害
-// ═══════════════════════════════════════════
-
-void URes_InsectGlaive::ApplyKinsectDamage(
-	UMHGZMonsterHitzoneComponent* Hitzone, AActor* Monster, float MotionValue)
+bool URes_InsectGlaive::IsTripleUpActive() const
 {
-	if (!Hitzone || !Monster) return;
+	return IsHandleActive(TripleUpHandle);
+}
 
-	UAbilitySystemComponent* PlayerASC = GetPlayerASC();
-	if (!PlayerASC) return;
+bool URes_InsectGlaive::TryConsumeTripleUpAtomic()
+{
+	UAbilitySystemComponent* ASC = GetPlayerASC();
+	const FActiveGameplayEffectHandle Handle = TripleUpHandle;
+	return ASC && IsHandleActive(Handle) && ASC->RemoveActiveGameplayEffect(Handle);
+}
 
-	UAbilitySystemComponent* MonsterASC = Monster->FindComponentByClass<UAbilitySystemComponent>();
-	if (!MonsterASC) return;
+bool URes_InsectGlaive::ConsumeExtract(FGameplayTag ExtractType)
+{
+	if (IsTripleUpActive())
+	{
+		return false;
+	}
+	UAbilitySystemComponent* ASC = GetPlayerASC();
+	const FActiveGameplayEffectHandle Handle = ActiveExtractHandles.FindRef(ExtractType);
+	return ASC && IsHandleActive(Handle) && ASC->RemoveActiveGameplayEffect(Handle);
+}
 
-	// 加载 GE_KinsectDamage
-	UGameplayEffect* GEClass = LoadObject<UGameplayEffect>(nullptr,
-		TEXT("/Game/GameplayEffects/Core/GE_KinsectDamage.GE_KinsectDamage"));
+void URes_InsectGlaive::HandleSingleExtractRemoved(
+	const FGameplayEffectRemovalInfo& RemovalInfo, FGameplayTag Color,
+	FActiveGameplayEffectHandle ExpectedHandle)
+{
+	(void)RemovalInfo;
+	if (ActiveExtractHandles.FindRef(Color) == ExpectedHandle)
+	{
+		ActiveExtractHandles.Remove(Color);
+		if (!bExtractTransitionGuard)
+		{
+			BroadcastExtractState();
+		}
+	}
+}
 
-	FGameplayEffectSpecHandle Spec = PlayerASC->MakeOutgoingSpec(
-		GEClass ? GEClass->GetClass() : nullptr, 1.0f, PlayerASC->MakeEffectContext());
+void URes_InsectGlaive::HandleTripleUpRemoved(
+	const FGameplayEffectRemovalInfo& RemovalInfo,
+	FActiveGameplayEffectHandle ExpectedHandle)
+{
+	if (TripleUpHandle != ExpectedHandle)
+	{
+		return; // 旧 Handle 的迟到回调不能清后来建立的三灯。
+	}
+	TripleUpHandle = FActiveGameplayEffectHandle();
+	TripleReservations.Reset();
+	if (!bRuntimeShuttingDown && CombatConfig && !RemovalInfo.bPrematureRemoval)
+	{
+		PlayResourceSound(CombatConfig->TripleUpExpiredSound);
+	}
+	if (!bRuntimeShuttingDown)
+	{
+		OnTripleUpChanged.Broadcast();
+		BroadcastExtractState();
+	}
+}
 
-	if (!Spec.IsValid()) return;
+void URes_InsectGlaive::BroadcastExtractState()
+{
+	for (const FGameplayTag& Color : { WhiteExtractTag(), OrangeExtractTag(), RedExtractTag() })
+	{
+		float Ratio = 0.f;
+		const FActiveGameplayEffectHandle Handle = ActiveExtractHandles.FindRef(Color);
+		if (UAbilitySystemComponent* ASC = GetPlayerASC(); IsHandleActive(Handle) && ASC)
+		{
+			const FActiveGameplayEffect* ActiveEffect = ASC->GetActiveGameplayEffect(Handle);
+			const float Duration = ActiveEffect ? ActiveEffect->GetDuration() : 0.f;
+			const float Remaining = ActiveEffect && GetWorld()
+				? ActiveEffect->GetTimeRemaining(GetWorld()->GetTimeSeconds()) : 0.f;
+			Ratio = Duration > 0.f ? FMath::Clamp(Remaining / Duration, 0.f, 1.f) : 1.f;
+		}
+		OnExtractTimeUpdated.Broadcast(Color, Ratio);
+	}
+}
 
-	// 统一使用 Damage.MotionValue
+bool URes_InsectGlaive::ApplyKinsectDamage(
+	const FHitResult& Hit, float MotionValue, const FGuid& HitInstanceID)
+{
+	UMHGZMonsterHitzoneComponent* Hitzone =
+		Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+	AActor* Target = Hit.GetActor();
+	UAbilitySystemComponent* SourceASC = GetPlayerASC();
+	UAbilitySystemComponent* TargetASC = Target
+		? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target) : nullptr;
+	if (!Hitzone || !SourceASC || !TargetASC || !HitInstanceID.IsValid())
+	{
+		return false;
+	}
+
+	FGameplayEffectContextHandle ContextHandle = SourceASC->MakeEffectContext();
+	FMHGZGameplayEffectContext* Context =
+		FMHGZGameplayEffectContext::ExtractEffectContext(ContextHandle);
+	if (!Context)
+	{
+		return false;
+	}
+	Context->AddHitResult(Hit, true);
+	// IncomingHitResolver 按 AttackInstanceID 全局去重；贯通同一 Flight 的每次
+	// 有效伤害必须有独立 HitInstanceID，FlightInstanceID 只留在请求/调试域。
+	Context->AttackInstanceID = HitInstanceID;
+	Context->DamageSourceType = EMHGZDamageSourceType::Kinsect;
+	Context->bUseHitzoneDefense = true;
+	Context->HitzoneTag = Hitzone->HitzoneTag;
+	Context->HitCueTag = FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.Kinsect"));
+	if (AActor* Source = RuntimeContext.Character.Get())
+	{
+		Context->AddInstigator(Source, Source);
+	}
+
+	FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(
+		UMHGZDamageGameplayEffect::StaticClass(), 1.f, ContextHandle);
+	if (!Spec.IsValid())
+	{
+		return false;
+	}
 	Spec.Data->SetSetByCallerMagnitude(
 		FGameplayTag::RequestGameplayTag(TEXT("Damage.MotionValue")), MotionValue);
-
-	// 猎虫攻击力覆写
 	Spec.Data->SetSetByCallerMagnitude(
 		FGameplayTag::RequestGameplayTag(TEXT("Damage.AttackPower")),
 		GetModifiedKinsectAttackPower());
-
-	// 部位信息
-	Spec.Data->AddDynamicAssetTag(Hitzone->HitzoneTag);
-
-	// GameplayCue——猎虫命中
-	Spec.Data->AddDynamicAssetTag(
-		FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.Kinsect")));
-	Spec.Data->AddDynamicAssetTag(
-		FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.DamageNumber")));
-
-	PlayerASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, MonsterASC);
+	return SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC)
+		.WasSuccessfullyApplied();
 }
 
 float URes_InsectGlaive::GetModifiedKinsectAttackPower() const
 {
-	if (KinsectData)
-	{
-		return KinsectData->KinsectAttackPower;
-	}
-	return 10.0f;
+	return KinsectData ? FMath::Max(0.f, KinsectData->KinsectAttackPower) : 0.f;
 }
 
-// ═══════════════════════════════════════════
-// 词条修饰器
-// ═══════════════════════════════════════════
-
-void URes_InsectGlaive::ApplyEntryModifier(FGameplayTag AttributeTag, float Value, TEnumAsByte<EGameplayModOp::Type> Op)
+bool URes_InsectGlaive::LaunchKinsectMark(const FWeaponAimSnapshot& AimSnapshot)
 {
-	if (!AttributeTag.MatchesTag(FGameplayTag::RequestGameplayTag(TEXT("WeaponResource"))))
+	if (bRuntimeShuttingDown || !CombatConfig || !GetWorld()
+		|| AimSnapshot.Context != EWeaponAimSnapshotContext::Kinsect
+		|| AimSnapshot.Direction.ContainsNaN()
+		|| AimSnapshot.Direction.GetSafeNormal().IsNearlyZero())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[Res_InsectGlaive] ApplyEntryModifier: Tag %s 不在 WeaponResource 命名空间下，跳过"),
-			*AttributeTag.ToString());
-		return;
+		return false;
 	}
 
-	// 按 Tag 路由到内部倍率
-	static const FGameplayTag RegenTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.KinsectRegenRate"));
-	static const FGameplayTag HoverDrainTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.HoverDrainRate"));
-	static const FGameplayTag FlightDrainTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.FlightDrainRate"));
+	TSubclassOf<AIGMarkProjectile> ProjectileClass = CombatConfig->KinsectMarkProjectileClass;
+	if (!ProjectileClass)
+	{
+		ProjectileClass = AIGMarkProjectile::StaticClass();
+	}
 
-	if (AttributeTag == RegenTag)
-		KinsectRegenRateMultiplier *= Value;
-	else if (AttributeTag == HoverDrainTag)
-		HoverDrainRateMultiplier *= Value;
-	else if (AttributeTag == FlightDrainTag)
-		FlightDrainRateMultiplier *= Value;
+	FVector LaunchOrigin = AimSnapshot.Origin;
+	FVector LaunchDirection = AimSnapshot.Direction.GetSafeNormal();
+	if (!CombatConfig->KinsectMarkLaunchSocket.IsNone())
+	{
+		ACharacter* Character = RuntimeContext.Character.Get();
+		TArray<USkeletalMeshComponent*> Meshes;
+		if (Character)
+		{
+			Character->GetComponents<USkeletalMeshComponent>(Meshes);
+		}
+		USkeletalMeshComponent* LaunchMesh = nullptr;
+		for (USkeletalMeshComponent* Mesh : Meshes)
+		{
+			if (Mesh && Mesh->ComponentHasTag(TEXT("WeaponTrace"))
+				&& Mesh->DoesSocketExist(CombatConfig->KinsectMarkLaunchSocket))
+			{
+				LaunchMesh = Mesh;
+				break;
+			}
+		}
+		if (!LaunchMesh)
+		{
+			return false;
+		}
+		LaunchOrigin = LaunchMesh->GetSocketLocation(CombatConfig->KinsectMarkLaunchSocket);
+		LaunchDirection = (AimSnapshot.TargetPoint - LaunchOrigin).GetSafeNormal();
+		if (LaunchDirection.IsNearlyZero())
+		{
+			return false;
+		}
+	}
+	FWeaponAimSnapshot LaunchSnapshot = AimSnapshot;
+	LaunchSnapshot.Origin = LaunchOrigin;
+	LaunchSnapshot.Direction = LaunchDirection;
+	AIGMarkProjectile* Projectile = GetWorld()->SpawnActorDeferred<AIGMarkProjectile>(
+		ProjectileClass,
+		FTransform(LaunchDirection.Rotation(), LaunchOrigin),
+		GetOwner(), Cast<APawn>(GetOwner()), ESpawnActorCollisionHandlingMethod::AlwaysSpawn);
+	if (!Projectile)
+	{
+		return false;
+	}
+	Projectile->Initialize(this, RuntimeContext.RuntimeToken, LaunchSnapshot,
+		CombatConfig->KinsectMarkProjectileSpeed,
+		CombatConfig->KinsectMarkProjectileRadius,
+		CombatConfig->KinsectMarkMaxDistance,
+		CombatConfig->KinsectMarkProjectileLifetime);
+	Projectile->FinishSpawning(FTransform(LaunchDirection.Rotation(), LaunchOrigin));
+	return true;
+}
 
-	Super::ApplyEntryModifier(AttributeTag, Value, Op);
+bool URes_InsectGlaive::SetKinsectMark(UMHGZMonsterHitzoneComponent* Hitzone,
+	const FVector& ImpactPoint, AIGMarkProjectile* Projectile)
+{
+	if (bRuntimeShuttingDown || !Hitzone || !Projectile
+		|| !IsValid(Hitzone->GetOwner()) || Projectile->GetOwner() != GetOwner())
+	{
+		return false;
+	}
+	ClearKinsectMark(EIGMarkClearReason::Replaced);
+	ActiveMarkHitzone = Hitzone;
+	ActiveMarkProjectile = Projectile;
+	ActiveMarkLocalPoint = Hitzone->GetComponentTransform().InverseTransformPosition(ImpactPoint);
+	SetMarkActiveTag(true);
+
+	const uint64 ThisMarkSerial = ++MarkSerial;
+	GetWorld()->GetTimerManager().SetTimer(MarkExpiryTimer,
+		FTimerDelegate::CreateWeakLambda(this, [this, ThisMarkSerial]()
+		{
+			if (ThisMarkSerial == MarkSerial)
+			{
+				ClearKinsectMark(EIGMarkClearReason::Expired);
+			}
+		}), FMath::Max(0.01f, CombatConfig->KinsectMarkDuration), false);
+	return true;
+}
+
+void URes_InsectGlaive::ClearKinsectMark(EIGMarkClearReason Reason)
+{
+	(void)Reason;
+	++MarkSerial;
+	if (GetWorld())
+	{
+		GetWorld()->GetTimerManager().ClearTimer(MarkExpiryTimer);
+	}
+	if (AIGMarkProjectile* Projectile = ActiveMarkProjectile.Get())
+	{
+		Projectile->Destroy();
+	}
+	ActiveMarkProjectile.Reset();
+	ActiveMarkHitzone.Reset();
+	ActiveMarkLocalPoint = FVector::ZeroVector;
+	SetMarkActiveTag(false);
+}
+
+bool URes_InsectGlaive::HasValidKinsectMark() const
+{
+	return ActiveMarkHitzone.IsValid() && ActiveMarkProjectile.IsValid()
+		&& IsValid(ActiveMarkHitzone->GetOwner());
+}
+
+bool URes_InsectGlaive::GetKinsectMarkWorldLocation(FVector& OutLocation) const
+{
+	if (!HasValidKinsectMark())
+	{
+		return false;
+	}
+	OutLocation = ActiveMarkHitzone->GetComponentTransform()
+		.TransformPosition(ActiveMarkLocalPoint);
+	return true;
+}
+
+bool URes_InsectGlaive::AreTripleCostSpecs(
+	const TArray<FWeaponResourceCostSpec>& Specs) const
+{
+	if (Specs.Num() != 1 || !Specs[0].CostType.MatchesTagExact(TripleCostTag()))
+	{
+		return false;
+	}
+	return FMath::IsNearlyEqual(Specs[0].Amount.GetValueAtLevel(1.f), 1.f);
+}
+
+bool URes_InsectGlaive::CanReserveCosts(
+	const TArray<FWeaponResourceCostSpec>& Specs) const
+{
+	return Specs.IsEmpty() || (AreTripleCostSpecs(Specs) && IsTripleUpActive());
+}
+
+bool URes_InsectGlaive::TryReserveCosts(const FWeaponActionToken& ActionToken,
+	const TArray<FWeaponResourceCostSpec>& Specs,
+	FWeaponResourceCostReservation& OutReservation)
+{
+	if (Specs.IsEmpty())
+	{
+		return Super::TryReserveCosts(ActionToken, Specs, OutReservation);
+	}
+	OutReservation = FWeaponResourceCostReservation();
+	if (!ActionToken.IsValid() || !IsRuntimeRequestCurrent(ActionToken.RuntimeToken)
+		|| !AreTripleCostSpecs(Specs) || !IsTripleUpActive())
+	{
+		return false;
+	}
+	uint64 ID = NextReservationID++;
+	if (ID == 0)
+	{
+		ID = NextReservationID++;
+	}
+	TripleReservations.Add(ID, TripleUpHandle);
+	OutReservation.RuntimeToken = ActionToken.RuntimeToken;
+	OutReservation.ActivationSequenceID = ActionToken.ActivationSequenceID;
+	OutReservation.ReservationID = ID;
+	return true;
+}
+
+void URes_InsectGlaive::ReleaseReservation(
+	const FWeaponResourceCostReservation& Reservation)
+{
+	TripleReservations.Remove(Reservation.ReservationID);
+}
+
+void URes_InsectGlaive::ConsumeReservedCosts(
+	const FWeaponResourceCostReservation& Reservation)
+{
+	const FActiveGameplayEffectHandle ReservedHandle =
+		TripleReservations.FindRef(Reservation.ReservationID);
+	if (!ReservedHandle.IsValid() || ReservedHandle != TripleUpHandle)
+	{
+		TripleReservations.Remove(Reservation.ReservationID);
+		return;
+	}
+	TripleReservations.Remove(Reservation.ReservationID);
+	if (UAbilitySystemComponent* ASC = GetPlayerASC(); IsHandleActive(ReservedHandle) && ASC)
+	{
+		ASC->RemoveActiveGameplayEffect(ReservedHandle);
+	}
+}
+
+void URes_InsectGlaive::SetKinsectActiveTag(bool bActive)
+{
+	UMHGZWeaponRuntimeHostComponent* Host = RuntimeContext.RuntimeToken.Host.Get();
+	if (!Host)
+	{
+		return;
+	}
+	if (bActive && !KinsectActiveTagToken.IsValid())
+	{
+		FGameplayTagContainer Tags;
+		Tags.AddTag(KinsectActiveTag());
+		KinsectActiveTagToken = Host->AcquireTags(EWeaponTagOwnerKind::Resource,
+			FGameplayAbilitySpecHandle(), 0, TEXT("IG.Kinsect.Active"), Tags);
+	}
+	else if (!bActive && KinsectActiveTagToken.IsValid())
+	{
+		Host->ReleaseTags(KinsectActiveTagToken);
+		KinsectActiveTagToken = FWeaponOwnedTagToken();
+	}
+}
+
+void URes_InsectGlaive::SetMarkActiveTag(bool bActive)
+{
+	UMHGZWeaponRuntimeHostComponent* Host = RuntimeContext.RuntimeToken.Host.Get();
+	if (!Host)
+	{
+		return;
+	}
+	if (bActive && !MarkActiveTagToken.IsValid())
+	{
+		FGameplayTagContainer Tags;
+		Tags.AddTag(MarkActiveTag());
+		MarkActiveTagToken = Host->AcquireTags(EWeaponTagOwnerKind::Resource,
+			FGameplayAbilitySpecHandle(), 0, TEXT("IG.Mark.Active"), Tags);
+	}
+	else if (!bActive && MarkActiveTagToken.IsValid())
+	{
+		Host->ReleaseTags(MarkActiveTagToken);
+		MarkActiveTagToken = FWeaponOwnedTagToken();
+	}
+}
+
+void URes_InsectGlaive::ClearAllResourceGameplayEffects()
+{
+	UAbilitySystemComponent* ASC = GetPlayerASC();
+	if (!ASC)
+	{
+		ActiveExtractHandles.Reset();
+		TripleUpHandle = FActiveGameplayEffectHandle();
+		return;
+	}
+	bExtractTransitionGuard = true;
+	TArray<FActiveGameplayEffectHandle> SingleHandles;
+	ActiveExtractHandles.GenerateValueArray(SingleHandles);
+	ActiveExtractHandles.Reset();
+	for (const FActiveGameplayEffectHandle& Handle : SingleHandles)
+	{
+		if (IsHandleActive(Handle))
+		{
+			ASC->RemoveActiveGameplayEffect(Handle);
+		}
+	}
+	const FActiveGameplayEffectHandle TripleHandle = TripleUpHandle;
+	TripleUpHandle = FActiveGameplayEffectHandle();
+	if (IsHandleActive(TripleHandle))
+	{
+		ASC->RemoveActiveGameplayEffect(TripleHandle);
+	}
+	bExtractTransitionGuard = false;
+}
+
+void URes_InsectGlaive::ApplyEntryModifier(FGameplayTag AttributeTag, float Value,
+	TEnumAsByte<EGameplayModOp::Type> Op)
+{
+	(void)AttributeTag;
+	(void)Value;
+	(void)Op;
+	// Demo 冻结：该路径语义有缺陷，明确禁用，不允许悄悄修改猎虫数值。
 }
 
 void URes_InsectGlaive::ClearAllEntryModifiers()
 {
-	KinsectRegenRateMultiplier = 1.0f;
-	HoverDrainRateMultiplier = 1.0f;
-	FlightDrainRateMultiplier = 1.0f;
 	Super::ClearAllEntryModifiers();
 }

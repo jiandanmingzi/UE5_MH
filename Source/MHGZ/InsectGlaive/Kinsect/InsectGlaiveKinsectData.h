@@ -9,10 +9,11 @@
 class USkeletalMesh;
 class UMaterialInstance;
 class UAnimMontage;
+class UAnimInstance;
 
 /**
- * UInsectGlaiveKinsectData — 猎虫品种 DataAsset
- * 策划为每种猎虫品种创建一个资产
+ * UInsectGlaiveKinsectData — 猎虫品种 DataAsset。
+ * 策划为每种猎虫品种创建一个资产。
  */
 UCLASS(BlueprintType)
 class UInsectGlaiveKinsectData : public UPrimaryDataAsset
@@ -28,7 +29,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TSoftObjectPtr<USkeletalMesh> KinsectMesh;
 
-	/** 按 SlotName 覆写材质 */
+	/** 按 SlotName 覆盖材质 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TMap<FName, TSoftObjectPtr<UMaterialInstance>> MaterialOverrides;
 
@@ -36,36 +37,44 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TSoftObjectPtr<UAnimMontage> FlyMontage;
 
-	/** 基础飞行速度（cm/s） */
+	/** 猎虫外观 AnimBP；只负责飞行/悬停/附着表现，不拥有玩法状态。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TSubclassOf<UAnimInstance> KinsectAnimClass;
+
+	/** 基础飞行速度（cm/s） */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float FlightSpeed = 2000.f;
 
+	/** 返回飞行速度（cm/s） */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	float ReturnSpeed = 2500.f;
+
 	/** 最大飞行距离（cm）——臂上放虫用 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float MaxFlightRange = 3000.f;
 
 	/** 收刀 RT 直飞距离（cm） */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float StraightFlightDistance = 1500.f;
 
 	/** 基础耐力上限 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float StaminaPool = 100.f;
 
 	/** 基础耐力回复速率 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float StaminaRegenRate = 15.f;
 
 	/** 悬停耐力消耗速率 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float HoverDrainRate = 3.f;
 
 	/** 飞行耐力消耗速率 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float FlightDrainRate = 8.f;
 
-	/** ★ 猎虫基础攻击力 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	/** 猎虫基础攻击力 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float KinsectAttackPower = 10.0f;
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override

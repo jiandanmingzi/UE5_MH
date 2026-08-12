@@ -53,7 +53,7 @@ public:
 	TSoftObjectPtr<USkeletalMesh> Mesh;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Weapon|Visual")
-	FName AttachSocket = "Weapon_R";
+	FName AttachSocket = "Weapon_L";
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override
 	{

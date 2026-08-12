@@ -4,23 +4,27 @@
 
 UKinsectCollisionComponent::UKinsectCollisionComponent()
 {
-	// 小型胶囊体——猎虫尺寸
+	// 小型胶囊体——猎虫尺寸；碰撞配置在 OnRegister 中完成（避免 CDO 构造期配置碰撞 API）
 	InitCapsuleSize(15.f, 30.f);
-	SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
 
-	// 默认全部 Ignore
-	SetCollisionResponseToAllChannels(ECR_Ignore);
+void UKinsectCollisionComponent::OnRegister()
+{
+	Super::OnRegister();
+
+	// Kinsect preset：QueryOnly / WorldStatic=Block / Weapon=Ignore / Hitzone=Ignore
+	SetCollisionProfileName(TEXT("Kinsect"));
+	SetGenerateOverlapEvents(false);
+	// 默认不参与任何碰撞，仅在飞行中由 EnableKinsectCollision 打开
+	SetCollisionEnabled(ECollisionEnabled::NoCollision);
 }
 
 void UKinsectCollisionComponent::EnableKinsectCollision()
 {
+	// 只 QueryOnly + 配置 preset；绝不使用 Weapon Overlap
+	SetCollisionProfileName(TEXT("Kinsect"));
+	SetGenerateOverlapEvents(false);
 	SetCollisionEnabled(ECollisionEnabled::QueryOnly);
-
-	// Weapon 通道 → Overlap（对怪物部位产生 Overlap 事件）
-	SetCollisionResponseToChannel(ECC_GameTraceChannel1, ECR_Overlap);
-
-	// WorldStatic → Block（撞墙停止）
-	SetCollisionResponseToChannel(ECC_WorldStatic, ECR_Block);
 }
 
 void UKinsectCollisionComponent::DisableKinsectCollision()

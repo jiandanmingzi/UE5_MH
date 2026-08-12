@@ -11,7 +11,7 @@
 | `UMHGZUserWidget` | 只保存 Bound ASC，并提供可覆写的 `OnValueUpdated`；没有自动注册 Attribute/Tag 委托。 |
 | `UMHGZWeaponResourceWidget` | `BindToResourceComponent` 只保存指针，没有 Unbind 或具体 Delegate 绑定。 |
 | `UMHGZCrosshairWidget` | 只有蓝图事件接口；当前无对应 WBP 资产。 |
-| `UMHGZAimComponent` | 已实现版本订阅宽泛 `Combat.State.Aiming` 并在代码中映射颜色；Demo 目标改为订阅 `Combat.State.Aiming.Kinsect`、直接读取 Hitzone.ExtractColorTag，并只在目标变化时广播。 |
+| `UMHGZAimComponent` | M3 已订阅 `Combat.State.Aiming.Kinsect`，使用 Visibility Trace + Hitzone ObjectType 验证，直接读取 `Hitzone.ExtractColorTag`，并只在目标变化时广播。Crosshair Widget 资产和 HUD 绑定仍待 E6。 |
 
 **设计原则：** UI 由 GameplayTag/Attribute/Delegate 驱动，GAS Ability 不直接操作 UI。每个本地 PlayerController 的 `AMHGZHUD` 独占自己的 Widget 树，并按 RuntimeDefinition 在 WBP_HUD 的资源插槽动态创建/销毁面板；Dedicated Server 不建立 UI 依赖。准心数据由 Character 的 `UMHGZAimComponent` 提供。
 

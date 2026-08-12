@@ -31,6 +31,14 @@ struct FWeaponChordDefinition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	TArray<FGameplayTag> RequiredHeldModifiers;
 
+	/** 解析瞬间必须全部存在的姿态/瞄准上下文；用于收刀 RT 等状态限定输入。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord|Context")
+	FGameplayTagContainer RequiredContextTags;
+
+	/** 解析瞬间任一存在即拒绝该 Chord 的上下文。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord|Context")
+	FGameplayTagContainer BlockedContextTags;
+
 	/** 默认 true：额外 LT/RT 会阻止该 Chord */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	bool bRequireExactModifiers = true;
