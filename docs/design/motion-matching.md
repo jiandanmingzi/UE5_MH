@@ -400,9 +400,9 @@ GAS `MoveSpeedMultiplier` 属性已存在，但以下消费方式尚未接入：
 
 ### 8.3 冲刺
 
-- `SprintAction` 绑定不变；拔刀态已有 `SprintPressed` 直接 return 逻辑，`CalcCruiseSpeed` 拔刀分支不返回 SprintCruise
+- `SprintAction` 绑定 RB/R1（2026-08-11 双语义：收刀态按住奔跑；持刀态由 Router 解析为纳刀）。`SprintPressed` 改为收刀态按住 ≥0.1s 才置 `bSprintHeld=true`（避免点按闪跑），拔刀态直接 return；`CalcCruiseSpeed` 拔刀分支不返回 SprintCruise
 - `bSprintHeld = true` 时 `CalcCruiseSpeed` 对摇杆 > 0.9 返回 `SprintCruise`
-- 拔刀态禁止冲刺（`Combat.State.Unsheathed` Tag）——当前 `SprintPressed` 逻辑不变
+- 拔刀态禁止冲刺（`Combat.State.Unsheathed` Tag）；奔跑中拔刀（Y/RT）必须清 `bSprintHeld`
 
 ---
 

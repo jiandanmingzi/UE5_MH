@@ -298,6 +298,8 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 
 在 `/Game/Input/Actions/MHGZ` 复用或创建：`IA_Y`、`IA_B`、`IA_LT`、`IA_RT`、`IA_Dodge` 和移动输入。全部加入唯一 `IMC_MHGZ_Demo`。
 
+`IA_Sprint` 的 Mapping 从 LS/L3 改到 RB/R1（RB 双语义：收刀态按住奔跑由 Character 的 `SprintPressed` 分流；持刀态按下由 Router 解析为纳刀，见 §5.4）。LS/L3 点击键释放，不再保留 Sprint Mapping。
+
 不要在 Enhanced Input 资产中配置 Y+B 等 Chord Trigger；组合由 Router 的 InputProfile 解析。
 
 先从 `IMC_MHGZ_Demo` 删除 `IA_RTA/IA_RTB/IA_RTY/IA_YB` 的所有 Mapping。用 Reference Viewer 同时确认 `BP_PlayerState` 与 IMC 都不再引用它们，再通过 Content Browser 删除这四个旧 InputAction；不要删除 `IA_Y/IA_B/IA_LT/IA_RT`。
@@ -305,6 +307,8 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 ### 5.4 DA_IG_InputProfile
 
 配置 RawAction→PhysicalInputTag，并建立下列输出。字段使用重构后的实际名称：
+
+`RawActionToPhysicalInputTag` 增加 `IA_RB → Input.Modifier.Sheathed`。RB 同时被 Character 的 `SprintAction` 绑定（收刀态奔跑），双绑定由 `UMHGZInputComponent` 统一管理，属于预期行为。
 
 | 输出 | TriggerControls | RequiredHeldModifiers | Aim Context | 备注 |
 |---|---|---|---|---|
@@ -317,6 +321,7 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 | RTY | Y | RT | Action | 猎虫滑翔 |
 | LTYB | Y+B | LT | None | 地面粉尘集约；空中降龙 |
 | RTYB | Y+B | RT | Action | 觉虫击 |
+| Sheathe（`Input.Sheathe`） | RB（`Input.Modifier.Sheathed`） | — | None | 纳刀：通用路由（同 `Input.Dodge`）按 InputTag 激活 `GA_Sheathe`，不进入 ComboData；`ReleaseControlTag=RB`；持刀按下立即触发 |
 
 设置：
 
@@ -324,6 +329,7 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 - TriggerControls 必须在 ChordGracePeriod 内；LT/RT 可预先持有或在等待期内最后补齐。
 - DirectionInputThreshold、ForwardConeHalfAngle 和 ChordGracePeriod 使用一个明确 Demo 初值，并保留为 DataAsset 可调参数。
 - 角色面向画面左时，摇杆左必须解析为 Forward。
+- Sheathe 是唯一通用路由输出（同 `Input.Dodge` 按 InputTag 激活 `GA_Sheathe`），不是武器连招输入；持刀态按下立即触发，攻击/硬直中由 `GA_Sheathe` 的 BlockedTags 拒绝；收刀态按下不激活 GA，由 Character 的 `SprintPressed` 分流为奔跑（0.1s 阈值）。
 
 运行 Data Validation，故意制造一个重复 Chord/Priority 并确认能报错，再恢复正确配置。
 
@@ -336,11 +342,11 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 3. 配置并引用四个精华 GE：White、Orange、Red、TripleUp。
 4. 配置精华持续时间、红/白/橙/三灯数值 Buff；这些数值只在此资产维护。
 5. 配置 `MaxDanceStacks` 和逐层伤害倍率数组；数组长度必须覆盖 0～最大层。
-6. 配置猎虫速度、普通/悬停耐力消耗、附着回复、召回速度、到达半径和最大距离。
+6. 猎虫品种数值（飞行速度、最大距离、RT 直飞距离、耐力池/回复/悬停与飞行耗耐、基础攻击力，以及 M3 新增的召回速度）在 `DA_IG_Kinsect_Speed`（UInsectGlaiveKinsectData）维护；`DA_IG_Combat` 只保留猎虫到达半径这一附着判定常量。
 7. 配置四连/回旋、滑翔、操虫斩、穿刺、跳跃斩、急袭突刺、降龙、觉虫击的位移/修正角度参数。
 8. 觉虫击修正角固定支持正前方上下左右 ±60°，猎人飞行距离另设上限。
-9. 配置唯一 Demo 猎虫品种、虫印弹/粉尘 Class 和粉尘参数。
-10. 指定萃取成功、三灯激活/到期、猎虫耐力归零等资源音效；没有正式资源时可用明确命名的临时音效，但不能留空后再用硬编码路径加载。
+9. 引用唯一 Demo 猎虫品种（`DA_IG_Kinsect_Speed`；品种资产只含外观/速度/耐力等品种数值，不写武器机制），并配置虫印弹/粉尘 Class 和粉尘参数。
+10. 指定萃取成功、三灯激活/到期、猎虫耐力归零等资源音效；没有正式资源时可用明确命名的临时音效，但不能留空后再用硬编码路径加载。依赖 M3 的 CombatConfig 音效接线：当前 `InsectGlaiveCombatConfig` 尚无音效字段，Resource 为运行时 NewObject 创建、编辑器无可填槽位；M3 补字段并注入后，E4 用 `Tmp_SFX_*` 临时音效回填。
 11. 不配置 WeaponResource EntryModifier；本 Demo 明确禁用该路径。
 
 ### 5.6 DA_IG_Combo
@@ -387,8 +393,11 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 - `GA_IG_AwakenedKinsectAttack`。
 - `GA_IG_KinsectSlash`、`GA_IG_EnhancedKinsectSpiker`。
 - `GA_IG_StrongJumpingSlash`、`GA_IG_DescendingThrust`、`GA_IG_DivingWyvern`。
+- `GA_Sheathe`（通用路由 `InputTag=Input.Sheathe`；播放 `AM_Shth_ShouDao`，静止/移动选段；完成时 `RuntimeHost->SetSheathed(true)`；攻击/硬直中不可激活）。
 
 每个蓝图只配置数据：Montage、AttackSegments、成本、位移请求和动作特有参数；不要在 Event Graph 复制 Coordinator、资源状态机或直接操作 UI。武器动作必须继承重构后的虫棍动作基类，并保持 native `InstancedPerExecution`。旧拼音 GA 名称不作为最终资产名占位；最终名称按本节动作清单建立。
+
+拔刀路径（Y 拔刀攻击、收刀 RT 拔刀直飞、奔跑中拔刀）激活时调用 `RuntimeHost->SetSheathed(false)` 并清 `bSprintHeld`；纳刀由 `GA_Sheathe` 调用 `SetSheathed(true)`。
 
 《世界》地面基底若需要 Classic 无红灯弱动作与红灯正常动作，分别配置明确 GA/Montage 或同 Montage 的明确 Section，并由 ComboData Tag 条件选择；Numeric 模式只走正常动作。不要在 AnimBP 根据红灯临时替换动作。
 
@@ -419,6 +428,7 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 - 强化跳跃斩、急袭突刺：校准末速度与惯性交接。
 - 急袭突刺、降龙：落地段 Notify 不得被通用落地 Reset 提前截断。
 - 觉虫击：猎虫贯穿与猎人位移是两个独立运行时请求；Montage 只负责表现时序。
+- 纳刀：`AM_Shth_ShouDao` 由 `AS_Shth_ShouDao_Idle`（静止）与 `AS_Shth_ShouDao_Walk`（移动中）两个 Section 组成；GA 按激活时快照的移动输入幅度选段，播完才切 Sheathed。
 
 ## 7. E5——猎虫、木桩和训练场
 
@@ -428,7 +438,7 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 
 在 `/Game/Weapons/InsectGlaive` 下配置：
 
-1. `DA_IG_Kinsect_Speed`：引用正式猎虫 Mesh/Material、`ABP_IG_Kinsect`、`AM_IG_Kinsect_Fly`，并填写 Demo 速度/耐力基础值。
+1. `DA_IG_Kinsect_Speed`：引用正式猎虫 Mesh/Material、`ABP_IG_Kinsect`、`AM_IG_Kinsect_Fly`，并填写 Demo 品种数值（飞行速度、最大距离、RT 直飞距离、耐力池/回复/悬停与飞行耗耐、基础攻击力；召回速度等 M3 新增字段到齐后一并填写）。
 2. 猎虫蓝图若仅用于指定 Mesh/AnimClass，父类使用最终 `AKinsect`，不要在 Tick 蓝图重复飞行、Overlap 或萃取逻辑。
 3. 在 M3 最终实现上，猎虫 Collision 根组件使用 `Kinsect` Preset，关闭 Generate Overlap Events，ProjectileMovement 的 UpdatedComponent 指向该根组件。
 4. Fly Montage/AnimBP 只负责飞行动画；悬停和附着不需要建立另一套伤害窗口。
@@ -544,7 +554,7 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 按下列顺序验证，失败时只返回对应层修改：
 
 1. 启动/重生：每次只创建一个 RuntimeHost、一个 Resource、一个猎虫和一份 HUD。
-2. 输入：Y/B/YB、LT/RT 先按与最后补齐、角色 Forward 判定；一个物理输入只产生一个 Snapshot。
+2. 输入：Y/B/YB、LT/RT 先按与最后补齐、角色 Forward 判定、RB 持刀/收刀分流（纳刀 vs 0.1s 后奔跑）；一个物理输入只产生一个 Snapshot。
 3. 基础攻击：AttackCollision 只调用当前 Montage 对应 AbilityInstance；旧 BlendOut 不关闭新窗口。
 4. 闪避：方向来自快照；DodgeWindow 结束/中断后 Tag 和碰撞响应恢复。
 5. 普通猎虫：命中后 Hover，召回到达才交付；交付 Red 后下一次可以取得 White。

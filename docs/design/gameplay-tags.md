@@ -159,8 +159,9 @@ Damage.AttackPower / Damage.CritOverride / Damage.DisplayValue
 Input.Weapon               ← 武器输入父标签
 Input.Weapon.Y             ← △/Y — 轻/基础攻击
 Input.Weapon.B             ← ○/B — 重/特殊攻击
-Input.Weapon.RT            ← RT/R2 — 武器技能/防御
-Input.Weapon.RTA           ← RT+△（Chord Trigger）
+Input.Weapon.LT            ← 输出层预留：暂未使用（物理层为 Input.Modifier.LT）
+Input.Weapon.RT            ← 收刀 RT 拔刀直飞（未来 RT 单键 Chord 输出；物理层为 Input.Modifier.RT）
+Input.Weapon.RTA           ← RT+A（Chord Resolver）：起跳
 Input.Weapon.RTB           ← RT+○（Chord Trigger）
 Input.Weapon.RTY           ← RT+Y（Chord Trigger）
 Input.Weapon.YB            ← Y+B / △+○（Chord Resolver）
@@ -172,8 +173,9 @@ Input.Weapon.RTYB          ← RT+Y+B（觉虫击）
 Input.Modifier.LT          ← LT/L2 原始修饰输入，按姿态产生 Kinsect/Slinger 上下文
 Input.Modifier.RT          ← RT/R2 原始修饰输入，按姿态产生 Action 上下文或拔刀直飞
 Input.Modifier.Charging    ← RT 长按蓄力中
-Input.Modifier.Sheathed    ← RB/R1 按下进入纳刀态
-Input.Sprint               ← LS/L3 — 奔跑
+Input.Modifier.Sheathed    ← RB/R1 原始输入 Tag：持刀按下=纳刀；收刀按住=奔跑
+Input.Sprint               ← RB/R1 — 收刀态按住奔跑（0.1s 阈值）
+Input.Sheathe              ← RB/R1 持刀按下=纳刀（通用 GA 路由，同 Input.Dodge）
 Input.Dodge                ← A/× — 闪避
 Input.EdgeVault            ← 边缘跳越（由 EdgeVaultComponent 自动触发，不绑定按键）
 Input.Interact             ← 交互

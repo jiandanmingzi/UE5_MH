@@ -207,7 +207,9 @@ class AKinsect : public AActor
 | MaterialOverrides | TMap\<FName, TSoftObjectPtr\<UMaterialInstance\>\> | 按 SlotName 覆写材质（如属性颜色染色） |
 | FlyMontage | TSoftObjectPtr\<UAnimMontage\> | 唯一飞行动画——前进/返回/悬停共用，通过 PlayRate 控制 |
 | FlightSpeed | float | 基础飞行速度（cm/s） |
+| MaxFlightRange | float | 最大飞行距离（cm）——臂上放虫用 |
 | StraightFlightDistance | float | 收刀 RT 直飞距离（cm，默认 1500） |
+| ReturnSpeed | float | 召回飞行速度（cm/s）——M3 新增字段 |
 | StaminaPool | float | 基础耐力上限 |
 | StaminaRegenRate | float | 基础耐力回复速率 |
 | HoverDrainRate | float | 悬停耐力消耗速率（低于飞行耗耐——降低"飞过头"惩罚） |
@@ -699,19 +701,21 @@ Combat.Branch.TripleUp                ← 三灯连招分支
 
 | 操作 | 输入 Tag | 连招表节点 | 说明 |
 |------|------|------|------|
-| 拔刀 | `Input.Weapon.Y`（已有） | `bMatchAnyState=true`, `RequiredTags={Combat.State.Sheathed}`, `Priority=30` | ★ 收刀态按 Y 优先拔刀——最高的 Priority 确保拔刀不被送虫/攻击抢占 |
+| 拔刀 | `Input.Weapon.Y`（已有） | `bMatchAnyState=true`, `RequiredTags={Combat.State.Sheathed}`, `Priority=30` | ★ 收刀态按 Y 优先拔刀——最高的 Priority 确保拔刀不被送虫/攻击抢占；奔跑中按 Y 中断奔跑后拔刀 |
 | 猎虫瞄准 | `Input.Modifier.LT` | — | 持刀态 LT 长按→ASC 持有 `Combat.State.Aiming.Kinsect` |
 | 送虫（瞄准） | `Input.Weapon.LTY` | `RequiredTags={Unsheathed,Aiming.Kinsect}` | 持刀地面 LT+Y；沿准心射线飞出 |
 | 召回（瞄准） | `Input.Weapon.LTB` | `RequiredTags={Unsheathed,Kinsect.Active}` | 持刀地面 LT+B；空中同一输入由状态分流为操虫斩 |
 | 虫印弹 | `Input.Weapon.LTRT` | `RequiredTags={Unsheathed,Aiming.Kinsect}` | 持刀 LT+RT；命中 Hitzone 后建立/替换唯一虫印 |
-| 拔刀直飞 | `Input.Weapon.RT` | `RequiredTags={Combat.State.Sheathed}` | 收刀 RT → 拔刀并沿角色 Forward 放虫 |
+| 拔刀直飞 | `Input.Weapon.RT` | `RequiredTags={Combat.State.Sheathed}` | 收刀 RT → 拔刀并沿角色 Forward 放虫（奔跑中同样中断奔跑） |
+| 纳刀 | `Input.Sheathe` | 通用路由（非连招表） | 持刀态按 RB 立即触发；攻击/硬直中无效；播完切 `Combat.State.Sheathed` |
+| 奔跑 | `Input.Sprint` | — | 收刀态按住 RB ≥0.1s 进入奔跑；点按不闪跑；拔刀/攻击中不产生奔跑 |
 | 四连印斩 | `Input.Weapon.YB` | 地面动作节点 | 无方向 Y+B |
 | 突进回旋斩 | `Input.Weapon.YB` + `Forward` | 地面方向节点，Priority 高于四连印斩 | 前+Y+B |
 | 粉尘集约/降龙 | `Input.Weapon.LTYB` | 地面/空中状态分流 | 地面为粉尘集约，空中为降龙 |
 | 猎虫滑翔 | `Input.Weapon.RTY` | 地面动作节点 | 有虫印追虫印，否则短距前飞 |
 | 觉虫击 | `Input.Weapon.RTYB` | 地面且 TripleUp | 原子消耗三灯 |
 
-> **输入规则：** 收刀状态一般不能进行猎虫瞄准送/收虫，唯一例外是 RT 的“拔刀并正前方放虫”。所有组合键先形成唯一 InputTag，再由状态、修饰键、方向和 Priority 分流；完整动作表见 [insect-glaive-actions.md §3](insect-glaive-actions.md#3-输入与方向判定)。
+> **输入规则：** 收刀状态一般不能进行猎虫瞄准送/收虫，唯一例外是 RT 的“拔刀并正前方放虫”。收刀态按住 RB 奔跑；持刀态按 RB 立即纳刀（攻击/硬直中无效）。所有组合键先形成唯一 InputTag，再由状态、修饰键、方向和 Priority 分流；完整动作表见 [insect-glaive-actions.md §3](insect-glaive-actions.md#3-输入与方向判定)。
 
 ### 猎虫伤害
 

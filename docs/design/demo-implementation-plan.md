@@ -2,6 +2,8 @@
 
 > **当前状态：** M0、M1、M2 代码阶段与 E0～E2 编辑器阶段已完成。M2 的 Development Editor 构建、10 项 M2 自动化测试及 M0～M2 共 30 项联合回归见 [M2 实施审计](m2-implementation-audit.md)。下一步是 E3：先删除已退役的旧 DT/Combo/GA/Montage/零引用武器定义与旧组合 InputAction，再从最终类型创建 Runtime/Input/Combat/Combo/WeaponDefinition 数据壳；E3 完成后进入 M3，最终动作 GA/Montage 仍在 E4 创建。
 
+> **2026-08-11 追加冻结：** RB 双语义——持刀态按 RB=纳刀（`Input.Sheathe` 通用路由，按下立即触发，攻击/硬直中无效）；收刀态按住 RB ≥0.1s=奔跑（`Input.Sprint` 键位由 LS 改为 RB，LS 释放）。文档已按此更新（§1.4、§3.2、M3/M4、E3/E4、验证清单），不要求回改已完成的 M0～M2 代码。
+
 > **用途：** 当本文的公共接口、所有权和阶段退出条件确定后，再按里程碑逐步修改代码。实施时不得跨阶段顺手重构未列入范围的系统；每一阶段验收通过后才进入下一阶段。
 
 > **资产边界：** 现有实现允许按 [重构范围与资产处置](demo-refactor-scope.md) 完整重写。该文档的 Keep/Rewrite/Delete/Defer 表和一次性删除重建合同与本文同为开始改代码前的强制输入。
@@ -47,6 +49,7 @@ Demo 必须形成以下闭环：
 
 - **觉虫击贯通萃取：** 每次产生有效贯通伤害时，立即读取该 Hitzone 的颜色并调用普通 `ApplyExtract`。觉虫击 Commit 已先消费旧三灯，因此贯通过程可以重新取得单灯，命中三种颜色时也可以重新形成三灯；一旦途中重新形成三灯，后续萃取按统一规则被吞且不刷新三灯时间。不使用颜色优先级，也不缓存“最后一种颜色”等待回手。
 - **普通放虫命中后的猎虫状态：** SingleHit/FirstHitOnly 命中后立即停止伤害与 Hitzone Sweep，携带 `PendingExtractColor` 原地进入 Hovering；只有玩家主动召回或猎虫耐力归零才进入 Returning，到达玩家后交付精华。不会因取得颜色自动回手。
+- **RB 双语义（纳刀/奔跑）：** 收刀态按住 RB ≥0.1s 进入奔跑（点按不闪跑）；持刀态按下 RB 立即输出 `Input.Sheathe`（通用路由，同 `Input.Dodge`），由 `GA_Sheathe` 播纳刀（静止/移动选段）并 `SetSheathed(true)`；攻击/硬直中 `GA_Sheathe` 拒绝激活。拔刀路径（Y 拔刀攻击、收刀 RT 拔刀直飞、奔跑中拔刀）激活时 `SetSheathed(false)` 并清 `bSprintHeld`。`Input.Sprint` 键位由 LS 改为 RB，LS 释放。
 
 ## 2. 冻结后的模块边界
 
@@ -605,7 +608,9 @@ ActiveReservations            // 本资源发起的粉尘预留
 3. 实现统一 ApplyExtract、Triple GE 到期、三灯吞灯和原子消费接口。
 4. 接入持刀 LT 猎虫瞄准、收刀 RT 拔刀直飞、普通送虫/召回。
 5. 实现 LT+RT 唯一虫印及其清理规则。
-6. 修正 PendingExtract 到达时原子取出并清空、连续飞行取不同颜色、返回中保留规则，以及耐力归零阈值只触发一次召回/音效；冻结起飞点距离和 ToPoint 到达半径。
+6. 修正 PendingExtract 到达时原子取出并清空、连续飞行取不同颜色、返回中保留规则，以及耐力归零阈值只触发一次召回/音效；冻结起飞点距离和 ToPoint 到达半径；`UInsectGlaiveKinsectData` 新增 `ReturnSpeed`（召回速度）字段并接入召回飞行。
+7. Character 侧 RB 奔跑分流：`SprintAction` 键位改 RB；`SprintPressed` 收刀态按住 ≥0.1s 置 `bSprintHeld`，拔刀态 return。持刀态 RB 在 M3 阶段只由 Router 输出 `Input.Sheathe`（E3 已配），`GA_Sheathe` 在 M4/E4 实现前为 no-op。
+8. 资源音效接线：`InsectGlaiveCombatConfig` 新增萃取成功、三灯激活/到期、猎虫耐力归零四个 `USoundBase` 字段；把 CombatConfig 传入 `URes_InsectGlaive::InitializeRuntime`，`PlayResourceSound` 改从配置读取，并删除 `URes_InsectGlaive` 遗留的硬编码资产路径依赖。
 
 **退出条件：** 三部位都能正确点灯；三灯期间所有吸收路径只吞灯且不刷新；Triple GE Apply 失败不会丢单灯；猎虫高速穿过 Hitzone 仍可 Sweep 命中；回手后 Pending 为空且下一次能取得另一颜色；耐力持续为 0 时只播放一次警告并只请求一次召回；收刀保留虫印而卸装清除。
 
@@ -622,6 +627,7 @@ ActiveReservations            // 本资源发起的粉尘预留
 3. 实现突进回旋斩位移、反击窗口、AttackInstance 消费和反击舞踏弹跳入口。
 4. 实现虫印弹与猎虫滑翔的地面激活部分。
 5. 建立每条特殊转移的唯一 TransitionID 和自动收尾边。
+6. 实现 `GA_Sheathe`（`AS_Shth_ShouDao_Idle/Walk` 两段 Montage，播完 `SetSheathed(true)`）与拔刀姿态接线（Y 拔刀、收刀 RT 拔刀直飞、奔跑中拔刀：`SetSheathed(false)` + 清 `bSprintHeld`）。
 
 **退出条件：** 两种红灯模式行为符合设计；Y+B/前+Y+B 稳定分流；四连/未反击回旋斩后只能接四种起手；窗口内反击吞掉该次木桩攻击，窗口外正常受击。
 
@@ -702,6 +708,7 @@ ActiveReservations            // 本资源发起的粉尘预留
 | 输入/动作实例/Notify 精确归属 | M1 | 重入、Superseded、迟到回调与重复 Possess |
 | 装备差分与运行时生命周期 | M2 | 护甲/饰品 no-op、换武器完整清理 |
 | 基础闪避 | M1 | 方向快照、碰撞响应恢复、失败路径清理 |
+| RB 双语义（纳刀/奔跑） | M3、M4 | 0.1s 阈值、攻击/硬直拒绝、奔跑中拔刀中断 |
 | 位移旋转与 Warp 所有权 | M2、M5 | 单写入者、唯一目标、全路径回收 |
 | 无遗留生命周期对象 | M2～M7 | 多次 PIE、死亡、换装、打包 |
 

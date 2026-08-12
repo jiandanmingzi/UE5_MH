@@ -94,7 +94,7 @@
 22. **Montage 完成回 Idle**：Montage 自然播完→GA EndAbility→协调器 OnActionFinished(ActionToken, Reason)→CurrentState="Idle"
 23. **协调器 Infinite**：装备太刀期间 ASC→GetActiveAbilities() 始终包含 GA_WeaponComboCoordinator
 24. **地面/空中态隔离**：被击飞后 Aerial+Hitstun→地面招式 RequiredTags 不满足→按 △ 无响应；落地恢复
-25. **拔刀/纳刀态**：默认 Sheathed→按 △ 触发拔刀斩→后续地面招式可正常连招；按 R1 纳刀→攻击招式不可用
+25. **拔刀/纳刀态**：默认 Sheathed→按 △ 触发拔刀斩→后续地面招式可正常连招；持刀态按 RB 立即纳刀（静止/移动选段，攻击或硬直中无效）→攻击招式不可用、恢复 Sheathed
 26. **统一派发路由**：按 Y→lambda 捕获 Input.Weapon.Y→OnInputActionTriggered→MatchesTag("Input.Weapon")=true→协调器→HandleWeaponInput
 27. **部位命中顺序**：同一帧的所有 Region/采样点/时间子步汇总后，武器轨迹先掠过翅膀(防御 0.5)再命中身体(防御 1.0)→取归一化帧时间最早的翅膀→伤害按翅膀倍率
 28. **部位去重**：同一斩击命中怪物头部→记录（怪物A, Head），后续同帧 Overlap 到身体→跳过
@@ -107,7 +107,7 @@
 35. **bRequiresWindowOpen=false + DodgeAcceptOpen**：(a) 虫棍纵斩 DodgeAcceptOpen 内按 LT+B→收虫触发。(b) 窗口外按 LT+B→不触发。(c) 普通纵斩 DodgeAcceptOpen 内按 A→翻滚触发
 36. **DataManager 全局查询**：(a) EquipmentComponent 查词条目录→正常返回。(b) ExecCalc 获取曲线表→得正确数值。(c) 资产未加载→FindEntryDefinition 返回 false→日志警告
 37. **移速同步**：(a) 装备大剑→MoveSpeedMultiplier=0.6→CMC 同步。(b) 喝加速药水→叠加 0.8→CMC 同步。(c) 卸下大剑→回归 1.0
-38. **持刀不可奔跑**：(a) 收刀态按 LS→GA_Sprint 激活。(b) 拔刀后按 LS→Unsheathed 阻塞。(c) 纳刀后按 LS→恢复可奔跑
+38. **RB 双语义（纳刀/奔跑）**：(a) 收刀态按住 RB ≥0.1s→进入奔跑（SprintCruise），点按 <0.1s 不闪跑。(b) 拔刀后按 RB→不奔跑，Router 输出 `Input.Sheathe`→`GA_Sheathe` 播纳刀（攻击/硬直中拒绝激活）。(c) 奔跑中按 Y 或 RT 拔刀→奔跑立即中断、切 Unsheathed 并执行拔刀动作。(d) 纳刀播完→恢复 `Combat.State.Sheathed`→再按住 RB 可重新奔跑。
 39. **GameplayEvent 受击连打**：(a) 受击→GA_HitReaction 实例1 激活。(b) 连打中再次受击→实例2 激活（InstancedPerExecution）→实例1 被打断。(c) 实例2 播完→Hitstun Tag 移除
 40. **StaminaRequired vs StaminaCost**：(a) Required=20, Cost=20→检查通过→扣 20。(b) Required=25, Cost=20→CurrentStamina=22→门槛不通过。(c) CurrentStamina=30→门槛通过→扣 20→剩余 10
 41. **持续耗耐帧率无关**：(a) 60 FPS 奔跑 1s→累计扣除 = CostRate × 1.0。(b) 30 FPS 奔跑 1s→累计扣除一致。(c) 耐力扣到 0→Clamp→EndAbility

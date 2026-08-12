@@ -27,7 +27,7 @@
 - 移动物理壳、重力与落地检测：`UCharacterMovementComponent`；常规位移由 AnimBP Root Motion 驱动
 - 移动输入：`DoMove` 记录输入方向和期望速度，当前不调用 `AddMovementInput`
 - 移动动画：AnimBP Motion Matching，根据 `DesiredSpeed` 和双 Pose Search Database 驱动
-- 奔跑：Character 的 `bSprintHeld` 切换巡航速度；持刀时 `Combat.State.Unsheathed` 阻止进入冲刺
+- 奔跑：收刀态按住 RB ≥0.1s 后 `bSprintHeld` 切换巡航速度；持刀时 `Combat.State.Unsheathed` 阻止进入冲刺（RB 转由 Router 解析为纳刀）
 - GAS 当前主要通过 `Combat.State.BlockMovement` 阻断移动；`MoveSpeedMultiplier` 已定义但尚未接入 `CalcCruiseSpeed`
 
 ### RootMotion——攻击/翻滚中如何覆盖 CMC 移动
