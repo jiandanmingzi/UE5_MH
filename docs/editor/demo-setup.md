@@ -14,7 +14,8 @@
 | E1 | Project Settings、碰撞、Tag、插件检查 | Hitzone Object Channel 和输入基础可用 |
 | E2 | 核心蓝图接线 | GameMode、Controller、PlayerState、Character、HUD 关系唯一 |
 | E3 | Runtime/Input/Combat/Combo DataAsset | 武器只从 RuntimeDefinition 接线；正式数据壳存在，Combat/Combo 的动作类引用待 E4 完成 |
-| E4 | GE、GA、Montage、Notify | 每个动作可独立激活并正确结束 |
+| E4-A | 最小纵切 GE、GA、Montage、Notify | 收/拔刀、放/收虫和一个地面起手动作使用最终资产接线；不是完整 E4 |
+| E4-B | 其余 GE、GA、Montage、Notify | 全部计划动作均可独立激活并正确结束 |
 | E5 | 猎虫、木桩和测试攻击器 | 三色部位、普通放虫和反击输入可复现 |
 | E6 | HUD、资源面板、准心与反馈 | Viewport 只有一份主 HUD，资源面板只在插槽内 |
 | E7 | 全流程 PIE、生命周期压力、打包 | [验证清单](verification.md) 的当前 Demo 项全部通过 |
@@ -321,7 +322,9 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 | RTY | Y | RT | Action | 猎虫滑翔 |
 | LTYB | Y+B | LT | None | 地面粉尘集约；空中降龙 |
 | RTYB | Y+B | RT | Action | 觉虫击 |
-| RT（`Input.Weapon.RT`） | RT | — | None | 收刀拔刀直飞；`RequiredContextTags={Combat.State.Sheathed, Combat.State.Grounded}`，`ReleaseControlTag=RT`，按下立即触发 |
+| RT（`Input.Weapon.RT`，收刀地面） | RT | — | None | 拔刀直飞；`RequiredContextTags={Combat.State.Sheathed, Combat.State.Grounded}`，`DispatchPolicy=OnPress`，`ReleaseControlTag=RT` |
+| RT（`Input.Weapon.RT`，持刀地面） | RT | — | None | M4-B.0 后配置虫印斩；`RequiredContextTags={Combat.State.Unsheathed, Combat.State.Grounded}`，`DispatchPolicy=OnReleaseIfUnconsumed`，`ReleaseControlTag` 留空 |
+| RT（`Input.Weapon.RT`，空中） | RT | — | None | M5 接入急袭突刺；`RequiredContextTags={Combat.State.Aerial}`，不要求 Sheathed/Unsheathed，`DispatchPolicy=OnPress` |
 | Sheathe（`Input.Sheathe`） | RB（`Input.Modifier.Sheathed`） | — | None | 纳刀：`RequiredContextTags={Combat.State.Unsheathed}`；通用路由（同 `Input.Dodge`）按 InputTag 激活 `GA_Sheathe`，不进入 ComboData；`ReleaseControlTag=RB`；持刀按下立即触发 |
 
 设置：
@@ -329,7 +332,7 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 - `bRequireExactModifiers=true`。
 - TriggerControls 必须在 ChordGracePeriod 内；LT/RT 可预先持有或在等待期内最后补齐。
 - DirectionInputThreshold、ForwardConeHalfAngle 和 ChordGracePeriod 使用一个明确 Demo 初值，并保留为 DataAsset 可调参数。
-- `RequiredContextTags/BlockedContextTags` 在组合解析瞬间读取当前 RuntimeHost/ASC 姿态。RT 单键必须限定 `Sheathed+Grounded`，LTRT 必须限定 `Unsheathed+Grounded`；这样收刀 RT 不等待 LT+RT 的 GracePeriod，而持刀态 RT 仍可等待 LT 组成虫印。
+- `RequiredContextTags/BlockedContextTags` 在 Chord 派发瞬间读取当前 RuntimeHost/ASC 姿态。收刀 RT 必须限定 `Sheathed+Grounded` 且 `OnPress`；M4-B.0 的持刀 RT 必须限定 `Unsheathed+Grounded` 且 `OnReleaseIfUnconsumed`；空中 RT 仅限定 `Aerial` 且 `OnPress`。三条 Chord 的 ContextTags 互斥。LTRT 仍限定 `Unsheathed+Grounded`；这样收刀 RT 不等待 LT+RT 的 GracePeriod，而持刀态 RT 可作为 modifier 等待 LT 或 A/B/Y 组成获胜组合。
 - 角色面向画面左时，摇杆左必须解析为 Forward。
 - Sheathe 是唯一通用路由输出（同 `Input.Dodge` 按 InputTag 激活 `GA_Sheathe`），不是武器连招输入；Chord 本身要求 `Unsheathed`，持刀态按下立即触发，攻击/硬直中再由 `GA_Sheathe` 的 BlockedTags 拒绝；收刀态不产生 Sheathe 快照，只由 Character 的 `SprintPressed` 分流为奔跑（0.1s 阈值）。
 
@@ -371,6 +374,29 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 
 ## 6. E4——GameplayEffect、Ability 与 Montage
 
+> **允许分段：** 本节先执行 E4-A；其余清单留在 E4-B。E4-A 的可玩闭环还需要紧随其后的 M4-A 代码接线（`GA_Sheathe` 的真实收刀与选定起手动作）。在 M4-A 前，不能在 Blueprint Event Graph 临时播放 Montage 或直接写姿态 Tag 来伪造结果。
+
+### 6.0 E4-A——最小纵切资产接线
+
+先只创建下列最终资产，并直接使用本节列出的最终父类/路径；不要为“先跑起来”创建第二套临时 InputAction、ComboData、Resource 或姿态 Bool：
+
+| 类别 | E4-A 必需资产 | 用途 |
+|---|---|---|
+| 猎虫数据 | `DA_IG_Kinsect_Speed` | Resource 运行时必需；先填数值和引用，外观可留到 E5 |
+| 精华 GE | White、Orange、Red、TripleUp 四个 GE | `DA_IG_Combat` Data Validation 必需；E4-A 可不做三灯 UI，但不能留空 |
+| 猎虫 GA | `GA_IG_DrawAndSendKinsect`、`GA_IG_SendKinsect`、`GA_IG_RecallKinsect` | 分别对应收刀 RT、持刀 LT+Y、持刀 LT+B |
+| 通用 GA | `GA_Sheathe` | 持刀 RB 纳刀；M4-A 先创建并编译原生父类 `UMHGZSheatheAbility`，再创建此最终蓝图子类；只加入 CoreAbilities |
+| 地面动作 | 一个用户选定的 Y 起手 GA 与 Montage | 建议选 Y 拔刀起手攻击；后续动作沿用同一 Combo/Action 路径 |
+
+按以下顺序操作：
+
+1. 完成 `DA_IG_Kinsect_Speed`、四个精华 GE 与 `DA_IG_Combat` 回填；创建角色 Skeleton 的 `Kinsect_Arm_Socket`，填入 `KinsectAttachSocket`。这一步通过 Data Validation 后，才允许启动 PIE。
+2. 在 InputProfile 至少确认 Y、B、LT、RT、RB 的 RawAction 映射，并完成 `Input.Weapon.RT`、`Input.Weapon.LTY`、`Input.Weapon.LTB`、`Input.Sheathe` 和选定 Y 起手所需 Chord。RT 必须保持 `Sheathed+Grounded`，Sheathe 必须保持 `Unsheathed`；不要为了先测试删除 ContextTags。
+3. 创建三个猎虫 GA 蓝图子类和选定起手动作的最终 GA/Montage，并创建收刀 Montage `AM_Shth_ShouDao`（Idle/Walk Section）。三个猎虫 GA 与起手动作只从 `DA_IG_Combo` 的 Transition 引用。当前不存在 `UMHGZSheatheAbility` 时，不创建临时父类的 `GA_Sheathe`，也不在 Event Graph 临时实现收刀。
+4. M4-A 先创建并编译 `UMHGZSheatheAbility`；随后立即回到编辑器创建最终数据型 `GA_Sheathe` 子类，并且只把它加入 `BP_PlayerState` 的 CoreAbilities。暂不创建其他地面/空中/特殊 GA，不配置完整 Transitions，不创建虫印、粉尘、HUD 或正式猎虫表现资产。保存全部 E4-A/M4-A 资产后再 PIE 验证。
+
+E4-A 的验收范围仅为：收刀 RT 拔刀放虫、持刀 LT+Y 放虫、LT+B 收虫、RB 纳刀、一个 Y 起手动作；其中 M4-A 先提供收刀原生父类，随后创建最终 `GA_Sheathe` 并接通纳刀和选定起手动作的运行时行为。三色萃取、三灯、其他连招、虫印/粉尘/空战和 UI 都不在 E4-A 验收中。
+
 E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlaiveKinsectData`），填写飞行/召回/耐力/攻击力的 Demo 初值并回填 `DA_IG_Combat.KinsectData`。E5 再为同一资产接正式 Mesh、Anim Class、Material 和 Fly Montage，不创建第二个 Kinsect Data。这样 M3 Resource 的必需引用与 E4 Data Validation 一致。
 
 ### 6.1 精华 GameplayEffect
@@ -386,22 +412,22 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 
 将四个 Class 填回 `DA_IG_Combat`。不要在 GE 蓝图中再硬编码另一套持续时间真相源。
 
-### 6.2 Ability 蓝图
+### 6.2 Ability 蓝图（E4-A 后续为 E4-B）
 
-旧 `GA_IG_BaDao`、`GA_IG_R_TuCI` 只属于已删除原型，不 re-parent、不 Duplicate、不复制 Event Graph。基于最终原生父类，在 `/Game/Blueprints/Ability/InsectGlaive` 全新创建以下 Demo 必需 Ability：
+旧 `GA_IG_BaDao`、`GA_IG_R_TuCI` 只属于已删除原型，不 re-parent、不 Duplicate、不复制 Event Graph。E4-A 先创建上一节表中不依赖新收刀父类的 GA；M4-A 创建并编译 `UMHGZSheatheAbility` 后，再建立最终 `GA_Sheathe` 子类。E4-B 再基于最终原生父类，在 `/Game/Blueprints/Ability/InsectGlaive` 新建其余 Demo 必需 Ability：
 
 - 现有《世界》地面基底和四个 Starter 动作。
 - `GA_IG_SendKinsect`（父类 `UMHGZSendKinsectAbility`）、`GA_IG_DrawAndSendKinsect`（父类 `UMHGZDrawAndSendKinsectAbility`）、`GA_IG_RecallKinsect`（父类 `UMHGZRecallKinsectAbility`）。
 - `GA_IG_TetrasealSlash`、`GA_IG_AdvancingRoundslash`。
-- `GA_IG_MarkTarget`（父类 `UMHGZMarkKinsectTargetAbility`）、`GA_IG_PowderVortex`、`GA_IG_KinsectGlide`。
+- `GA_IG_MarkSlash`（父类 `UMHGZMarkSlashAbility`）、`GA_IG_MarkTarget`（父类 `UMHGZMarkKinsectTargetAbility`，仅 LT+RT 虫印弹）、`GA_IG_PowderVortex`、`GA_IG_KinsectGlide`。
 - `GA_IG_AwakenedKinsectAttack`。
 - `GA_IG_KinsectSlash`、`GA_IG_EnhancedKinsectSpiker`。
 - `GA_IG_StrongJumpingSlash`、`GA_IG_DescendingThrust`、`GA_IG_DivingWyvern`。
-- `GA_Sheathe`（通用路由 `InputTag=Input.Sheathe`；播放 `AM_Shth_ShouDao`，静止/移动选段；完成时 `RuntimeHost->SetSheathed(true)`；攻击/硬直中不可激活）。
+- `GA_Sheathe`（父类 `UMHGZSheatheAbility`；通用路由 `InputTag=Input.Sheathe`；播放 `AM_Shth_ShouDao`，静止/移动选段；完成时 `RuntimeHost->SetSheathed(true)`；攻击/硬直中不可激活）。
 
 每个蓝图只配置数据：Montage、AttackSegments、成本、位移请求和动作特有参数；不要在 Event Graph 复制 Coordinator、资源状态机或直接操作 UI。武器动作必须继承重构后的虫棍动作基类，并保持 native `InstancedPerExecution`。旧拼音 GA 名称不作为最终资产名占位；最终名称按本节动作清单建立。
 
-`GA_Sheathe` 不进入虫棍 ComboData；把它加入 `BP_PlayerState` 继承的 `MHGZAbilitySystemComponent.CoreAbilities`（与 `GA_Dodge` 同一通用授予入口）。其余 `Input.Weapon.*` 猎虫 GA 必须由 `DA_IG_Combo` 的 Transition 引用，RuntimeHost 才会按武器授予。
+`GA_Sheathe` 只在 `UMHGZSheatheAbility` 编译通过后创建；它不进入虫棍 ComboData，把它加入 `BP_PlayerState` 继承的 `MHGZAbilitySystemComponent.CoreAbilities`（与 `GA_Dodge` 同一通用授予入口）。其余 `Input.Weapon.*` 猎虫 GA 必须由 `DA_IG_Combo` 的 Transition 引用，RuntimeHost 才会按武器授予。
 
 拔刀路径（Y 拔刀攻击、收刀 RT 拔刀直飞、奔跑中拔刀）激活时调用 `RuntimeHost->SetSheathed(false)` 并清 `bSprintHeld`；纳刀由 `GA_Sheathe` 调用 `SetSheathed(true)`。
 

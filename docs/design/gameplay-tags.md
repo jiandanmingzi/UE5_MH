@@ -160,7 +160,7 @@ Input.Weapon               ← 武器输入父标签
 Input.Weapon.Y             ← △/Y — 轻/基础攻击
 Input.Weapon.B             ← ○/B — 重/特殊攻击
 Input.Weapon.LT            ← 输出层预留：暂未使用（物理层为 Input.Modifier.LT）
-Input.Weapon.RT            ← 收刀 RT 拔刀直飞（未来 RT 单键 Chord 输出；物理层为 Input.Modifier.RT）
+Input.Weapon.RT            ← 单 RT 语义输出：收刀地面按下=拔刀直飞；持刀地面未组合松开=虫印斩；空中按下=急袭突刺（物理层为 Input.Modifier.RT）
 Input.Weapon.RTA           ← RT+A（Chord Resolver）：起跳
 Input.Weapon.RTB           ← RT+○（Chord Trigger）
 Input.Weapon.RTY           ← RT+Y（Chord Trigger）

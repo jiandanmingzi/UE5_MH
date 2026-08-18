@@ -164,7 +164,7 @@
 | 137 | 虫棍专属 CombatConfig 保存红灯模式、舞踏和特殊动作参数 | 通用 GA/协调器不增加虫棍分支，便于以后添加其他武器 |
 | 138 | 舞踏只由操虫斩命中和突进回旋斩反击触发 | 层数和倍率可调；落地、受击、急袭突刺、降龙等统一清空 |
 | 139 | 虫棍特殊/位移动作单独维护在 insect-glaive-actions.md | 普通地面招式继续用 ComboData；避免在资源与通用动作文档重复规则 |
-| 140 | 持刀 LT+RT 发射虫印弹；每名玩家只维护一个虫印 | 虫印附着 Hitzone、时长可调，新印替换旧印；目标失效/卸装清除，收刀不清除 |
+| 140 | 持刀地面单 RT 松开后的虫印斩与 LT+RT 虫印弹均可创建虫印；每名玩家只维护一个虫印 | 两条路径共用 Resource 所有权：虫印附着 Hitzone、时长可调，新印替换旧印；目标失效/卸装清除，收刀不清除 |
 | 141 | 动代码前先冻结 [Demo 实施计划](demo-implementation-plan.md)，按 M0～M7 逐阶段验收 | 防止公共接口未定时批量创建 GA/蓝图，造成重复迁移和遗留清理路径 |
 | 142 | 武器物理输入由 PlayerController 上的 InputComponent 绑定、WeaponInputRouter 解析，ASC 只接收快照/激活上下文 | Chord、方向和释放身份必须原子快照；删除 ASC 对任意 Completed 的全局解释；唯一绑定所有权见 #162 |
 | 143 | 目标连招结构正式更名 `FComboTransition/Transitions/SourceState/TargetState` | #24～#127 中的 `FComboNode` 仅代表旧源码名称；数据实际是转移边，不永久维护双结构兼容层 |

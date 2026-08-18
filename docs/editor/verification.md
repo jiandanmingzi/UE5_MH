@@ -12,11 +12,22 @@
 4. 每条 Combo 转移拥有唯一 TransitionID；自动派生按 ID 定位。ActivateAbility 边经过 Pending→Resource Reserve→GAS Commit→Consume→Confirm，StateOnly 只用于同一 ActionToken 的自动阶段变化。
 5. TryActivate、Reserve 或 Commit 失败均不改变 CurrentState/Tag，且 reservation 被释放；旧 Ability 的迟到 Hit/End/Notify 不能清理或重置新 ActiveTransition。
 
+### E4-A / M4-A 最小纵切
+
+在完整 Demo 验收前，先只验证以下项目；通过不等于三灯、完整连招、空战、虫印、粉尘或 UI 已完成：
+
+E4-A.1. `DA_IG_Combat` 已引用 `DA_IG_Kinsect_Speed` 与 White/Orange/Red/TripleUp 四个 GE；Data Validation 通过。角色 Skeleton 存在 `Kinsect_Arm_Socket`，且不与武器的 `Weapon_L` 共用。
+E4-A.2. 收刀地面按 RT：只产生一次 `Input.Weapon.RT`，`GA_IG_DrawAndSendKinsect` 成功后猎虫直飞、角色停止奔跑并切到 Unsheathed；无有效配置或 Commit 失败时不切姿态、不放虫。
+E4-A.3. 持刀地面 LT+Y：`GA_IG_SendKinsect` 使用冻结 Kinsect Aim 放虫；LT+B：`GA_IG_RecallKinsect` 只在猎虫已离手时召回。两者不通过蓝图 Tick/直接 Spawn 绕过 Resource。
+E4-A.4. 持刀地面按 RB：Router 只输出一次 `Input.Sheathe`，`GA_Sheathe` 选 Idle/Walk Section；攻击/硬直中拒绝；Montage 正常完成前仍为 Unsheathed，完成后才切 Sheathed。收刀 RB ≥0.1s 仍只走 Character 奔跑路径，不产生 Sheathe 快照。
+E4-A.5. 用户选定的 Y 起手动作只经 `DA_IG_Combo` 的唯一 `Idle → GroundStarter` Transition 由 Coordinator 激活；Commit/中断失败不改变姿态、不残留 ActionToken/窗口/碰撞。若它是拔刀起手，成功激活时停止奔跑并切 Unsheathed。
+
 ### 输入与地面连招
 
 6. WeaponInputRouter 能稳定区分 Y、B、Y+B、LT+Y、LT+B、RT+Y、LT+RT、LT+Y+B、RT+Y+B；LT/RT 可提前长按，也可在 Trigger 候选超时前最后补齐。每个必需成员 Started 都重算候选，组合成立后不会额外触发组成它的单键动作。
 7. 角色面朝屏幕左侧且摇杆向左时，`前+Y+B` 匹配 Forward；摇杆上推不匹配。方向、按键、修饰态和 Ground/Aerial、Sheathed/Unsheathed 均来自同一 InputSnapshot；Grace 期间变姿态不误触发新姿态动作。
 8. 收刀 LT 只进入未使用的投射物瞄准；收刀不能 LT+Y 放虫；收刀 RT 执行拔刀并沿角色 Forward 放虫。
+8a. **RT ReleaseFallback**：(a) 持刀地面按住 RT、未按 A/B/Y/LT 后松开→恰好一次 `Input.Weapon.RT` Started→虫印斩；(b) 持刀 RT+A/B/Y 或 LT+RT 获胜→松开 RT 只派发该获胜动作的 Completed，不补发 RT；(c) 收刀地面按下 RT 仍立即拔刀直飞；(d) 空中任意收/拔刀状态按下 RT→恰好一次 RT Started→急袭突刺，松开不补发。
 9. 持刀 LT+Y/LT+B 分别送虫/召回；普通 Y/B 仍用于《世界》地面连招，不被猎虫操作抢占。
 10. 《世界》地面基底动作按 ComboData 正常起手、派生、超时和回 Idle。
 11. Y+B 的 Idle Start 边不要求窗口；Derive 边只在 ComboWindow 内从除飞圆斩外的地面动作派生四连印斩；不能任意帧打断。四个 AttackSegment 独立去重。
@@ -40,7 +51,7 @@
 23. 舞踏倍率只作用于猎人的空中攻击，不作用于猎虫、粉尘和地面伤害；落地、受击、收刀/卸装、急袭突刺、降龙会按规则清空。
 24. 强化操虫穿刺只可从操虫斩来源的舞踏用 LT+Y 派生；回旋斩来源的舞踏不能派生。
 25. 空中不存在跳跃突进斩；强化跳跃斩和急袭突刺继承进入动作时的水平惯性，动作结束正确交还 FinalVelocity。
-26. 持刀 LT+RT 命中 Hitzone 后创建唯一虫印；新印替换旧印，射空不替换，收刀保留，目标失效/到期/卸装清除。
+26. 持刀虫印斩首次有效 Hitzone 命中、或 LT+RT 虫印弹命中 Hitzone 后创建唯一虫印；两种来源的新印均替换旧印，近战落空/虫印弹射空均不替换，收刀保留，目标失效/到期/卸装清除。
 27. 地面 RT+Y：有效虫印在距离内时猎虫滑翔追向虫印；否则短距前飞并少量抬升；命中怪物后小跳进入空战但不增加舞踏。
 28. 三灯下 RT+Y+B：觉虫击 Commit 通过 `Cost.IG.TripleUp` 原子清空旧三灯，准心方向限制在角色正前方上下左右 60°；猎虫每次成功提交贯通伤害后恰好按 Hitzone ApplyExtract 一次并留下通用粉尘一团，命中三色可在途中重新形成三灯，之后的萃取被吞且不刷新；伤害提交失败不点灯、不产粉尘；猎人位移有距离/碰撞上限。
 29. 无三灯觉虫击激活失败且不移动、不耗资源；过程中受击/碰墙能清理猎人位移，猎虫按独立生命周期结束。

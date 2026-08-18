@@ -45,6 +45,7 @@ Demo 明确不实现：
 | 持刀地面 | `Y+B` | 四连印斩 |
 | 持刀地面 | `前+Y+B` | 突进回旋斩；方向节点优先于无方向四连印斩 |
 | 持刀地面 | `LT+Y+B` | 粉尘集约并引爆 |
+| 持刀地面 | 按住 `RT` 后松开（期间未按 A/B/Y） | 虫印斩：近战命中后建立/替换虫印 |
 | 持刀地面 | `LT+RT` | 发射虫印弹，命中 Hitzone 后建立/替换虫印 |
 | 持刀地面 | `RT+Y` | 猎虫滑翔 |
 | 持刀地面 | `RT+Y+B` | 觉虫击 |
@@ -52,7 +53,7 @@ Demo 明确不实现：
 | 空中 | `LT+B` | 操虫斩，沿猎虫准心方向 |
 | 操虫斩触发的舞踏中 | `LT+Y` | 强化操虫穿刺 |
 | 空中 | `Y` | 强化跳跃斩，继承现有惯性 |
-| 空中 | `RT` | 《世界》急袭突刺 |
+| 空中 | `RT` | 《世界》急袭突刺；不区分收刀/拔刀，按下立即触发 |
 | 空中 | `LT+Y+B` | 降龙 |
 
 `LT` 是持刀状态的猎虫瞄准；`RT` 是动作瞄准/特殊动作修饰键。两者是不同的输入上下文，不能共用一个 `Combat.State.Aiming` 标签。建议使用：
@@ -62,6 +63,8 @@ Combat.State.Aiming.Kinsect   // 持刀 LT
 Combat.State.Aiming.Action    // 持刀 RT 特殊动作上下文
 Combat.State.Aiming.Slinger   // 收刀 LT，Demo 无消费方
 ```
+
+`Input.Weapon.RT` 可以由三个互斥的 Chord 输出：收刀地面 `Sheathed+Grounded` 在按下时拔刀直飞；持刀地面 `Unsheathed+Grounded` 在 RT 未被 A/B/Y/LT 等获胜组合消费时于松开时触发虫印斩；空中 `Aerial` 不区分收/拔刀并在按下时触发急袭突刺。只有中间一条使用 Router 的 `OnReleaseIfUnconsumed`，其余均使用默认 `OnPress`。
 
 ### 3.2 组合键与匹配优先级
 
@@ -187,12 +190,16 @@ Demo 只实现一种通用粉尘，不区分爆破、回复、麻痹等正式品
 5. 爆炸伤害由基础值和粉尘贡献数共同计算，具体曲线保存在 CombatConfig/Curve 中；同一目标每次集约只结算一次。
 6. GA 被受击或换武器取消时解除 Reserved；粉尘不消失，也不产生爆炸。
 
-### 5.4 虫印——持刀地面 `LT+RT`
+### 5.4 虫印——持刀虫印斩与 `LT+RT` 虫印弹
+
+**近战虫印斩：** 持刀地面按住 RT 后，若未形成 RT+A/B/Y、LT+RT 等获胜组合，松开 RT 时才激活 `GA_IG_MarkSlash`。它是带普通 AttackSegment 的近战攻击；首次有效 Hitzone 命中通过 `URes_InsectGlaive` 建立/替换唯一虫印。攻击落空、无有效 Hitzone 或被中断均不改变旧虫印。
+
+**远程虫印弹：**
 
 - `LT+RT` 按猎虫准心发射无伤害虫印弹；只在命中有效怪物 Hitzone 时创建虫印。
 - 使用 LT+RT 输入事件冻结的 Kinsect AimSnapshot 目标点，再从武器虫印弹发射 Socket 朝该点生成 `AIGMarkProjectile`；速度、半径、Lifetime 和最大距离来自 CombatConfig，不在激活/飞行中重新采样准心。
 - Projectile 以前后帧 Sweep 查询 Hitzone Object，并单独检查 WorldStatic 阻挡；按 Hit.Time 选择最早有效命中。先撞 WorldStatic/超距/超时均失败。
-- 同一玩家同时只能有一个有效虫印。创建新虫印时先移除旧虫印，再把新虫印附着到命中 Hitzone 的组件/骨骼局部位置。
+- 同一玩家同时只能有一个有效虫印。近战虫印斩与虫印弹共用同一 Resource 所有权：创建新印时先移除旧印，再把新印附着到命中 Hitzone 的组件/骨骼局部位置。
 - 虫印持续 `KinsectMarkDuration`，时长和最大射程可调；目标死亡、Hitzone/Actor 失效、卸下虫棍或 Pawn 结束生命周期时立即清除。
 - 收刀不会主动清除虫印；再次拔刀后，只要目标和时长仍有效，猎虫滑翔仍可使用。
 - 虫印不存进 ASC 或 SaveGame。`URes_InsectGlaive` 保存弱引用和到期 Timer，并用 `WeaponResource.IG.Mark.Active` 作为可选镜像 Tag 供 UI/条件查询。
@@ -324,6 +331,6 @@ IG.Aerial.DivingWyvern
 6. 舞踏倍率达到配置上限后不再增加；落地、受击、急袭突刺和降龙按规则清空。
 7. 觉虫击原子消耗旧三灯；猎虫每次成功贯通伤害立即按部位点灯并留下粉尘，途中可以重新形成三灯；猎人按受限准心方向位移。
 8. 粉尘集约只消费范围内己方粉尘；取消时正确回滚预留。
-9. LT+RT 只在命中有效 Hitzone 后替换唯一虫印；虫印按时长、目标和卸装规则清理。
+9. 虫印斩首次有效近战 Hitzone 命中或 LT+RT 虫印弹命中后，均替换唯一虫印；虫印按时长、目标和卸装规则清理。
 10. 猎虫滑翔有虫印时追虫印、无虫印时短距前飞；命中怪物后进入空战但不增加舞踏。
 11. 空中不存在跳跃突进斩；强化跳跃斩和急袭突刺正确继承惯性；降龙不依赖翔虫或精华消费。

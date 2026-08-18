@@ -4,6 +4,8 @@
 
 > **2026-08-11 追加冻结：** RB 双语义——持刀态按 RB=纳刀（`Input.Sheathe` 通用路由，按下立即触发，攻击/硬直中无效）；收刀态按住 RB ≥0.1s=奔跑（`Input.Sprint` 键位由 LS 改为 RB，LS 释放）。文档已按此更新（§1.4、§3.2、M3/M4、E3/E4、验证清单），不要求回改已完成的 M0～M2 代码。
 
+> **2026-08-13 追加冻结：** E4 允许分为 E4-A「最小纵切资产接线」与 E4-B「其余动作资产接线」。E4-A 只覆盖收刀/拔刀、放虫/收虫和一个由用户选定的地面起手动作；它不代表 E4 或 M4 完成。收刀与首招的实际运行时语义在 M4-A 接通，不能用 Blueprint Event Graph 临时绕过 RuntimeHost、Coordinator 或 ActionToken。
+
 > **用途：** 当本文的公共接口、所有权和阶段退出条件确定后，再按里程碑逐步修改代码。实施时不得跨阶段顺手重构未列入范围的系统；每一阶段验收通过后才进入下一阶段。
 
 > **资产边界：** 现有实现允许按 [重构范围与资产处置](demo-refactor-scope.md) 完整重写。该文档的 Keep/Rewrite/Delete/Defer 表和一次性删除重建合同与本文同为开始改代码前的强制输入。
@@ -50,6 +52,29 @@ Demo 必须形成以下闭环：
 - **觉虫击贯通萃取：** 每次产生有效贯通伤害时，立即读取该 Hitzone 的颜色并调用普通 `ApplyExtract`。觉虫击 Commit 已先消费旧三灯，因此贯通过程可以重新取得单灯，命中三种颜色时也可以重新形成三灯；一旦途中重新形成三灯，后续萃取按统一规则被吞且不刷新三灯时间。不使用颜色优先级，也不缓存“最后一种颜色”等待回手。
 - **普通放虫命中后的猎虫状态：** SingleHit/FirstHitOnly 命中后立即停止伤害与 Hitzone Sweep，携带 `PendingExtractColor` 原地进入 Hovering；只有玩家主动召回或猎虫耐力归零才进入 Returning，到达玩家后交付精华。不会因取得颜色自动回手。
 - **RB 双语义（纳刀/奔跑）：** 收刀态按住 RB ≥0.1s 进入奔跑（点按不闪跑）；持刀态按下 RB 立即输出 `Input.Sheathe`（通用路由，同 `Input.Dodge`），由 `GA_Sheathe` 播纳刀（静止/移动选段）并 `SetSheathed(true)`；攻击/硬直中 `GA_Sheathe` 拒绝激活。拔刀路径（Y 拔刀攻击、收刀 RT 拔刀直飞、奔跑中拔刀）激活时 `SetSheathed(false)` 并清 `bSprintHeld`。`Input.Sprint` 键位由 LS 改为 RB，LS 释放。
+
+### 1.5 E4-A：最小可玩纵切的边界
+
+E4-A 的目的不是先做一套临时虫棍，而是用最终 DataAsset、输入路由、Resource、GA 父类和 Combo 架构形成最小闭环。允许先只接以下流程：
+
+```text
+收刀
+  → RT 拔刀直飞放虫（Input.Weapon.RT）
+  → 持刀 LT+Y 送虫 / LT+B 收虫
+  → RB 纳刀（Input.Sheathe）
+  → 用户选定的一个 Input.Weapon.Y 地面起手动作
+```
+
+**E4-A 必须完成的资产与接线：**
+
+1. 创建 `DA_IG_Kinsect_Speed`、四个精华 GE、`GA_IG_DrawAndSendKinsect`、`GA_IG_SendKinsect`、`GA_IG_RecallKinsect`、收刀 Montage `AM_Shth_ShouDao`，以及一个明确命名的“选定起手动作” GA/Montage。`GA_Sheathe` 的最终蓝图子类必须等待 M4-A 创建并编译其原生父类 `UMHGZSheatheAbility` 后再建立；不得先用 `UMHGZGameplayAbility` 或 Blueprint Event Graph 制作临时收刀路径。
+2. 在 `DA_IG_Combat` 回填 KinsectData 和四个 GE；在角色 Skeleton 建立 `Kinsect_Arm_Socket` 并填入 CombatConfig。即使 E4-A 暂不测试萃取/三灯，这五个引用也是 Resource 运行与 Data Validation 的前置条件，不能留空或改为代码回退。
+3. InputProfile 至少接通 Y、B、LT、RT、RB 的 RawAction 映射，以及 `Input.Weapon.RT`、`Input.Weapon.LTY`、`Input.Weapon.LTB`、`Input.Sheathe` 和选定 Y 起手所需 Chord。RT/Sheathe 的 ContextTags 仍按 §5.4 配置，不能为演示移除姿态限制。
+4. `GA_Sheathe` 在 M4-A 原生父类编译后创建，且仍只属于 CoreAbilities；三个猎虫 GA 和选定起手动作仍只通过 `DA_IG_Combo` 的最终 Transition 获得。不得在 Character、PlayerController、PlayerState 或蓝图 Tick 直接 TryActivate 这些 Ability。
+
+**E4-A 明确延后到 E4-B/M4-B/M5/M6 的内容：** 其他地面招式、四连/回旋、虫印、滑翔、粉尘、觉虫击、空中动作、舞踏、完整 Transition 表、木桩三色萃取闭环、HUD/反馈和正式猎虫外观动画。
+
+**实施顺序：** E4-A 先创建并保存不依赖收刀原生父类的资产及 `AM_Shth_ShouDao`；随后 M4-A 先创建并编译 `UMHGZSheatheAbility`，立即返回编辑器创建其最终数据型蓝图子类 `GA_Sheathe` 并加入 CoreAbilities，再完成收刀与选定起手动作所需的最小运行时接线。该连续纵切通过最小 PIE 验收后，才继续 E4-B 与 M4-B。E4-A 不允许在 Blueprint Event Graph 临时播放 Montage、直接写 Sheathed/Unsheathed Tag、直接 Spawn 猎虫或绕过 ComboCoordinator；这些做法会破坏后续动作接入。
 
 ## 2. 冻结后的模块边界
 
@@ -167,6 +192,7 @@ FWeaponChordDefinition[]:
   bRequireExactModifiers      // 默认 true，额外 LT/RT 会阻止该 Chord
   Priority
   bConsumeTriggerControls
+  DispatchPolicy              // OnPress（默认）/ OnReleaseIfUnconsumed
   ReleaseControlTag           // 需要释放身份的动作显式指定
   AimSnapshotContext          // None / Kinsect / Action / Slinger
 ChordGracePeriod
@@ -200,7 +226,8 @@ struct FWeaponInputSnapshot
 - 候选按 RequiredHeldModifiers 数量、TriggerControls 数量、Priority 排序；形成组合后只发一次并消费 TriggerControls。默认 ExactModifiers 保证额外 LT/RT 不会误落到较弱组合。Modifier 自身不因早已持有而受 GracePeriod 限制，但在最后补齐时必须发生在 Trigger 候选超时前。
 - 每个物理 Started 先保存自己的方向快照。组合成功的解析时刻是“最后一个必需成员使组合变完整”的时刻，方向、姿态、HeldModifier、Aim 和 Timestamp 全部在此刻冻结；组合失败后派发单键时仍使用该单键最初 Started 的方向，不能在 GracePeriod 超时点重新采样。
 - Chord 声明 AimSnapshotContext 时，Router 在组合解析时调用 Character AimComponent 的 `CaptureAimSnapshot(Context)` 执行新射线并冻结 Aim；预输入消费和 GA 激活时不得重新读取相机。`LT+B` 操虫斩/`LT+RT` 虫印使用 Kinsect Aim，`RT+Y+B` 觉虫击使用 Action Aim。
-- 离散武器动作只由 Started/组合解析产生一次；EnhancedInput 的逐帧 Triggered 只更新模拟量/held 状态，不重复派发攻击，除非未来某个 InputProfile 明确增加 RepeatPolicy。Completed 只用于释放身份和清 held 状态。
+- 离散武器动作只由 Started/组合解析产生一次；EnhancedInput 的逐帧 Triggered 只更新模拟量/held 状态，不重复派发攻击，除非未来某个 InputProfile 明确增加 RepeatPolicy。默认 `OnPress` Chord 在形成时发出 Started，Completed 只用于释放身份和清 held 状态。
+- `OnReleaseIfUnconsumed` 是 InputRouter 的显式例外：只能配置为一个 TriggerControl、无 RequiredHeldModifiers、无 ReleaseControlTag 的兜底 Chord。它在该物理键 Completed 时重新核对 ContextTags；若本次按压尚未被任一获胜 Chord 消费，才按该按压的 `SourceControlTag + SequenceID` 发出一次新的 Started 快照，不再为此离散动作补发 Completed。任何含该物理键的获胜组合都会消费兜底，松开后不得泄漏单键动作。默认 `OnPress` 保持全部既有资产的行为不变。
 - `HeldModifierTags`、方向和姿态在事件产生时快照；GA 激活后不得重新读取摇杆决定是不是“前”。
 - Coordinator 消费时仍以当前 Combo SourceState 处理预输入，但 Grounded/Aerial、Sheathed/Unsheathed 等姿态必须与 Input.ContextTags 兼容；GracePeriod 内发生落地/拔刀变化时不能把旧姿态输入解释成新姿态动作。
 - 世界方向先由相机水平 Forward/Right 与摇杆合成，再相对角色 Forward/Right 分类。角色面朝画面左时，摇杆左可以得到 `Forward`。
@@ -534,7 +561,7 @@ OwnedPowders                  // 弱 Actor 集合
 ActiveReservations            // 本资源发起的粉尘预留
 ```
 
-所有放虫路径构造单个 `FKinsectFlightRequest`，包含轨迹、距离、Damage/Extract 模式、动作值、间隔和 AttackInstanceID。`DeployKinsect(Request)` 必须先更新全部参数与 FlightInstanceID/命中表，再启动 ProjectileMovement 和 Hitzone Sweep；禁止“先飞行、后 SetDamageParams”的两步接口。
+所有放虫路径构造单个 `FKinsectFlightRequest`，包含轨迹、距离、Damage/Extract 模式、动作值、间隔和 `FlightInstanceID`。`DeployKinsect(Request)` 必须先更新全部参数与 FlightInstanceID/命中表，再启动 ProjectileMovement 和 Hitzone Sweep；每次实际命中才生成独立 `HitInstanceID` 写入 EffectContext 的 `AttackInstanceID`；禁止“先飞行、后 SetDamageParams”的两步接口。
 
 - 三灯是否有效要求 `TripleUpHandle` 对应的 Active GE 仍可从 ASC 查询到；Handle 的结构 `IsValid()` 不能单独证明 GE 存活。不再同时维护可能失步的 `bTripleUpActive`。
 - `ApplyExtract(Color)` 入口第一步检查三灯：有效则吞灯并只发轻量反馈；不创建单灯 GE、不缓存、不刷新。
@@ -612,26 +639,45 @@ ActiveReservations            // 本资源发起的粉尘预留
 7. Character 侧 RB 奔跑分流：`SprintAction` 键位改 RB；`SprintPressed` 收刀态按住 ≥0.1s 置 `bSprintHeld`，拔刀态 return。持刀态 RB 在 M3 阶段只由 Router 输出 `Input.Sheathe`（E3 已配），`GA_Sheathe` 在 M4/E4 实现前为 no-op。
 8. 资源音效接线：`InsectGlaiveCombatConfig` 新增萃取成功、三灯激活/到期、猎虫耐力归零四个 `USoundBase` 字段；把 CombatConfig 传入 `URes_InsectGlaive::InitializeRuntime`，`PlayResourceSound` 改从配置读取，并删除 `URes_InsectGlaive` 遗留的硬编码资产路径依赖。
 
-M3 输入接线补充：`FWeaponChordDefinition` 增加通用 `RequiredContextTags/BlockedContextTags`。`Input.Weapon.RT` 使用单成员 RT Chord，并要求 `Sheathed+Grounded`，因此收刀按下立即冻结 ActorForward；持刀态该候选不成立，RT 可继续作为 modifier 与 LT 组成 `Input.Weapon.LTRT`。四个基础猎虫动作由原生 GA 父类构造完整 Flight/Aim 请求，E4 蓝图子类只做资产接线。
+M3 输入接线补充：`FWeaponChordDefinition` 增加通用 `RequiredContextTags/BlockedContextTags`。`Input.Weapon.RT` 的收刀地面 Chord 使用单成员 RT 并要求 `Sheathed+Grounded`，因此按下立即冻结 ActorForward；持刀态该候选不成立，RT 可继续作为 modifier 与 LT 组成 `Input.Weapon.LTRT`。M4-B.0 再新增通用 `DispatchPolicy=OnReleaseIfUnconsumed`，供持刀地面单 RT 虫印斩使用；空中 RT 急袭突刺仍是独立的 `Aerial` + `OnPress` Chord。四个基础猎虫动作由原生 GA 父类构造完整 Flight/Aim 请求，E4 蓝图子类只做资产接线。
 
-贯通伤害身份补充：`FKinsectFlightRequest.AttackInstanceID` 表示整次 Flight；每次实际命中再生成独立 HitInstanceID 写入 GameplayEffectContext，避免 IncomingHitResolver 的“同 AttackInstanceID 只结算一次”规则把觉虫击后续贯通 Tick 误判为重复命中。
+贯通伤害身份补充：`FKinsectFlightRequest.FlightInstanceID` 表示整次 Flight；每次实际命中再生成独立 HitInstanceID 写入 GameplayEffectContext 的 `AttackInstanceID`，避免 IncomingHitResolver 的“同 AttackInstanceID 只结算一次”规则把觉虫击后续贯通 Tick 误判为重复命中。
 
 **退出条件：** 三部位都能正确点灯；三灯期间所有吸收路径只吞灯且不刷新；Triple GE Apply 失败不会丢单灯；猎虫高速穿过 Hitzone 仍可 Sweep 命中；回手后 Pending 为空且下一次能取得另一颜色；耐力持续为 0 时只播放一次警告并只请求一次召回；收刀保留虫印而卸装清除。
 
-### M4：地面基底与新增地面动作
+### M4-A：E4-A 最小纵切运行时接线
 
-**修改范围：** 虫棍 ComboData、地面 GA/Montage/Notify；不实现完整空中动作。
+**修改范围：** `UMHGZSheatheAbility` 与 `GA_Sheathe` 的最终原生运行时语义、选定 Y 起手动作所需的最小 Combo/GA/Montage 接线与对应测试；不实现其余地面动作、特殊技或完整 Transition 表。
+
+**进入条件：** E4-A 已创建并保存 KinsectData、四个精华 GE、三个基础猎虫 GA、`AM_Shth_ShouDao` 和一个选定 Y 起手动作资产；它们均使用最终父类和最终 DataAsset 引用，不存在临时输入/姿态/资源通路。`GA_Sheathe` 是本里程碑的首项产物：当前工程尚未有其专用原生父类时，不以不存在的蓝图子类阻塞 M4-A。
+
+**工作：**
+
+1. 创建并实现 `UMHGZSheatheAbility`：读取激活快照选择 `AM_Shth_ShouDao` 的 `Idle`/`Walk` Section；这两个 Section 分别承载 `AS_Shth_ShouDao_Idle` 与 `AS_Shth_ShouDao_Walk` 动画序列。攻击/硬直中拒绝；Montage 正常结束后才 `RuntimeHost->SetSheathed(true)`。编译通过后创建最终数据型蓝图子类 `GA_Sheathe`，仅填写 Montage/Section/成本等数据并加入 `CoreAbilities`。它不进入 ComboData，不直接写 Loose Tag。
+2. 将选定 Y 起手动作作为唯一 `Idle → GroundStarter` 正式 Transition 接入 `DA_IG_Combo`；若选用拔刀起手，成功激活时通过 RuntimeHost 切到 Unsheathed 并清 `bSprintHeld`。能力、Montage、AttackSegment 和 Notify 仍使用通用 ActionToken/Coordinator 路径。
+3. 回归收刀 RT 拔刀直飞、持刀 LT+Y 送虫、LT+B 收虫与 RB 纳刀，确认它们都只使用 E4-A 的正式 InputProfile、Resource、GA 与姿态 Token。
+4. 为上述语义增加最小自动化测试；不因未接入木桩而伪造精华/伤害通过。
+
+**退出条件：** 收刀 RT 成功后仅一次切 Unsheathed 并停止奔跑；持刀 RB 只在纳刀 Montage 正常结束后回到 Sheathed；Y 起手经 Coordinator 激活且中断/Commit 失败不改姿态；LT+Y/LT+B 的猎虫请求保持 M3 语义。E4-A/M4-A 通过后可继续 E4-B 或 M4-B。
+
+### M4-B：地面基底与新增地面动作（先执行 M4-B.0 输入补丁）
+
+**修改范围：** `InputSystem` 的通用 ReleaseFallback、虫棍 ComboData、地面 GA/Montage/Notify 与虫印 Resource 接口；不实现完整空中动作。
 
 **进入条件：** M2 已解除旧 DT/Equipment/Attack 运行时读取，且编辑器 E3 已按删除清单移除旧 Combo/GA/Montage 并创建最终数据壳；若旧包仍存在，不得删除序列化兼容字段或开始批量创建动作资产。
 
 **工作：**
 
-1. E3 已确认旧 GA/Montage/Combo 包删除后，移除只为这些包保留的 Attack 序列化旧字段与临时兼容代码，再接通《世界》地面基底与两个红灯模式。
-2. 实现四连印斩及 `StarterOnly` 派生限制。
-3. 实现突进回旋斩位移、反击窗口、AttackInstance 消费和反击舞踏弹跳入口。
-4. 实现虫印弹与猎虫滑翔的地面激活部分。
-5. 建立每条特殊转移的唯一 TransitionID 和自动收尾边。
-6. 实现 `GA_Sheathe`（`AS_Shth_ShouDao_Idle/Walk` 两段 Montage，播完 `SetSheathed(true)`）与拔刀姿态接线（Y 拔刀、收刀 RT 拔刀直飞、奔跑中拔刀：`SetSheathed(false)` + 清 `bSprintHeld`）。
+1. **M4-B.0：** 在 `FWeaponChordDefinition` 增加 `DispatchPolicy`，默认 `OnPress`；实现并测试 `OnReleaseIfUnconsumed`。它必须保持既有单键/组合键排序、快照身份、释放身份和多次 Possess 行为，不改 ASC、Coordinator 或任何具体虫棍动作判断。
+2. 在 InputProfile 配置三条互斥的 `Input.Weapon.RT` Chord：收刀地面 `Sheathed+Grounded` + `OnPress` 为拔刀直飞；持刀地面 `Unsheathed+Grounded` + `OnReleaseIfUnconsumed` 为虫印斩；空中 `Aerial` + `OnPress` 为急袭突刺。空中条目可在 M5 接入对应 GA，但不要求 Sheathed/Unsheathed。
+3. E3 已确认旧 GA/Montage/Combo 包删除后，移除只为这些包保留的 Attack 序列化旧字段与临时兼容代码，再接通《世界》地面基底与两个红灯模式。
+4. 实现四连印斩及 `StarterOnly` 派生限制。
+5. 实现突进回旋斩位移、反击窗口、AttackInstance 消费和反击舞踏弹跳入口。
+6. 实现 `GA_IG_MarkSlash`：持刀单 RT 松开且未组合时激活，作为普通近战 AttackSegment 命中；首次有效 Hitzone 命中调用 Resource 的近战虫印入口建立/替换唯一虫印。它不得复用 `UMHGZMarkKinsectTargetAbility` 的虫印弹发射路径。
+7. 将 Resource 的唯一虫印接口从“必须拥有 `AIGMarkProjectile`”扩展为同时支持 Projectile 与近战 Hitzone HitResult；两条来源共享替换、局部附着点、到期、目标失效和卸装清理规则。
+8. 实现远程虫印弹与猎虫滑翔的地面激活部分。
+9. 建立每条特殊转移的唯一 TransitionID 和自动收尾边。
+10. 回归 M4-A 已实现的 `GA_Sheathe`（`AM_Shth_ShouDao` 的 `Idle`/`Walk` Section，分别使用 `AS_Shth_ShouDao_Idle/Walk`，播完 `SetSheathed(true)`）与拔刀姿态接线（Y 拔刀、收刀 RT 拔刀直飞、奔跑中拔刀：`SetSheathed(false)` + 清 `bSprintHeld`）；M4-B 不重复实现收刀原生语义。
 
 **退出条件：** 两种红灯模式行为符合设计；Y+B/前+Y+B 稳定分流；四连/未反击回旋斩后只能接四种起手；窗口内反击吞掉该次木桩攻击，窗口外正常受击。
 

@@ -697,8 +697,10 @@ Combat.Branch.TripleUp                ← 三灯连招分支
 | 猎虫瞄准 | `Input.Modifier.LT` | — | 持刀态 LT 长按→ASC 持有 `Combat.State.Aiming.Kinsect` |
 | 送虫（瞄准） | `Input.Weapon.LTY` | `RequiredTags={Unsheathed,Aiming.Kinsect}` | 持刀地面 LT+Y；沿准心射线飞出 |
 | 召回（瞄准） | `Input.Weapon.LTB` | `RequiredTags={Unsheathed,Kinsect.Active}` | 持刀地面 LT+B；空中同一输入由状态分流为操虫斩 |
+| 虫印斩 | `Input.Weapon.RT` | `RequiredTags={Unsheathed,Grounded}` | 持刀地面 RT 未被 A/B/Y/LT 等获胜组合消费时，松开 RT 后近战命中 Hitzone 建立/替换唯一虫印 |
 | 虫印弹 | `Input.Weapon.LTRT` | `RequiredTags={Unsheathed,Aiming.Kinsect}` | 持刀 LT+RT；命中 Hitzone 后建立/替换唯一虫印 |
-| 拔刀直飞 | `Input.Weapon.RT` | `RequiredTags={Combat.State.Sheathed}` | 收刀 RT → 拔刀并沿角色 Forward 放虫（奔跑中同样中断奔跑） |
+| 拔刀直飞 | `Input.Weapon.RT` | `RequiredTags={Combat.State.Sheathed,Grounded}` | 收刀地面按下 RT → 拔刀并沿角色 Forward 放虫（奔跑中同样中断奔跑） |
+| 急袭突刺 | `Input.Weapon.RT` | `RequiredTags={Aerial}` | 空中无论收/拔刀，按下 RT 立即发动；不使用松开回退 |
 | 纳刀 | `Input.Sheathe` | 通用路由（非连招表） | 持刀态按 RB 立即触发；攻击/硬直中无效；播完切 `Combat.State.Sheathed` |
 | 奔跑 | `Input.Sprint` | — | 收刀态按住 RB ≥0.1s 进入奔跑；点按不闪跑；拔刀/攻击中不产生奔跑 |
 | 四连印斩 | `Input.Weapon.YB` | 地面动作节点 | 无方向 Y+B |
@@ -707,7 +709,7 @@ Combat.Branch.TripleUp                ← 三灯连招分支
 | 猎虫滑翔 | `Input.Weapon.RTY` | 地面动作节点 | 有虫印追虫印，否则短距前飞 |
 | 觉虫击 | `Input.Weapon.RTYB` | 地面且 TripleUp | 原子消耗三灯 |
 
-> **输入规则：** 收刀状态一般不能进行猎虫瞄准送/收虫，唯一例外是 RT 的“拔刀并正前方放虫”。收刀态按住 RB 奔跑；持刀态按 RB 立即纳刀（攻击/硬直中无效）。所有组合键先形成唯一 InputTag，再由状态、修饰键、方向和 Priority 分流；完整动作表见 [insect-glaive-actions.md §3](insect-glaive-actions.md#3-输入与方向判定)。
+> **输入规则：** 收刀状态一般不能进行猎虫瞄准送/收虫，唯一例外是地面 RT 的“拔刀并正前方放虫”；空中 RT 始终为急袭突刺。持刀地面单 RT 在松开时才成为虫印斩，且只在不存在已消费 RT 的获胜组合时成立。收刀态按住 RB 奔跑；持刀态按 RB 立即纳刀（攻击/硬直中无效）。所有组合键先形成唯一 InputTag，再由状态、修饰键、方向和 Priority 分流；完整动作表见 [insect-glaive-actions.md §3](insect-glaive-actions.md#3-输入与方向判定)。
 
 ### 猎虫伤害
 
@@ -752,6 +754,7 @@ Content/
 │   ├── GA_IG_SendKinsect.uasset             ← 持刀瞄准送虫（单发：SingleHit / FirstHitOnly）
 │   ├── GA_IG_DrawAndSendKinsect.uasset      ← 收刀直飞（单发：SingleHit / FirstHitOnly）
 │   ├── GA_IG_RecallKinsect.uasset           ← 召回
+│   ├── GA_IG_MarkSlash.uasset                ← 持刀地面单 RT 松开后的近战虫印斩
 │   ├── GA_IG_MarkTarget.uasset              ← LT+RT 虫印弹
 │   ├── GA_IG_TetrasealSlash.uasset          ← 四连印斩
 │   ├── GA_IG_AdvancingRoundslash.uasset     ← 突进回旋斩/反击舞踏
