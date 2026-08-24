@@ -36,6 +36,12 @@ public:
 	bool OpenComboWindow(const FWeaponActionToken& ActionToken, FName NotifyEventID);
 	void CloseComboWindow(const FWeaponActionToken& ActionToken, FName NotifyEventID);
 
+	/** Exact active attack gate used by the direct/core Dodge ability. */
+	bool CanDodgeSupersedeActiveAction() const;
+	bool PrepareActiveActionForDodge(const FWeaponActionToken& DodgeActionToken);
+	bool CommitActiveActionDodgeSupersede(const FWeaponActionToken& DodgeActionToken);
+	void CancelActiveActionDodgeSupersede(const FWeaponActionToken& DodgeActionToken);
+
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Combo")
 	FName GetCurrentState() const { return CurrentState; }
 
@@ -93,4 +99,8 @@ private:
 	void OnComboTimeout();
 	UMHGZWeaponRuntimeHostComponent* GetRuntimeHost() const;
 	static FName MakeWindowKey(const FWeaponActionToken& ActionToken, FName NotifyEventID);
+
+protected:
+	/** The coordinator is persistent infrastructure; its transitions still obey locks. */
+	virtual bool ShouldIgnorePlayerActionLocks() const override { return true; }
 };

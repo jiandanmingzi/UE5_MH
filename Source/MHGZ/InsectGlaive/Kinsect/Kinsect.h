@@ -236,6 +236,16 @@ private:
 	/** 悬停：停 Movement。 */
 	void StopAndHover();
 
+	/**
+	 * 重新武装 ProjectileMovement 并赋予当前方向的速度。
+	 * 非弹跳 Projectile 撞墙后会 StopSimulating，届时 UpdatedComponent 可能被清空；
+	 * 后续送虫或召回必须显式绑定回 Collision，不能只调用 Activate。
+	 */
+	bool ArmMovement(const FVector& Direction, float Speed);
+
+	/** 在附着原始朝向与飞行朝向修正之间切换猎虫视觉 Mesh。 */
+	void SetFlightVisualFacing(bool bInFlight);
+
 	/** 返回 Tick：实时追踪附着 Socket 世界位置；到达后取 Pending → Attach → 回调一次。 */
 	void TickReturn();
 
@@ -260,6 +270,10 @@ private:
 	TWeakObjectPtr<USceneComponent> AttachComponent;
 
 	FName AttachSocketName = NAME_None;
+
+	// 只有附着时记录的美术原始相对旋转会在回到手臂 Socket 后恢复。
+	FRotator AttachedMeshRelativeRotation = FRotator::ZeroRotator;
+	bool bHasAttachedMeshRelativeRotation = false;
 
 	static constexpr float RETURN_ARRIVAL_DISTANCE = 50.f; // 无已提交 Request 时的防御回退
 };

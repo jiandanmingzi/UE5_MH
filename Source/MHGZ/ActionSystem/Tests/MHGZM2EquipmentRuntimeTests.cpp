@@ -21,6 +21,8 @@
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
 #include "InsectGlaive/Kinsect/InsectGlaiveKinsectData.h"
 #include "MHGZPlayerState.h"
+#include "Misc/DataValidation.h"
+#include "UI/MHGZWeaponResourceWidget.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeDefinition.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
@@ -38,6 +40,18 @@ void DestroyM2EquipmentTestWorld(UWorld* World)
 	{
 		World->DestroyWorld(false);
 	}
+}
+
+bool HasValidationIssueContaining(const FDataValidationContext& Context, const FString& Needle)
+{
+	for (const FDataValidationContext::FIssue& Issue : Context.GetIssues())
+	{
+		if (Issue.Message.ToString().Contains(Needle))
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 /** 记录 OnWeaponRuntimeInvalidated 广播的探针（原生委托可用 AddRaw）。 */
@@ -471,6 +485,34 @@ bool FMHGZM2EmptyRuntimeSafeEnd::RunTest(const FString& Parameters)
 		Harness.Host->IsRuntimeInitialized());
 
 	Harness.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM2ResourceWidgetValidation,
+	"MHGZ.M2.Validation.ResourceWidgetRequiresResourceComponent",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM2ResourceWidgetValidation::RunTest(const FString& Parameters)
+{
+	UWeaponRuntimeDefinition* RuntimeDefinition = NewObject<UWeaponRuntimeDefinition>();
+	RuntimeDefinition->WeaponTypeTag =
+		FGameplayTag::RequestGameplayTag(TEXT("Weapon.InsectGlaive"));
+	RuntimeDefinition->InputProfile = NewObject<UWeaponInputProfile>(RuntimeDefinition);
+	RuntimeDefinition->CombatConfig = NewObject<UInsectGlaiveCombatConfig>(RuntimeDefinition);
+	RuntimeDefinition->ResourceComponentClass = URes_InsectGlaive::StaticClass();
+
+	FDataValidationContext ComponentOnlyContext;
+	TestEqual(TEXT("resource component does not require a HUD widget"),
+		RuntimeDefinition->IsDataValid(ComponentOnlyContext), EDataValidationResult::Valid);
+
+	RuntimeDefinition->ResourceComponentClass = nullptr;
+	RuntimeDefinition->ResourceWidgetClass = UMHGZWeaponResourceWidget::StaticClass();
+	FDataValidationContext WidgetOnlyContext;
+	TestEqual(TEXT("resource widget without a resource component is invalid"),
+		RuntimeDefinition->IsDataValid(WidgetOnlyContext), EDataValidationResult::Invalid);
+	TestTrue(TEXT("widget-only validation names the missing resource component"),
+		HasValidationIssueContaining(WidgetOnlyContext, TEXT("ResourceWidgetClass requires ResourceComponentClass")));
 	return true;
 }
 

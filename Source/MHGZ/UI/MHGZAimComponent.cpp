@@ -15,13 +15,13 @@ namespace
 		return Tag;
 	}
 
-	FGameplayTag HitstunTag()
+	FGameplayTag AimHitstunTag()
 	{
 		static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Hitstun"));
 		return Tag;
 	}
 
-	FGameplayTag KnockdownTag()
+	FGameplayTag AimKnockdownTag()
 	{
 		static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Knockdown"));
 		return Tag;
@@ -109,8 +109,8 @@ void UMHGZAimComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 	if (!bIsAiming) return;
 
 	// 受击/击倒：仅暂停射线并清空当前目标显示；不触碰任何 Tag（Tag 由持有时方移除）
-	if (ASC && (ASC->HasMatchingGameplayTag(HitstunTag()) ||
-		ASC->HasMatchingGameplayTag(KnockdownTag())))
+	if (ASC && (ASC->HasMatchingGameplayTag(AimHitstunTag()) ||
+		ASC->HasMatchingGameplayTag(AimKnockdownTag())))
 	{
 		ClearTargetDisplay();
 		return;

@@ -243,7 +243,7 @@ OnEquipmentChanged 内执行顺序：
 | CombatConfig | TSoftObjectPtr\<UWeaponCombatConfigBase\> | 武器专属调参；虫棍为 UInsectGlaiveCombatConfig |
 | ResourceWidgetClass | TSoftClassPtr\<UUserWidget\> | 资源 UI Widget 类 |
 
-Demo 创建 `DA_WeaponRuntime_IG`，指向 `URes_InsectGlaive`、`DA_IG_InputProfile`、`DA_IG_Combat` 和 `WBP_IG_ResourcePanel`。虫棍 ComboData 由 CombatConfig 引用。`DT_WeaponResourceConfig` 资产不存在；M2 删除 `DT_WeaponComboConfig` 的运行时读取，E3 删除该旧资产，不保留第二入口。
+M4-A/E4-A 创建 `DA_WeaponRuntime_IG` 时只指向 `URes_InsectGlaive`、`DA_IG_InputProfile` 与 `DA_IG_Combat`；`ResourceWidgetClass` 在 M6/E6 前必须为 `None`。M6/E6 创建 `WBP_IG_ResourcePanel` 后才将其填入该字段。虫棍 ComboData 由 CombatConfig 引用。`DT_WeaponResourceConfig` 资产不存在；M2 删除 `DT_WeaponComboConfig` 的运行时读取，E3 删除该旧资产，不保留第二入口。阶段顺序见 [阶段门禁](milestone-gates.md)。
 
 ## GE_EntryStat — 通用词条 GameplayEffect（规划，资产未创建）
 

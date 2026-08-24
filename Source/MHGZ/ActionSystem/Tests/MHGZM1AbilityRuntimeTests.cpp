@@ -182,14 +182,40 @@ bool FMHGZM1HostTokenAndRegistries::RunTest(const FString& Parameters)
 	// Action 注册 / 注销。
 	TestTrue(TEXT("register action succeeds"), Host->RegisterAction(ActionToken));
 	TestTrue(TEXT("register action is idempotent"), Host->RegisterAction(ActionToken));
+	TestFalse(TEXT("stale action cannot own montage root motion"),
+		Host->AcquireMontageRootMotion(StaleAction));
+	TestTrue(TEXT("registered action acquires montage root motion"),
+		Host->AcquireMontageRootMotion(ActionToken));
+	TestTrue(TEXT("same action reacquires montage root motion idempotently"),
+		Host->AcquireMontageRootMotion(ActionToken));
+	TestTrue(TEXT("host reports exact montage root motion owner"),
+		Host->IsMontageRootMotionOwnedBy(ActionToken));
+	FWeaponActionToken CompetingAction = ActionToken;
+	CompetingAction.ActivationSequenceID = Host->AllocateActivationSequenceID();
+	TestTrue(TEXT("competing action can register"),
+		Host->RegisterAction(CompetingAction));
+	TestFalse(TEXT("competing action cannot steal montage root motion"),
+		Host->AcquireMontageRootMotion(CompetingAction));
+	TestFalse(TEXT("competing action cannot release montage root motion"),
+		Host->ReleaseMontageRootMotion(CompetingAction));
+	TestTrue(TEXT("competing action unregisters"),
+		Host->UnregisterAction(CompetingAction));
 	TestFalse(TEXT("unregister rejects stale action"), Host->UnregisterAction(StaleAction));
 	TestTrue(TEXT("unregister action succeeds"), Host->UnregisterAction(ActionToken));
+	TestFalse(TEXT("unregister action releases montage root motion ownership"),
+		Host->IsMontageRootMotionOwned());
 	TestFalse(TEXT("second unregister fails"), Host->UnregisterAction(ActionToken));
 
 	// DispatchInputRelease：按激活输入身份（SourceControlTag + SequenceID）精确分发；
 	// 基类默认 HandleInputReleased 为 No-Op，匹配后不得结束/注销 Action。
 	// 未激活的 NewObject 实例其 ActivationContext.Input 为默认身份（无效 SourceControlTag、SequenceID 0）。
 	TestTrue(TEXT("re-register action for release dispatch"), Host->RegisterAction(ActionToken));
+	TestTrue(TEXT("re-registered action can reacquire montage root motion"),
+		Host->AcquireMontageRootMotion(ActionToken));
+	TestTrue(TEXT("exact owner releases montage root motion"),
+		Host->ReleaseMontageRootMotion(ActionToken));
+	TestFalse(TEXT("montage root motion release is idempotent"),
+		Host->ReleaseMontageRootMotion(ActionToken));
 
 	FWeaponInputSnapshot IdentityMismatchRelease;
 	IdentityMismatchRelease.SourceControlTag =
@@ -211,6 +237,8 @@ bool FMHGZM1HostTokenAndRegistries::RunTest(const FString& Parameters)
 		Host->UnregisterAction(ActionToken));
 
 	// 精确 Montage 注册表。
+	TestTrue(TEXT("re-register action for montage registry"),
+		Host->RegisterAction(ActionToken));
 	USkeletalMeshComponent* Mesh = Character->GetMesh();
 	TestNotNull(TEXT("character has a mesh"), Mesh);
 	TestTrue(TEXT("register montage succeeds"),
@@ -230,6 +258,8 @@ bool FMHGZM1HostTokenAndRegistries::RunTest(const FString& Parameters)
 	TestFalse(TEXT("resolve after unregister fails"), Host->ResolveMontage(Mesh, 7, Resolved));
 	TestEqual(TEXT("unregister montages is idempotent"),
 		Host->UnregisterMontages(ActionToken), 0);
+	TestTrue(TEXT("unregister action after montage registry test"),
+		Host->UnregisterAction(ActionToken));
 
 	// 资源预留透传：空 Specs 成功且预留无效；非空无 Provider 失败。
 	TArray<FWeaponResourceCostSpec> EmptySpecs;

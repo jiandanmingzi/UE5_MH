@@ -9,10 +9,11 @@
 #include "EngineUtils.h"
 #include "InsectGlaive/Kinsect/IGMarkProjectile.h"
 #include "MHGZM3TestHarness.h"
+#include "MHGZM4TestTypes.h"
 
 namespace
 {
-const FGameplayTag& KinsectActiveTag()
+const FGameplayTag& SnapshotKinsectActiveTag()
 {
 	static const FGameplayTag Tag = M3::Tag(TEXT("WeaponResource.IG.Kinsect.Active"));
 	return Tag;
@@ -26,6 +27,25 @@ int32 CountMarkProjectiles(UWorld* World)
 		++Count;
 	}
 	return Count;
+}
+
+template <typename TAbility>
+TAbility* GetActiveInstance(UMHGZAbilitySystemComponent& ASC,
+	const FGameplayAbilitySpecHandle& Handle)
+{
+	FGameplayAbilitySpec* Spec = ASC.FindAbilitySpecFromHandle(Handle);
+	if (!Spec)
+	{
+		return nullptr;
+	}
+	for (UGameplayAbility* Ability : Spec->GetAbilityInstances())
+	{
+		if (TAbility* Instance = Cast<TAbility>(Ability))
+		{
+			return Instance;
+		}
+	}
+	return nullptr;
 }
 }
 
@@ -45,9 +65,9 @@ bool FMHGZM3SendKinsectSnapshotConstruction::RunTest(const FString& Parameters)
 	TestTrue(TEXT("LTY harness enters unsheathed pose"), H.Host->SetSheathed(false));
 
 	const FGameplayAbilitySpecHandle SendHandle =
-		H.GiveAbility(UMHGZSendKinsectAbility::StaticClass());
+		H.GiveAbility(UMHGZM4TestSendKinsectAbility::StaticClass());
 	const FGameplayAbilitySpecHandle RecallHandle =
-		H.GiveAbility(UMHGZRecallKinsectAbility::StaticClass());
+		H.GiveAbility(UMHGZM4TestRecallKinsectAbility::StaticClass());
 	const FGameplayAbilitySpecHandle MarkHandle =
 		H.GiveAbility(UMHGZMarkKinsectTargetAbility::StaticClass());
 	TestTrue(TEXT("send ability granted"), SendHandle.IsValid());
@@ -88,13 +108,22 @@ bool FMHGZM3SendKinsectSnapshotConstruction::RunTest(const FString& Parameters)
 	TestEqual(TEXT("sheathed pose rejected for LTY send"),
 		Kinsect->GetState(), EKinsectState::Attached);
 	TestEqual(TEXT("no kinsect active tag after rejections"),
-		H.ASC->GetTagCount(KinsectActiveTag()), 0);
+		H.ASC->GetTagCount(SnapshotKinsectActiveTag()), 0);
 
 	// ── 合法 LTY（吸附中）：AlongDirection + 归一化 Aim.Direction 快照 ──
 	FWeaponInputSnapshot SendInput = M3::MakePosedInput(true, false);
 	SendInput.Aim.Context = EWeaponAimSnapshotContext::Kinsect;
 	SendInput.Aim.Direction = FVector(300.f, 0.f, 0.f); // 未归一化 → 构造时归一
 	TestTrue(TEXT("valid LTY send activates"), H.TryActivateWithInput(SendHandle, SendInput));
+	TestEqual(TEXT("kinsect remains attached before SendCommit"),
+		Kinsect->GetState(), EKinsectState::Attached);
+	UMHGZM4TestSendKinsectAbility* Send =
+		GetActiveInstance<UMHGZM4TestSendKinsectAbility>(*H.ASC, SendHandle);
+	TestNotNull(TEXT("active send instance exists"), Send);
+	if (Send)
+	{
+		TestTrue(TEXT("exact SendCommit starts the frozen request"), Send->CommitForTest());
+	}
 	TestEqual(TEXT("kinsect flying after send"), Kinsect->GetState(), EKinsectState::Flying);
 	TestTrue(TEXT("frozen runtime token preserved in flight request"),
 		Kinsect->ActiveRequest.RuntimeToken == H.Host->GetCurrentToken());
@@ -115,7 +144,11 @@ bool FMHGZM3SendKinsectSnapshotConstruction::RunTest(const FString& Parameters)
 	TestEqual(TEXT("hover post-flight policy"),
 		Kinsect->ActiveRequest.PostFlightPolicy, EKinsectPostFlightPolicy::Hover);
 	TestEqual(TEXT("kinsect active tag acquired"),
-		H.ASC->GetTagCount(KinsectActiveTag()), 1);
+		H.ASC->GetTagCount(SnapshotKinsectActiveTag()), 1);
+	if (Send)
+	{
+		Send->FinishNormallyForTest();
+	}
 
 	// ── 非吸附 LTY：ToPoint + Aim.TargetPoint 快照 ──
 	FWeaponInputSnapshot ToPointInput = M3::MakePosedInput(true, false);
@@ -124,18 +157,41 @@ bool FMHGZM3SendKinsectSnapshotConstruction::RunTest(const FString& Parameters)
 	ToPointInput.Aim.TargetPoint = FVector(700.f, -300.f, 100.f);
 	TestTrue(TEXT("aerial/loose send activates"),
 		H.TryActivateWithInput(SendHandle, ToPointInput));
+	Send = GetActiveInstance<UMHGZM4TestSendKinsectAbility>(*H.ASC, SendHandle);
+	TestNotNull(TEXT("active loose send instance exists"), Send);
+	if (Send)
+	{
+		TestTrue(TEXT("loose SendCommit starts the frozen request"), Send->CommitForTest());
+	}
 	TestEqual(TEXT("loose send uses to-point"),
 		Kinsect->ActiveRequest.TrajectoryMode, EKinsectTrajectoryMode::ToPoint);
 	TestTrue(TEXT("target point frozen"),
 		Kinsect->ActiveRequest.TargetPointSnapshot.Equals(FVector(700.f, -300.f, 100.f)));
 	TestEqual(TEXT("still flying"), Kinsect->GetState(), EKinsectState::Flying);
+	if (Send)
+	{
+		Send->FinishNormallyForTest();
+	}
 
 	// ── Recall（LT+B）：Flying → Returning ──
 	FWeaponInputSnapshot RecallInput = M3::MakePosedInput(true, false);
 	TestTrue(TEXT("recall activates while deployed"),
 		H.TryActivateWithInput(RecallHandle, RecallInput));
+	TestEqual(TEXT("kinsect keeps flying before RecallCommit"),
+		Kinsect->GetState(), EKinsectState::Flying);
+	UMHGZM4TestRecallKinsectAbility* Recall =
+		GetActiveInstance<UMHGZM4TestRecallKinsectAbility>(*H.ASC, RecallHandle);
+	TestNotNull(TEXT("active recall instance exists"), Recall);
+	if (Recall)
+	{
+		TestTrue(TEXT("exact RecallCommit starts return"), Recall->CommitForTest());
+	}
 	TestEqual(TEXT("kinsect returning after recall"),
 		Kinsect->GetState(), EKinsectState::Returning);
+	if (Recall)
+	{
+		Recall->FinishNormallyForTest();
+	}
 
 	// ── Mark（LT+RT）：合法 Aim 启动虫印弹，非法 Aim 拒绝 ──
 	TestEqual(TEXT("no mark projectile before launch"),
@@ -187,7 +243,7 @@ bool FMHGZM3DrawSendSnapshotConstruction::RunTest(const FString& Parameters)
 	}
 
 	const FGameplayAbilitySpecHandle DrawHandle =
-		H.GiveAbility(UMHGZDrawAndSendKinsectAbility::StaticClass());
+		H.GiveAbility(UMHGZM4TestDrawAndSendAbility::StaticClass());
 	TestTrue(TEXT("draw-send ability granted"), DrawHandle.IsValid());
 
 	AKinsect* Kinsect = H.Kinsect;
@@ -211,13 +267,45 @@ bool FMHGZM3DrawSendSnapshotConstruction::RunTest(const FString& Parameters)
 		Kinsect->GetState(), EKinsectState::Attached);
 	TestTrue(TEXT("host stays sheathed after zero forward"), H.Host->IsSheathed());
 	TestEqual(TEXT("no kinsect active tag after rejections"),
-		H.ASC->GetTagCount(KinsectActiveTag()), 0);
+		H.ASC->GetTagCount(SnapshotKinsectActiveTag()), 0);
 
 	// ── 合法 RT：ActorForward 归一化快照 + StraightFlightDistance + 拔刀 ──
 	FWeaponInputSnapshot DrawInput = M3::MakePosedInput(true, true);
 	DrawInput.ActorForward = FVector(0.f, 500.f, 0.f); // 未归一化 → 构造时归一
 	TestTrue(TEXT("valid RT draw-send activates"),
 		H.TryActivateWithInput(DrawHandle, DrawInput));
+	const FGameplayTag Attacking = M3::Tag(TEXT("Combat.State.Attacking"));
+	const FGameplayTag BlockMovement = M3::Tag(TEXT("Combat.State.BlockMovement"));
+	TestEqual(TEXT("draw-send acquires no attacking tag"),
+		H.ASC->GetTagCount(Attacking), 0);
+	TestEqual(TEXT("draw-send acquires no movement lock"),
+		H.ASC->GetTagCount(BlockMovement), 0);
+	TestFalse(TEXT("draw-send never owns montage root motion"),
+		H.Host->IsMontageRootMotionOwned());
+	TestEqual(TEXT("kinsect stays attached before DrawCommit"),
+		Kinsect->GetState(), EKinsectState::Attached);
+	TestTrue(TEXT("host stays sheathed before DrawCommit"), H.Host->IsSheathed());
+	UMHGZM4TestDrawAndSendAbility* Draw =
+		GetActiveInstance<UMHGZM4TestDrawAndSendAbility>(*H.ASC, DrawHandle);
+	TestNotNull(TEXT("active draw-send instance exists"), Draw);
+	if (Draw)
+	{
+		FWeaponActionToken WrongAction = Draw->GetActionToken();
+		++WrongAction.ActivationSequenceID;
+		TestFalse(TEXT("wrong action token cannot commit draw-send"),
+			Draw->CommitDraw(WrongAction));
+		TestFalse(TEXT("SendCommit before DrawCommit is rejected"),
+			Draw->CommitSendForTest());
+		TestTrue(TEXT("exact DrawCommit applies the draw pose"),
+			Draw->CommitDrawForTest());
+	}
+	TestEqual(TEXT("kinsect remains attached after DrawCommit"),
+		Kinsect->GetState(), EKinsectState::Attached);
+	if (Draw)
+	{
+		TestTrue(TEXT("exact SendCommit deploys after draw"),
+			Draw->CommitSendForTest());
+	}
 	TestEqual(TEXT("kinsect flying after draw-send"),
 		Kinsect->GetState(), EKinsectState::Flying);
 	TestEqual(TEXT("draw-send uses along-direction"),
@@ -229,12 +317,18 @@ bool FMHGZM3DrawSendSnapshotConstruction::RunTest(const FString& Parameters)
 	TestEqual(TEXT("draw-send motion value from config"),
 		Kinsect->ActiveRequest.MotionValue, H.CombatConfig->DrawSendKinsectMotionValue);
 	TestEqual(TEXT("draw-send acquires kinsect active tag"),
-		H.ASC->GetTagCount(KinsectActiveTag()), 1);
+		H.ASC->GetTagCount(SnapshotKinsectActiveTag()), 1);
 
 	// 拔刀：Sheathed → Unsheathed Ledger 翻转。
 	TestFalse(TEXT("host unsheathed after draw-send"), H.Host->IsSheathed());
 	TestEqual(TEXT("sheathed tag removed"), H.ASC->GetTagCount(Sheathed), 0);
 	TestEqual(TEXT("unsheathed tag acquired"), H.ASC->GetTagCount(Unsheathed), 1);
+	if (Draw)
+	{
+		Draw->InterruptForTest();
+	}
+	TestFalse(TEXT("post-commit interruption preserves unsheathed pose"),
+		H.Host->IsSheathed());
 
 	H.Teardown();
 	return true;

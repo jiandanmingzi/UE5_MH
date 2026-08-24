@@ -59,7 +59,7 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 | `UMHGZWeaponInputRouterComponent` | PlayerController | 原始 Action、Chord、方向、Aim 上下文和释放 SequenceID；输出不可变 InputSnapshot，不选择具体虫棍 GA |
 | `UMHGZHitStopControllerComponent` | Character | 以 Token 合并可叠加卡肉请求，取消/死亡/换装时按所有权释放，不让 Ability 直接覆盖 CustomTimeDilation |
 | `UMHGZHitFeedbackRouterComponent` | 可受击 Actor/Character | 接收已结算 HitFeedbackResult，显式执行 GameplayCue、伤害数字和表现请求，不重算伤害 |
-| `UMotionWarpingComponent` | Character | UE5 内置，动画驱动。需 SkeletalMeshComponent+AnimBP 管线（PlayerState 不具备）——构造函数 `CreateDefaultSubobject` 随 Character 创建，GA 在 ActivateAbility 中通过 `FindComponentByClass` 设 Warp Target，Montage 中 `AnimNotifyState_MotionWarping` 自动消费。单向交互，零耦合 |
+| `UMotionWarpingComponent` | Character | UE5 内置，动画驱动。需 SkeletalMeshComponent+AnimBP 管线（PlayerState 不具备）——构造函数 `CreateDefaultSubobject` 随 Character 创建。仅有真实目标/平移或旋转对齐需求的特殊 GA 才通过 `FindComponentByClass` 建立自己拥有的 Warp Target，并由 Montage 的 `AnimNotifyState_MotionWarping` 消费/在结束时清理；普通攻击的入口方向修正直接设置 Actor Yaw，不建立 Warp Target。 |
 
 > 当前源码为了 `URes_InsectGlaive` 打开 PlayerState Tick；目标 Demo 把 Resource 移到 Character RuntimeHost，由 Character/Pawn 生命周期驱动 Tick。EquipmentComponent 分别广播 StatsChanged 与 WeaponSnapshot；RuntimeHost 只消费后者并比较身份。PlayerState 不应只为武器运行时永久开启 Tick。
 

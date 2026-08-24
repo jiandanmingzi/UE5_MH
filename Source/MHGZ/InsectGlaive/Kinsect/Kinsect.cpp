@@ -177,12 +177,20 @@ bool AKinsect::BeginFlight(const FKinsectFlightRequest& Request)
 	{
 		return false; // 目标点与当前位置重合
 	}
+	if (!Movement || !Collision)
+	{
+		return false;
+	}
 
 	// 原子提交
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
-	Movement->MaxSpeed = Request.FlightSpeed;
-	Movement->Activate();
-	Movement->Velocity = FlightDirection * Request.FlightSpeed;
+	SetFlightVisualFacing(true);
+	if (!ArmMovement(FlightDirection, Request.FlightSpeed))
+	{
+		// BeginFlight 的失败不能留下一个从主人脱离、却不可移动的猎虫。
+		AttachToPlayer(AttachComponent.Get(), AttachSocketName);
+		return false;
+	}
 	Collision->EnableKinsectCollision();
 
 	ActiveRequest = Request;
@@ -235,16 +243,36 @@ void AKinsect::StartReturn()
 	{
 		Collision->DisableKinsectCollision();
 	}
-	Movement->MaxSpeed = ReturnSpeed;
-	Movement->Activate();
 	PendingWorldHit.Reset();
 	HitzoneHitTimers.Reset();
 	bHasDealtDamage = false;
-	// Velocity 在 TickReturn 中每帧指向实时 Socket 位置
+
+	// 仅在尚未到达时立刻写入首帧返回速度。这样既能重新绑定撞墙后被
+	// ProjectileMovement 清空的 UpdatedComponent，又保留“刚送出即召回”至少
+	// 经过一帧 Returning 的状态契约；真正 Attach 仍统一在 TickReturn 中发生。
+	FVector SocketLocation;
+	if (!ResolveAttachSocketLocation(SocketLocation))
+	{
+		StopAndHover();
+		return;
+	}
+	const FVector ToTarget = SocketLocation - GetActorLocation();
+	const float ReturnArrivalRadius = ActiveRequest.ArrivalRadius > 0.f
+		? ActiveRequest.ArrivalRadius : RETURN_ARRIVAL_DISTANCE;
+	if (ToTarget.Size() > ReturnArrivalRadius && !ArmMovement(ToTarget, ReturnSpeed))
+	{
+		StopAndHover();
+	}
 }
 
 void AKinsect::AttachToPlayer(USceneComponent* InAttachComponent, FName InSocketName)
 {
+	if (Mesh && !bHasAttachedMeshRelativeRotation)
+	{
+		AttachedMeshRelativeRotation = Mesh->GetRelativeRotation();
+		bHasAttachedMeshRelativeRotation = true;
+	}
+
 	AttachComponent = InAttachComponent;
 	AttachSocketName = InSocketName;
 
@@ -254,6 +282,7 @@ void AKinsect::AttachToPlayer(USceneComponent* InAttachComponent, FName InSocket
 			FAttachmentTransformRules::SnapToTargetIncludingScale, InSocketName);
 		OwnerActor = InAttachComponent->GetOwner();
 	}
+	SetFlightVisualFacing(false);
 
 	Movement->StopMovementImmediately();
 	Movement->Deactivate();
@@ -479,6 +508,56 @@ void AKinsect::StopAndHover()
 	State = EKinsectState::Hovering;
 }
 
+bool AKinsect::ArmMovement(const FVector& Direction, float Speed)
+{
+	const FVector SafeDirection = Direction.GetSafeNormal();
+	if (!Movement || !Collision || SafeDirection.IsNearlyZero() ||
+		!FMath::IsFinite(Speed) || Speed <= 0.f)
+	{
+		return false;
+	}
+
+	// UProjectileMovementComponent::StopSimulating（非反弹 WorldStatic 命中）会
+	// Deactivate 并可能 SetUpdatedComponent(nullptr)。重发/召回都必须完整复位。
+	if (Movement->UpdatedComponent != Collision)
+	{
+		Movement->SetUpdatedComponent(Collision);
+	}
+	Movement->SetComponentTickEnabled(true);
+	if (!Movement->IsActive())
+	{
+		Movement->Activate(true);
+	}
+	Movement->MaxSpeed = Speed;
+	Movement->Velocity = SafeDirection * Speed;
+	Movement->UpdateComponentVelocity();
+	SetActorRotation(SafeDirection.Rotation());
+	return true;
+}
+
+void AKinsect::SetFlightVisualFacing(bool bInFlight)
+{
+	if (!Mesh)
+	{
+		return;
+	}
+
+	if (!bInFlight)
+	{
+		if (bHasAttachedMeshRelativeRotation)
+		{
+			Mesh->SetRelativeRotation(AttachedMeshRelativeRotation);
+		}
+		return;
+	}
+
+	// 该 Mesh 的 root +Y 是虫子的实际面朝方向，+Z 为背部上方，+X 为左。
+	// Projectile/Actor 的 +X 为飞行前方、+Y 为右、+Z 为上，因此只需 Yaw -90°：
+	// root Y -> actor X，root Z -> actor Z，root X -> actor -Y。
+	const FQuat FlightVisualRotation(FVector::UpVector, -UE_HALF_PI);
+	Mesh->SetRelativeRotation(FlightVisualRotation.Rotator());
+}
+
 void AKinsect::TickReturn()
 {
 	FVector SocketLocation;
@@ -509,8 +588,10 @@ void AKinsect::TickReturn()
 	}
 
 	const float ReturnSpeed = KinsectData ? KinsectData->ReturnSpeed : FALLBACK_RETURN_SPEED;
-	Movement->MaxSpeed = ReturnSpeed;
-	Movement->Velocity = ToTarget.GetSafeNormal() * ReturnSpeed;
+	if (!ArmMovement(ToTarget, ReturnSpeed))
+	{
+		StopAndHover();
+	}
 }
 
 bool AKinsect::ResolveAttachSocketLocation(FVector& OutLocation) const

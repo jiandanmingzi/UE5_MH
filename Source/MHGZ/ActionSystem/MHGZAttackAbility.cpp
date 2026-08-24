@@ -4,22 +4,59 @@
 #include "MHGZAbilitySystemComponent.h"
 #include "MHGZComboCoordinatorAbility.h"
 #include "MHGZGameplayEffectContext.h"
-#include "MHGZCharacter.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "AbilitySystemGlobals.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
-#include "MotionWarpingComponent.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Character.h"
-#include "GameFramework/CharacterMovementComponent.h"
+#include "MHGZCharacter.h"
 #include "Camera/CameraShakeBase.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
 namespace
 {
+	/** Shared direct-Yaw correction used by exact in-action attack notifies. */
+	bool ApplyDirectYawCorrection(ACharacter& Character, const FVector& WorldDirection,
+		float MaxCorrectionAngle)
+	{
+		if (!FMath::IsFinite(MaxCorrectionAngle) || MaxCorrectionAngle <= 0.f)
+		{
+			return false;
+		}
+
+		const FVector InputDir(WorldDirection.X, WorldDirection.Y, 0.f);
+		if (InputDir.IsNearlyZero())
+		{
+			return false;
+		}
+
+		const FVector CharacterForward = Character.GetActorForwardVector();
+		const FVector CharacterForward2D(CharacterForward.X, CharacterForward.Y, 0.f);
+		if (CharacterForward2D.IsNearlyZero())
+		{
+			return false;
+		}
+
+		const FVector NormalizedInput = InputDir.GetSafeNormal();
+		const FVector NormalizedForward = CharacterForward2D.GetSafeNormal();
+		const float Dot = FVector::DotProduct(NormalizedInput, NormalizedForward);
+		const float AngleDegrees = FMath::RadiansToDegrees(
+			FMath::Acos(FMath::Clamp(Dot, -1.f, 1.f)));
+		if (AngleDegrees > MaxCorrectionAngle)
+		{
+			return false;
+		}
+
+		FRotator CorrectedRotation = Character.GetActorRotation();
+		CorrectedRotation.Yaw = NormalizedInput.Rotation().Yaw;
+		Character.SetActorRotation(CorrectedRotation);
+		return true;
+	}
+
 	FVector EvaluateRotatingRegionPoint(
 		const FVector& PreviousStart,
 		const FVector& PreviousEnd,
@@ -148,13 +185,13 @@ void UMHGZAttackAbility::ActivateAbility(
 	bIsEndingAbility = false;
 	// 每次激活生成稳定攻击身份：一次激活内所有伤害/多跳/反馈共享同一 ID。
 	ActivationAttackInstanceID = FGuid::NewGuid();
-	DirectionWarpTargetName = FName(*FString::Printf(
-		TEXT("AttackDirection_%llu_%u"),
-		GetActionToken().RuntimeToken.Generation,
-		GetActionToken().ActivationSequenceID));
-
-	// 方向修正
+	// Action 已 Confirm；普通攻击在 Montage 播放前只读取一次冻结输入方向。
 	ApplyDirectionCorrection();
+	if (!PrepareAttackMontage())
+	{
+		RequestEndAction(EWeaponActionEndReason::Cancelled);
+		return;
+	}
 
 	ActiveAttackMontage = AttackMontage;
 	MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
@@ -197,25 +234,141 @@ void UMHGZAttackAbility::EndAbility(
 		return;
 	}
 	bIsEndingAbility = true;
+	PendingDodgeSuperseder = FWeaponActionToken();
+	CloseAllDodgeAcceptWindows();
 
 	// 关碰撞（幂等安全——清除全部窗口与每目标 LockedTarget Timer）
 	DisableCollision();
-
-	// 移除本实例遗留的方向修正 WarpTarget，防止跨激活残留。
-	if (!DirectionWarpTargetName.IsNone())
-	{
-		if (UMotionWarpingComponent* MotionWarping = GetMotionWarpingComponent())
-		{
-			MotionWarping->RemoveWarpTarget(DirectionWarpTargetName);
-		}
-		DirectionWarpTargetName = NAME_None;
-	}
 
 	// AbilityTask 会在 Ability 结束时负责停止 Montage 并解绑委托。
 	MontageTask = nullptr;
 	ActiveAttackMontage = nullptr;
 
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+}
+
+bool UMHGZAttackAbility::BeginDodgeAcceptWindow(FName NotifyEventID)
+{
+	if (!IsActive() || bIsEndingAbility || !IsActionActivationCommitted()
+		|| NotifyEventID.IsNone())
+	{
+		return false;
+	}
+	if (DodgeAcceptWindowTokens.Contains(NotifyEventID))
+	{
+		return true;
+	}
+
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	const FWeaponActionToken& ActionToken = GetActionToken();
+	if (!Host || !ActionToken.IsValid()
+		|| !Host->IsTokenCurrent(ActionToken.RuntimeToken))
+	{
+		return false;
+	}
+
+	FGameplayTagContainer Tags;
+	Tags.AddTag(FGameplayTag::RequestGameplayTag(
+		TEXT("Combat.State.DodgeAcceptOpen")));
+	FWeaponOwnedTagToken WindowToken = Host->AcquireTags(
+		EWeaponTagOwnerKind::NotifyWindow,
+		ActionToken.AbilityHandle,
+		ActionToken.ActivationSequenceID,
+		NotifyEventID,
+		Tags);
+	if (!WindowToken.IsValid())
+	{
+		return false;
+	}
+
+	DodgeAcceptWindowTokens.Add(NotifyEventID, WindowToken);
+	return true;
+}
+
+void UMHGZAttackAbility::EndDodgeAcceptWindow(FName NotifyEventID)
+{
+	FWeaponOwnedTagToken* WindowToken = DodgeAcceptWindowTokens.Find(NotifyEventID);
+	if (!WindowToken)
+	{
+		return;
+	}
+	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+	{
+		Host->ReleaseTags(*WindowToken);
+	}
+	DodgeAcceptWindowTokens.Remove(NotifyEventID);
+}
+
+bool UMHGZAttackAbility::HasOpenDodgeAcceptWindow(
+	const FWeaponActionToken& ActionToken) const
+{
+	return IsActive() && !bIsEndingAbility && IsActionActivationCommitted()
+		&& ActionToken == GetActionToken()
+		&& !DodgeAcceptWindowTokens.IsEmpty();
+}
+
+bool UMHGZAttackAbility::PrepareDodgeSupersede(
+	const FWeaponActionToken& DodgeActionToken)
+{
+	if (!DodgeActionToken.IsValid()
+		|| !HasOpenDodgeAcceptWindow(GetActionToken()))
+	{
+		return false;
+	}
+	if (PendingDodgeSuperseder.IsValid())
+	{
+		return PendingDodgeSuperseder == DodgeActionToken;
+	}
+	PendingDodgeSuperseder = DodgeActionToken;
+	return true;
+}
+
+bool UMHGZAttackAbility::CommitDodgeSupersede(
+	const FWeaponActionToken& DodgeActionToken)
+{
+	if (PendingDodgeSuperseder != DodgeActionToken
+		|| !IsActive() || bIsEndingAbility || !IsActionActivationCommitted())
+	{
+		return false;
+	}
+	PendingDodgeSuperseder = FWeaponActionToken();
+	RequestEndAction(EWeaponActionEndReason::Superseded);
+	return GetActionEndReason() == EWeaponActionEndReason::Superseded;
+}
+
+void UMHGZAttackAbility::CancelDodgeSupersede(
+	const FWeaponActionToken& DodgeActionToken)
+{
+	if (PendingDodgeSuperseder != DodgeActionToken)
+	{
+		return;
+	}
+	PendingDodgeSuperseder = FWeaponActionToken();
+
+	// A dependency/task failure occurs before Montage_Play and leaves the attack
+	// untouched. If playback began but exact registration failed, the old montage
+	// may already have been interrupted by UE; it cannot be resumed safely.
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	UAnimInstance* AnimInstance = Character && Character->GetMesh()
+		? Character->GetMesh()->GetAnimInstance()
+		: nullptr;
+	if (ActiveAttackMontage && AnimInstance
+		&& !AnimInstance->Montage_IsPlaying(ActiveAttackMontage))
+	{
+		RequestEndAction(EWeaponActionEndReason::Interrupted);
+	}
+}
+
+void UMHGZAttackAbility::CloseAllDodgeAcceptWindows()
+{
+	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+	{
+		for (TPair<FName, FWeaponOwnedTagToken>& Pair : DodgeAcceptWindowTokens)
+		{
+			Host->ReleaseTags(Pair.Value);
+		}
+	}
+	DodgeAcceptWindowTokens.Reset();
 }
 
 void UMHGZAttackAbility::OnMontageCompleted()
@@ -230,52 +383,62 @@ void UMHGZAttackAbility::OnMontageInterrupted()
 {
 	if (IsActive() && !bIsEndingAbility)
 	{
+		if (PendingDodgeSuperseder.IsValid())
+		{
+			return;
+		}
 		RequestEndAction(EWeaponActionEndReason::Interrupted);
 	}
 }
 
 void UMHGZAttackAbility::ApplyDirectionCorrection()
 {
-	if (MaxCorrectionAngle <= 0.f) return;
-
-	AMHGZCharacter* Character = Cast<AMHGZCharacter>(GetAvatarActorFromActorInfo());
-	if (!Character) return;
-
-	// 方向在输入解析时冻结，激活后不重读摇杆。
-	const FVector MovementInput = GetWeaponActivationContext().Input.WorldDirection;
-	if (MovementInput.IsNearlyZero()) return; // 无输入
-
-	const FVector InputDir(MovementInput.X, MovementInput.Y, 0.f);
-	const FVector CharForward = Character->GetActorForwardVector();
-	const FVector CharForward2D = FVector(CharForward.X, CharForward.Y, 0.f).GetSafeNormal();
-
-	if (CharForward2D.IsNearlyZero()) return;
-
-	// 计算夹角
-	const float Dot = FVector::DotProduct(InputDir.GetSafeNormal(), CharForward2D);
-	const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(Dot, -1.f, 1.f)));
-
-	if (AngleDeg <= MaxCorrectionAngle)
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Character)
 	{
-		// 在容许范围内 → 设置 MotionWarping RotationTarget
-		UMotionWarpingComponent* MotionWarping = GetMotionWarpingComponent();
-		if (MotionWarping)
-		{
-			const FVector TargetLocation = Character->GetActorLocation() + InputDir.GetSafeNormal() * 500.f;
-			MotionWarping->AddOrUpdateWarpTargetFromLocation(
-				DirectionWarpTargetName,
-				TargetLocation);
-		}
+		return;
 	}
+
+	// Direction is frozen during input resolution; activation never re-reads the stick.
+	ApplyDirectYawCorrection(*Character,
+		GetWeaponActivationContext().Input.WorldDirection, MaxCorrectionAngle);
 }
 
-UMotionWarpingComponent* UMHGZAttackAbility::GetMotionWarpingComponent() const
+bool UMHGZAttackAbility::ApplyInActionDirectionCorrection(
+	const FWeaponActionToken& ActionToken, float MaxCorrectionAngleOverride)
 {
-	if (ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
+	if (!IsActive() || bIsEndingAbility || !IsActionActivationCommitted()
+		|| ActionToken != GetActionToken())
 	{
-		return Character->FindComponentByClass<UMotionWarpingComponent>();
+		return false;
 	}
-	return nullptr;
+
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	if (!Host || !Host->IsTokenCurrent(ActionToken.RuntimeToken))
+	{
+		return false;
+	}
+
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Character)
+	{
+		return false;
+	}
+
+	const float CorrectionAngle = MaxCorrectionAngleOverride < 0.f
+		? MaxCorrectionAngle
+		: MaxCorrectionAngleOverride;
+	return ApplyDirectYawCorrection(*Character,
+		GetInActionCorrectionDirection(), CorrectionAngle);
+}
+
+FVector UMHGZAttackAbility::GetInActionCorrectionDirection() const
+{
+	if (const AMHGZCharacter* Character = Cast<AMHGZCharacter>(GetAvatarActorFromActorInfo()))
+	{
+		return Character->GetLastMovementInputDir();
+	}
+	return FVector::ZeroVector;
 }
 
 void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)

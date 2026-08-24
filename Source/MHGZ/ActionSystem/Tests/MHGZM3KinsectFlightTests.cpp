@@ -309,4 +309,88 @@ bool FMHGZM3KinsectPendingExtractAndReturn::RunTest(const FString& Parameters)
 	return true;
 }
 
+// ── 7. ProjectileMovement 手动 Tick：飞行与召回均必须实际推进位置 ─────────────────
+// Harness 使用无 WorldContext 的临时 UWorld，不能调用 UWorld::Tick；这里直接以
+// 正式组件的 TickComponent 模拟调度，并保持 Movement -> Actor 的真实先后顺序。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM3KinsectProjectileMovementAndRecall,
+	"MHGZ.M3.Kinsect.ProjectileMovementAndRecall",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM3KinsectProjectileMovementAndRecall::RunTest(const FString& Parameters)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup())
+	{
+		return false;
+	}
+
+	AKinsect* Kinsect = H.Kinsect;
+	UProjectileMovementComponent* Movement = Kinsect->Movement;
+	const FVector StartLocation = Kinsect->GetActorLocation();
+	FKinsectFlightRequest Request = MakeValidAlongDirectionRequest(H);
+	Request.MaxDistance = 2000.f;
+	Request.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
+
+	TestTrue(TEXT("resource deploy starts projectile flight"),
+		H.Resource->DeployKinsect(Request));
+	Movement->TickComponent(0.05f, LEVELTICK_All, nullptr);
+	Kinsect->Tick(0.05f);
+	TestTrue(TEXT("projectile movement advances kinsect from its attach socket"),
+		Kinsect->GetActorLocation().X > StartLocation.X + KINDA_SMALL_NUMBER);
+
+	TestTrue(TEXT("resource accepts recall while kinsect is deployed"),
+		H.Resource->RecallKinsect());
+	Kinsect->Tick(0.05f); // establishes the first return velocity.
+	Movement->TickComponent(0.05f, LEVELTICK_All, nullptr);
+	Kinsect->Tick(0.05f);
+	TestTrue(TEXT("return movement heads back toward the attach socket"),
+		Kinsect->GetActorLocation().X < StartLocation.X + Request.FlightSpeed * 0.05f);
+
+	for (int32 TickIndex = 0;
+		TickIndex < 32 && Kinsect->GetState() != EKinsectState::Attached; ++TickIndex)
+	{
+		Movement->TickComponent(0.02f, LEVELTICK_All, nullptr);
+		Kinsect->Tick(0.02f);
+	}
+	TestEqual(TEXT("manual recall reattaches kinsect"),
+		Kinsect->GetState(), EKinsectState::Attached);
+
+	// 非弹跳 Projectile 撞击 WorldStatic 后，UE 会停止模拟且可能清空
+	// UpdatedComponent。Harness 不推进 BeginPlay，因此不依赖运行时碰撞委托；
+	// 这里直接构造与 WorldHit -> Hover 相同的终态，再验证 LT+B 能恢复。
+	TestTrue(TEXT("second deployment starts for world-hit recovery"),
+		H.Resource->DeployKinsect(Request));
+	FHitResult WorldHit;
+	WorldHit.bBlockingHit = true;
+	Kinsect->Interrupt();
+	Movement->StopSimulating(WorldHit);
+	Kinsect->SetActorLocation(StartLocation + FVector(200.f, 0.f, 0.f));
+	TestEqual(TEXT("world hit leaves kinsect hovering"),
+		Kinsect->GetState(), EKinsectState::Hovering);
+	TestNull(TEXT("non-bounce world hit clears projectile updated component"),
+		Movement->UpdatedComponent);
+
+	TestTrue(TEXT("resource accepts recall from world-hit hover"),
+		H.Resource->RecallKinsect());
+	TestEqual(TEXT("world-hit recall changes state to returning"),
+		Kinsect->GetState(), EKinsectState::Returning);
+	TestTrue(TEXT("world-hit recall rebinds projectile to kinsect collision"),
+		Movement->UpdatedComponent.Get() == static_cast<USceneComponent*>(Kinsect->Collision));
+	TestTrue(TEXT("world-hit recall immediately arms projectile movement"),
+		Movement->IsActive() && !Movement->Velocity.IsNearlyZero());
+
+	for (int32 TickIndex = 0;
+		TickIndex < 32 && Kinsect->GetState() != EKinsectState::Attached; ++TickIndex)
+	{
+		Movement->TickComponent(0.02f, LEVELTICK_All, nullptr);
+		Kinsect->Tick(0.02f);
+	}
+	TestEqual(TEXT("world-hit recall reattaches kinsect"),
+		Kinsect->GetState(), EKinsectState::Attached);
+
+	H.Teardown();
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR

@@ -144,11 +144,11 @@ public:
 	/** 检查是否应屏蔽移动输入——单一 Tag 控制：Combat.State.BlockMovement */
 	bool ShouldBlockMovement() const;
 
-	/** 当前帧摇杆输入幅度（0.0~1.0），低于死区时为 0——AnimBP 每帧读取 */
+	/** 当前帧可用于 locomotion 的摇杆幅度（0.0~1.0）。BlockMovement 时为 0；原始轴仍见 GetRawMoveInput。 */
 	UPROPERTY(BlueprintReadOnly, Category="Input")
 	float InputMagnitude = 0.f;
 
-	/** 当前帧是否有有效输入（幅度 >= MoveDeadzone）——AnimBP 每帧读取 */
+	/** 当前帧是否有可用于 locomotion 的有效输入。BlockMovement 时为 false；不代表原始输入快照被清除。 */
 	UPROPERTY(BlueprintReadOnly, Category="Input")
 	bool bHasInput = false;
 
@@ -158,6 +158,10 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category="Input")
 	FVector2D GetRawMoveInput() const { return RawMoveInput; }
+
+	/** True when the physical stick is outside the movement deadzone, even while an action blocks locomotion. */
+	UFUNCTION(BlueprintCallable, Category="Input")
+	bool HasRawMovementInput() const { return RawMoveInput.Size() >= MoveDeadzone; }
 
 	// ── Motion Matching 期望速度 ────────────────────────────────
 

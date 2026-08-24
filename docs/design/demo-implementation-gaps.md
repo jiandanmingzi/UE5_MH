@@ -30,7 +30,7 @@
 | 姿态生命周期 | `MHGZWeaponRuntimeHostComponent`、Character MovementMode/Landed 转发 | Grounded/Aerial、Sheathed/Unsheathed 改由当前 Pawn RuntimeHost 的 TagLedger 持有，不再由 ASC 一次性默认写入 |
 | 连招与动作实例 | `MHGZComboCoordinatorAbility`、`MHGZGameplayAbility` | Coordinator=InstancedPerActor，Action=InstancedPerExecution；Pending/Confirm/Superseded、自动边、落地与迟到回调隔离已实现 |
 | Notify 归属 | RuntimeHost Montage Registry、`MHGZAnimNotifyActionResolver`、Attack/Combo/Dodge Notify | `(Mesh, MontageInstanceID)` 精确解析 ActionToken；玩家动作 Notify 不再扫描 Active Specs |
-| 闪避 | `MHGZDodgeAbility`、`AnimNotifyState_DodgeWindow` | 使用方向快照和 AbilityTask；窗口由 Ledger 持有并逐通道恢复原碰撞响应；缺 Montage 零副作用测试通过 |
+| 闪避 | `MHGZDodgeAbility`、`AnimNotifyState_DodgeWindow` | 前向翻滚使用冻结姿态/方向选择与 AbilityTask；窗口由 Ledger 持有并逐通道恢复原碰撞响应；缺 Montage 零副作用测试通过。M4-A.3.1 仍需加入持刀左右后专用选择/强制 IdleExit，及收刀左右后拒绝且不耗耐 |
 
 构建、15 项 M1 测试与 5 项 M0 回归证据见 [M1 实施审计](m1-implementation-audit.md)。
 
@@ -59,7 +59,7 @@
 
 | 系统 | 当前源码证据 | 问题 | Demo 目标 / 里程碑 |
 |---|---|---|---|
-| 位移/旋转所有权 | [MHGZCharacter.cpp](../../Source/MHGZ/MHGZCharacter.cpp) 与未来 MovementTask | M2 已消除攻击 GA 间共享 `AttackDirection`；完整平移、旋转、steering 与取消后速度交接仍未统一 | Action/Movement Token 独占写入并全路径释放，M5 |
+| 位移/旋转所有权 | [MHGZCharacter.cpp](../../Source/MHGZ/MHGZCharacter.cpp)、[MHGZAttackAbility.cpp](../../Source/MHGZ/ActionSystem/MHGZAttackAbility.cpp) 与未来 MovementTask | 当前普通攻击仍按激活生成 `AttackDirection_<...>` WarpTarget，但没有通用资产侧消费者；完整平移、旋转、steering 与取消后速度交接仍未统一 | M4-A.5 先把普通攻击改为 Confirm 后基于冻结输入的一次 Actor Yaw 瞬转，并移除其普通 WarpTarget；特殊动作和完整 Movement Token 独占交接在 M5 分别实现/验证 |
 | 瞄准重绑 | [MHGZAimComponent.cpp](../../Source/MHGZ/UI/MHGZAimComponent.cpp) 45～100 | BeginPlay 时一次性找 ASC，初始化顺序不对时不会重试；颜色按部位名硬编码 | Runtime/ActorInfo Ready 绑定并可随 Avatar 重绑；直接读 Hitzone 颜色，M3 |
 | 普通猎虫交付 | [Kinsect.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/Kinsect.cpp) 90、239～返回逻辑 | PendingExtract 交付后未清空，后续飞行不能取得新颜色 | 到达时原子取出并清 Pending，再 Apply 一次；下一 Flight 可取新色，M3 |
 | 猎虫耐力归零 | [Res_InsectGlaive.cpp](../../Source/MHGZ/AttributeSystem/Res_InsectGlaive.cpp) 57～61 | 耐力为 0 的每帧重复音效与 ForceRecall | 只在阈值穿越时触发一次，Returning/Attached 不重复，M3 |

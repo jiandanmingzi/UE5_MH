@@ -8,9 +8,9 @@
 
 | 模块 | 当前状态 |
 |------|----------|
-| C++ 类型 | `AKinsect`、`UKinsectCollisionComponent`、`AIGMarkProjectile`、`UInsectGlaiveKinsectData`、`URes_InsectGlaive`、`UMHGZInsectGlaiveAbility` 及四个基础猎虫 GA 父类已存在；M3 自动化 9/9 通过。 |
+| C++ 类型 | `AKinsect`、`UKinsectCollisionComponent`、`AIGMarkProjectile`、`UInsectGlaiveKinsectData`、`URes_InsectGlaive`、`UMHGZInsectGlaiveAbility` 及四个基础猎虫 GA 父类已存在；M3 自动化 10/10 通过（包含 ProjectileMovement 发射/召回实际推进回归）。 |
 | 装备接入 | RuntimeHost 已按 `DA_WeaponRuntime_IG` 的 ResourceClass/CombatConfig 动态创建 `URes_InsectGlaive`，Resource 自动 Spawn 并挂载猎虫；装备更换和卸下清理已纳入 M2/M3 回归。 |
-| GA/连招资产 | 原生 Send/Recall/DrawAndSend/Mark 父类已实现。E3 数据资产已存在；E4 需创建对应 GA 蓝图子类、填入 CoreAbilities/Combo 并完成最终转移配置。 |
+| GA/连招资产 | 原生 Send/Recall/DrawAndSend/Mark 父类已实现；M4-A.4 的 `UMHGZDrawAttackAbility` 与 `AnimNotify_DrawCommit` 也已实现。M4-A.5 令 Send、Recall 和 DrawAndSend 都以数据型 `ActionMontage` 播放无 Root Motion 的上半身动作：DrawAndSend 在 `DrawCommit` 才拔刀、在后续 `KinsectSendCommit` 才部署冻结请求，且不属于攻击链；Send/Recall 分别在 Send/Recall Commit 后执行 Resource。之后再在 E4 创建/回填 `GA_IG_Draw`、`GA_IG_DrawSlash`、其 Montage 与 Combo 转移。 |
 | 猎虫与萃取资产 | 猎虫 Mesh 已存在；Kinsect DataAsset 与 White/Orange/Red/TripleUp GE 待 E4 创建。生产代码已删除硬编码 `/Game/...` 加载，猎虫伤害直接复用原生 `UMHGZDamageGameplayEffect`。 |
 | UI/反馈 | AimComponent 已使用 `Aiming.Kinsect` + Visibility/Hitzone 验证并输出颜色 Delegate；Crosshair/三灯/耐力 Widget 与 GameplayCue 资产仍待 E6。 |
 | 运行时接线缺口 | Character WeaponRuntimeHost 已统一持有 Resource，并清理召回、换装、UnPossess 和 EndPlay 的当前 M3 资源。未实现的粉尘/舞踏/位移对象待后续阶段纳入同一所有权模型。 |
@@ -49,6 +49,12 @@ UMHGZInsectGlaiveAbility (攻击基类, 继承 UMHGZAttackAbility)
 ├── 在伤害 Spec 中快照舞踏/猎虫动作参数
 ├── 辅助方法: CheckExtractRequirement / ConsumeTripleUpAtomic
 └── 通过武器资源接口取得 URes_InsectGlaive，不把虫棍 Cast 写进通用基类
+
+UMHGZDrawAttackAbility（M4-A.4，继承 UMHGZInsectGlaiveAbility）
+├── 只允许 Grounded + Sheathed 的 Y 拔刀起手
+├── 接收 AnimNotify_DrawCommit 的精确 ActionToken 回调
+├── 在实际取刀表现点 SetSheathed(false) + 清 bSprintHeld
+└── GA_IG_Draw（零攻击段）与 GA_IG_DrawSlash（Forward 攻击段）共用
 
 UInsectGlaiveCombatConfig (虫棍专属 DataAsset)
 ├── RedExtractMode: ClassicMovesetGate / NumericOnly
@@ -276,7 +282,7 @@ Request 由 GA 根据不可变 ActivationContext 构造，Resource 负责校验�
     → State=Flying
 
 收刀直飞（收刀 RT）——★ 普通单发型
-  → GA_DrawAndSendKinsect → 先 Unsheathe → DeployKinsect(Request)
+  → GA_DrawAndSendKinsect → DrawCommit 后 Unsheathe → KinsectSendCommit 后 DeployKinsect(Request)
     → Request={AlongDirection, ActorForwardSnapshot, StraightFlightDistance, SingleHit, ConfigMotionValue, FirstHitOnly}
     → BeginFlight(Request)
 
@@ -437,7 +443,7 @@ GameplayCue.Hit.Kinsect              ← 猎虫命中反馈（小号火花+音�
   → 新请求校验成功后再中断旧状态并 BeginFlight；失败保持悬停
 
 收刀直飞（收刀 RT）
-  → Router 冻结 ActorForward，GA Commit 成功后拔刀
+  → Router 冻结 ActorForward，GA 的 DrawCommit 成功后拔刀
   → DeployKinsect(AlongDirection + ActorForwardSnapshot + StraightFlightDistance)
 
 飞行中（仅 State == Flying）
@@ -639,7 +645,7 @@ void UMHGZInsectGlaiveAbility::ActivateAbility(...)
 
 ### WeaponRuntimeDefinition 注册（目标）
 
-`DA_WeaponRuntime_IG` 统一引用 `URes_InsectGlaive`、`DA_IG_InputProfile`、`DA_IG_Combat` 和 `WBP_IG_ResourcePanel`。虫棍物品 WeaponDefinition 引用该资产；不再额外维护 DT_WeaponResourceConfig 行。
+`DA_WeaponRuntime_IG` 在 M4-A/E4-A 统一引用 `URes_InsectGlaive`、`DA_IG_InputProfile` 和 `DA_IG_Combat`；`ResourceWidgetClass` 保持 `None`。M6/E6 创建 `WBP_IG_ResourcePanel` 后才补入同一 RuntimeDefinition。虫棍物品 WeaponDefinition 始终只引用这一个资产；不再额外维护 DT_WeaponResourceConfig 行。阶段顺序见 [阶段门禁](milestone-gates.md)。
 
 ---
 
@@ -693,15 +699,16 @@ Combat.Branch.TripleUp                ← 三灯连招分支
 
 | 操作 | 输入 Tag | 连招表节点 | 说明 |
 |------|------|------|------|
-| 拔刀 | `Input.Weapon.Y`（已有） | `bMatchAnyState=true`, `RequiredTags={Combat.State.Sheathed}`, `Priority=30` | ★ 收刀态按 Y 优先拔刀——最高的 Priority 确保拔刀不被送虫/攻击抢占；奔跑中按 Y 中断奔跑后拔刀 |
+| 拔刀（仅拔刀） | `Input.Weapon.Y` | `Idle → DrawOnly`，`Direction=None`，`RequiredTags={Grounded,Sheathed}` | ★ `None` 是方向通配：收刀无、左、右、后 Y → `GA_IG_Draw`，只拔刀；不配置 AttackSegment。 |
+| 拔刀（攻击） | `Input.Weapon.Y` + `Forward` | `Idle → GroundStarter`，`Direction=Forward`，`RequiredTags={Grounded,Sheathed}` | ★ 具体 Forward 优先于 None：收刀前+Y → `GA_IG_DrawSlash`，拔刀攻击；奔跑中均在 DrawCommit 时清奔跑并切姿态。 |
 | 猎虫瞄准 | `Input.Modifier.LT` | — | 持刀态 LT 长按→ASC 持有 `Combat.State.Aiming.Kinsect` |
 | 送虫（瞄准） | `Input.Weapon.LTY` | `RequiredTags={Unsheathed,Aiming.Kinsect}` | 持刀地面 LT+Y；沿准心射线飞出 |
 | 召回（瞄准） | `Input.Weapon.LTB` | `RequiredTags={Unsheathed,Kinsect.Active}` | 持刀地面 LT+B；空中同一输入由状态分流为操虫斩 |
 | 虫印斩 | `Input.Weapon.RT` | `RequiredTags={Unsheathed,Grounded}` | 持刀地面 RT 未被 A/B/Y/LT 等获胜组合消费时，松开 RT 后近战命中 Hitzone 建立/替换唯一虫印 |
 | 虫印弹 | `Input.Weapon.LTRT` | `RequiredTags={Unsheathed,Aiming.Kinsect}` | 持刀 LT+RT；命中 Hitzone 后建立/替换唯一虫印 |
-| 拔刀直飞 | `Input.Weapon.RT` | `RequiredTags={Combat.State.Sheathed,Grounded}` | 收刀地面按下 RT → 拔刀并沿角色 Forward 放虫（奔跑中同样中断奔跑） |
+| 拔刀直飞 | `Input.Weapon.RT` | `RequiredTags={Combat.State.Sheathed,Grounded}` | 收刀地面按下 RT → 拔刀并沿角色 Forward 放虫；姿态/奔跑只在 DrawCommit 时改变 |
 | 急袭突刺 | `Input.Weapon.RT` | `RequiredTags={Aerial}` | 空中无论收/拔刀，按下 RT 立即发动；不使用松开回退 |
-| 纳刀 | `Input.Sheathe` | 通用路由（非连招表） | 持刀态按 RB 立即触发；攻击/硬直中无效；播完切 `Combat.State.Sheathed` |
+| 纳刀 | `Input.Sheathe` | 通用路由（非连招表） | 仅持刀地面态按 RB 立即触发；空中不派发，攻击/硬直/击倒/死亡/动作锁中无效；只在 `SheatheCommit` 切 `Combat.State.Sheathed`，动作尾帧仍持有 `Sheathing` |
 | 奔跑 | `Input.Sprint` | — | 收刀态按住 RB ≥0.1s 进入奔跑；点按不闪跑；拔刀/攻击中不产生奔跑 |
 | 四连印斩 | `Input.Weapon.YB` | 地面动作节点 | 无方向 Y+B |
 | 突进回旋斩 | `Input.Weapon.YB` + `Forward` | 地面方向节点，Priority 高于四连印斩 | 前+Y+B |
@@ -709,7 +716,7 @@ Combat.Branch.TripleUp                ← 三灯连招分支
 | 猎虫滑翔 | `Input.Weapon.RTY` | 地面动作节点 | 有虫印追虫印，否则短距前飞 |
 | 觉虫击 | `Input.Weapon.RTYB` | 地面且 TripleUp | 原子消耗三灯 |
 
-> **输入规则：** 收刀状态一般不能进行猎虫瞄准送/收虫，唯一例外是地面 RT 的“拔刀并正前方放虫”；空中 RT 始终为急袭突刺。持刀地面单 RT 在松开时才成为虫印斩，且只在不存在已消费 RT 的获胜组合时成立。收刀态按住 RB 奔跑；持刀态按 RB 立即纳刀（攻击/硬直中无效）。所有组合键先形成唯一 InputTag，再由状态、修饰键、方向和 Priority 分流；完整动作表见 [insect-glaive-actions.md §3](insect-glaive-actions.md#3-输入与方向判定)。
+> **输入规则：** 收刀状态一般不能进行猎虫瞄准送/收虫，唯一例外是地面 RT 的“拔刀并正前方放虫”；空中 RT 始终为急袭突刺。持刀地面单 RT 在松开时才成为虫印斩，且只在不存在已消费 RT 的获胜组合时成立。收刀态按住 RB 奔跑；仅持刀地面按 RB 才立即纳刀，空中 RB 不派发 `Input.Sheathe`，攻击/硬直/击倒/死亡/动作锁中无效。所有组合键先形成唯一 InputTag，再由状态、修饰键、方向和 Priority 分流；完整动作表见 [insect-glaive-actions.md §3](insect-glaive-actions.md#3-输入与方向判定)。
 
 ### 猎虫伤害
 
@@ -751,6 +758,8 @@ Content/
 │   ├── GE_IG_RedExtract.uasset              ← 红灯 Duration GE
 │   └── GE_IG_TripleUp.uasset                ← 三灯 Duration GE（不可刷新）
 ├── Blueprints/Ability/InsectGlaive/
+│   ├── GA_IG_Draw.uasset                   ← 收刀 Y 非 Forward：仅拔刀（M4-A.4）
+│   ├── GA_IG_DrawSlash.uasset              ← 收刀前+Y：拔刀攻击（M4-A.4）
 │   ├── GA_IG_SendKinsect.uasset             ← 持刀瞄准送虫（单发：SingleHit / FirstHitOnly）
 │   ├── GA_IG_DrawAndSendKinsect.uasset      ← 收刀直飞（单发：SingleHit / FirstHitOnly）
 │   ├── GA_IG_RecallKinsect.uasset           ← 召回
@@ -1012,9 +1021,11 @@ AimComponent 不在 BeginPlay 只尝试一次绑定 ASC。它在 RuntimeHost/ASC
 | 颜色变化 | 同上（Current/Max 比值） | 蓝图中绑定：>0.6 绿 / 0.3~0.6 黄 / <0.3 红+闪烁 |
 | 归零提示 | `OnKinsectStaminaChanged` 中 Current==0 | 播放闪烁+文字提示动画 |
 
-### Widget 生命周期
+### Widget 生命周期（M6/E6 目标；当前 M4-A 不执行）
 
 ```
+M6/E6 创建并填入 `WBP_IG_ResourcePanel` 后：
+
 装备虫棍 → EquipmentComponent::OnEquippedWeaponChanged(Snapshot) 广播
   → Character RuntimeHost 完成 DA_WeaponRuntime_IG + URes_InsectGlaive 初始化
   → RuntimeHost 广播 Ready(RuntimeDefinition, Resource, RuntimeToken)

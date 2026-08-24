@@ -36,9 +36,12 @@ EDataValidationResult UWeaponRuntimeDefinition::IsDataValid(FDataValidationConte
 	{
 		AddError(LOCTEXT("MissingCombatConfig", "CombatConfig must be assigned."));
 	}
-	if ((ResourceComponentClass == nullptr) != (ResourceWidgetClass == nullptr))
+	// A resource component is gameplay state and may exist before its HUD is
+	// implemented.  The reverse is not meaningful: a resource widget has
+	// nothing to bind to without a component.
+	if (ResourceWidgetClass != nullptr && ResourceComponentClass == nullptr)
 	{
-		AddError(LOCTEXT("IncompleteResourceUI", "ResourceComponentClass and ResourceWidgetClass must either both be assigned or both be empty."));
+		AddError(LOCTEXT("ResourceWidgetRequiresComponent", "ResourceWidgetClass requires ResourceComponentClass."));
 	}
 
 	return bInvalid ? EDataValidationResult::Invalid

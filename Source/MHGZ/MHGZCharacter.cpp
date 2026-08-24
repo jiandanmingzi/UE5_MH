@@ -211,18 +211,28 @@ void AMHGZCharacter::Tick(float DeltaTime)
 		}
 	}
 
-	if (ShouldBlockMovement()) {
+	UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost();
+	const bool bBlockMovement = ShouldBlockMovement();
+	bForceMMIdle = bBlockMovement
+		|| (RuntimeHost && RuntimeHost->IsMontageRootMotionOwned());
+	if (bBlockMovement)
+	{
+		// 保留 RawMoveInput/LastMovementInputDir 给输入快照和动作入口方向，
+		// 但绝不能把锁定期间的摇杆泄露给 AnimBP 的 locomotion 分支。
+		InputMagnitude = 0.f;
+		bHasInput = false;
 		TargetCruiseSpeed = 0.f;
 		DesiredSpeed = 0.f;
-		bForceMMIdle = true;
 		return;
 	}
 
 	const uint64 CurrentFrame = GFrameCounter;
 
-	// IA 漏帧兜底：本帧 DoMove 没跑 → DesiredSpeed 衰减
+	// IA 漏帧兜底：本帧 DoMove 没跑 → 清空 locomotion 意图并让 DesiredSpeed 衰减。
 	if (CurrentFrame != LastTheoryUpdateFrame)
 	{
+		InputMagnitude = 0.f;
+		bHasInput = false;
 		TargetCruiseSpeed = 0.f;
 		DesiredSpeed = FMath::FInterpTo(DesiredSpeed, 0.f, DeltaTime, DesiredSpeedInterpSpeed);
 	}
@@ -421,22 +431,28 @@ void AMHGZCharacter::DoMove(float Right, float Forward)
 		LastMovementInputDir = InputVector.GetSafeNormal();
 	}
 
-	// 2. 更新 InputMagnitude 和 bHasInput（始终更新，供 AnimBP 读）
+	// 2. 计算本帧原始摇杆幅度。RawMoveInput/LastMovementInputDir 始终保留，
+	//    但公开给 AnimBP 的 locomotion 意图会在 BlockMovement 下被屏蔽。
 	const float Mag = FMath::Sqrt(Right * Right + Forward * Forward);
-	bHasInput = Mag >= MoveDeadzone;
-	InputMagnitude = bHasInput ? Mag : 0.f;
 
-	// 3. BlockMovement → 全部归零，强制 MM 切 Idle
-	if (ShouldBlockMovement())
+	// 3. 移动锁和 Montage 根位移所有权分离：SteeringRootMotion
+	//    允许更新速度/朝向，但 MM 仍输出零 RM，避免双重位移。
+	UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost();
+	const bool bBlockMovement = ShouldBlockMovement();
+	bForceMMIdle = bBlockMovement
+		|| (RuntimeHost && RuntimeHost->IsMontageRootMotionOwned());
+	if (bBlockMovement)
 	{
+		InputMagnitude = 0.f;
+		bHasInput = false;
 		TargetCruiseSpeed = 0.f;
 		DesiredSpeed = 0.f;
-		bForceMMIdle = true;
 		return;
 	}
-	bForceMMIdle = false;
 
 	// 4. 计算目标巡航速度 + 平滑期望速度
+	bHasInput = Mag >= MoveDeadzone;
+	InputMagnitude = bHasInput ? Mag : 0.f;
 	const float DeltaTime = GetWorld()->GetDeltaSeconds();
 	TargetCruiseSpeed = CalcCruiseSpeed(InputMagnitude);
 	DesiredSpeed = FMath::FInterpTo(DesiredSpeed, TargetCruiseSpeed, DeltaTime, DesiredSpeedInterpSpeed);

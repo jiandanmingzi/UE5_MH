@@ -33,7 +33,7 @@ const FGameplayTag& TripleUpTag()
 	return Tag;
 }
 
-const FGameplayTag& TripleCostTag()
+const FGameplayTag& TestTripleCostTag()
 {
 	static const FGameplayTag Tag = M3::Tag(TEXT("Cost.IG.TripleUp"));
 	return Tag;
@@ -296,7 +296,7 @@ bool FMHGZM3TripleAtomicConsume::RunTest(const FString& Parameters)
 
 	// ── 预留语义 ──
 	FWeaponResourceCostSpec TripleSpec;
-	TripleSpec.CostType = TripleCostTag();
+	TripleSpec.CostType = TestTripleCostTag();
 	TripleSpec.Amount.Value = 1.f;
 	TArray<FWeaponResourceCostSpec> TripleSpecs = { TripleSpec };
 

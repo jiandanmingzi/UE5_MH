@@ -73,7 +73,7 @@ Combat.Event.IncomingHit    ← 怪物/测试器提交的命中上下文；突�
 Combat.Stagger.Light       ← 小硬直
 Combat.Stagger.Medium      ← 中硬直
 Combat.Stagger.Heavy       ← 大硬直
-Combat.State.Invincible    ← 无敌状态
+Combat.State.Invincible    ← 翻滚等动作的无敌帧状态；不表示可取消，也不是动作输入锁
 Combat.State.Hitstun       ← 受击硬直中
 Combat.State.Knockdown     ← 击倒/击飞中
 Combat.State.Grounded      ← 地面态（MovementComponent 管理）
@@ -92,19 +92,21 @@ Combat.State.Aerial.Dance.Source.AdvancingCounter ← 突进回旋斩反击舞�
 Combat.State.Aerial.CantDodge             ← 空中回避已用（默认无限制，舞踏重置清）
 Combat.State.Aerial.CantAttack            ← 空中攻击已用（默认无限制，舞踏重置清）
 Combat.State.Aerial.Landing               ← 落地瞬间过渡（AnimBP 内部用）
-Combat.State.Sheathed      ← ASC 初始化时默认添加；完整收/拔刀互斥流程尚未实现
-Combat.State.Unsheathed    ← 拔刀后/持刀态（与 Sheathed 互斥）
+Combat.State.Sheathed      ← RuntimeHost 维护的收刀姿态；与 Unsheathed 互斥，收刀在 SheatheCommit 精确帧切换
+Combat.State.Unsheathed    ← RuntimeHost 维护的持刀姿态；与 Sheathed 互斥
+Combat.State.Sheathing     ← M4-A.2 已注册/实现；GA_Sheathe 从成功提交到 EndAbility 的精确输入互斥 Token。可与任一姿态 Tag 并存，阻止普通玩家动作但不替代硬直/死亡强制取消
+Combat.State.Dodging       ← M4-A.3 已实现；GA_Dodge 从成功提交到 EndAbility 持有该精确 Token，阻止攻击、猎虫、收刀和再次 Dodge；MoveExit/BlendOut 均不得提前释放，硬直/死亡/换装可强制中断
 Combat.State.Aiming                ← 瞄准父标签，不直接作为具体动作条件
 Combat.State.Aiming.Kinsect        ← 持刀 LT 猎虫瞄准；AimComponent 订阅
 Combat.State.Aiming.Action         ← 持刀 RT 动作瞄准/特殊动作上下文
 Combat.State.Aiming.Slinger        ← 收刀 LT 投射物瞄准；Demo 暂无消费方
 Combat.State.ComboWindowOpen ← 连招输入窗口打开中
-Combat.State.BlockMovement ← 阻断 Motion Matching 输入与期望速度
+Combat.State.BlockMovement ← 仅阻断移动输入驱动的速度/朝向；不是动作输入锁，Walk 收刀可不持有它
 Combat.State.Movement.Starting ← 起步过渡 Tag（已注册，是否由当前 AnimBP 消费以资产为准）
 Combat.State.Movement.Stopping ← 停步过渡 Tag（已注册，是否由当前 AnimBP 消费以资产为准）
 Combat.State.Dead          ← 死亡（HP=0 时添加，阻塞所有输入+伤害）
 Combat.State.Attacking     ← 攻击中
-Combat.State.DodgeAcceptOpen ← 翻滚接受窗口打开中
+Combat.State.DodgeAcceptOpen ← M4-A.3 已实现；当前攻击允许被 Dodge 取消的精确窗口，由攻击 Montage 的 DodgeAcceptWindow 以该攻击 ActionToken 持有。不是 Dodge 自身无敌帧；无归属的同名 Loose Tag 不能授权取消
 Combat.State.IG.AdvancingCounterOpen ← 突进回旋斩可反击窗口
 Combat.State.Charging      ← 蓄力中
 Combat.State.Sprinting     ← 奔跑中
@@ -173,9 +175,9 @@ Input.Weapon.RTYB          ← RT+Y+B（觉虫击）
 Input.Modifier.LT          ← LT/L2 原始修饰输入，按姿态产生 Kinsect/Slinger 上下文
 Input.Modifier.RT          ← RT/R2 原始修饰输入，按姿态产生 Action 上下文或拔刀直飞
 Input.Modifier.Charging    ← RT 长按蓄力中
-Input.Modifier.Sheathed    ← RB/R1 原始输入 Tag：持刀按下=纳刀；收刀按住=奔跑
+Input.Modifier.Sheathed    ← RB/R1 原始输入 Tag：持刀地面按下可解析为纳刀；收刀按住=奔跑；空中不输出 Input.Sheathe
 Input.Sprint               ← RB/R1 — 收刀态按住奔跑（0.1s 阈值）
-Input.Sheathe              ← RB/R1 持刀按下=纳刀（通用 GA 路由，同 Input.Dodge）
+Input.Sheathe              ← RB/R1 持刀地面按下=纳刀（通用 GA 路由，同 Input.Dodge）；仅 `Unsheathed+Grounded` 输出，空中不产生该输入
 Input.Dodge                ← A/× — 闪避
 Input.EdgeVault            ← 边缘跳越（由 EdgeVaultComponent 自动触发，不绑定按键）
 Input.Interact             ← 交互

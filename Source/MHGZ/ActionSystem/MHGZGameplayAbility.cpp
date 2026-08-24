@@ -16,6 +16,26 @@ UMHGZGameplayAbility::UMHGZGameplayAbility()
 	NetExecutionPolicy = EGameplayAbilityNetExecutionPolicy::LocalOnly;
 }
 
+bool UMHGZGameplayAbility::HasPlayerActionInputLock(
+	const UAbilitySystemComponent* ASC)
+{
+	if (!ASC)
+	{
+		return false;
+	}
+
+	static const FGameplayTagContainer ActionInputLocks = []
+	{
+		FGameplayTagContainer Tags;
+		Tags.AddTag(FGameplayTag::RequestGameplayTag(
+			TEXT("Combat.State.Sheathing")));
+		Tags.AddTag(FGameplayTag::RequestGameplayTag(
+			TEXT("Combat.State.Dodging")));
+		return Tags;
+	}();
+	return ASC->HasAnyMatchingGameplayTags(ActionInputLocks);
+}
+
 // ── 成本 / 冷却（原生 GE） ──────────────────────────────────────────────────
 
 bool UMHGZGameplayAbility::CheckCost(
@@ -118,6 +138,29 @@ void UMHGZGameplayAbility::ApplyCooldown(
 		Spec.Data->DynamicGrantedTags.AddTag(CooldownTag);
 		ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
 	}
+}
+
+bool UMHGZGameplayAbility::CanActivateAbility(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayTagContainer* SourceTags,
+	const FGameplayTagContainer* TargetTags,
+	FGameplayTagContainer* OptionalRelevantTags) const
+{
+	if (!Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags,
+		OptionalRelevantTags))
+	{
+		return false;
+	}
+	if (ShouldIgnorePlayerActionLocks())
+	{
+		return true;
+	}
+
+	const UAbilitySystemComponent* ASC = ActorInfo
+		? ActorInfo->AbilitySystemComponent.Get()
+		: nullptr;
+	return ASC && !HasPlayerActionInputLock(ASC);
 }
 
 // ── 激活 / 结束 ─────────────────────────────────────────────────────────────
@@ -245,9 +288,10 @@ void UMHGZGameplayAbility::ActivateAbility(
 	}
 
 	// 8. 注册 Active Action。
-	if (Host)
+	if (Host && !Host->RegisterAction(CurrentActionToken))
 	{
-		Host->RegisterAction(CurrentActionToken);
+		RequestEndAction(EWeaponActionEndReason::Interrupted);
+		return;
 	}
 
 	// 9. PerSecond 耐力消耗任务。
@@ -269,6 +313,7 @@ void UMHGZGameplayAbility::EndAbility(
 		return; // 幂等：单次清理。
 	}
 	bMHGZEndCleanupDone = true;
+	bIsActionActivationCommitted = false;
 
 	// 1. 结束耐力消耗任务。
 	if (StaminaDrainTask.IsValid())
@@ -376,6 +421,33 @@ FWeaponOwnedTagToken UMHGZGameplayAbility::AcquireActionTags(
 		OwnedActionTagTokens.Add(Token);
 	}
 	return Token;
+}
+
+bool UMHGZGameplayAbility::ReleaseActionTag(FWeaponOwnedTagToken& InOutToken)
+{
+	if (!InOutToken.IsValid())
+	{
+		return false;
+	}
+
+	const int32 OwnedIndex = OwnedActionTagTokens.IndexOfByPredicate(
+		[&InOutToken](const FWeaponOwnedTagToken& OwnedToken)
+		{
+			return OwnedToken.RuntimeToken == InOutToken.RuntimeToken
+				&& OwnedToken.TokenID == InOutToken.TokenID;
+		});
+	if (OwnedIndex == INDEX_NONE)
+	{
+		InOutToken = FWeaponOwnedTagToken();
+		return false;
+	}
+
+	const FWeaponOwnedTagToken OwnedToken = OwnedActionTagTokens[OwnedIndex];
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	const bool bReleased = Host && Host->ReleaseTags(OwnedToken);
+	OwnedActionTagTokens.RemoveAtSwap(OwnedIndex, 1, EAllowShrinking::No);
+	InOutToken = FWeaponOwnedTagToken();
+	return bReleased;
 }
 
 void UMHGZGameplayAbility::ReleaseActionTags()

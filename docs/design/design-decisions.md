@@ -91,8 +91,8 @@
 | 69 | 怪物攻击首帧 Sweep 防高速穿透 | 龙车等高速攻击不会穿透玩家 |
 | 70 | Combat.State.Charging Tag 统一表达蓄力态 | 翻滚/移动/交互等系统自行决定是否允许操作 |
 | 71 | 协调器先激活再注入 ComboData | 解决 TryActivateAbilityByTag 不支持传参的问题 |
-| 72 | 方向修正角度存在 GA 成员 MaxCorrectionAngle | 蓄力 GA 不进连招表也需此参数 |
-| 73 | 多段招式用多个 MotionWarping AnimNotifyState 实现二次修正 | 不同段可不同角度，不需要创建多个 GA |
+| 72 | 普通攻击的 `MaxCorrectionAngle` 是 Confirm 后、Montage 前的一次冻结输入 Yaw 瞬转 | 基础攻击不依赖 MotionWarping，不读取实时摇杆；蓄力等不进连招表的 GA 仍可复用此入口参数 |
+| 73 | MotionWarping 只服务有显式目标对齐需求的特殊动作 | 特殊 GA 必须自己建立目标、Notify 消费和清理；`FAttackSegmentConfig::MaxWarpAngle` 当前没有通用运行时消费者，不能作为普通多段攻击已可用功能 |
 | 74 | FAttackSegmentConfig 统一管理碰撞+伤害+多跳 | 每段独立持有碰撞参数、动作值、破坏值、多跳配置 |
 | 75 | Demo 伤害基线 = AttackPower × MotionValue × HitzoneDefense × Crit | 只用于木桩闭环；完整斩味、属性、异常等在同一 DamageContext/ExecCalc 扩展，不阻塞动作 Demo |
 | 76 | 单碰撞多跳伤害（MultiHitCount>1） | 登龙剑下批：1 次 Sweep + Timer 驱动多次 Apply |
@@ -188,7 +188,7 @@
 | 161 | 离散武器动作 GA 固定 InstancedPerExecution，并由 ActionToken+MontageInstanceID 精确解析 Notify | 同一 Spec/类连续重入时旧 BlendOut、NotifyEnd 和 EndAbility 不能污染新实例；协调器保持 InstancedPerActor |
 | 162 | InputComponent 独占 IMC 与 Enhanced Input Binding；ASC 和 PlayerController 不建立第二套绑定 | 重复 Possess/Avatar 替换必须可解绑重建；Router 只解析快照，通用动作和武器动作共用 ResolvedInput 入口 |
 | 163 | 装备统计变化与武器身份变化分流；RuntimeHost 只对 WeaponSnapshot 身份变化重建 | 护甲、饰品、镶嵌或重复广播不能清空精华、舞踏和猎虫状态 |
-| 164 | Movement Token 同时拥有平移、旋转、steering 与唯一 WarpTarget | Character Tick 和动作任务不能并发写旋转；每个结束路径只移除本动作 WarpTarget |
+| 164 | Movement Token 同时拥有平移、旋转、steering 与特殊动作的唯一 WarpTarget | Character Tick 和动作任务不能并发写旋转；普通攻击只在入口瞬转、不创建 WarpTarget；每个特殊动作结束路径只移除自己拥有的 WarpTarget |
 | 165 | AMHGZHUD 是本地 Widget 树唯一所有者；资源面板只插入 WBP_HUD，删除空壳 UISubsystem | 每个 PlayerController/HUD 天然隔离本地玩家；消除 AddToViewport 与资源插槽双所有者 |
 | 166 | 武器成本使用 reservation 跨越 GAS Commit：Reserve→Commit→Release/Consume→Confirm | GAS Commit 失败不丢三灯；成功后的 Consume 保证不失败，避免部分耐力/冷却与部分武器资源状态 |
 | 167 | 基础 Dodge 纳入 M1 重写 | 它是战斗基底；必须先验证输入快照、AbilityTask、ActionToken、TagLedger 和碰撞响应恢复 |
@@ -196,3 +196,8 @@
 | 169 | PendingExtract 回手时原子取出并清空；耐力归零只在阈值边沿触发一次 | 支持连续取得不同颜色，避免 0 耐力每帧重复召回和音效 |
 | 170 | Demo 禁用 WeaponResource EntryModifier，完整词条阶段重新设计多来源句柄与参数过滤 | 当前 FindOrAdd/遍历语义会丢来源或把修饰应用到错误参数；木桩 Demo 不应建立在已知错误路径上 |
 | 171 | 旧虫棍 DT→最小 Combo→两个 GA→两个无自定义 Notify Montage 与零引用武器定义采用删除重建，不迁移其字段 | UE 5.6 引用审计证明这批资产只含最小原型数据；地图、核心 BP、AnimBP、原始 AnimSequence、美术与输入基础继续保留。M2 先解除旧读取，E3/E4 再按精确清单删除并从最终类型新建 |
+| 172 | 翻滚方向在激活时冻结选择，前向与左右后使用不同退出合同 | 收刀/持刀 Forward 或 None 可进入 MoveExit；持刀 Left/Right/Back 强制 IdleExit；收刀 Left/Right/Back 拒绝且不扣耐。所有成功变体共用同一 Instant 成本，旧方向 Map 不恢复为正式入口 |
+| 173 | 收刀 Y 使用一条 Input.Weapon.Y 与两条方向 Combo 边 | `Direction=None` 是通配，进入仅拔刀；`Direction=Forward` 优先进入拔刀攻击。输入层不创建方向 Chord，Coordinator 只读冻结快照 |
+| 174 | 所有拔刀路径都在实际视觉 DrawCommit 切姿态 | `GA_IG_Draw`、`GA_IG_DrawSlash`、`GA_IG_DrawAndSendKinsect` 由原生 Notify 按 ActionToken 回调 Ability 后 `SetSheathed(false)` + 清奔跑；不在激活或 Blueprint Event Graph 提前改姿态 |
+| 175 | 连招上下文只路由到目标 GA；目标 GA 决定 Montage Entry Section | `FComboTransition` 不引用 Montage/Section。M4-B.1 由 `UMHGZAttackAbility` 按 `TransitionID → SourceState → Default → Montage 开头` 选择并在 Montage Task 创建时传 StartSection；连接动画归目标招式的 Entry Section，上一招只保留未派生 Recovery |
+| 176 | 根运动所有权按实际动画阶段持有，不按 Montage Section 开关 | Section 只决定播放路径，Root Motion 由当前 AnimSequence 决定。真实根位移片段由精确 ActionToken 的 `ActionRootMotionPhase` 获取/释放所有权；in-place 片段不持有；无根位移却需移动的动作使用 MovementTask，MM 与 Montage 不得同时输出 Root Motion |

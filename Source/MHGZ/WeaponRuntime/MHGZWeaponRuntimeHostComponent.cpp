@@ -9,10 +9,13 @@
 #include "ActionSystem/MHGZHitStopControllerComponent.h"
 #include "ActionSystem/MHGZWeaponComboData.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Equipment/MHGZEquipmentDefinition.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "MHGZ.h"
 #include "MHGZCharacter.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeDefinition.h"
 
@@ -225,6 +228,10 @@ void UMHGZWeaponRuntimeHostComponent::ApplyWeaponSnapshot(
 				? Snapshot.RuntimeDefinition->InputProfile.Get() : nullptr);
 		}
 	}
+
+	// InitializePoseState runs before the first equipment snapshot. Re-apply the
+	// known pose after the definition is available so PIE starts on the back socket.
+	ApplyWeaponVisualAttachment(bSheathed);
 	BuildWeaponRuntime(Snapshot);
 }
 
@@ -357,6 +364,7 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 	TagLedger.ReleaseAll(CurrentToken);
 	ActiveActions.Reset();
 	MontageRegistrations.Reset();
+	MontageRootMotionOwner = FWeaponActionToken();
 	PoseTokens = FPoseTokens();
 	bGrounded = true;
 	bSheathed = true;
@@ -524,6 +532,10 @@ bool UMHGZWeaponRuntimeHostComponent::UnregisterAction(const FWeaponActionToken&
 		return false;
 	}
 
+	if (MontageRootMotionOwner == ActionToken)
+	{
+		MontageRootMotionOwner = FWeaponActionToken();
+	}
 	return ActiveActions.Remove(ActionToken) > 0;
 }
 
@@ -562,6 +574,60 @@ void UMHGZWeaponRuntimeHostComponent::DispatchInputRelease(const FWeaponInputSna
 }
 
 // ----------------------------------------------------------------------
+// Montage Root Motion 单一所有者
+// ----------------------------------------------------------------------
+
+bool UMHGZWeaponRuntimeHostComponent::AcquireMontageRootMotion(
+	const FWeaponActionToken& ActionToken)
+{
+	if (!bInitialized || bShuttingDown || !ActionToken.IsValid()
+		|| !IsTokenCurrent(ActionToken.RuntimeToken)
+		|| !ActiveActions.Contains(ActionToken))
+	{
+		return false;
+	}
+
+	if (MontageRootMotionOwner == ActionToken)
+	{
+		return true;
+	}
+	if (IsMontageRootMotionOwned())
+	{
+		return false;
+	}
+
+	MontageRootMotionOwner = ActionToken;
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::ReleaseMontageRootMotion(
+	const FWeaponActionToken& ActionToken)
+{
+	if (!bInitialized || !ActionToken.IsValid()
+		|| !IsTokenCurrent(ActionToken.RuntimeToken)
+		|| MontageRootMotionOwner != ActionToken)
+	{
+		return false;
+	}
+
+	MontageRootMotionOwner = FWeaponActionToken();
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::IsMontageRootMotionOwned() const
+{
+	return bInitialized && !bShuttingDown && MontageRootMotionOwner.IsValid()
+		&& IsTokenCurrent(MontageRootMotionOwner.RuntimeToken)
+		&& ActiveActions.Contains(MontageRootMotionOwner);
+}
+
+bool UMHGZWeaponRuntimeHostComponent::IsMontageRootMotionOwnedBy(
+	const FWeaponActionToken& ActionToken) const
+{
+	return IsMontageRootMotionOwned() && MontageRootMotionOwner == ActionToken;
+}
+
+// ----------------------------------------------------------------------
 // 精确 Montage 注册表
 // ----------------------------------------------------------------------
 
@@ -571,7 +637,8 @@ bool UMHGZWeaponRuntimeHostComponent::RegisterMontage(
 	int32 MontageInstanceID)
 {
 	if (!bInitialized || bShuttingDown || !IsTokenCurrent(ActionToken.RuntimeToken)
-		|| !ActionToken.IsValid() || !Mesh || MontageInstanceID == INDEX_NONE)
+		|| !ActionToken.IsValid() || !ActiveActions.Contains(ActionToken)
+		|| !Mesh || MontageInstanceID == INDEX_NONE)
 	{
 		return false;
 	}
@@ -612,7 +679,7 @@ bool UMHGZWeaponRuntimeHostComponent::ResolveMontage(
 	FWeaponActionToken& OutActionToken) const
 {
 	OutActionToken = FWeaponActionToken();
-	if (!bInitialized || !Mesh || MontageInstanceID == INDEX_NONE)
+	if (!bInitialized || bShuttingDown || !Mesh || MontageInstanceID == INDEX_NONE)
 	{
 		return false;
 	}
@@ -623,6 +690,7 @@ bool UMHGZWeaponRuntimeHostComponent::ResolveMontage(
 			return Reg.Mesh.Get() == Mesh && Reg.MontageInstanceID == MontageInstanceID;
 		});
 	if (!Found || !Found->ActionToken.IsValid()
+		|| !ActiveActions.Contains(Found->ActionToken)
 		|| !IsTokenCurrent(Found->ActionToken.RuntimeToken))
 	{
 		return false;
@@ -676,6 +744,7 @@ void UMHGZWeaponRuntimeHostComponent::HandleLanded()
 
 void UMHGZWeaponRuntimeHostComponent::InitializePoseState(ACharacter* InCharacter)
 {
+	bWeaponVisualAttachmentWarningIssued = false;
 	PoseTokens = FPoseTokens();
 
 	const bool bInGrounded = InCharacter && InCharacter->GetCharacterMovement()
@@ -715,6 +784,10 @@ bool UMHGZWeaponRuntimeHostComponent::ApplyGroundedPose(bool bInGrounded)
 
 bool UMHGZWeaponRuntimeHostComponent::ApplySheathedPose(bool bInSheathed)
 {
+	// Keep visual reattachment in the same exact path as Draw/Sheathe Commit.
+	// Missing visual configuration must not leave GAS in the previous posture.
+	ApplyWeaponVisualAttachment(bInSheathed);
+
 	ReleasePoseToken(PoseTokens.SheathedOrUnsheathed);
 
 	PoseTokens.SheathedOrUnsheathed = bInSheathed
@@ -732,6 +805,59 @@ bool UMHGZWeaponRuntimeHostComponent::ApplySheathedPose(bool bInSheathed)
 			SingleTagContainer(TEXT("Combat.State.Unsheathed")));
 
 	bSheathed = bInSheathed;
+	return true;
+}
+
+USkeletalMeshComponent* UMHGZWeaponRuntimeHostComponent::FindWeaponVisualComponent() const
+{
+	const ACharacter* Character = CurrentContext.Character.Get();
+	const UMHGZWeaponDefinition* Definition = CurrentContext.WeaponDefinition.Get();
+	if (!Character || !Definition || Definition->VisualComponentTag.IsNone())
+	{
+		return nullptr;
+	}
+
+	TArray<USkeletalMeshComponent*> MeshComponents;
+	Character->GetComponents<USkeletalMeshComponent>(MeshComponents);
+	for (USkeletalMeshComponent* MeshComponent : MeshComponents)
+	{
+		if (MeshComponent && MeshComponent != Character->GetMesh()
+			&& MeshComponent->ComponentHasTag(Definition->VisualComponentTag))
+		{
+			return MeshComponent;
+		}
+	}
+	return nullptr;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::ApplyWeaponVisualAttachment(bool bInSheathed)
+{
+	ACharacter* Character = CurrentContext.Character.Get();
+	const UMHGZWeaponDefinition* Definition = CurrentContext.WeaponDefinition.Get();
+	USkeletalMeshComponent* CharacterMesh = Character ? Character->GetMesh() : nullptr;
+	if (!Character || !Definition || !CharacterMesh)
+	{
+		return false;
+	}
+
+	USkeletalMeshComponent* WeaponMesh = FindWeaponVisualComponent();
+	const FName AttachSocket = bInSheathed
+		? Definition->SheathedAttachSocket
+		: Definition->AttachSocket;
+	if (!WeaponMesh || AttachSocket.IsNone() || !CharacterMesh->DoesSocketExist(AttachSocket))
+	{
+		if (!bWeaponVisualAttachmentWarningIssued)
+		{
+			UE_LOG(LogMHGZ, Warning,
+				TEXT("Weapon visual attachment skipped for '%s': visual component tag '%s' or character socket '%s' is missing."),
+				*Definition->GetName(), *Definition->VisualComponentTag.ToString(), *AttachSocket.ToString());
+			bWeaponVisualAttachmentWarningIssued = true;
+		}
+		return false;
+	}
+
+	WeaponMesh->AttachToComponent(CharacterMesh,
+		FAttachmentTransformRules::SnapToTargetNotIncludingScale, AttachSocket);
 	return true;
 }
 

@@ -7,19 +7,21 @@
 为虫棍木桩 Demo 修改代码时，按以下顺序读取：
 
 1. [重构范围与资产处置](demo-refactor-scope.md)：决定保留、重写、删除重建和延期边界。
-2. [冻结实施计划](demo-implementation-plan.md)：决定公共结构、所有权、M0～M7 顺序和退出条件。
-3. [虫棍动作与连招](insect-glaive-actions.md)：决定输入、派生、舞踏、位移和特殊动作玩法。
-4. [动作系统](actions.md)、[GAS 基础设施](gas-infrastructure.md)、[属性与装备](attributes.md)、[虫棍资源](insect-glaive.md)：决定模块接口和运行时状态。
-5. [当前实现差距](demo-implementation-gaps.md)：核对源码问题是否已被对应里程碑解决。
-6. [编辑器接线指南](../editor/demo-setup.md) 与 [验证清单](../editor/verification.md)：代码完成后再执行资产接线和人工验收。
+2. [阶段门禁、顺序与当前状态](milestone-gates.md)：先确认当前所在阶段、可做/不可做的工作和跨阶段阻塞项。
+3. [冻结实施计划](demo-implementation-plan.md)：决定公共结构、所有权、M0～M7 的完整接口与退出条件。
+4. [虫棍动作与连招](insect-glaive-actions.md)：决定输入、派生、舞踏、位移和特殊动作玩法。
+5. [动作系统](actions.md)、[GAS 基础设施](gas-infrastructure.md)、[属性与装备](attributes.md)、[虫棍资源](insect-glaive.md)：决定模块接口和运行时状态。
+6. [当前实现差距](demo-implementation-gaps.md)：核对源码问题是否已被对应里程碑解决。
+7. [编辑器接线指南](../editor/demo-setup.md) 与 [验证清单](../editor/verification.md)：代码完成后再执行资产接线和人工验收。
 
-发生冲突时：玩法以虫棍动作文档为准；通用架构和实施顺序以冻结实施计划为准；实现状态以实际源码和 Content 为准。
+发生冲突时：玩法以虫棍动作文档为准；通用架构以冻结实施计划为准；**阶段顺序、进出条件和当前状态以阶段门禁文档为准**；实现事实最终以实际源码、Content 和最近验证结果为准。
 
 ## 核心战斗文档
 
 | 文档 | 用途 |
 |---|---|
 | [demo-refactor-scope.md](demo-refactor-scope.md) | Keep/Rewrite/Delete/Defer 与一次性迁移合同 |
+| [milestone-gates.md](milestone-gates.md) | M/E/L 阶段顺序、进出条件、当前状态和跨阶段门禁的唯一入口 |
 | [demo-implementation-plan.md](demo-implementation-plan.md) | M0～M7 实施计划、接口和验收追踪 |
 | [demo-implementation-gaps.md](demo-implementation-gaps.md) | 当前源码 P0/P1 问题和证据 |
 | [m1-implementation-audit.md](m1-implementation-audit.md) | M1 实施范围、验证证据与 E2 交接 |
@@ -40,6 +42,7 @@
 | [gameplay-cue.md](gameplay-cue.md) | 命中、Buff、伤害数字和 Cue 路由 |
 | [ui-system.md](ui-system.md) | HUD 唯一所有权、准心和资源面板接口 |
 | [motion-matching.md](motion-matching.md) | Locomotion、Trajectory、旋转和动画图 |
+| [locomotion-refactor.md](locomotion-refactor.md) | 已冻结、待 M4-A.5 后实施的 CMC + 状态机 + Distance Matching 普通移动重构 |
 | [directory-structure.md](directory-structure.md) | Source/Content 目录和资产归属规范 |
 | [design-decisions.md](design-decisions.md) | 已冻结决策和被取代方案 |
 | [pending.md](pending.md) | 明确延期内容 |

@@ -12,7 +12,6 @@
 class USoundBase;
 class UCameraShakeBase;
 class UAnimMontage;
-class UMotionWarpingComponent;
 class UAbilityTask_PlayMontageAndWait;
 class UMHGZMonsterHitzoneComponent;
 class USkeletalMeshComponent;
@@ -299,6 +298,14 @@ public:
 	/** 碰撞窗口内由 AnimNotifyState::NotifyTick 每帧调用 */
 	void TickCollision(int32 SegmentIndex, float DeltaSeconds);
 
+	/** Attack-side exact window that permits this action to be superseded by Dodge. */
+	bool BeginDodgeAcceptWindow(FName NotifyEventID);
+	void EndDodgeAcceptWindow(FName NotifyEventID);
+	bool HasOpenDodgeAcceptWindow(const FWeaponActionToken& ActionToken) const;
+	bool PrepareDodgeSupersede(const FWeaponActionToken& DodgeActionToken);
+	bool CommitDodgeSupersede(const FWeaponActionToken& DodgeActionToken);
+	void CancelDodgeSupersede(const FWeaponActionToken& DodgeActionToken);
+
 	// ═══════════════════════════════════════════
 	// 伤害构造与 Apply
 	// ═══════════════════════════════════════════
@@ -328,14 +335,30 @@ public:
 protected:
 	virtual bool ValidateActionDependencies() const override;
 
-	/** 执行方向修正（MotionWarping） */
+	/** Runs after ActionToken registration and before the attack montage starts. */
+	virtual bool PrepareAttackMontage() { return true; }
+
+	/**
+	 * 在 Action Confirm 后、Montage 开始前，按冻结输入一次性修正 Actor Yaw。
+	 * 普通攻击不创建 Motion Warping Target；特殊动作需要 Warping 时自行显式实现。
+	 */
 	void ApplyDirectionCorrection();
 
-	/** 获取 MotionWarpingComponent */
-	UMotionWarpingComponent* GetMotionWarpingComponent() const;
+public:
+	/**
+	 * 原生单帧 Notify 的精确回调：只在当前已 Confirm 的 Action 上读取实时摇杆，
+	 * 按 Override 或本 GA 的 MaxCorrectionAngle 直接修正一次 Actor Yaw。
+	 * 返回 true 表示本次实际改变了朝向。
+	 */
+	bool ApplyInActionDirectionCorrection(const FWeaponActionToken& ActionToken,
+		float MaxCorrectionAngleOverride = -1.0f);
 
+protected:
 	/** 通知协调器首次命中 */
 	void NotifyCoordinatorFirstHit();
+
+	/** 当前招内修正可读取的实时世界方向；生产实现来自 Character 的原始摇杆缓存。 */
+	virtual FVector GetInActionCorrectionDirection() const;
 
 	// ═══════════════════════════════════════════
 	// 运行时状态
@@ -349,9 +372,6 @@ protected:
 
 	/** 本次激活的稳定攻击身份（ActivateAbility 时生成）。 */
 	FGuid ActivationAttackInstanceID;
-
-	/** 本次 Ability 实例独占的方向修正目标名，禁止与并发动作共享固定名称。 */
-	FName DirectionWarpTargetName = NAME_None;
 
 	/** 是否有活跃的 RootMotion Task */
 	bool bHasActiveRootMotionTask = false;
@@ -397,6 +417,10 @@ private:
 	/** 每个 ConfigIndex 独立保存轨迹、命中和多跳状态，允许窗口重叠。 */
 	TMap<int32, FCollisionWindowRuntimeState> ActiveCollisionWindows;
 
+	/** NotifyEventID -> exact ledger token; the notify asset owns no mutable state. */
+	TMap<FName, FWeaponOwnedTagToken> DodgeAcceptWindowTokens;
+	FWeaponActionToken PendingDodgeSuperseder;
+
 	/** 执行指定段的一次 Socket Sweep 检测。 */
 	void PerformSweepCheck(int32 SegmentIndex);
 
@@ -430,6 +454,8 @@ private:
 
 	UFUNCTION()
 	void OnMontageInterrupted();
+
+	void CloseAllDodgeAcceptWindows();
 
 	bool bIsEndingAbility = false;
 };

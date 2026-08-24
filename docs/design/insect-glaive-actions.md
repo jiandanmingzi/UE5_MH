@@ -36,11 +36,12 @@ Demo 明确不实现：
 
 | 状态 | 输入 | 动作 |
 |---|---|---|
-| 收刀 | `Y` | 按《世界》地面基底执行拔刀攻击 |
+| 收刀 | `Y`（无、左、右、后输入） | 仅拔刀，不攻击 |
+| 收刀 | `前+Y` | 拔刀攻击 |
 | 收刀 | `RT` | 拔刀并让猎虫沿角色正前方飞出 |
 | 收刀 | `LT` | 投射物瞄准；Demo 暂无消费方 |
 | 收刀 | `RB` 按住 ≥0.1s | 奔跑；点按不闪跑 |
-| 持刀 | `RB` | 纳刀（按下立即触发；攻击/硬直中无效） |
+| 持刀地面 | `RB` | 纳刀（按下立即触发；空中不派发；攻击/硬直/击倒/死亡/动作锁中无效） |
 | 持刀地面 | `LT` | 猎虫瞄准，显示猎虫准心 |
 | 持刀地面 | `Y+B` | 四连印斩 |
 | 持刀地面 | `前+Y+B` | 突进回旋斩；方向节点优先于无方向四连印斩 |
@@ -66,7 +67,41 @@ Combat.State.Aiming.Slinger   // 收刀 LT，Demo 无消费方
 
 `Input.Weapon.RT` 可以由三个互斥的 Chord 输出：收刀地面 `Sheathed+Grounded` 在按下时拔刀直飞；持刀地面 `Unsheathed+Grounded` 在 RT 未被 A/B/Y/LT 等获胜组合消费时于松开时触发虫印斩；空中 `Aerial` 不区分收/拔刀并在按下时触发急袭突刺。只有中间一条使用 Router 的 `OnReleaseIfUnconsumed`，其余均使用默认 `OnPress`。
 
-### 3.2 组合键与匹配优先级
+#### 收刀 Y 的拔刀分流与姿态 Commit
+
+InputProfile 只配置一条普通 Y Chord，输出 `Input.Weapon.Y`；它不需要也不能在输入层创建“前+Y”的第二条 Chord。Router 将方向与按键一起冻结，Coordinator 再匹配两条 `DA_IG_Combo` 转移：
+
+| 转移 | 条件 | GA | 结果 |
+|---|---|---|---|
+| `Idle → DrawOnly` | `Input.Weapon.Y`、`Direction=None`、`Grounded+Sheathed` | `GA_IG_Draw` | `None` 表示不要求方向，因而覆盖无、左、右、后输入；只播放拔刀，不配置 AttackSegment。 |
+| `Idle → GroundStarter` | `Input.Weapon.Y`、`Direction=Forward`、`Grounded+Sheathed` | `GA_IG_DrawSlash` | 具体方向优先于 None；播放拔刀攻击，AttackSegment 按普通攻击配置。 |
+
+`GA_IG_Draw` 与 `GA_IG_DrawSlash` 都继承 `UMHGZDrawAttackAbility`（M4-A.4），并使用 Montage 中原生 `AnimNotify_DrawCommit`。Notify 只负责以 Mesh+MontageInstanceID 找到当前 ActionToken 并转发；Ability 才调用 `RuntimeHost->SetSheathed(false)` 与清 `bSprintHeld`。因此 Commit 前取消仍是 Sheathed，Commit 后取消仍是 Unsheathed，不能在 Blueprint Event Graph 或 Ability 激活时提前写姿态。收刀 RT 的 `GA_IG_DrawAndSendKinsect` 也复用这一视觉 Commit 合同，但它直接继承 `UMHGZGameplayAbility`：它使用无 Root Motion 的 `UpperBody_IGAction` `ActionMontage`，不获得 `Attacking`、`BlockMovement` 或 MontageRootMotionOwner；`DrawCommit` 只切姿态，后续 `KinsectSendCommit` 才部署冻结的猎虫请求。
+
+持刀 `LT+Y` 送虫和 `LT+B` 收虫同样需要角色动作，但它们不是近战攻击。M4-A.5 直接扩展现有的 `UMHGZSendKinsectAbility`、`UMHGZRecallKinsectAbility`：各自新增 `ActionMontage`，在 `AnimNotify_KinsectSendCommit`、`AnimNotify_KinsectRecallCommit` 才调用 Resource；不新建通用 Montage GA 父类。`AM_IG_SendKinsect` 也可以由收刀 RT 的 `UMHGZDrawAndSendKinsectAbility` 复用：同一 Montage 同时存在 `DrawCommit` 和 `KinsectSendCommit`，两个 Notify 都按精确 ActionToken 仅路由给匹配的 Ability 类型。共享资产中 DrawCommit 必须至少早于 KinsectSendCommit 一帧，保证 DrawAndSend 先提交姿态再允许出虫。两条 Montage 都使用 `UpperBody_IGAction` Slot、in-place 且无 Root Motion；上半身与武器挂点播放动作，下半身保持当前姿态对应的 Motion Matching，因此动作途中摇杆仍可正常移动和转向。三种路径都不使用 `UMHGZAttackAbility`、`AttackSegment`、`AttackCollision`、`Attacking`、`BlockMovement`、攻击方向修正或 MontageRootMotionOwner；Notify 前中断不改变猎虫状态，Notify 后中断不撤销已开始的 Flight/Return。
+
+### 3.2 虫棍连招到拆分动画片段的数据流（M4-B.1 起）
+
+通用规则与完整时序见[动作系统设计](actions.md)中的“目标 GA 的 Montage 入口与片段数据流”。虫棍只在该通用链上填数据，不能在 Coordinator 中增加 `if InsectGlaive`、也不能让 ComboData 直接引用动画资源。
+
+```text
+当前虫棍招 A 的 ComboWindow
+  → 输入快照
+  → DA_IG_Combo: TransitionID=IG.A.To.B, A → B, AbilityClass=GA_IG_B
+  → Coordinator 冻结 { TransitionID, SourceState=A, TargetState=B, InputSnapshot }
+  → GA_IG_B Commit + Confirm
+  → GA_IG_B 的 EntrySectionByTransitionID 选择 Entry_From_A
+  → AM_IG_B: Entry_From_A → Core → Recovery_Common
+  → A 以 Superseded 结束；未继续派生时 B 自然结束并回 Idle
+```
+
+例如某个二段斩的目标 GA 使用一个 `AM_IG_Slash2`：`Entry_From_Idle`、`Entry_From_Slash1` 都在 Montage 的 Next Section 中连接到 `Core`，而 `Core` 再连接 `Recovery_Common`。若 `Slash1 → Slash2` 有专门衔接序列，将该序列放在 **Slash2 的** `Entry_From_Slash1`；`Slash1` 本身的 Recovery 仍是“未输入下一招时”的收招。多个动作共有的后摇可让各 Montage 引用同一 AnimSequence，不必复制烘焙资产。
+
+源序列被解包得零散不是问题：把“起手/衔接”“招式本体”“共用后摇”“仅给 MM 过渡的尾姿”按语义归类，再组进目标招式 Montage。Section 本身不能启用/关闭 Root Motion：真实有根位移的片段由 M4-B.1 的 `ActionRootMotionPhase` 精确取得所有权；in-place 片段不取得；看似有位移但根骨骼没有位移的空中片段由专用 MovementTask 驱动。不要仅为让一段连接动画播放而新建无碰撞的“中转 GA”。
+
+M4-B.1 原生字段未编译前，可以先在编辑器建立这些 Section 和 Next Section 链；但不得填写不存在的入口映射、更不得通过 Event Graph `Jump to Section` 伪造该运行时选择。
+
+### 3.3 组合键与匹配优先级
 
 `Y+B`、`LT+Y+B`、`RT+Y+B` 必须在输入层形成稳定的组合输入事件，不能依赖两个普通 Ability 在同一帧竞争激活。组合键允许一个可配置的 Chord Grace Period；在该时间内组成组合键后，应抑制对应的单键攻击。
 
@@ -78,7 +113,7 @@ Combat.State.Aiming.Slinger   // 收刀 LT，Demo 无消费方
 4. ComboData 的显式 Priority。
 5. 仍相同时视为数据错误，由 Data Validation 阻止运行。
 
-### 3.3 “前+Y+B”的前方定义
+### 3.4 “前+Y+B”的前方定义
 
 “前”相对角色朝向，不直接相对摄像机屏幕方向。移动输入先由 PlayerController 转换为水平世界方向，再与角色水平 Forward 比较：
 

@@ -1,6 +1,8 @@
 # MHGZ Motion Matching 移动系统设计文档
 
 > **实施状态说明（以源码和当前 AnimBP 资产为准）：** Motion Matching 主链路已经接入；附录脚步 IK 和本文中仍以“修改/实施步骤”描述的扩展内容继续作为详细方案保留。若示例代码与当前源码不同，以 `MHGZCharacter` 为准。
+>
+> **已冻结的后续替代方案（2026-08-20，尚未实施）：** 当前 PIE 已确认普通 locomotion 的手工 Trajectory、稀疏正向数据库和动作尾姿共用候选池无法仅靠 PSS 调参稳定满足启停与动作交接。完成 M4-A.5 非移动核心工作后，普通移动将按 [普通移动系统重构冻结方案](locomotion-refactor.md) 迁移为“CMC 位移 + 确定性状态机 + Distance Matching/Sync Marker”；攻击、翻滚、收拔刀的 Montage Root Motion/RootMotionSource 合同继续保留。迁移完成前，本文继续描述当前已实现系统；不得把冻结方案误报为当前行为，也不得在 M4-B.1/M5 扩展旧 MM 最终接管路径。
 
 ## 当前实现快照
 
@@ -168,10 +170,27 @@ float RunCruise_Unsheathed = 450.f;
 UPROPERTY(EditDefaultsOnly, Category="Movement|MM")
 float DesiredSpeedInterpSpeed = 20.f;
 
-/** 强制 MM 输出 Idle——BlockMovement 时切断 MM，防止 RM 和蒙太奇 RM 叠加 */
+/**
+ * 强制 MM 输出零 Root Motion 的 Idle Pose。
+ * 它由「BlockMovement 或当前 ActionToken 仍拥有 Montage Root Motion」计算，
+ * 不能再只由 BlockMovement 推导；MoveExit 需要允许输入转向，但 Montage 仍独占位移。
+ */
 UPROPERTY(BlueprintReadOnly, Category="Movement|MM")
 bool bForceMMIdle = false;
 ```
+
+`Combat.State.BlockMovement` 与 Montage 根位移所有权是两个不同概念，必须分别维护：
+
+| 状态 | 所有者 | 作用 | 典型阶段 |
+|---|---|---|---|
+| `Combat.State.BlockMovement` | TagLedger 的精确 `FWeaponOwnedTagToken` | 禁止由摇杆更新巡航速度与 Actor 朝向 | 前向翻滚本体、站立收刀 |
+| `MontageRootMotionOwner` | RuntimeHost 的精确 `FWeaponActionToken` | 令 `bForceMMIdle=true`，使 Slot 上的 Montage Root Motion 成为唯一位移来源 | 翻滚本体、翻滚 MoveExit、全部实际含 RM 的收刀段 |
+
+RuntimeHost 需要提供按 ActionToken 获取/释放的根位移所有权（例如 `AcquireMontageRootMotion`、`ReleaseMontageRootMotion`、`IsMontageRootMotionOwned`）。它不是 Loose Tag，旧 Montage、取消回调或其他 Ability 均不得释放不属于自己的所有权。GA 结束、Montage 中断、换装、死亡和 Runtime Shutdown 必须统一回收。
+
+#### 上半身送虫/收虫（M4-A.5）
+
+持刀 `LT+Y` / `LT+B` 的送虫、收虫不是“动作尾段接移动”，而是从第一帧起就允许完整持刀移动。二者的 Montage 必须为 in-place、无 Root Motion，并只播放 `UpperBody_IGAction` Slot；AnimGraph 以 Armed Motion Matching 为 Base Pose，将该 Slot 作为 `Layered Blend per Bone` 的 Blend Pose，从骨盆上方第一根脊椎骨开始混合全部上半身。它们不获取 `MontageRootMotionOwner`，不持有 `BlockMovement`，因此 `bForceMMIdle=false`，下半身的起步、移动、停步和转向始终由正常持刀 MM 输出。该规则只影响视觉分层；GA 在 Montage 中仍以 ActionToken 注册实例，送虫/收虫仅在各自精确 Commit Notify 执行，不能因移动而重读或更改冻结的 Aim 请求。
 
 ### 5.3 摇杆 → 巡航速度映射（替代原 `CalcMaxSpeed`）
 
@@ -208,24 +227,30 @@ void AMHGZCharacter::DoMove(float Right, float Forward)
     bHasInput = Mag >= MoveDeadzone;
     InputMagnitude = bHasInput ? Mag : 0.f;
 
-    // 3. BlockMovement → 全部归零，强制 MM 切 Idle
-    if (ShouldBlockMovement())
+    const bool bBlockMovement = ShouldBlockMovement();
+    const bool bMontageOwnsRootMotion = WeaponRuntimeHost
+        && WeaponRuntimeHost->IsMontageRootMotionOwned();
+
+    // 3. 两个维度分别计算：有任一个时都不允许 MM 贡献 Root Motion。
+    //    MoveExit 会是「false + true」：可读摇杆并转向，但仍由 Montage 位移。
+    bForceMMIdle = bBlockMovement || bMontageOwnsRootMotion;
+
+    // 4. BlockMovement 只冻结输入驱动的速度与朝向；它不再是根位移所有权的唯一真相。
+    if (bBlockMovement)
     {
         TargetCruiseSpeed = 0.f;
         DesiredSpeed = 0.f;
-        bForceMMIdle = true;
         return;
     }
-    bForceMMIdle = false;  // 正常移动时 MM 正常输出
 
-    // 4. 计算目标巡航速度
+    // 5. 计算目标巡航速度
     TargetCruiseSpeed = CalcCruiseSpeed(InputMagnitude);
 
-    // 5. 平滑期望速度
+    // 6. 平滑期望速度
     const float DeltaTime = GetWorld()->GetDeltaSeconds();
     DesiredSpeed = FMath::FInterpTo(DesiredSpeed, TargetCruiseSpeed, DeltaTime, DesiredSpeedInterpSpeed);
 
-    // 6. 记录帧号；旋转统一在 Tick 中按最大角速度执行
+    // 7. 记录帧号；旋转统一在 Tick 中按最大角速度执行
     LastTheoryUpdateFrame = GFrameCounter;
 }
 ```
@@ -237,7 +262,11 @@ void AMHGZCharacter::Tick(float DeltaTime)
 {
     Super::Tick(DeltaTime);
 
-    if (ShouldBlockMovement()) return;
+    const bool bBlockMovement = ShouldBlockMovement();
+    const bool bMontageOwnsRootMotion = WeaponRuntimeHost
+        && WeaponRuntimeHost->IsMontageRootMotionOwned();
+    bForceMMIdle = bBlockMovement || bMontageOwnsRootMotion;
+    if (bBlockMovement) return;
 
     // 本帧 DoMove 已跑 → 跳过
     const uint64 CurrentFrame = GFrameCounter;
@@ -379,17 +408,64 @@ AnimBP 通过 Actor Yaw 的帧间差计算 `AngularVelocity`（度/秒），填�
 
 ## 8. GAS 集成
 
-### 8.1 BlockMovement Tag
+### 8.1 动作移动阶段、BlockMovement 与 Montage Root Motion
 
-当前 C++ 代码已有 `ShouldBlockMovement()`，保持不变：
+动作不能再只用“全程 BlockMovement / Ability End 解锁”表达。所有带位移且末段可接移动的动作都按下表分阶段；输入数据始终由 `DoMove` 更新，但只有允许的阶段才会影响角色。
 
-```
-攻击 GA / 翻滚 GA / 受击 GA
-  → AddLooseGameplayTag(Combat.State.BlockMovement)
-  → DoMove 检测到 → DesiredSpeed = 0, bForceMMIdle = true
-  → AnimGraph: Blend by Bool 切到 Idle（零 RM）→ Slot 层蒙太奇 RM 独占位移
-  → Ability 结束 → RemoveLooseGameplayTag → DesiredSpeed 恢复，bForceMMIdle = false
-```
+| 阶段 | `BlockMovement` | `MontageRootMotionOwner` | 摇杆效果 | 位移来源 |
+|---|---:|---:|---|---|
+| `InPlaceLocked` | 有 | 无 | 只记录输入；不转向、不改速度 | 无根位移的动作表现 |
+| `LockedRootMotion` | 有 | 有 | 只记录 `LastMovementInputDir`，不转向、不改速度 | Montage RM |
+| `SteeringRootMotion` | 无 | 有 | 实时摇杆更新巡航速度与平滑朝向 | Montage RM；MM 零 RM |
+| `MotionMatching` | 无 | 无 | 正常 | MM |
+
+#### 拆分 Animation Sequence 的根运动阶段（M4-B.1 / M5 前置）
+
+UE 的 Montage Section 只负责“从哪里开始、下一段跳到哪里”，**没有**“本 Section 开/关 Root Motion”的独立开关。当前帧是否有 Root Motion 由 Montage 正在播放的 AnimSequence 根骨骼数据及其资产设置决定。因此同一 Montage 可以线性播放 in-place 的 Entry、真实 Root Motion 的 Travel/Core、再播放 in-place 的 Recovery；但不能把一条本身有移动根轨迹的序列仅靠关闭某个 Section 的提取来变成安全的 in-place 片段——那会造成 Mesh 与 Capsule 漂移、回弹或脚底滑动。应使用根轨迹本来静止的序列，或重新处理/裁切为真正的 in-place 资产。
+
+后续攻击的所有权以**实际贡献根位移的时间段**为准，而不是以整个 Montage 或 Section 为准：`AnimNotifyState_ActionRootMotionPhase` 覆盖每段真实 RM 的首帧至末帧，按精确 ActionToken 令 GA 获取/释放 `MontageRootMotionOwner`。典型组合是：`Entry_From_*` 为 `InPlaceLocked`，Travel/Core 的真实根位移段为 `LockedRootMotion` 或 `SteeringRootMotion`，尾部不再有根位移后进入 `MotionMatching`。若该招式仍要锁动作但尾部没有位移，则维持 `InPlaceLocked` 直到 Ability 结束；若应无缝回到移动，先释放动作自己的 `BlockMovement` Token 和 RootMotionOwner，再由 MM 的起步/停步序列接管。
+
+“空中大位移序列看起来很乱、但根骨骼没有给出实际平移”属于 Gameplay 位移，不属于 Montage RM：GA 在相应 Notify/阶段启动有碰撞上限、终止与清理协议的 MovementTask/RootMotionSource；序列只作为表现。不得为让 MM 停止而虚假获取 MontageRootMotionOwner，也不得让 Task、Montage RM 和 MM 同时写角色位移。
+
+**翻滚方向与阶段：** 翻滚的**动画变体**由激活时冻结的姿态和 `InputSnapshot.Direction` 一次选择；退出分支只在允许的前向变体中读取实时输入。收刀或持刀的 `Forward/None` 使用对应前向 Montage：`DodgeCore` 为 `LockedRootMotion`，GA 为自己这一次 `FAnimMontageInstance` 绑定 `OnMontageSectionChanged`，并先固定 `DodgeCore -> IdleExit`；实际进入 `IdleExit` 时才读原始摇杆，持续有输入便立即跳到 `MoveExit`。确认进入 `MoveExit` 后，GA 自己释放本 Action 的 `BlockMovement`，而 `MontageRootMotionOwner` 仍保留到 Montage Root Motion 结束/BlendOut。这样摇杆不会改变翻滚本体方向，却能从移动恢复段开始以 `TurnRate` 平滑转向。持刀的 Left/Right/Back 在激活时选择各自专用 Montage，但 `FDodgeSelection.bAllowMoveExit=false`，完整动作强制 IdleExit 并一直保持 `LockedRootMotion` 到结束；收刀 Left/Right/Back 直接拒绝，不播动画也不扣耐。
+
+| 变体 | 选择依据 | `SteeringRootMotion` | Montage 结束后的移动 |
+|---|---|:---:|---|
+| 收刀/持刀前向（含 None） | 冻结姿态 + Forward/None | 有 | 前向 Exit 后可无缝交给 MM |
+| 持刀左/右/后 | 冻结姿态 + Left/Right/Back | 无 | 先回 Idle；若仍有摇杆，随后由正常 MM 起步动画接管 |
+| 收刀左/右/后 | 冻结姿态 + Left/Right/Back | — | Reject |
+
+**移动收刀：** `Idle`/`Walk` 仅由激活快照决定，之后不允许切换 Section。`Idle` 持有 `BlockMovement`；`Walk` 从第一帧起不持有它，因此实时摇杆可转向。两段只要仍含 Root Motion 就都持有 `MontageRootMotionOwner`；动画应只有前向 Root 位移、没有与代码转向竞争的 Root Yaw。转向后的 Root Motion 在 Actor 新朝向上形成平滑弯曲轨迹；这不是瞬时 180° 改轨，若要瞬时大幅重定向，必须另做方向资产或使用经验证的 Motion Warping。
+
+#### 收刀输入互斥（M4-A 必需）
+
+`BlockMovement` 和 `MontageRootMotionOwner` 都**不是输入锁**：前者只冻结移动/转向，后者只禁止 MM 与 Montage 同时贡献根位移。尤其 `Walk` 收刀故意不持有 `BlockMovement`，因此不能把“可转向”误解为“可打断”。
+
+本 Demo 的纳刀资格固定为：`Grounded + Unsheathed`，且当前不处于攻击、硬直、击倒、死亡、收刀或翻滚动作锁中。InputProfile 的 `Input.Sheathe` Chord 必须同时要求 `Combat.State.Grounded` 与 `Combat.State.Unsheathed`，从源头不产生空中收刀快照；`UMHGZSheatheAbility::CanActivateAbility` 仍必须以当前 RuntimeHost/ASC 状态二次确认 Grounded（并拒绝 Aerial）与上述阻塞状态。这样即使输入快照后的极短时间内起跳，也不会把旧的地面输入误激活成空中收刀。空中收刀不属于 M4-A，留给 M5 的空中动作设计明确接入。
+
+`GA_Sheathe` 在成功提交 Action 后必须以自己的 `FWeaponOwnedTagToken` 获取 `Combat.State.Sheathing`，并从激活开始一直持有到 `EndAbility`；不得在 `SheatheCommit` 时释放。该 Tag 与姿态 Tag 正交：Commit 前为 `Unsheathed + Sheathing`，Commit 后为 `Sheathed + Sheathing`。这样武器已归位但 Montage 尾帧/Root Motion 尚未结束时，普通玩家按键仍不能插入新动作。
+
+实现合同如下：
+
+1. `Input.Sheathe` 的 Chord 同时要求 `Grounded+Unsheathed`；`UMHGZSheatheAbility::CanActivateAbility` 重新读取当前状态，必须拒绝 `Aerial`、`Dead`、`Attacking`、`Hitstun`、`Knockdown`、`Sheathing` 与 `Dodging`，并保留 Mesh/AnimInstance/Montage/Section 有效性检查。不得把 InputProfile 视为唯一门槛。
+2. 在 `DefaultGameplayTags.ini` 注册 `Combat.State.Sheathing`；`UMHGZSheatheAbility` 获取它失败时必须取消本次 Action，所有正常结束、中断、换武器、死亡和 Runtime Shutdown 都依赖 ActionToken/TagLedger 精确回收。
+3. `UMHGZGameplayAbility::CanActivateAbility` 为普通玩家动作默认拒绝 `Sheathing/Dodging`；正在收刀的 `GA_Sheathe` 不豁免，因此重复激活也会被自己的 `Sheathing` 拒绝。常驻 Coordinator 只豁免自身初始化，其 Transition 仍拒绝动作锁；未来强制反应必须由原生类显式豁免。不能靠把多个同 `InputTag` 的 Blueprint 堆在 `CoreAbilities` 来决定优先级。
+4. `UGA_WeaponComboCoordinator::HandleWeaponInput`/Transition 匹配在该 Tag 存在时直接拒绝，不能建立 PendingTransition 或预输入；`Input.Dodge`、猎虫等通用路由最终也必须被 GA 激活检查拒绝。
+5. 仅硬直、死亡等明确的强制取消路径可打断收刀；若未来要设计“收刀后摇可翻滚取消”，必须另做精确 `SheatheCancelWindow` 和明确的取消规则，不能复用 `DodgeWindow` 或提前清 `Sheathing`。
+
+#### 翻滚取消与翻滚动作锁（M4-A 必需）
+
+最终 `GA_Dodge` 与 `GA_Sheathe` 同属 `CoreAbilities`，且 `Input.Dodge` 只能有一个已授予的最终 Spec；它不进入任何武器 ComboData。CoreAbilities 只保证通用输入始终有目标，**不**提供取消优先级或动作互斥。
+
+攻击 Montage 上的 `AnimNotifyState_DodgeAcceptWindow` 才是“攻击允许被翻滚打断”的短窗口：它由当前攻击的精确 ActionToken 持有 `Combat.State.DodgeAcceptOpen`，窗口关闭/攻击结束即回收。它与翻滚 Montage 上的 `AnimNotifyState_DodgeWindow` 完全不同；后者仅在无敌帧持有 `Invincible` 并暂时调整碰撞，不能允许攻击取消，也不能充当输入锁。
+
+`GA_Dodge` 成功 Commit 后以自己的 Token 持有 `Combat.State.Dodging` 直到 `EndAbility`。普通玩家动作（攻击、猎虫、收刀、再次翻滚）默认拒绝此 Tag，Coordinator 也不得建立 PendingTransition；硬直、死亡、换装等强制路径可中断并统一清理。攻击中按 Dodge 使用两阶段交接：新 Dodge 先完成预检/Commit/动作登记，Coordinator 对仍有精确 DodgeAcceptWindow 的旧攻击 Prepare；随后启动并登记 Dodge Montage，成功后 Commit `RequestEndAction(Superseded)`，失败则 Cancel Prepare。Prepare 期间旧攻击会忽略由新 Montage 引发的瞬时 Interrupted 回调，保证最终结束原因仍为 Superseded；不得在 Dodge 失败前先杀死旧攻击。
+
+Notify 不直接操作 CharacterMovementComponent，也不直接清全局 Tag。它使用 `(Mesh, MontageInstanceID) → ActionToken` 注册表定位当前 Ability；GA 再通过 `FWeaponOwnedTagToken` 释放自己的锁。`UMHGZGameplayAbility` 应新增受保护的单 Token 释放接口（例如 `ReleaseActionTag(FWeaponOwnedTagToken&)`），同时从其结束时清理列表移除该 Token；禁止 `RemoveLooseGameplayTag` 或“按 Tag 全删”。
+
+**交接点：** `MontageRootMotionOwner` 只能在 Montage 不再贡献根位移、Slot 正要/已经 Blend Out 时释放。之后 `bForceMMIdle=false`，MM 根据在 `SteeringRootMotion` 阶段已更新的 `DesiredSpeed`、Actor Yaw 与 Trajectory 接管。若通用数据库不能稳定匹配动作尾姿，将尾段裁为非循环 transition sequence，加入目标 Database；仍不足时才用短暂的专用 Exit Database/Chooser 约束，绝不让该序列同时被 Montage 与 MM 驱动。
+
+> **历史实现说明：** 本节描述当前旧 Motion Matching 路径及其动作交接合同；其中的日期型实现进度不再作为阶段依据。当前状态、M4-A.5 的 E4-A 接线门禁、L0～L5 的顺序以及 M4-B.1/M5 禁入条件，以 [阶段门禁](milestone-gates.md) 和 [普通移动系统重构冻结方案](locomotion-refactor.md) 为准。
 
 ### 8.2 MoveSpeedMultiplier
 
@@ -400,7 +476,7 @@ GAS `MoveSpeedMultiplier` 属性已存在，但以下消费方式尚未接入：
 
 ### 8.3 冲刺
 
-- `SprintAction` 绑定 RB/R1（2026-08-11 双语义：收刀态按住奔跑；持刀态由 Router 解析为纳刀）。`SprintPressed` 改为收刀态按住 ≥0.1s 才置 `bSprintHeld=true`（避免点按闪跑），拔刀态直接 return；`CalcCruiseSpeed` 拔刀分支不返回 SprintCruise
+- `SprintAction` 绑定 RB/R1（2026-08-11 双语义：收刀态按住奔跑；仅持刀地面态由 Router 解析为纳刀）。`SprintPressed` 改为收刀态按住 ≥0.1s 才置 `bSprintHeld=true`（避免点按闪跑），拔刀态直接 return；`CalcCruiseSpeed` 拔刀分支不返回 SprintCruise
 - `bSprintHeld = true` 时 `CalcCruiseSpeed` 对摇杆 > 0.9 返回 `SprintCruise`
 - 拔刀态禁止冲刺（`Combat.State.Unsheathed` Tag）；奔跑中拔刀（Y/RT）必须清 `bSprintHeld`
 
@@ -421,7 +497,7 @@ GAS `MoveSpeedMultiplier` 属性已存在，但以下消费方式尚未接入：
 | 巡航速度 | Walk=150, Run=500, Sprint=650 | 单速 ~450 |
 | Sprint | 支持 | 不支持（拔刀态禁止奔跑） |
 
-**切换时机**：收刀/拔刀 GA 播放 Montage 期间，Montage 通过 Slot 节点覆盖 MM 输出。Montage 结束后，AnimBP 已切到新数据库，MM 自然接续新数据库的第一匹配帧。动画序列之间的过渡差距由收刀/拔刀 Montage 本身的动作遮盖，无需额外处理。
+**切换时机**：收刀/拔刀 GA 播放 Montage 期间，Montage 通过 Slot 节点覆盖 MM 输出。收刀必须在武器实际挂回背部的 `AnimNotify_SheatheCommit` 切换 `Sheathed`；该 Notify 后的短尾帧属于 `Database_Unarmed` 的姿势家族，Slot 继续遮盖数据库切换。若 Notify 前中断，保持 Unsheathed；若 Notify 后中断，保持 Sheathed。所有拔刀路径反向遵守同一合同：`GA_IG_Draw`、`GA_IG_DrawSlash` 与 `GA_IG_DrawAndSendKinsect` 都只在自己的 `AnimNotify_DrawCommit` 解析到当前 ActionToken 后切 `Unsheathed` 并清 `bSprintHeld`；Commit 前中断保持 Sheathed，Commit 后中断保持 Unsheathed。真实全身根位移动作的 Montage 根位移结束并 Blend Out 后才释放 `MontageRootMotionOwner`，MM 依据实时输入接续新数据库的第一匹配帧；`GA_IG_DrawAndSendKinsect` 是 in-place `UpperBody_IGAction`，从不取得该所有权，且其后续 `KinsectSendCommit` 才放虫。不能再笼统地在 Montage 正常结束或 Ability 激活时切换姿态。
 
 ### 9.3 C++ 巡航速度配置
 
@@ -478,7 +554,8 @@ DoMove() / Tick()  ← 每帧必跑
   ├─ TargetCruiseSpeed = CalcCruiseSpeed(InputMagnitude)（摇杆→巡航速度）
   ├─ DesiredSpeed = FInterpTo(DesiredSpeed, TargetCruiseSpeed, dt)（平滑）
   ├─ Tick: 按 TurnRate×dt 限制最大 Yaw 步长（平滑转向）
-  └─ BlockMovement? → DesiredSpeed=0, bForceMMIdle=true
+  ├─ BlockMovement? → DesiredSpeed=0，禁止角色按摇杆转向
+  └─ BlockMovement 或 MontageRootMotionOwner? → bForceMMIdle=true
   │
   ▼
 AnimBP EventGraph（TG_PostPhysics，读 C++ 数据）
@@ -504,8 +581,9 @@ AnimGraph Motion Matching 节点
 5. **EventGraph 重写**：按 §6.2 实现 Trajectory 填充逻辑
 6. **CMC 配置**：`MaxWalkSpeed = 1200`，保持 `MOVE_Walking`
 7. **调参**：按 §10（设计文档原文参数调优指南）调整 InterpSpeed/TurnSpeed/死区
-8. **GAS 验证**：测试攻击/翻滚/受击期间 BlockMovement 行为
-9. **脚步 IK**：添加 Foot Placement IK（可选，先看滑步严不严重）
+8. **动作阶段运行时**：实现 ActionToken 所有的 Montage Root Motion 所有权、单 Token 提前释放，以及 Dodge 自身 Montage `SectionChanged` 出口处理、`SheatheCommit` Notify 的精确路由。
+9. **GAS 验证**：测试前向翻滚锁定段不受摇杆影响、只有前向变体可进入 MoveExit、持刀左/右/后强制 IdleExit、收刀左/右/后拒绝且不耗耐、移动收刀可转向且不换 Section、收刀与所有拔刀路径的 Commit 前后中断姿态、Montage 与 MM 从不同时拥有根位移。
+10. **脚步 IK**：添加 Foot Placement IK（可选，先看滑步严不严重）
 
 ---
 

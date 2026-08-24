@@ -4,9 +4,11 @@
 
 > **编辑器真相源：** 本文决定“在编辑器里做什么和按什么顺序做”；玩法和代码接口分别以 [虫棍动作设计](../design/insect-glaive-actions.md)、[虫棍资源设计](../design/insect-glaive.md) 和 [冻结实施计划](../design/demo-implementation-plan.md) 为准。字段名称与重构后的 C++ 不一致时先停止，不要凭相似名称猜填。
 
+> **阶段门禁：** 当前所在阶段、M/E/L 的进入/退出条件和已知阻塞项统一见 [阶段门禁](../design/milestone-gates.md)。本文件不再用某个旧日期的进度段落判断“是否可以进入下一阶段”。
+
 ## 1. 执行顺序
 
-严格按下列顺序操作，前一阶段未通过时不要批量制作后一阶段资产。
+按下列依赖顺序操作。M 是代码、E 是编辑器工作包，并非机械的一一对应；除明确标为可并行的 E5-A 外，未满足前置不得批量制作后续资产。
 
 | 阶段 | 编辑器工作 | 完成标志 |
 |---|---|---|
@@ -15,8 +17,9 @@
 | E2 | 核心蓝图接线 | GameMode、Controller、PlayerState、Character、HUD 关系唯一 |
 | E3 | Runtime/Input/Combat/Combo DataAsset | 武器只从 RuntimeDefinition 接线；正式数据壳存在，Combat/Combo 的动作类引用待 E4 完成 |
 | E4-A | 最小纵切 GE、GA、Montage、Notify | 收/拔刀、放/收虫和一个地面起手动作使用最终资产接线；不是完整 E4 |
-| E4-B | 其余 GE、GA、Montage、Notify | 全部计划动作均可独立激活并正确结束 |
-| E5 | 猎虫、木桩和测试攻击器 | 三色部位、普通放虫和反击输入可复现 |
+| E5-A | 木桩三色部位与基础猎虫物理 | M3 的 Hitzone Sweep、三色萃取和猎虫碰撞有真实测试目标；可在 E4-A 收尾时并行完成 |
+| E4-B | 其余 GE、GA、Montage、Notify | 仅在 L5 与 M4-B.1 后接入，全部计划地面动作可独立激活并正确结束 |
+| E5-B | 虫印/粉尘表现与训练场 | 只接通已完成代码阶段公开的表现资产；不抢做 M6 UI |
 | E6 | HUD、资源面板、准心与反馈 | Viewport 只有一份主 HUD，资源面板只在插槽内 |
 | E7 | 全流程 PIE、生命周期压力、打包 | [验证清单](verification.md) 的当前 Demo 项全部通过 |
 
@@ -145,10 +148,10 @@ Preset 建好后还必须在对应阶段应用到组件，不能只在 Project S
 | 执行阶段 | 组件 | Collision Preset | 额外要求 |
 |---|---|---|---|
 | E2 | `BP_IG_Character` 的 CapsuleComponent | `PlayerCapsule` | Collision Enabled 应显示 Query and Physics |
-| E5 | `BP_TrainingDummy` 的 CapsuleComponent | `MonsterBody` | 木桩唯一实体 Body；负责阻挡玩家 |
-| E5 | `BP_TrainingDummy` 的 SkeletalMeshComponent | `NoCollision` | 只负责显示和提供骨骼挂点，不再建立第二个 Body |
-| E5 | 运行时生成的 Head/Torso/Leg Hitzone Sphere | `MonsterHitzone` | Query Only；Generate Overlap Events=false |
-| E5 | `AKinsect` 的 Collision Root | `Kinsect` | Query Only；Generate Overlap Events=false；ProjectileMovement UpdatedComponent 指向它 |
+| E5-A | `BP_TrainingDummy` 的 CapsuleComponent | `MonsterBody` | 木桩唯一实体 Body；负责阻挡玩家 |
+| E5-A | `BP_TrainingDummy` 的 SkeletalMeshComponent | `NoCollision` | 只负责显示和提供骨骼挂点，不再建立第二个 Body |
+| E5-A | 运行时生成的 Head/Torso/Leg Hitzone Sphere | `MonsterHitzone` | Query Only；Generate Overlap Events=false |
+| E5-A | `AKinsect` 的 Collision Root | `Kinsect` | Query Only；Generate Overlap Events=false；ProjectileMovement UpdatedComponent 指向它 |
 | E2 | `BP_IG_Character` 的武器 SkeletalMeshComponent | `NoCollision` | 武器命中来自显式 Socket Sweep，不靠 Mesh 物理碰撞 |
 
 `AMHGZMonsterBase` 和 `UMHGZMonsterHitzoneComponent` 会在 C++ 中再次设置 `MonsterBody/MonsterHitzone`，这是运行时兜底，不代表可以省略 Project Settings 中的 Preset 定义。若名称不存在，`SetCollisionProfileName` 无法得到本文要求的响应矩阵。
@@ -165,7 +168,7 @@ M1 已将 `UAnimNotifyState_DodgeWindow` 改为缓存并恢复窗口开始前的
 2. 再次进入 Collision 页面，确认只存在一组 `Weapon`、`MonsterAttack`、`Hitzone` 和一组四个 Preset。
 3. E1 的完成门槛到此为止：重新打开每个 Preset，逐项对照 §3.2.2～3.2.3；Object Type、Collision Enabled 和 11 个响应都一致。
 
-以下集成验证等表中对应组件完成后，在 E5/E7 执行，不阻塞当前 E1：
+以下集成验证等表中对应组件完成后，在 E5-A/E7 执行，不阻塞当前 E1：
 
 4. 打开 Character 与 TrainingDummy 蓝图，逐个选择 Capsule/Mesh，在 Details → Collision 中确认 `Collision Presets` 没有变成 `Custom` 或 `Default`。
 5. PIE 中打开控制台执行 `show collision`：玩家和木桩各只有一个实体 Capsule；三个 Hitzone 不应推开玩家。
@@ -181,7 +184,7 @@ M1 已将 `UAnimNotifyState_DodgeWindow` 改为缓存并恢复窗口开始前的
 打开 `Project Settings → Gameplay Tags`，运行 Tag 检查。Native Tag 已存在时不要在配置中重复建立。至少确认以下根可解析：
 
 - `Input.Weapon.*`、`Input.Dodge`。
-- `Combat.State.Grounded/Aerial/Sheathed/Unsheathed`。
+- `Combat.State.Grounded/Aerial/Sheathed/Unsheathed/Sheathing/Dodging`。M4-A.2 已注册后二者不得在编辑器重复建立；`Sheathing` 已由收刀 GA 从成功提交持有到 Ability End，`Dodging` 的 GA 生产端在 M4-A.3 接入。二者不是姿态 Tag，也不是 `BlockMovement`。
 - `Combat.State.Aiming.Kinsect/Action/Slinger`。
 - `Combat.State.ComboWindowOpen/DodgeAcceptOpen/Invincible`。
 - `Combat.Config.IG.RedMode.Classic/Numeric`。
@@ -199,7 +202,7 @@ M1 已将 `UAnimNotifyState_DodgeWindow` 改为缓存并恢复窗口开始前的
 
 1. 确认 ASC、AttributeSet、EquipmentComponent 仍由 PlayerState 持有。
 2. 选中 ASC 后 Compile。M1 已从 C++ 删除 `InputBindings` 属性，Details 中应不再出现该字段；不要新建替代数组。若蓝图编译仍报告旧输入字段或节点，使用 `Find in Blueprint` 搜索 `InputBindings`/`Bind Action`，只删除命中的旧输入节点后再次 Compile。
-3. E2 暂不把原生 `UMHGZDodgeAbility` 作为临时项塞进 Core Abilities，也不要加入 `MHGZM1Placeholder*` 测试 Ability。E4 创建并配置最终 `GA_Dodge` 后，再回到这里把且只把该最终类加入一次；死亡等未实现项保持为空。
+3. E2 暂不把原生 `UMHGZDodgeAbility` 作为临时项塞进 Core Abilities，也不要加入 `MHGZM1Placeholder*` 测试 Ability。M4-A 创建并配置最终 `GA_Dodge` 后，再回到这里把且只把该最终类加入一次；它和 `GA_Sheathe` 是唯一的通用 `Input.Dodge`/`Input.Sheathe` Spec，不得按武器类型在 CoreAbilities 添加多个同 InputTag 的 GA。死亡等未实现项保持为空。
 4. 不在 PlayerState 创建虫棍 Resource、猎虫、粉尘或 Pawn 相关 Timer。
 5. 若 PlayerState Tick 过去只为虫棍 Resource 开启，改为关闭。
 
@@ -221,8 +224,8 @@ M1 已将 `UAnimNotifyState_DodgeWindow` 改为缓存并恢复窗口开始前的
    - `AimComponent`、`MotionWarping`、`CharacterMovement` 来自 C++ 父类；不要重复添加。
    - `WeaponRuntimeHost` 当前不是 C++ 默认子对象：若 Components 树中没有它，使用 `Add → MHGZ Weapon Runtime Host Component` 新增一份并命名 `WeaponRuntimeHost`；若已有则保留原组件，不再新增。
 2. CapsuleComponent 的 Collision Preset 设为 `PlayerCapsule`；不要在蓝图中改成 Custom 响应。
-3. 武器 SkeletalMeshComponent 的 Collision Preset 设为 `NoCollision`，Component Tag 设置为代码约定的 `WeaponTrace`。NoCollision 不影响代码读取 Socket Transform 执行 Sweep。
-4. 武器附着到角色左手 `Weapon_L` Socket；武器自身用于判定的 `Root`、`IG_FrontTip`、`IG_RearTip` Socket 必须可在 Skeleton Tree 中预览。`Weapon_L` 只挂虫棍本体，不挂猎虫。
+3. 武器 SkeletalMeshComponent 的 Collision Preset 设为 `NoCollision`，Component Tag 设置为代码约定的 `WeaponTrace`。NoCollision 不影响代码读取 Socket Transform 执行 Sweep；该 Tag 同时是 RuntimeHost 定位武器视觉组件的默认约定。
+4. **不要**把武器永久附着到左手 `Weapon_L`。角色 Skeleton 必须有已校准的手部 `Weapon_L` 与背部 `Weapon_Back`；武器自身用于判定的 `Root`、`IG_FrontTip`、`IG_RearTip` Socket 必须可在 Skeleton Tree 中预览。运行时初始收刀会挂到 `Weapon_Back`，`DrawCommit` 才切到 `Weapon_L`，`SheatheCommit` 再切回背部；猎虫仍只使用独立的 `Kinsect_Arm_Socket`。
 5. E2 不给默认武器字段接入仍待删除的旧 `DA_IG_HuoLongGun`；保持空值。E3 §5.1 重建同名正式资产后再指向它。Character 不直接引用 ComboData、Resource Class 或 Resource Widget。
 6. Anim Class 指向最终 `ABP_MH_Character`。
 7. 检查 Character 蓝图没有每帧 SetActorRotation、LaunchCharacter 或 Timeline 位移与新的 MovementTask 并行写入。
@@ -299,7 +302,7 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 
 在 `/Game/Input/Actions/MHGZ` 复用或创建：`IA_Y`、`IA_B`、`IA_LT`、`IA_RT`、`IA_Dodge` 和移动输入。全部加入唯一 `IMC_MHGZ_Demo`。
 
-`IA_Sprint` 的 Mapping 从 LS/L3 改到 RB/R1（RB 双语义：收刀态按住奔跑由 Character 的 `SprintPressed` 分流；持刀态按下由 Router 解析为纳刀，见 §5.4）。LS/L3 点击键释放，不再保留 Sprint Mapping。
+`IA_Sprint` 的 Mapping 从 LS/L3 改到 RB/R1（RB 双语义：收刀态按住奔跑由 Character 的 `SprintPressed` 分流；仅持刀地面态按下由 Router 解析为纳刀，见 §5.4）。LS/L3 点击键释放，不再保留 Sprint Mapping。
 
 不要在 Enhanced Input 资产中配置 Y+B 等 Chord Trigger；组合由 Router 的 InputProfile 解析。
 
@@ -313,7 +316,7 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 
 | 输出 | TriggerControls | RequiredHeldModifiers | Aim Context | 备注 |
 |---|---|---|---|---|
-| Y | Y | — | None | 普通武器输入 |
+| Y | Y | — | None | 唯一普通武器 Y 输入；不在 InputProfile 按摇杆方向拆 Chord，方向只由同一 InputSnapshot 交给 ComboData 匹配 |
 | B | B | — | None | 地面普通输入；空中由 Combo 状态解释 |
 | YB | Y+B | — | None | 四连印斩/前向回旋斩 |
 | LTY | Y | LT | Kinsect | 地面送虫；操虫斩舞踏中可派生穿刺 |
@@ -325,22 +328,22 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 | RT（`Input.Weapon.RT`，收刀地面） | RT | — | None | 拔刀直飞；`RequiredContextTags={Combat.State.Sheathed, Combat.State.Grounded}`，`DispatchPolicy=OnPress`，`ReleaseControlTag=RT` |
 | RT（`Input.Weapon.RT`，持刀地面） | RT | — | None | M4-B.0 后配置虫印斩；`RequiredContextTags={Combat.State.Unsheathed, Combat.State.Grounded}`，`DispatchPolicy=OnReleaseIfUnconsumed`，`ReleaseControlTag` 留空 |
 | RT（`Input.Weapon.RT`，空中） | RT | — | None | M5 接入急袭突刺；`RequiredContextTags={Combat.State.Aerial}`，不要求 Sheathed/Unsheathed，`DispatchPolicy=OnPress` |
-| Sheathe（`Input.Sheathe`） | RB（`Input.Modifier.Sheathed`） | — | None | 纳刀：`RequiredContextTags={Combat.State.Unsheathed}`；通用路由（同 `Input.Dodge`）按 InputTag 激活 `GA_Sheathe`，不进入 ComboData；`ReleaseControlTag=RB`；持刀按下立即触发 |
+| Sheathe（`Input.Sheathe`） | RB（`Input.Modifier.Sheathed`） | — | None | 纳刀：`RequiredContextTags={Combat.State.Unsheathed, Combat.State.Grounded}`；通用路由（同 `Input.Dodge`）按 InputTag 激活 `GA_Sheathe`，不进入 ComboData；`ReleaseControlTag=RB`；持刀地面按下立即触发 |
 
 设置：
 
 - `bRequireExactModifiers=true`。
 - TriggerControls 必须在 ChordGracePeriod 内；LT/RT 可预先持有或在等待期内最后补齐。
 - DirectionInputThreshold、ForwardConeHalfAngle 和 ChordGracePeriod 使用一个明确 Demo 初值，并保留为 DataAsset 可调参数。
-- `RequiredContextTags/BlockedContextTags` 在 Chord 派发瞬间读取当前 RuntimeHost/ASC 姿态。收刀 RT 必须限定 `Sheathed+Grounded` 且 `OnPress`；M4-B.0 的持刀 RT 必须限定 `Unsheathed+Grounded` 且 `OnReleaseIfUnconsumed`；空中 RT 仅限定 `Aerial` 且 `OnPress`。三条 Chord 的 ContextTags 互斥。LTRT 仍限定 `Unsheathed+Grounded`；这样收刀 RT 不等待 LT+RT 的 GracePeriod，而持刀态 RT 可作为 modifier 等待 LT 或 A/B/Y 组成获胜组合。
+- `RequiredContextTags/BlockedContextTags` 在 Chord 派发瞬间读取当前 RuntimeHost/ASC 姿态。收刀 RT 必须限定 `Sheathed+Grounded` 且 `OnPress`；M4-B.0 的持刀 RT 必须限定 `Unsheathed+Grounded` 且 `OnReleaseIfUnconsumed`；空中 RT 仅限定 `Aerial` 且 `OnPress`。三条 Chord 的 ContextTags 互斥。`Input.Sheathe` 同样必须限定 `Unsheathed+Grounded`：空中没有收刀 Chord。LTRT 仍限定 `Unsheathed+Grounded`；这样收刀 RT 不等待 LT+RT 的 GracePeriod，而持刀态 RT 可作为 modifier 等待 LT 或 A/B/Y 组成获胜组合。
 - 角色面向画面左时，摇杆左必须解析为 Forward。
-- Sheathe 是唯一通用路由输出（同 `Input.Dodge` 按 InputTag 激活 `GA_Sheathe`），不是武器连招输入；Chord 本身要求 `Unsheathed`，持刀态按下立即触发，攻击/硬直中再由 `GA_Sheathe` 的 BlockedTags 拒绝；收刀态不产生 Sheathe 快照，只由 Character 的 `SprintPressed` 分流为奔跑（0.1s 阈值）。
+- Sheathe 是唯一通用路由输出（同 `Input.Dodge` 按 InputTag 激活 `GA_Sheathe`），不是武器连招输入；Chord 本身要求 `Unsheathed+Grounded`，持刀地面按下立即触发。空中不得产生 Sheathe 快照，空中收刀属于 M5 空中动作范围而不是本 Demo 的隐式兜底；攻击/硬直等再由 `GA_Sheathe` 的原生激活检查拒绝。收刀态不产生 Sheathe 快照，只由 Character 的 `SprintPressed` 分流为奔跑（0.1s 阈值）。
 
 运行 Data Validation，故意制造一个重复 Chord/Priority 并确认能报错，再恢复正确配置。
 
 ### 5.5 DA_IG_Combat
 
-打开建壳事务中新建的 `DA_IG_Combat`。E3 先填写不依赖 E4 资产的模式、数值、猎虫、位移和范围参数，并把新建的空壳 `DA_IG_Combo` 接入 ComboData；四个精华 GE、动作类、Montage 和完整 Transitions 等待 E4 创建后回填。E3 允许这些明确列出的引用暂时为空，但不得运行 PIE 或把 Data Validation 失败当作正式完成；全量验证在 E4 回填后执行：
+打开建壳事务中新建的 `DA_IG_Combat`。E3 先填写不依赖 E4 资产的模式、数值、猎虫、位移和范围参数，并把新建的空壳 `DA_IG_Combo` 接入 ComboData；四个精华 GE、动作类、Montage 和完整 Transitions 等待 E4 创建后回填。E3 允许这些明确列出的引用暂时为空，但不得运行 PIE 或把 Data Validation 失败当作正式完成；E4 回填后执行 **E4-A 阶段范围**的验证，全 Content 验证留到 E7：
 
 1. `RedExtractMode` 默认 `ClassicMovesetGate`。
 2. ComboData 指向唯一 `DA_IG_Combo`。
@@ -370,6 +373,17 @@ E3 只建立空壳并把它接到 `DA_IG_Combat`；E4 创建最终 GA/Montage �
 8. 自动边 InputTag 为空并按确定 TransitionID 触发；StateOnly 不填写 AbilityClass。
 9. 不建立跳跃突进斩（电风扇）转移。
 
+M4-A 的最小 Y 拔刀只先配置下列两条边；这不是完整地面连招表：
+
+| TransitionID（建议） | SourceState → TargetState | InputTag | Direction | RequiredTags | AbilityClass | 关键约束 |
+|---|---|---|---|---|---|---|
+| `IG_DrawOnly` | `Idle → DrawOnly` | `Input.Weapon.Y` | `None` | `Combat.State.Grounded`、`Combat.State.Sheathed` | `GA_IG_Draw` | `None` 是**不要求方向**的通配项，覆盖无、左、右、后输入；无 AttackSegment，只播放拔刀。 |
+| `IG_DrawSlash_Forward` | `Idle → GroundStarter` | `Input.Weapon.Y` | `Forward` | `Combat.State.Grounded`、`Combat.State.Sheathed` | `GA_IG_DrawSlash` | 具体 `Forward` 天然优先于 `None`；配置一个或多个正式 AttackSegment。 |
+
+两行的 `ExecutionPolicy=ActivateAbility`、`StatePolicy=Replace`、`GrantTiming=OnActivation`、`bRequiresComboWindow=false`；不需要为前推 Y 新增 Chord。`GA_IG_Draw` 或 `GA_IG_DrawSlash` 结束后由 Coordinator 按其精确 ActionToken 回到 Idle。不要在 `RequiredTags` 里加 `Unsheathed`，也不要在 Blueprint Event Graph 写 `SetSheathed(false)`。
+
+**PIE 修复检查：** `DA_IG_Combo` 必须实际引用 `IG_DrawOnly` 的最终 Draw Ability，否则 RuntimeHost 不会授予该 GA，Y 即使已由 Router 解析为 `Input.Weapon.Y` 也不会拔刀。现有 `GA_IG_BaDao` 若已确认父类为 `UMHGZDrawAttackAbility`、`AttackMontage` 已填且 Montage 有原生 `Draw Commit`，可直接填入 `IG_DrawOnly.AbilityClass`；资产名不参与运行时匹配。是否改名为 `GA_IG_Draw` 仅是后续统一命名的整理，不是本轮 PIE 的前置条件。`GA_IG_DrawSlash` 未完成时，不创建或不保留指向空类的 Forward 边，不能用旧 `GA_IG_TuCi` 代替。
+
 E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Priority、非法 StateOnly 和缺失 AbilityClass。E3 的临时空壳不是阶段最终验收数据，不得拿它运行 PIE 或宣称 Combo 已完成。
 
 ## 6. E4——GameplayEffect、Ability 与 Montage
@@ -378,26 +392,62 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 
 ### 6.0 E4-A——最小纵切资产接线
 
+> **M4-A 当前入口：** 原生 M4-A.2～M4-A.5 接口已经可供本节使用；本节只完成最终 GA/Montage/Combo/AnimGraph 接线，不在 Event Graph 播放 Montage、直接操作猎虫或写姿态 Tag。当前还缺哪些资产、何时可以进入 L0、何时禁止进入 M4-B.1/M5，统一查 [阶段门禁](../design/milestone-gates.md#7-当前项目位置与下一步)。
+
 先只创建下列最终资产，并直接使用本节列出的最终父类/路径；不要为“先跑起来”创建第二套临时 InputAction、ComboData、Resource 或姿态 Bool：
 
 | 类别 | E4-A 必需资产 | 用途 |
 |---|---|---|
-| 猎虫数据 | `DA_IG_Kinsect_Speed` | Resource 运行时必需；先填数值和引用，外观可留到 E5 |
+| 猎虫数据 | `DA_IG_Kinsect_Speed` | Resource 运行时必需；先填数值和引用，外观可留到 E5-A |
 | 精华 GE | White、Orange、Red、TripleUp 四个 GE | `DA_IG_Combat` Data Validation 必需；E4-A 可不做三灯 UI，但不能留空 |
 | 猎虫 GA | `GA_IG_DrawAndSendKinsect`、`GA_IG_SendKinsect`、`GA_IG_RecallKinsect` | 分别对应收刀 RT、持刀 LT+Y、持刀 LT+B |
-| 通用 GA | `GA_Sheathe` | 持刀 RB 纳刀；M4-A 先创建并编译原生父类 `UMHGZSheatheAbility`，再创建此最终蓝图子类；只加入 CoreAbilities |
-| 地面动作 | 一个用户选定的 Y 起手 GA 与 Montage | 建议选 Y 拔刀起手攻击；后续动作沿用同一 Combo/Action 路径 |
+| 通用 GA | `GA_Sheathe` | 持刀地面 RB 纳刀；M4-A 先创建并编译原生父类 `UMHGZSheatheAbility`，再创建此最终蓝图子类；只加入 CoreAbilities |
+| 地面动作 | `GA_IG_Draw` 与 `GA_IG_DrawSlash` 各一个 GA/Montage | 收刀 Y 无/左/右/后只拔刀；收刀前+Y 拔刀攻击；二者通过同一 `Input.Weapon.Y` 的两条 Combo 边分流 |
 
 按以下顺序操作：
 
-1. 完成 `DA_IG_Kinsect_Speed`、四个精华 GE 与 `DA_IG_Combat` 回填；创建角色 Skeleton 的 `Kinsect_Arm_Socket`，填入 `KinsectAttachSocket`。这一步通过 Data Validation 后，才允许启动 PIE。
-2. 在 InputProfile 至少确认 Y、B、LT、RT、RB 的 RawAction 映射，并完成 `Input.Weapon.RT`、`Input.Weapon.LTY`、`Input.Weapon.LTB`、`Input.Sheathe` 和选定 Y 起手所需 Chord。RT 必须保持 `Sheathed+Grounded`，Sheathe 必须保持 `Unsheathed`；不要为了先测试删除 ContextTags。
-3. 创建三个猎虫 GA 蓝图子类和选定起手动作的最终 GA/Montage，并创建收刀 Montage `AM_Shth_ShouDao`（Idle/Walk Section）。三个猎虫 GA 与起手动作只从 `DA_IG_Combo` 的 Transition 引用。当前不存在 `UMHGZSheatheAbility` 时，不创建临时父类的 `GA_Sheathe`，也不在 Event Graph 临时实现收刀。
-4. M4-A 先创建并编译 `UMHGZSheatheAbility`；随后立即回到编辑器创建最终数据型 `GA_Sheathe` 子类，并且只把它加入 `BP_PlayerState` 的 CoreAbilities。暂不创建其他地面/空中/特殊 GA，不配置完整 Transitions，不创建虫印、粉尘、HUD 或正式猎虫表现资产。保存全部 E4-A/M4-A 资产后再 PIE 验证。
+1. 完成 `DA_IG_Kinsect_Speed`、四个精华 GE 与 `DA_IG_Combat` 回填；创建角色 Skeleton 的 `Kinsect_Arm_Socket`，填入 `KinsectAttachSocket`。这一步通过 **E4-A 阶段范围**的 Data Validation 后，才允许启动 E4-A PIE；全 Content 验证留给 E7。M6/E6 前 `DA_WeaponRuntime_IG.ResourceWidgetClass` 保持 `None`，不得创建占位 Widget。
+2. 在 InputProfile 至少确认 Y、B、LT、RT、RB 的 RawAction 映射，并完成 `Input.Weapon.RT`、`Input.Weapon.LTY`、`Input.Weapon.LTB`、`Input.Sheathe` 和唯一 `Input.Weapon.Y` Chord。Y 不添加方向 ContextTag；收刀 RT 必须保持 `Sheathed+Grounded`，Sheathe 必须保持 `Unsheathed+Grounded`；不要为了先测试删除 ContextTags。
+3. 创建三个猎虫 GA 蓝图子类。`GA_IG_Draw`、`GA_IG_DrawSlash` 继承 `UMHGZDrawAttackAbility`，各自有完整拔刀 Montage，并仅由上一节的两条 `DA_IG_Combo` Transition 引用。`GA_IG_DrawAndSendKinsect` 则继承 `UMHGZDrawAndSendKinsectAbility`：它是无伤害、可移动的上半身动作，不继承攻击链，必须填写 `ActionMontage`，通常直接复用 `AM_IG_SendKinsect`。三个猎虫 GA 与两个 Y 拔刀 GA 都不在 Event Graph 实现姿态、Montage、Resource 或 Coordinator 逻辑。
+4. 收刀所需的 ActionToken 阶段、Montage Root Motion 所有权、原生 `AnimNotify_SheatheCommit` 与 `UMHGZSheatheAbility` 已完成；现在创建/保留下方规定的最终收刀 Montage、数据型 `GA_Sheathe` 子类，并且只把它加入 `BP_PlayerState` 的 CoreAbilities。前向 `GA_Dodge` 及其 Montage 已完成；M4-A.3.1 的新字段现已编译，可为持刀 Left/Right/Back 创建并配置方向 Montage。暂不创建其他地面/空中/特殊 GA，不配置完整 Transitions，不创建虫印、粉尘、HUD 或正式猎虫表现资产。保存全部 E4-A/M4-A 资产后再 PIE 验证。
 
-E4-A 的验收范围仅为：收刀 RT 拔刀放虫、持刀 LT+Y 放虫、LT+B 收虫、RB 纳刀、一个 Y 起手动作；其中 M4-A 先提供收刀原生父类，随后创建最终 `GA_Sheathe` 并接通纳刀和选定起手动作的运行时行为。三色萃取、三灯、其他连招、虫印/粉尘/空战和 UI 都不在 E4-A 验收中。
+`AM_Shth_ShouDao` 的精确接线：
 
-E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlaiveKinsectData`），填写飞行/召回/耐力/攻击力的 Demo 初值并回填 `DA_IG_Combat.KinsectData`。E5 再为同一资产接正式 Mesh、Anim Class、Material 和 Fly Montage，不创建第二个 Kinsect Data。这样 M3 Resource 的必需引用与 E4 Data Validation 一致。
+1. 使用与角色 Mesh 相同 Skeleton 的 `AS_Shth_ShouDao_Idle` 创建 Anim Montage，保存为 `/Game/Weapons/InsectGlaive/Anims/Montage/AM_Shth_ShouDao`。
+2. 在同一 Slot Track 中放入两个 Segment：`AS_Shth_ShouDao_Idle` 与 `AS_Shth_ShouDao_Walk`；第二段从第一段结束时间开始，不重叠。
+3. Section 名称必须精确为 `Idle`、`Walk`：`Idle` 位于第一段起点，`Walk` 位于第二段起点。两个 Section 的 Next Section 都设为 `None`，避免从 Idle 自动串播 Walk。
+4. 在武器实际挂回背部、但 Walk 段的收刀移动尾帧之前，添加原生 `AnimNotify_SheatheCommit`。它必须是当前 Montage 实例的 Notify，不能用 Blueprint Event Graph 写 Tag；它将收刀状态切到 `Sheathed`，而 Slot 继续覆盖后续尾帧。Commit 前中断保持拔刀，Commit 后中断保持收刀。Notify 不负责“禁止按键”：原生 `UMHGZSheatheAbility` 应从激活开始持有 `Combat.State.Sheathing` 到 Ability End，禁止在 Notify、AnimBP 或 Event Graph 提前清它。
+5. `Idle` 是锁移动选段，`Walk` 是可转向选段：GA 按激活快照只选择一次 Section，之后绝不在 Montage 中途从 Idle 改 Walk 或反向切换。Walk 段若含 Root Motion，应只含前向位移且不含与角色 `TurnRate` 竞争的 Root Yaw；原生阶段运行时会使实时摇杆从 Walk 首帧起影响 Actor 朝向。
+6. 创建 `/Game/Blueprints/Ability/Common/GA_Sheathe`，父类选择完成阶段运行时后的 `UMHGZSheatheAbility`；设置 `SheatheMontage=AM_Shth_ShouDao`、`IdleSectionName=Idle`、`WalkSectionName=Walk`。`InputTag=Input.Sheathe`、`StaminaCostPolicy=None` 使用原生默认值，Event Graph 保持空白。
+7. 只把 `GA_Sheathe` 加入 `BP_PlayerState.MHGZAbilitySystemComponent.CoreAbilities`，不得加入 `DA_IG_Combo` 或虫棍 RuntimeDefinition 的武器 Ability 列表。Compile、Save 后重启编辑器一次，确认父类没有 Missing Class。不要在 Ability 的 Tags 栏或 Event Graph 手工添加/移除 `Sheathing`；该 Token 必须由原生父类按 ActionToken 所有和回收。
+
+`GA_Dodge` 与前向翻滚 Montage 的精确接线：
+
+1. 用角色 Skeleton 的前向翻滚序列创建最终 Montage（建议 `/Game/Weapons/Common/Anims/Montage/AM_Dodge_Forward`；若持刀/收刀骨架姿势必须不同，可各建一个 Montage）。开启动画序列的 Root Motion，确认翻滚本体只有前向位移，不含会与代码实时转向竞争的 Root Yaw。
+2. Montage 必须精确建立 `DodgeCore`、`IdleExit`、`MoveExit` 三个 Section。`DodgeCore` 从翻滚起点开始；两个 Exit 指向各自独立尾段。编辑器中三个 Section 的 Next Section 都设为 `None`，尤其不能让 IdleExit 播完后顺序串入 MoveExit；运行时由 GA 固定 `DodgeCore -> IdleExit`，并且只会按本次 Section 进入事件把前向翻滚改入 `MoveExit`。
+3. **不要**在 `DodgeCore` 末尾添加 `AnimNotify_DodgeExitDecision`。`UMHGZDodgeAbility` 会直接绑定它本次播放的 `FAnimMontageInstance::OnMontageSectionChanged`：运行时先固定 `DodgeCore -> IdleExit`，刚进入 `IdleExit` 时读取这一帧原始摇杆。无输入则保留 `IdleExit`；仅前向翻滚且有输入时，立即跳到 `MoveExit`。不得读取被 `BlockMovement` 清零的 locomotion `bHasInput`，也不在此边界释放移动锁。
+4. **不要**在 `MoveExit` 首帧添加 `AnimNotify_DodgeMoveExitBegin`。同一个 GA 在确认已进入 `MoveExit` 后才释放本次 Dodge 的 `BlockMovement` Token，使实时摇杆开始平滑转向；`Combat.State.Dodging` 与 Montage Root Motion 所有权仍保留。两个旧 Notify 类仅为已有资产兼容而保留，已经放在 Montage 上的实例可以删除，但即使暂时保留也不会执行逻辑或输出警告。
+5. 在翻滚实际无敌帧范围放 `AnimNotifyState_DodgeWindow`。它只持有 `Invincible` 并临时把 Weapon/MonsterAttack 通道改为 Ignore，结束或中断时恢复窗口前的逐通道响应；不要用它代替攻击侧取消窗口。
+6. 已完成的 `/Game/Blueprints/Ability/Common/GA_Dodge` 继续使用 `UMHGZDodgeAbility`。现有 `SheathedDodgeMontage`、`UnsheathedDodgeMontage` 保持为收刀/持刀**前向**资源（允许相同），Section 保持 `DodgeCore`/`IdleExit`/`MoveExit`；旧方向 Map 继续留空。M4-A.3.1 现已编译，应填写新增的 `UnsheathedLeftDodgeMontage`、`UnsheathedRightDodgeMontage`、`UnsheathedBackDodgeMontage`；每个左右后 Montage 只需要 `DodgeCore` 与 `IdleExit`，不要添加或填写 `MoveExit`。收刀左右后没有资产槽，也不创建“收刀侧滚/后滚”占位 GA。保留原生 `InputTag=Input.Dodge`、同一 Instant 耐力成本；Event Graph 保持空白。
+7. 只把 `GA_Dodge` 加入一次 `BP_PlayerState.MHGZAbilitySystemComponent.CoreAbilities`。若已有旧 Dodge 类或同样输出 `Input.Dodge` 的 Spec，先移除旧项，确保全局只有这一个最终入口；不得把 `GA_Dodge` 加进 `DA_IG_Combo`。
+8. 对允许用翻滚取消的每个攻击 Montage，仅在允许取消的后摇帧放 `AnimNotifyState_DodgeAcceptWindow`。窗口外按 Dodge 必须失败；窗口内由旧攻击的精确 ActionToken 授权两阶段交接。不要在 ASC/GA 的 Tags 栏手填 `DodgeAcceptOpen`，也不要在 Montage 蓝图事件中调用 Cancel Ability。
+9. Compile、Save 后重启编辑器，依次验证：无输入走 IdleExit；翻滚本体期间推摇杆不改方向；`DodgeCore` 结束、实际进入 `IdleExit` 的同一帧持续推摇杆时立即改走 MoveExit，且只在 MoveExit 进入后开始转向；BlendOut 后 MM 接管且无论 Montage 是否补发 Completed 都会释放 Dodging；攻击窗口外 Dodge 不生效；窗口内成功 Dodge 令旧攻击以 Superseded 结束；耐力不足或缺 Montage 时旧攻击继续。
+
+E4-A 的验收范围仅为：收刀 RT 拔刀放虫、持刀 LT+Y 放虫、LT+B 收虫、RB 纳刀，以及收刀 Y 的“仅拔刀 / 前+Y 拔刀攻击”分流；前向翻滚资产是本轮已完成的通用动作基底，持刀左右后翻滚在 M4-A.3.1 后补齐。M4-A 先提供收刀、翻滚选择、DrawCommit 和攻击瞬转的原生运行时，再创建对应数据型蓝图与 Combo 边。三色萃取、三灯、其他连招、虫印/粉尘/空战和 UI 都不在 E4-A 验收中。
+
+E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlaiveKinsectData`），填写飞行/召回/耐力/攻击力的 Demo 初值并回填 `DA_IG_Combat.KinsectData`。E5-A 再为同一资产接正式 Mesh、Anim Class、Material 和 Fly Montage，不创建第二个 Kinsect Data。这样 M3 Resource 的必需引用与 E4-A 阶段 Data Validation 一致。
+
+#### 6.0.1 当前收尾：E4-A 通过后才进入 L0
+
+本节是当前唯一的**进入 L0 前编辑器门禁**；前置 C++ 校验合同已经完成。按下面顺序只检查/补齐尚未完成的项，不创建 M4-B、M5 或 M6 占位资产：
+
+1. 打开 `DA_WeaponRuntime_IG`，确认 `WeaponTypeTag=Weapon.InsectGlaive`、`ResourceComponentClass=URes_InsectGlaive`、`InputProfile=DA_IG_InputProfile`、`CombatConfig=DA_IG_Combat`；`ResourceWidgetClass` 必须是 `None`。保存。这里 `Resource` 有值而 Widget 为 `None` 是当前正确状态，不得创建空 Widget。
+2. 逐个打开并 Compile/Save：`GA_Sheathe`、`GA_Dodge`、`GA_IG_Draw`、`GA_IG_DrawSlash`、`GA_IG_DrawAndSendKinsect`、`GA_IG_SendKinsect`、`GA_IG_RecallKinsect`、`BP_PlayerState` 和 `ABP_MH_Character`。Message Log 不得有 Missing Class、Unknown Property、失效 Pin 或编译 Error。`GA_Sheathe`、`GA_Dodge` 只在 `BP_PlayerState.MHGZAbilitySystemComponent.CoreAbilities` 各出现一次；其余虫棍 GA 只由 `DA_IG_Combo` 的 Transition 授予。
+3. 逐个保存 Montage：`AM_IG_SendKinsect` 使用 `IGActionGroup.UpperBody_IGAction`、in-place、无 Root Motion，且 `Draw Commit` 早于 `Kinsect Send Commit` 至少一帧；`AM_IG_RecallKinsect` 同 Slot、in-place、无 Root Motion，仅有 `Kinsect Recall Commit`。不要在这两个 Montage 上放 AttackCollision、ComboWindow、DodgeWindow、SheatheCommit 或 Action Root Motion Phase。
+4. 在 `ABP_MH_Character` 保持旧方案：先缓存持刀 Motion Matching 输出为 `LocomotionBase`；`UpperBody_IGAction` Slot 的 Source 也是该缓存，再缓存为 `KinsectActionPose`。`IsMoving=false` 时将 `KinsectActionPose` 全身送入分支；`IsMoving=true` 时使用 `Layered Blend per Bone`，Base=`LocomotionBase`、Blend=`KinsectActionPose`、Branch Filter=`spine_01` 及所有子骨骼、启用 Mesh Space Rotation Blend。两条分支汇合后再进入 `DefaultSlot`。不要把 `UpperBody_IGAction` 改为 `DefaultSlot`，也不要再切换其他遮罩方案。
+5. 在 Content Browser 只选 E4-A 资产及其直接依赖：`DA_WeaponRuntime_IG`、`DA_IG_InputProfile`、`DA_IG_Combat`、`DA_IG_Combo`、四个 Extract GE、`DA_IG_Kinsect_Speed`、上述 GA 和 Montage。使用 `Tools -> Validate Data`（或资产右键的 Validate Data）验证；这一步不选 `DA_TrainingDummy`，其错误属于 E5-A。修正所选资产的错误后再次保存。
+6. PIE 依 [验证清单](verification.md#e4-a--m4-a-最小纵切) 的 E4-A.1～E4-A.5 逐项验证：收刀 RT 拔刀放虫、持刀 LT+Y 送虫、LT+B 收虫、RB 纳刀，以及收刀 Y 的 DrawOnly/Forward DrawSlash 分流。每个动作至少测试一次 Commit 前中断与 Commit 后中断。旧 Motion Matching 的启停品质不是本门禁项；只确认送虫/收虫动作期间仍能移动、转向且下半身没有被全身 Montage 锁死。
+7. 全部通过后，保存所有 E4-A 资产并提交 M4-A.5 阶段快照；随后才开始 L0。`DA_TrainingDummy` 的三色配置可在这之后或同一轮并行完成，但不是进入 L0 的前置。
 
 ### 6.1 精华 GameplayEffect
 
@@ -414,26 +464,40 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 
 ### 6.2 Ability 蓝图（E4-A 后续为 E4-B）
 
-旧 `GA_IG_BaDao`、`GA_IG_R_TuCI` 只属于已删除原型，不 re-parent、不 Duplicate、不复制 Event Graph。E4-A 先创建上一节表中不依赖新收刀父类的 GA；M4-A 创建并编译 `UMHGZSheatheAbility` 后，再建立最终 `GA_Sheathe` 子类。E4-B 再基于最终原生父类，在 `/Game/Blueprints/Ability/InsectGlaive` 新建其余 Demo 必需 Ability：
+旧 `GA_IG_BaDao`、`GA_IG_R_TuCI` 只属于已删除原型，不 re-parent、不 Duplicate、不复制 Event Graph。E4-A 先创建上一节表中不依赖新收刀父类的 GA；M4-A 创建并编译 `UMHGZSheatheAbility`、`UMHGZDrawAttackAbility` 与对应原生 Commit Notify 后，再建立最终 `GA_Sheathe`、`GA_IG_Draw`、`GA_IG_DrawSlash` 数据型子类。E4-B 再基于最终原生父类，在 `/Game/Blueprints/Ability/InsectGlaive` 新建其余 Demo 必需 Ability：
 
 - 现有《世界》地面基底和四个 Starter 动作。
 - `GA_IG_SendKinsect`（父类 `UMHGZSendKinsectAbility`）、`GA_IG_DrawAndSendKinsect`（父类 `UMHGZDrawAndSendKinsectAbility`）、`GA_IG_RecallKinsect`（父类 `UMHGZRecallKinsectAbility`）。
+- `GA_IG_Draw`、`GA_IG_DrawSlash`（均继承 `UMHGZDrawAttackAbility`；前者不配置 AttackSegments，后者配置最终攻击段；两个 Montage 都放原生 `AnimNotify_DrawCommit`）。
 - `GA_IG_TetrasealSlash`、`GA_IG_AdvancingRoundslash`。
 - `GA_IG_MarkSlash`（父类 `UMHGZMarkSlashAbility`）、`GA_IG_MarkTarget`（父类 `UMHGZMarkKinsectTargetAbility`，仅 LT+RT 虫印弹）、`GA_IG_PowderVortex`、`GA_IG_KinsectGlide`。
 - `GA_IG_AwakenedKinsectAttack`。
 - `GA_IG_KinsectSlash`、`GA_IG_EnhancedKinsectSpiker`。
 - `GA_IG_StrongJumpingSlash`、`GA_IG_DescendingThrust`、`GA_IG_DivingWyvern`。
-- `GA_Sheathe`（父类 `UMHGZSheatheAbility`；通用路由 `InputTag=Input.Sheathe`；播放 `AM_Shth_ShouDao`，静止/移动选段；完成时 `RuntimeHost->SetSheathed(true)`；攻击/硬直中不可激活）。
+- `GA_Sheathe`（父类 `UMHGZSheatheAbility`；通用路由 `InputTag=Input.Sheathe`；仅 `Grounded+Unsheathed` 可激活，拒绝 Aerial/Dead/攻击/硬直/击倒/收刀中/翻滚中；播放 `AM_Shth_ShouDao`，静止/移动选段；`AnimNotify_SheatheCommit` 时由 RuntimeHost 切 Sheathed）。
 
 每个蓝图只配置数据：Montage、AttackSegments、成本、位移请求和动作特有参数；不要在 Event Graph 复制 Coordinator、资源状态机或直接操作 UI。武器动作必须继承重构后的虫棍动作基类，并保持 native `InstancedPerExecution`。旧拼音 GA 名称不作为最终资产名占位；最终名称按本节动作清单建立。
 
 `GA_Sheathe` 只在 `UMHGZSheatheAbility` 编译通过后创建；它不进入虫棍 ComboData，把它加入 `BP_PlayerState` 继承的 `MHGZAbilitySystemComponent.CoreAbilities`（与 `GA_Dodge` 同一通用授予入口）。其余 `Input.Weapon.*` 猎虫 GA 必须由 `DA_IG_Combo` 的 Transition 引用，RuntimeHost 才会按武器授予。
 
-拔刀路径（Y 拔刀攻击、收刀 RT 拔刀直飞、奔跑中拔刀）激活时调用 `RuntimeHost->SetSheathed(false)` 并清 `bSprintHeld`；纳刀由 `GA_Sheathe` 调用 `SetSheathed(true)`。
+拔刀路径（`GA_IG_Draw`、`GA_IG_DrawSlash`、收刀 RT 的 `GA_IG_DrawAndSendKinsect`，以及奔跑中进入这些路径）都在武器实际取出的原生 `AnimNotify_DrawCommit` 解析到当前 ActionToken 后，由对应 Ability 调用 `RuntimeHost->SetSheathed(false)` 并清 `bSprintHeld`。收刀 RT 的 `GA_IG_DrawAndSendKinsect` 以 `ActionMontage=AM_IG_SendKinsect` 播放无 Root Motion 的 `UpperBody_IGAction`；它没有 AttackSegments、`Attacking`、`BlockMovement` 或 MontageRootMotionOwner。该 Montage 后续的原生 `Kinsect Send Commit` 才按冻结 ActorForward 部署猎虫。不得在 Ability Event Graph、激活函数或 Montage 蓝图直接写姿态。纳刀由 `AnimNotify_SheatheCommit` 经 `GA_Sheathe` 调用 `SetSheathed(true)`。
+
+#### M4-A.5：持刀送虫/收虫的上半身 Montage 接线
+
+代码已提供两个**普通 Notify**：`Kinsect Send Commit` 与 `Kinsect Recall Commit`。它们不在 Notify 中保存 Ability，也不直接操作猎虫；运行时优先由 UE Notify Context 中的 `Mesh + MontageInstanceID` 精确找到当前 ActionToken。若某个 Layered Slot 的回调没有携带该 Context，则仅以本次回调传入的源 Montage 在同一 Mesh 的 AnimInstance 中取得其**当前** InstanceID，再走同一份 `Mesh + MontageInstanceID` 注册表。两条路径都不扫描 ASC/Active Specs，也不会按 AbilityClass 猜实例；仍无法解析时会输出 `[KinsectSendCommit]` 或 `[KinsectRecallCommit]` Warning，并且不改变猎虫状态。
+
+1. 确认 `GA_IG_SendKinsect` 的父类为 `UMHGZSendKinsectAbility`、`GA_IG_DrawAndSendKinsect` 的父类为 `UMHGZDrawAndSendKinsectAbility`、`GA_IG_RecallKinsect` 的父类为 `UMHGZRecallKinsectAbility`。三者都保持数据型蓝图：Event Graph 必须为空，不添加 `Activate Ability`、`Play Montage`、`DeployKinsect`、`RecallKinsect`、Tag 或 CharacterMovement 节点。
+2. `AM_IG_SendKinsect` 同时供持刀 `GA_IG_SendKinsect` 和收刀 `GA_IG_DrawAndSendKinsect` 使用；`AM_IG_RecallKinsect` 只供 Recall 使用。两个 Montage 的 Slot 都设为 `IGActionGroup.UpperBody_IGAction`，源序列和 Montage 均保持 in-place、无 Root Motion。它们不是 `DefaultSlot` 全身攻击 Montage。
+3. 在 `GA_IG_SendKinsect` 与 `GA_IG_DrawAndSendKinsect` 的 Defaults 都设置 `Action Montage = AM_IG_SendKinsect`、`Action Montage Play Rate = 1.0`；在 `GA_IG_RecallKinsect` 设置 `Action Montage = AM_IG_RecallKinsect` 和播放速率。三者都不填写 `AttackMontage`、`AttackSegments`、`AttackCollision`、`ComboWindow` 或 `DodgeWindow`。
+4. 在共享的 `AM_IG_SendKinsect` 添加两个**单帧普通 Notify**：武器实际从背部转到手部的帧放 `Draw Commit`；猎虫实际离开角色的帧放 `Kinsect Send Commit`。`Draw Commit` 必须在时间轴上严格早于 `Kinsect Send Commit`，至少间隔一帧，不能放在同一帧赌 Notify 执行顺序。前者只由收刀 RT 的 DrawAndSend GA 响应，后者由两种 Send GA 响应；因此持刀送虫会忽略 `Draw Commit`，收刀拔刀放虫则先 Commit Draw、后 Commit Send。`AM_IG_RecallKinsect` 只在实际召回手势帧放 `Kinsect Recall Commit`。不要添加 `Sheathe Commit`、`Attack Collision`、`ComboWindow`、`DodgeWindow` 或 `Action Root Motion Phase`。
+5. 在 `ABP_MH_Character` 保持 Motion Matching 为 Base Pose：插入/保留 `IGActionGroup.UpperBody_IGAction` Slot，并作为 `Layered Blend per Bone` 的 Blend Pose，从骨盆上方第一根脊椎骨向上混合。收刀 RT 在 `Draw Commit` 前使用收刀 MM，Commit 后切换到持刀 MM；全程下半身不能接 DefaultSlot，不能因这三个 GA 切 Idle，也不能新增 `BlockMovement`/Root Motion 开关。普通 locomotion 重构前这里只验证“仍可移动和转向”，不把旧 MM 的启停品质作为 M4-A.5 的最终通过条件。
+6. Compile、Save 后重启编辑器，使两个新原生 Notify 出现在 Montage 通知轨道的右键菜单。若列表中没有它们，先关闭编辑器，确认 Development Editor 编译成功，再重新打开；不要用 Blueprint Notify 临时代替。
+
+运行结果固定为：能力 Confirm 后先播放上半身 Montage，Notify 前被中断则猎虫状态不变；Notify 后才开始 Flight/Return，之后即使 Montage 中断也不回滚。正常播放到结尾却未经过 Commit Notify 视为取消。送虫的 Aim 只在 Confirm 时冻结，Commit 时不重读相机、摇杆或准心。
 
 《世界》地面基底若需要 Classic 无红灯弱动作与红灯正常动作，分别配置明确 GA/Montage 或同 Montage 的明确 Section，并由 ComboData Tag 条件选择；Numeric 模式只走正常动作。不要在 AnimBP 根据红灯临时替换动作。
 
-基础 `GA_Dodge` 单独配置角色通用收刀 Montage；虫棍 RuntimeDefinition/CombatConfig 如提供持刀覆写，只填同一最终入口，不恢复旧 Dodge DataTable。
+基础 `GA_Dodge` 的 `SheathedDodgeMontage`、`UnsheathedDodgeMontage` 分别配置角色通用的收刀/持刀前向翻滚，供 `Forward/None` 使用；M4-A.3.1 编译后再把持刀左/右/后资源填到三个新增直接字段。旧 `SheathedDodgeMontages`/`UnsheathedDodgeMontages` 方向 Map 只用于迁移并应留空；不要恢复旧 Dodge DataTable。收刀左/右/后在运行时被拒绝，不需要为它们创建 Montage。
 
 每个有挥棍声音的 GA 填写稳定 `AudioIdentityTag`；具体武器若需要覆盖音色，在 `DA_IG_HuoLongGun` 的 SwingSoundOverrides 中按同一 Tag 配置。挥空音效放 AnimNotify，命中音效由 GameplayCue/FeedbackRouter 处理，避免一次命中播放两套声音。
 
@@ -443,13 +507,18 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 
 1. Skeleton 与 `BP_IG_Character` Mesh 一致，Retarget 后骨骼无报错。
 2. Slot 与 `ABP_MH_Character` 中实际 Slot 节点一致。
-3. 有入口差异的动作创建明确 Section，例如 `Entry_From_Idle`、`Entry_From_PreviousAction`；GA 只根据 ActivationContext.SourceState 选择。
-4. 每个 AttackCollision Notify 的 ConfigIndex 必须对应 Ability 的一个 AttackSegment。
-5. ComboWindow、DodgeAcceptWindow、CounterWindow、PoiseWindow 只标记精确帧区间。
-6. Dodge Montage 使用 DodgeWindow，并确认结束后恢复的是开始前碰撞响应。
-7. 只有实际包含 Root Motion 的动画段添加 MotionWarping Notify；零 Root Motion 位移动作由 MovementTask 驱动。
-8. WarpTarget 不在蓝图写固定共享名；由代码按 ActionToken 生成。
-9. 不在 Notify 蓝图保存 Ability 指针、Handle 或 Token。玩家动作 Notify 必须使用重构后的原生类。
+3. 有入口差异的**目标招式**创建明确 Section，例如 `Entry_From_Idle`、`Entry_From_Slash1`、`Core`、`Recovery_Common`；所有 `Entry_From_*` 在 Montage 的 Next Section 中连接到同一个 `Core`，再由 `Core` 接 `Recovery_Common`。`Link_Slash1_To_Slash2` 属于 `AM_IG_Slash2` 的 `Entry_From_Slash1`，不能塞进 Slash1 的尾部。没有后续输入时才播放当前招式自己的 Recovery。
+4. `FComboTransition`/`DA_IG_Combo` 不填写 Montage 或 Section。M4-B.1 编译前可以先建 Section 和 Next Section 链，但不能假定现有 `UMHGZAttackAbility` 会选择它；它目前仍从 Montage 开头播放。M4-B.1 编译后，在**目标 GA**填写 `EntrySectionByTransitionID`（优先）、`EntrySectionBySourceState`（回退）和 `DefaultEntrySection`，选择顺序是 `TransitionID → SourceState → Default → Montage 开头`。映射的每个名字都必须是该 Montage 的真实 Section；不要在 Blueprint Event Graph 调 `Montage Jump to Section`，也不要在源 GA 填目标 GA 的 Section。
+5. 每个 AttackCollision Notify 的 ConfigIndex 必须对应 Ability 的一个 AttackSegment。
+6. ComboWindow、`AnimNotifyState_DodgeAcceptWindow`、CounterWindow、PoiseWindow 只标记精确帧区间。`DodgeAcceptWindow` 放在**攻击 Montage**，只允许当前攻击被 Dodge 取消；它由原生代码以该攻击的 ActionToken 持有 `DodgeAcceptOpen`，不得在蓝图手写 Tag。
+7. Dodge Montage 使用 `AnimNotifyState_DodgeWindow`，它只负责无敌帧和恢复开始前的碰撞响应；它不是 `DodgeAcceptWindow`，不能决定攻击是否可取消。
+8. Section 没有 Root Motion 开关。逐个检查其中引用的 AnimSequence 根轨迹：Entry/Recovery 若应 in-place，其根骨骼必须实际静止；真实位移片段保留 Root Motion。不能把有位移的根轨迹仅靠“该 Section 不提取”伪装成 in-place。M4-B.1 编译后，在每段真实 Root Motion 的首帧至末帧放原生 `Action Root Motion Phase` NotifyState；它只按 MontageInstanceID 路由到 GA，由 GA 获取/释放所有权。in-place 片段不放它；没有真实根位移但玩法需要移动的片段由对应 GA 的 MovementTask 驱动。
+9. MotionWarping Notify 只属于经原生代码明确实现了**目标对齐**的特殊动作；普通攻击的入口方向修正是 `MaxCorrectionAngle` 控制的一次 Actor Yaw 瞬转，不添加 MotionWarping Notify。零 Root Motion 位移动作由 MovementTask 驱动。
+10. 特殊动作若确实需要 WarpTarget，不在蓝图写固定共享名，而由该特殊动作的代码按 ActionToken 生成、拥有并清理；普通攻击不生成 `AttackDirection` WarpTarget。
+10a. **单帧招内方向修正（M4-A.5）：** 仅对需要在某一精确帧按实时摇杆补正一次朝向的攻击，添加原生普通 `Action Direction Correction` Notify；它不是 NotifyState。其 `Max Correction Angle Override=-1` 表示使用 GA 的 `MaxCorrectionAngle`，填 `0` 禁用该帧，填正值则覆盖该帧阈值。Notify 前后不添加 MotionWarping Notify、WarpTarget、AttackCollision、ComboWindow 或 Tag；它通过当前 MontageInstanceID 精确找到所属 AttackAbility，读取 `LastMovementInputDir` 后最多 `SetActorRotation` 一次。只把它放在后续根 Yaw 不会抢回朝向的帧；若该段需要扭转根位移轨迹或贴合目标位置，改由专用特殊 GA 实现 MotionWarping/MovementTask。
+11. 不在 Notify 蓝图保存 Ability 指针、Handle 或 Token。玩家动作 Notify 必须使用重构后的原生类。
+12. 对“固定动作本体、后半段可接移动”的 Montage，按 `LockedRootMotion → SteeringRootMotion → MotionMatching` 配置：分支决定用 Branching Point Notify，实际进入可转向尾段用首帧 Notify；Notify 只经 ActionToken 调 GA，GA 精确释放自己的 BlockMovement Token。Montage 仍含 Root Motion 时不得让 MM 同时拥有根位移。
+13. M4-A.5 的 `AM_IG_SendKinsect`、`AM_IG_RecallKinsect` 是例外的**上半身表现动作**：二者使用 `UpperBody_IGAction` Slot，源序列与 Montage 都不得启用 Root Motion；不含 AttackCollision/ComboWindow/DodgeWindow。共享的 Send Montage 在武器取出帧额外放 `Draw Commit`，并在实际出虫帧放 `Kinsect Send Commit`；Recall Montage 只在实际召回手势帧放 `Kinsect Recall Commit`。不要把它们放进全身攻击 Slot，也不要用 `BlockMovement` 或 Root Motion 所有权“锁住下半身”。
 
 ### 6.4 特殊动作时间轴
 
@@ -460,11 +529,13 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 - 强化跳跃斩、急袭突刺：校准末速度与惯性交接。
 - 急袭突刺、降龙：落地段 Notify 不得被通用落地 Reset 提前截断。
 - 觉虫击：猎虫贯穿与猎人位移是两个独立运行时请求；Montage 只负责表现时序。
-- 纳刀：`AM_Shth_ShouDao` 由 `AS_Shth_ShouDao_Idle`（静止）与 `AS_Shth_ShouDao_Walk`（移动中）两个 Section 组成；GA 按激活时快照的移动输入幅度选段，播完才切 Sheathed。
+- 前向翻滚：最终 `GA_Dodge` 只在 CoreAbilities 出现一次，整个 Montage 由原生 GA 持有 `Combat.State.Dodging`，因此不能被攻击、猎虫、收刀或第二次 Dodge 打断；硬直、死亡、换装例外。Montage 至少有 `DodgeCore`、`IdleExit`、`MoveExit` 三个 Section。GA 将 `DodgeCore` 运行时固定接到 `IdleExit`，并在实际进入 `IdleExit` 的 Section 边界读取实时原始输入；只有此刻持续推摇杆的前向翻滚会立即改进 `MoveExit`，同时才释放移动锁。冻结的 Forward/None 都选择同一前向资源；翻滚本体播放中不再按实时摇杆改轨。攻击是否能取消进翻滚只由攻击 Montage 上的 `DodgeAcceptWindow` 决定，不能放在此 Montage 的无敌 `DodgeWindow` 上。
+- 持刀左/右/后翻滚（M4-A.3.1 原生字段编译后再接线）：三个方向各使用自己的 Montage，激活时由冻结 `InputSnapshot.Direction` 选择；它们只有 `DodgeCore` 与 `IdleExit`，原生选择结果强制 IdleExit，不能配置 MoveExit 或移动衔接。收刀左/右/后直接被 GA 拒绝，因此没有对应资产。所有允许变体继续使用 `GA_Dodge` 的同一 Instant 耐力成本。
+- 纳刀：`AM_Shth_ShouDao` 由 `AS_Shth_ShouDao_Idle`（静止）与 `AS_Shth_ShouDao_Walk`（移动中）两个 Section 组成；GA 按激活时快照的移动输入幅度选段，之后不换段。Idle 锁移动，Walk 允许实时摇杆转向；武器归位帧的 `AnimNotify_SheatheCommit` 切 Sheathed，Montage 根位移结束/Blend Out 后才交由 MM 接续。
 
-## 7. E5——猎虫、木桩和训练场
+## 7. E5-A——木桩三色部位与基础猎虫物理
 
-**进入条件：** M3 的猎虫 Collision Root、ProjectileMovement UpdatedComponent 和 Hitzone Object Capsule Sweep 已编译通过，旧 Overlap/GetOverlappingActors 命中路径已删除。若源码仍只有 `OnComponentBeginOverlap`，停止 E5，不要关闭 Generate Overlap Events 后继续测试。
+**进入条件：** M3 的猎虫 Collision Root、ProjectileMovement UpdatedComponent 和 Hitzone Object Capsule Sweep 已编译通过，旧 Overlap/GetOverlappingActors 命中路径已删除。若源码仍只有 `OnComponentBeginOverlap`，停止 E5-A，不要关闭 Generate Overlap Events 后继续测试。E5-A 是 M3 的端到端资产前置，可在 E4-A 收尾时执行，不等待 E4-B/M5。
 
 ### 7.1 猎虫资产
 
@@ -477,9 +548,9 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 5. Fly Montage/AnimBP 只负责飞行动画；悬停和附着不需要建立另一套伤害窗口。
 6. 把 Kinsect Data 填入 `DA_IG_Combat` 的唯一 Demo 猎虫引用；M3 起该引用是运行时必需项，留空时 Resource 明确保持 inert，不再生成带默认数值的临时猎虫。
 
-### 7.2 虫印弹与粉尘表现资产
+### 7.2 E5-B：虫印弹与粉尘表现资产
 
-如果最终 C++ 暴露了对应 Actor Class，在 `/Game/Weapons/InsectGlaive` 下创建配置型蓝图：
+只有对应 C++ 阶段公开了 Actor Class 后，才在 `/Game/Weapons/InsectGlaive` 下创建配置型蓝图：虫印弹等待 M4-B，粉尘等待 M6；不得为提前完成 E5-B 创建占位 Actor。
 
 | 建议名称 | 父类 | 蓝图只负责 |
 |---|---|---|
@@ -500,11 +571,11 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 ### 7.4 BP_TrainingDummy
 
 1. Body Capsule 使用 `MonsterBody`；SkeletalMesh 使用 `NoCollision`，避免与 Capsule 形成两个实体 Body。
-2. Head、Torso、Leg 分别使用 QueryOnly 的 `MonsterHitzone`，Object Type 必须为 Hitzone。
-3. 调整三个碰撞体，使同一条正面射线不会在同一位置重叠多个部位。
-   `UMHGZDummyConfig` 的静态校验只能比较各项填写的 `RelativeLocation + Radius`，无法预测不同骨骼在全部动画帧中的最终世界变换；因此必须在本节用 Debug Draw 和实际 LoopingMontage 人工确认 Head/Torso/Leg 全程不重叠。静态校验通过不能替代此项。
-4. 开启 Debug Draw 时，武器 Sweep、猎虫 Sweep 和 Aim 射线应能明确区分 Body 与 Hitzone。
-5. 启用确定性 CounterTestAttack：固定 InitialDelay、Telegraph、ActiveDuration、Interval 和唯一 AttackInstanceID；不加入随机、寻路或自动转向。
+2. **不要**在 Blueprint Components 树中手工添加 Head/Torso/Leg Sphere。`AMHGZTrainingDummy::ApplyConfig` 会在 BeginPlay 从 `DA_TrainingDummy.Hitzones` 创建 `UMHGZMonsterHitzoneComponent`；手工组件会被该重建流程销毁或形成重复配置。
+3. PIE 中用 `show collision` 检查运行时生成的三个 Sphere：它们必须为 Query Only、`MonsterHitzone`、Object Type=Hitzone，且不产生 Overlap Events。位置、半径、Bone 和颜色只回到 `DA_TrainingDummy` 调整。
+4. `UMHGZDummyConfig` 的静态校验只能比较各项填写的 `RelativeLocation + Radius`，无法预测不同骨骼在全部动画帧中的最终世界变换；因此必须用 Debug Draw 和实际 LoopingMontage 人工确认 Head/Torso/Leg 全程不重叠。静态校验通过不能替代此项。
+5. 开启 Debug Draw 时，武器 Sweep、猎虫 Sweep 和 Aim 射线应能明确区分 Body 与 Hitzone。Hitzone 不承担实体阻挡；玩家只被 Body Capsule 阻挡，不会被 Sphere 推开。
+6. 启用确定性 CounterTestAttack：固定 InitialDelay、Telegraph、ActiveDuration、Interval 和唯一 AttackInstanceID；不加入随机、寻路或自动转向。
 
 ### 7.5 L_DemoArena
 
@@ -557,16 +628,19 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 
 若代码使用 `AMHGZDamageNumberActor` 对象池，再创建 `BP_DamageNumberActor` 和 `WBP_DamageNumber`，把 WidgetComponent 指向该 Widget，并在最终 Feedback 配置中设置 ActorClass。伤害数字 Actor 自己拥有 WidgetComponent；木桩、Ability 和 HUD 不直接 Spawn 文本 Widget。
 
-## 9. E6-A——Motion Matching 与动画图
+## 9. E4-A-support——Motion Matching 与动画图（旧称 E6-A）
+
+本节的 `UpperBody_IGAction` AnimGraph 支持是 E4-A 的直接验收条件；普通移动本身的 CMC/State Machine 重构仍属于 L0～L5，不在这里提前实现。
 
 打开 `ABP_MH_Character`：
 
 1. Motion Matching 节点使用项目正式 Pose Search Schema/Database。
-2. 攻击 Montage Slot 位于 locomotion 输出之后；BlockMovement 时能够切到无 Root Motion Idle Pose，避免 MM 与 Montage 叠加位移。
-3. AnimBP 不写战斗状态、不直接 Reset Combo。
-4. FacingRotation/Trajectory 使用 Character C++ 输出；动作拥有 Rotation Token 时普通 locomotion 不再改朝向。
-5. 逐个预览外部导入动画的 Skeleton、帧率、Root Motion Root Lock 和脚底高度。
-6. 只有确认归属的动作才移出 `Imported/Review`；未知动画不要凭文件名猜测删除或重命名。
+2. 全身攻击/翻滚 Montage Slot 位于 locomotion 输出之后；BlockMovement 时能够切到无 Root Motion Idle Pose，避免 MM 与 Montage 叠加位移。
+3. 为送虫/收虫/拔刀放虫建立独立的 `UpperBody_IGAction` Slot：把当前 Armed Motion Matching 输出缓存为 `LocomotionBase`；用此缓存作为该 Slot 的 Source 并缓存为 `KinsectActionPose`。随后按 `IsMoving` 选择两条路径：**静止**路径让 `KinsectActionPose` 全身输出；**移动**路径使用 `Layered Blend per Bone`，Base Pose=`LocomotionBase`、Blend Pose=`KinsectActionPose`，Branch Filter 从骨盆上方第一根脊椎骨（项目骨架为 `spine_01` 时即它）开始并覆盖所有子骨骼。移动路径绝不从 `root` 或 `pelvis` 开始；该层启用 Mesh Space Rotation Blend。两条路径最后都进入全身 `DefaultSlot`，供攻击/翻滚/收刀 Montage 使用；不要把 `UpperBody_IGAction` 改接到 `DefaultSlot`。
+4. AnimBP 不写战斗状态、不直接 Reset Combo。
+5. FacingRotation/Trajectory 使用 Character C++ 输出；动作拥有 Rotation Token 时普通 locomotion 不再改朝向。送虫/收虫没有 Rotation Token，因此其动作途中继续使用正常持刀转向。
+6. 逐个预览外部导入动画的 Skeleton、帧率、Root Motion Root Lock 和脚底高度。
+7. 只有确认归属的动作才移出 `Imported/Review`；未知动画不要凭文件名猜测删除或重命名。
 
 ## 10. E7——编辑器验证顺序
 
@@ -589,13 +663,14 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 1. 启动/重生：每次只创建一个 RuntimeHost、一个 Resource、一个猎虫和一份 HUD。
 2. 输入：Y/B/YB、LT/RT 先按与最后补齐、角色 Forward 判定、RB 持刀/收刀分流（纳刀 vs 0.1s 后奔跑）；一个物理输入只产生一个 Snapshot。
 3. 基础攻击：AttackCollision 只调用当前 Montage 对应 AbilityInstance；旧 BlendOut 不关闭新窗口。
-4. 闪避：方向来自快照；DodgeWindow 结束/中断后 Tag 和碰撞响应恢复。
-5. 普通猎虫：命中后 Hover，召回到达才交付；交付 Red 后下一次可以取得 White。
-6. 三灯：单灯→三灯、三灯吞灯不刷新、自然到期、Classic/Numeric 切换。
-7. 地面特殊动作：四连、前向回旋、StarterOnly、反击舞踏。
-8. 空中动作：操虫斩、穿刺、惯性、急袭突刺、降龙与落地清理。
-9. 虫印/滑翔/粉尘/觉虫击：距离、所有权、原子三灯消费和逐击点灯/粉尘一一对应。
-10. UI/反馈：准心颜色、灯/耐力/舞踏、伤害数字与 Cue；Viewport 只有一份 WBP_HUD。
+4. 收刀输入互斥：确认仅 `Grounded+Unsheathed` 的 RB 产生收刀快照，空中 RB 不产生；分别以 Idle、Walk 收刀，在 Commit 前、Commit 后尾帧连续按 Y/B/RT/LT 组合和 Dodge；不得激活第二个 GA、不得建立 PendingTransition、不得播放第二个 Montage。收刀 GA 正常结束或被强制硬直/死亡取消后，才按当前 Sheathed/Unsheathed 姿态恢复合法输入。
+5. 闪避：Idle 可翻滚；攻击本体/未开 `DodgeAcceptWindow` 的后摇按 Dodge 必须无效；窗口内按 Dodge 只有在新 Dodge 成功 Commit 后才精确结束当前攻击，Dodge 缺 Montage/耐力不足时原攻击必须继续。收刀/持刀 Forward 或无方向走已完成的前向翻滚；前向无输入回 Idle、有实时输入才进入移动衔接。持刀 Left/Right/Back 走各自翻滚并强制回 Idle；收刀 Left/Right/Back 必须拒绝且不耗耐。翻滚全程连续按 Y/B/RT/LT、收刀和 Dodge 都不得启动第二个 GA；`DodgeWindow` 结束/中断后只恢复无敌 Tag和开始前碰撞响应，`Dodging` 则到 Ability End 才释放。
+6. 普通猎虫：命中后 Hover，召回到达才交付；交付 Red 后下一次可以取得 White。
+7. 三灯：单灯→三灯、三灯吞灯不刷新、自然到期、Classic/Numeric 切换。
+8. 地面特殊动作：四连、前向回旋、StarterOnly、反击舞踏。
+9. 空中动作：操虫斩、穿刺、惯性、急袭突刺、降龙与落地清理。
+10. 虫印/滑翔/粉尘/觉虫击：距离、所有权、原子三灯消费和逐击点灯/粉尘一一对应。
+11. UI/反馈：准心颜色、灯/耐力/舞踏、伤害数字与 Cue；Viewport 只有一份 WBP_HUD。
 
 详细预期见 [验证清单](verification.md)。
 

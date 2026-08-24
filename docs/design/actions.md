@@ -14,9 +14,9 @@
 | 移动 | `AMHGZCharacter::DoMove` 只计算 `InputMagnitude`、`TargetCruiseSpeed` 和 `DesiredSpeed`，不调用 `AddMovementInput`；AnimBP 使用 Motion Matching/Root Motion。角色在 `Tick` 中按 `TurnRate` 限制最大转角，默认 `360°/s`，180° 不再瞬转。 |
 | 冲刺与瞄准 | 冲刺是 Character 上的 `bSprintHeld`，RB 收刀态持有 0.1s 后成立；M3 已将瞄准拆成 `Combat.State.Aiming.Kinsect/Action/Slinger`，由 InputRouter 通过 TagLedger Token 按 LT/RT 与收刀姿态派生。它们不是 `GA_Sprint`/`GA_Aim` 驱动。 |
 | GAS 输入 | `UMHGZInputComponent` 独占 Enhanced Input 绑定，`UMHGZWeaponInputRouterComponent` 生成组合键、方向、姿态、Aim 与释放身份不可变快照；ASC 只接收已解析输入，不拥有物理键。 |
-| 攻击 | `UMHGZAttackAbility` 使用 Montage Task、多 `TraceRegions` 自适应 Socket Sweep 和真实 `FHitResult`。同帧多 Region 选最早命中；默认接触式去重，只有显式 `LockedTargetTicks` 才离散复击并逐跳重验；旧 Socket/Shape 字段只剩序列化壳。 |
+| 攻击 | `UMHGZAttackAbility` 使用 Montage Task、多 `TraceRegions` 自适应 Socket Sweep 和真实 `FHitResult`。同帧多 Region 选最早命中；默认接触式去重，只有显式 `LockedTargetTicks` 才离散复击并逐跳重验；旧 Socket/Shape 字段只剩序列化壳。普通攻击入口已使用 Confirm 后、Montage 前的冻结输入 Yaw 瞬转，不创建动态 WarpTarget；M4-A.5 的单帧招内修正沿用同一直接 Yaw 算法，但只在原生普通 Notify 的精确帧读取实时摇杆。 |
 | 连招 | `UGA_WeaponComboCoordinator` 使用 `FComboTransition/Transitions`、不可变 ActivationContext 与 Pending/Confirm/Active 两阶段状态；方向、窗口、自动边、StateOnly、命中授予和 Superseded 实例隔离均已接通。最终虫棍 Transitions 仍待 E4 配置。 |
-| 闪避 | `UMHGZDodgeAbility` 使用输入方向快照和 Montage Task；`AnimNotifyState_DodgeWindow` 通过 ActionToken 精确定位实例，并以 TagLedger 持有窗口、逐通道恢复原碰撞响应。最终 Dodge Montage/资产仍待 E4。 |
+| 闪避 | M4-A.3 已实现前向 `LockedRootMotion → SteeringRootMotion → MotionMatching`，以及 `Dodging`、攻击侧 DodgeAcceptWindow、两阶段安全 Superseded 交接、GA 自身 Montage `SectionChanged` 出口处理与逐通道恢复。前向 `GA_Dodge`/Montage 已完成编辑器接线；M4-A.3.1 已完成持刀左/右/后翻滚的原生选择、强制 IdleExit、按变体 Section 校验与自动化测试，尚待创建并配置这三个 Montage 后进行 PIE 验证。 |
 | 边缘跳越 | `UMHGZEdgeVaultComponent` 目前仅为关闭 Tick 的桩组件；检测链和 `GA_EdgeVault` 属于下文保留方案。 |
 | 基础消耗/冷却 | None/Instant/PerSecond 已分别使用有效原生 GE/Drain Task；Cooldown 使用 HasDuration GE 与动态 GrantedTag；武器资源走 reservation→Commit→Consume/Release 事务。具体虫棍三灯消费由 M3/M6 完成。 |
 
@@ -27,16 +27,16 @@
 - 移动物理壳、重力与落地检测：`UCharacterMovementComponent`；常规位移由 AnimBP Root Motion 驱动
 - 移动输入：`DoMove` 记录输入方向和期望速度，当前不调用 `AddMovementInput`
 - 移动动画：AnimBP Motion Matching，根据 `DesiredSpeed` 和双 Pose Search Database 驱动
-- 奔跑：收刀态按住 RB ≥0.1s 后 `bSprintHeld` 切换巡航速度；持刀时 `Combat.State.Unsheathed` 阻止进入冲刺（RB 转由 Router 解析为纳刀）
+- 奔跑：收刀态按住 RB ≥0.1s 后 `bSprintHeld` 切换巡航速度；仅持刀地面态才由 `Combat.State.Unsheathed+Grounded` 的 Chord 将 RB 转交 Router 解析为纳刀，空中 RB 不产生收刀输入
 - GAS 当前主要通过 `Combat.State.BlockMovement` 阻断移动；`MoveSpeedMultiplier` 已定义但尚未接入 `CalcCruiseSpeed`
 
 ### RootMotion——攻击/翻滚中如何覆盖 CMC 移动
 
-攻击 Montage 配置 Root Motion 时，动画根骨骼位移可直接驱动角色位移/旋转。当前常规移动本身不调用 `AddMovementInput`；攻击期间通过 `Combat.State.BlockMovement` 把 Motion Matching 期望速度清零。摇杆方向可由 **MotionWarping** 用于旋转修正（见 `MaxCorrectionAngle`）。
+攻击 Montage 配置 Root Motion 时，动画根骨骼位移可直接驱动角色位移/旋转。当前常规移动本身不调用 `AddMovementInput`；攻击期间通过 `Combat.State.BlockMovement` 把 Motion Matching 期望速度清零。普通攻击在 Confirm 后、Montage 播放前按冻结输入做一次 Actor Yaw 瞬转（见 `MaxCorrectionAngle`）；它不依赖 MotionWarping。MotionWarping 只留给具有真实目标或位移/朝向对齐需求的特殊动作。
 
 | 场景 | RootMotion 作用 | bEnableRootMotion |
 |------|-----------------|:--:|
-| 攻击 Montage | 锁定角色按动画轨迹移动，摇杆仅控制方向修正 | ✅ true |
+| 攻击 Montage | 锁定角色按动画轨迹移动；普通攻击仅在入口按冻结摇杆作一次方向修正 | ✅ true |
 | 翻滚 Montage | 前跃/侧移距离由动画精确控制，不受 CMC 加速度/摩擦影响 | ✅ true |
 | 见切后撤 | 段0 后撤位移完全动画驱动（配合 MotionWarping 修正方向） | ✅ true |
 | 登龙下劈 | 空中轨迹动画控制——不是物理跳跃+下落 | ✅ true |
@@ -562,7 +562,7 @@ class UMHGZGameplayAbility : public UGameplayAbility
 | WeaponResourceCosts | TArray\<FWeaponResourceCostSpec\> | "Ability\|Cost" | 空 | 由当前 ResourceProvider 解释并预留的离散/数值武器资源成本 |
 | CooldownDuration | FScalableFloat | "Ability\|Cooldown" | 0 | 大于 0 且 CooldownTag 有效时写入 HasDuration GE Spec |
 | CooldownTag | FGameplayTag | "Ability\|Cooldown" | 空 | 由 Cooldown GE 的 DynamicGrantedTags 持有，不使用 Loose Tag |
-| MaxCorrectionAngle | float | "Ability\|Correction" | 30.0 | 攻击激活瞬间最大方向修正角度（以角色朝向为基准，扭向摇杆方向）。0=禁止修正 |
+| MaxCorrectionAngle | float | "Ability\|Correction" | 30.0 | 攻击已 Confirm、Montage 播放前的最大入口修正角度（以角色朝向为基准，直接转向冻结摇杆方向）。0=禁止修正 |
 | AudioIdentityTag | FGameplayTag | "Ability\|Audio" | 空 | 挥刀风声身份标签（如 `Audio.Swing.LS_VerticalSlash`）。GA 蓝图必配——`ActivateAbility` 时以此为 Key 查 `WeaponDef.SwingSoundOverrides`，命中则覆盖 `DamageConfig.SwingSound`。不同招式用不同 GA 蓝图→不同 Tag→不同音效，武器覆盖是可选增量 |
 
 > **FScalableFloat：** 所有 `FScalableFloat` 字段统一关联全局 CurveTable `DT_AbilityScalars`，Ability 只需指定行名（RowName）。`StaminaCost` 是 GA 的实际耐力扣除量；`FComboTransition::StaminaRequired` 是协调器的匹配门槛，不负责扣耐。
@@ -663,7 +663,7 @@ struct FAttackSegmentConfig
 | MultiHitCount | int32 | 1 | 每目标在该窗口内最多结算次数；1=普通单次命中 |
 | MultiHitInterval | float | 0.1 | 同目标两次结算的最小间隔；不能只靠 Timer 对已离开区域的缓存目标继续伤害 |
 | LockedTargetMaxDistance | float | 0 | 仅 LockedTargetTicks 使用；每跳验证攻击者到原 Hitzone 的距离，0 禁止配置该策略 |
-| MaxWarpAngle | float | 30.0 | ★ 本段 MotionWarping 允许的最大旋转修正角度（度）。与 GA 的 `MaxCorrectionAngle` 区分：GA 的管控"激活时第一段扭头"，段的 `MaxWarpAngle` 管控"段内 Montage 播放期间 MotionWarping 的旋转上限"。多段招式每段可不同（见切段0=180°后撤、段1=120°回砍）。0=该段不做旋转 Warp |
+| MaxWarpAngle | float | 30.0 | 为将来**特殊动作**的段内 MotionWarping 预留的旋转上限；与入口 `MaxCorrectionAngle` 独立。当前通用 `UMHGZAttackAbility` 没有读取它，也没有为普通攻击建立 WarpTarget，因此编辑器填写它不会产生运行时效果。待某个特殊 GA 显式实现其目标、Warp Notify 与消费逻辑后，才可为该 GA 启用；0 表示该特殊段不做旋转 Warp。 |
 
 ### 攻击 GA 成员
 
@@ -674,7 +674,7 @@ struct FAttackSegmentConfig
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
 | AttackSegments | TArray\<FAttackSegmentConfig\> | "Attack" | 空 | ★ 多段攻击配置——每段独立配置碰撞 + 伤害 + 多跳。替代原来分离的 `CollisionConfigs` + `DamageConfig`，解决非数组成员（Damage/MotionValue/Stagger 等）无法随段变化的问题 |
-| MaxCorrectionAngle | float | "Attack\|Correction" | 30.0 | ★ 攻击激活瞬间（第一段）的最大方向修正角度（度）。读摇杆方向，若偏离 ≤ 此值则设 MotionWarping RotationTarget 扭向目标。段内 MotionWarping 的修正上限由 `FAttackSegmentConfig::MaxWarpAngle` 控制，两者独立。0=禁止修正 |
+| MaxCorrectionAngle | float | "Attack\|Correction" | 30.0 | ★ 攻击已 Confirm、Montage 开始前的最大入口修正角度（度）。只读冻结 `Input.WorldDirection`；偏离 ≤ 此值时直接设置 Actor Yaw。它不读取实时摇杆、不创建普通攻击 WarpTarget。特殊段内 MotionWarping 若未来实现，由该特殊 GA 自己消费 `FAttackSegmentConfig::MaxWarpAngle`。0=禁止修正 |
 | ActiveCollisionWindows | TMap\<int32, RuntimeState\> | — | 空 | 每个 ConfigIndex 独立保存轨迹区域、已命中目标和多跳 Timer；不同段的 Notify 窗口可以重叠运行 |
 | CurrentSegmentIndex | int32 | — | 0 | 最近开始或结束判定的段索引，仅用于兼容 `ShouldContinueAfterHit()` 覆写 |
 | bHasHitThisActivation | bool | — | false | 本次 GA 激活后是否已有命中。用于首次命中时触发一次性逻辑（通知协调器 + Apply OnHitSelfEffect），避免多段/多怪重复触发 |
@@ -682,10 +682,10 @@ struct FAttackSegmentConfig
 ### 关键方法（覆写/新增）
 
 - `void ActivateAbility(...) override`
-  - 目标作用：从 `FWeaponAbilityActivationContext` 取得 SourceState/InputSnapshot/RuntimeToken/ActivationSequence → 建立 ActionToken 候选 → Resource reservation + `CommitAbility` → 消费 reservation → 回执 Coordinator Confirm。只有 Confirm 接受后才申请 `Combat.State.Attacking` 所有权 Token、按 InputSnapshot 修正方向、生成本 ActionToken 唯一 WarpTargetName 并播放 Montage；Montage 启动后把 Mesh+MontageInstanceID 注册到 RuntimeHost。Commit/Confirm 前不改状态、不授予 Tag、不播放动画。
+  - 目标作用：从 `FWeaponAbilityActivationContext` 取得 SourceState/InputSnapshot/RuntimeToken/ActivationSequence → 建立 ActionToken 候选 → Resource reservation + `CommitAbility` → 消费 reservation → 回执 Coordinator Confirm。只有 Confirm 接受后才申请 `Combat.State.Attacking` 所有权 Token，并在播放 Montage 前以冻结 `Input.WorldDirection` 执行一次入口方向修正：水平输入有效、`MaxCorrectionAngle>0` 且当前 Actor Yaw 与目标 Yaw 差值不超过阈值时，直接 `SetActorRotation`。普通攻击不创建 `AttackDirection_<...>` WarpTarget，也不读取实时摇杆；Montage 启动后把 Mesh+MontageInstanceID 注册到 RuntimeHost。只有某个特殊 GA 显式拥有目标对齐需求时，才在其自己的合同中创建并清理唯一 WarpTarget。Commit/Confirm 前不改状态、不授予 Tag、不播放动画。
 
 - `void EndAbility(...) override`
-  - 目标作用：**按本次 ActionToken 幂等清理**：注销 Montage/Notify Registry → 关闭本实例的 Collision/Combo/DodgeAccept/Counter/Movement Token → 移除本实例 WarpTarget → 释放自己拥有的 Attacking/临时 Tag → 释放未消费 reservation → 携带 ActionToken 和 EndReason 通知 Coordinator → 清理 Montage/任务。`Superseded` 只结束精确旧实例；迟到 End 不能重置新状态。
+  - 目标作用：**按本次 ActionToken 幂等清理**：注销 Montage/Notify Registry → 关闭本实例的 Collision/Combo/DodgeAccept/Counter/Movement Token → 若本动作属于显式 MotionWarp 特殊动作则移除其自己拥有的 WarpTarget → 释放自己拥有的 Attacking/临时 Tag → 释放未消费 reservation → 携带 ActionToken 和 EndReason 通知 Coordinator → 清理 Montage/任务。普通攻击没有 WarpTarget 可移除。`Superseded` 只结束精确旧实例；迟到 End 不能重置新状态。
 
 - `void EnableCollision(int32 SegmentIndex = 0)`
   - 输入：段索引。
@@ -733,7 +733,7 @@ struct FAttackSegmentConfig
 
 ### Ability 继承层级
 
-当前层级：`UGameplayAbility` → `UMHGZGameplayAbility` → `UMHGZAttackAbility` / `UMHGZDodgeAbility`，虫棍再由 `UMHGZInsectGlaiveAbility` 继承攻击基类。`UMHGZEdgeVaultAbility`、`GA_Sprint`、`GA_Heal` 为规划。
+当前层级：`UGameplayAbility` → `UMHGZGameplayAbility` → `UMHGZAttackAbility` / `UMHGZDodgeAbility`，虫棍再由 `UMHGZInsectGlaiveAbility` 继承攻击基类。M4-A.4 已在虫棍分支新增 `UMHGZDrawAttackAbility`，收刀 Y 与收刀 RT 都通过它的精确 `DrawCommit` 收敛“实际拔刀”姿态入口；`UMHGZEdgeVaultAbility`、`GA_Sprint`、`GA_Heal` 为规划。
 
 ### GameplayCue 集成 — HitFeedbackResult
 
@@ -774,6 +774,9 @@ UMHGZAttackAbility                         ← 碰撞+伤害+方向修正（通�
   │     └── GA_LS_HelmBreaker              ← 登龙(三段: 突刺+起跳+下劈, 多跳)
   │
   ├── UMHGZInsectGlaiveAbility             ← ★ 虫棍: 三灯+猎虫耐力
+  │     └── UMHGZDrawAttackAbility          ← M4-A.4: 拔刀 Commit+姿态切换
+  │           ├── GA_IG_Draw                ← 仅拔刀，无 AttackSegment
+  │           └── GA_IG_DrawSlash           ← 前+Y 拔刀攻击
   ├── UMHGZChargeBladeAbility              ← ★ 盾斧: 瓶计数+盾充能
   └── UMHGZSwitchAxeAbility                ← ★ 斩斧: 充能槽
 ```
@@ -1051,8 +1054,19 @@ class UMHGZDodgeAbility : public UMHGZGameplayAbility
 
 ### 最终配置
 
-- 收刀翻滚使用角色通用 Dodge DataAsset 中的方向 Montage Map。
-- 持刀翻滚由当前 `UWeaponRuntimeDefinition` 可选覆写同一 Map；缺覆写时回退角色通用 Map。
+- 最终数据型 `GA_Dodge` 的 `SheathedDodgeMontage`、`UnsheathedDodgeMontage` 表示各姿态的**前向**翻滚；`InputSnapshot.Direction=Forward` 或 `None` 都使用它们。两者可以引用同一 Montage。
+- M4-A.3.1 在 `UMHGZDodgeAbility` 新增 `UnsheathedLeftDodgeMontage`、`UnsheathedRightDodgeMontage`、`UnsheathedBackDodgeMontage`（或等价的最终直接配置）。它们只允许持刀 Left/Right/Back 使用；收刀 Left/Right/Back 直接拒绝。
+- 激活时先由冻结姿态和冻结方向得到 `FDodgeSelection{Montage,bAllowMoveExit}`，而不是在 Montage 播放中重新读取方向。规则如下：
+
+| 激活姿态 | 冻结方向 | 选择结果 | 退出规则 |
+|---|---|---|---|
+| Sheathed | Forward / None | `SheathedDodgeMontage` | 可按实时输入走 IdleExit 或 MoveExit |
+| Unsheathed | Forward / None | `UnsheathedDodgeMontage` | 可按实时输入走 IdleExit 或 MoveExit |
+| Unsheathed | Left / Right / Back | 对应的持刀方向 Montage | 始终 IdleExit；不允许 MoveExit |
+| Sheathed | Left / Right / Back | Reject | 不播动画、不扣耐 |
+
+- 所有成功行复用同一 `Instant` 耐力成本。没有所需 Montage、AnimInstance/Section 无效、Commit 失败或表中 Reject 的行都不得产生耐力消耗。
+- 旧方向 Montage Map 仅为资产迁移壳；运行时最多回退读取 `Forward/None`，不能承担 Left/Right/Back 的正式选择。
 - 旧 `DT_WeaponDodgeConfig` 在 M0 清点、迁移后停止运行时读取，不保留 DataTable 与 RuntimeDefinition 两条路径。
 - 耐力使用 `Instant` 成本策略；无敌帧只由 Montage 中 `AnimNotifyState_DodgeWindow` 定义。
 
@@ -1060,17 +1074,21 @@ class UMHGZDodgeAbility : public UMHGZGameplayAbility
 
 ```text
 HandleResolvedInputSnapshot(Input.Dodge)
-  → 按 Snapshot.ContextTags 检查 Hitstun/Knockdown、Attacking+DodgeAcceptOpen
+  → 以 live RuntimeHost/ASC 与冻结 Snapshot 双重检查 Grounded、姿态、Dead/Hitstun/Knockdown
+  → Attacking 时要求 Coordinator 当前精确 Attack ActionToken 自己持有 DodgeAcceptWindow
   → TryActivate 明确的 Dodge Spec，并注册完整 InputSnapshot
-  → GA 取得 Direction/RuntimeToken/Sequence，建立 ActionToken
-  → 选择收刀/持刀 Montage；按 Snapshot.Direction 选象限，缺方向项回退 None
+  → GA 取得 RuntimeToken/Sequence，建立 ActionToken；以冻结姿态+Input.Direction 选择一次 FDodgeSelection
+  → 前向选择验证 DodgeCore/IdleExit/MoveExit；左右后选择只验证 DodgeCore/IdleExit，并标记禁止 MoveExit
   → 依赖、Montage、AnimInstance 任一无效：Reject/End，不修改 BlockMovement 或碰撞
-  → Commit 成功后经 AbilityTask 播放 Montage，并注册 Mesh+MontageInstanceID
+  → Commit/动作登记成功后持有 Dodging、BlockMovement、MontageRootMotionOwner
+  → 攻击取消路径 Prepare 精确旧攻击，再播放并登记新 Montage，成功后 Commit Superseded
+  → Dodge GA 监听自身 MontageInstance 的 SectionChanged：先固定 Core -> IdleExit，再在实际进入 IdleExit 时读实时原始输入；仅前向变体有输入时立即跳 MoveExit 并释放自身 BlockMovement
+  → BlendOut 释放 MontageRootMotionOwner；EndAbility 最后释放 Dodging
   → DodgeWindow 只解析本 ActionToken，缓存各通道原响应、取得 Invincible Token
   → 完成/BlendOut/Interrupted/Cancelled/Superseded 均走同一幂等 End
 ```
 
-不再读取 `GetLastMovementInputVector()`，因为当前 Character 移动并未把该值作为战斗方向真相源；方向只来自解析时的 InputSnapshot。
+前向翻滚本体不再读取实时方向，也不由实时方向改轨；它只使用激活时已选出的前向 Montage。持刀左右后同样固定为激活时选出的方向 Montage，且完整动作保持移动锁直到结束。Character 在 BlockMovement 期间仍更新实时 `bHasInput/LastMovementInputDir`；只有允许 MoveExit 的前向选择在进入该阶段后才允许这些值影响角色朝向。
 
 ### 翻滚与连招的关系
 
@@ -1307,7 +1325,59 @@ class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 | PendingTransition | FPendingComboTransition | 已通过数据匹配但尚未收到 GA Commit 成功回执的转移；不拥有状态或标签 |
 | ActiveTransition | FActiveComboTransition | 当前转移的 TransitionID、完整 ActionToken、Source/TargetState、OwnedTags 与命中状态；不存在跨 Ability 共用的全局 PendingGrantedTags |
 
-M1 已删除运行时 `PreviousState`；GA 从不可变 `FWeaponAbilityActivationContext.SourceState` 选择 Montage 入口。协调器已维护 PendingTransition，但不维护 Chord Pending/Timer；组合缓冲只属于 WeaponInputRouter。
+M1 已删除运行时 `PreviousState`；协调器会把不可变的 `TransitionID`、`SourceState`、`TargetState` 和输入快照写入 `FWeaponAbilityActivationContext`。**当前 `UMHGZAttackAbility` 仍从 `AttackMontage` 的开头播放，尚未按该上下文选择 Start Section。** 入口选择属于 M4-B.1 的原生前置实现；在它编译并通过验证前，编辑器只能预建 Section，不能假定 GA 已经会按 SourceState 跳到其中一个。协调器已维护 PendingTransition，但不维护 Chord Pending/Timer；组合缓冲只属于 WeaponInputRouter。
+
+### 目标 GA 的 Montage 入口与片段数据流（M4-B.1 前置）
+
+`FComboTransition` 只描述玩法转移，**不**引用 Montage 或 Section；动画细节始终由目标 GA 拥有。这样同一套 Coordinator 能服务不同武器，也不会因为重排动画片段而修改 ComboData。
+
+```text
+DA_IG_Combo 的 FComboTransition
+  (TransitionID, SourceState, TargetState, AbilityClass)
+        │  匹配并冻结
+        ▼
+FWeaponAbilityActivationContext
+  (TransitionID, SourceState, TargetState, InputSnapshot, RuntimeToken)
+        │  Pending → GAS Commit → Confirm
+        ▼
+目标 Ability 实例（InstancedPerExecution）
+  选择 Entry Section → 从该 Section 启动自己的 Montage
+        │
+        ├─ Entry_From_<Source>：衔接动画片段
+        ├─ Core：招式本体、命中/窗口/Commit Notify
+        └─ Recovery_Common：未派生时的收招片段
+                 │
+                 ├─ 下一招 Confirm 成功：下一招从自己的 Entry_From_<本招> 开始，旧招 Superseded
+                 └─ 未派生：本招播完 → EndAbility → Coordinator 精确回 Idle
+```
+
+M4-B.1 在 `UMHGZAttackAbility` 增加以下**目标 GA 私有配置**和选择钩子；命名可随最终 C++ 风格微调，但职责、优先级和时机不得改变：
+
+```cpp
+FName DefaultEntrySection = NAME_None;
+TMap<FName, FName> EntrySectionByTransitionID;
+TMap<FName, FName> EntrySectionBySourceState;
+virtual FName SelectAttackMontageStartSection() const;
+```
+
+`SelectAttackMontageStartSection()` 只读取本实例已经冻结的 ActivationContext，并按以下顺序返回：
+
+1. `EntrySectionByTransitionID[TransitionID]`；同一目标 GA 的两条边需要不同衔接时使用它。
+2. `EntrySectionBySourceState[SourceState]`；多个边来自同一状态且共用衔接时使用它。
+3. `DefaultEntrySection`；该 GA 的通用起手。
+4. `NAME_None`；没有入口差异时从 Montage 默认开头播放。
+
+必须在 Action Confirm 后、`UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy` **创建时**把结果作为 Start Section 传入；不得先从开头播放、再 `Montage_JumpToSection`，否则会泄漏开头帧的 Root Motion/Notify，也可能先打断旧 Montage。任何已填写的映射值、或非 `NAME_None` 的 Default Section，只要为空/不存在于 `AttackMontage`，数据验证必须报错；运行时也必须在开始播放前 Cancel，不能静默回退到错误片段。Data Validation 还要验证某 GA 的 `TransitionID` 映射只指向以该 GA 为 `AbilityClass` 的正式转移。
+
+Montage 内的实现约定如下：
+
+- 一个**逻辑招式**通常有一个主 Montage；不要把整条连段做成一条超长 Montage，也不要为纯视觉连接动画新建空 GA。
+- 同一目标招式的多个入口 Section 均在 Montage 的 `Next Section` 中指向同一个 `Core`，例如 `Entry_From_Idle → Core`、`Entry_From_Slash1 → Core`；`Core → Recovery_Common`。多个入口片段可使用不同 AnimSequence，但共享的 Core/Recovery 可以复用同一个 Sequence 资产。
+- `Link_Slash1_To_Slash2` 归入 **Slash2** 的 `Entry_From_Slash1`，而不是 Slash1 的尾部。这样只有 Slash2 完成 Commit 后才会出现这段连接动画；若新动作启动失败，Slash1 仍保持原状。
+- 若不同入口连碰撞段、资源语义、Slot、位移所有者或取消规则都不同，则拆为不同 GA/Montage；Section 只解决“同一玩法招式的不同进入/表现片段”，不把异质动作塞进巨型 Montage。
+- `ComboWindow` 只授权下一条 Combo 边，并不跳 Section。窗口内输入仍先走 Coordinator 的 Pending→Commit→Confirm；Confirm 成功后的**目标** GA 才依据自己的上下文选择入口。
+
+动画实际位移与 Section 是正交的：Section 只决定播放路径，Root Motion 来自当前播放的 AnimSequence。M4-B.1 另提供原生 `AnimNotifyState_ActionRootMotionPhase`（名称可按最终代码规范调整）：它从精确 `(Mesh, MontageInstanceID)` 解析 ActionToken，再调用所属 Ability 的 Begin/End 接口；Ability 才能按自己的 Token 获取/释放 `MontageRootMotionOwner`。这个 NotifyState 覆盖每段**真实贡献 Root Motion** 的首帧到末帧；in-place 的 Entry/Recovery 不持有所有权。动画看似大位移但根骨骼没有真实位移时，必须由对应 GA 的 `MovementTask`/RootMotionSource 执行，不能假装它是 Montage Root Motion。
 
 规划成员明细：
 
@@ -1350,7 +1420,7 @@ M1 已删除运行时 `PreviousState`；GA 从不可变 `FWeaponAbilityActivatio
 
 **阶段 B（起手攻击）：** InputProfile 已将修饰键解析为唯一 InputTag；`HandleWeaponInput(InputSnapshot)` → 候选边 = `StateIndex["Idle"] ∪ AnyState` → 按 InputTag、状态精确度、方向、Priority 排序与预检 → 建立 PendingTransition/ActivationContext → TryActivate 已授予 Spec。GA 开头 Commit 成功并回执 Confirm 后，协调器才提交 ActiveTransition 和 TargetState；TryActivate 或 Commit 失败都清 Pending 且不改变状态。
 
-**阶段 C（GA 执行）：** GA 读取 ActivationContext → Resource reservation → GAS Commit → Consume → Confirm；Confirm 接受后才播放 Montage并注册 Mesh+MontageInstanceID→ActionToken。`AttackCollision/ComboWindow` 先从 RuntimeHost Registry 解析所属 ActionToken，再只调用该实例；Coordinator 通过 TagLedger 管理重叠 Window Token。
+**阶段 C（GA 执行）：** GA 读取 ActivationContext → Resource reservation → GAS Commit → Consume → Confirm；Confirm 接受后，目标 Attack GA 按 `TransitionID → SourceState → Default → Montage 开头` 选择并验证 Start Section，随后以该 Section 创建 Montage Task 并注册 `Mesh+MontageInstanceID→ActionToken`。当前代码在 M4-B.1 前仍只有“从开头播放”的最后一步，不能提前把该目标行为视为已实现。`AttackCollision/ComboWindow/RootMotionPhase` 先从 RuntimeHost Registry 解析所属 ActionToken，再只调用该实例；Coordinator 通过 TagLedger 管理重叠 Window Token。
 
 **阶段 D（连招下一段）：** 窗口内按同一流程执行下一条边；新实例 Commit+Confirm 后接管 ActiveTransition，协调器再对旧实例调用 `RequestEndAction(Superseded)`。GA 首次命中只更新完整 ActionToken 匹配的转移。
 
@@ -1384,11 +1454,29 @@ M1 已删除运行时 `PreviousState`；GA 从不可变 `FWeaponAbilityActivatio
 - **FSM 两条转移路径不冲突：** 输入转移和自动转移共享 `ExecuteTransition(TransitionID)`；自动转移必须引用唯一边 ID，EndAbility 只有在 AbilityHandle 仍拥有 ActiveTransition 时才能回 Idle
 - **GA→GA 自动派生不走 `TryActivateAbilityByTag`：** 必须通过 `OnAutoTransition`——确保协调器感知状态变更、ActivationContext 来源正确、SafetyTimer 更新。绕过协调器直接激活 GA 会导致状态不同步、Entry Section 选错、旧 End 回调误回 Idle
 
-## AnimNotifyState 系列（当前仅 AttackCollision 与 DodgeWindow；其余为规划）
+## AnimNotifyState 系列（AttackCollision、ComboWindow、DodgeWindow、DodgeAcceptWindow 已实现；其余为规划）
 
 > 均为 C++ 类（非蓝图）。`UAnimNotifyState` 有 Begin/Tick/End 三阶段回调，适合需要"持续一段帧"的逻辑。
 
-所有玩家动作 Notify 覆写带 `FAnimNotifyEventReference` 的 Begin/Tick/End，并从 `EventReference.GetContextData<UE::Anim::FAnimNotifyMontageInstanceContext>()` 取得 UE5.6 的 MontageInstanceID（包含 `Animation/ActiveMontageInstanceScope.h`）。再以 `MeshComp + MontageInstanceID` 查询 RuntimeHost Registry，取得完整 ActionToken 和弱 AbilityInstance；Context 缺失、Token 无效、世代不符或实例已结束时静默忽略。禁止 `GetActivatableAbilities()` 全表扫描，禁止按 AbilityClass 猜实例，禁止 Notify 资产对象保存运行时 Token。
+所有玩家动作 Notify 覆写带 `FAnimNotifyEventReference` 的 Begin/Tick/End，并从 `EventReference.GetContextData<UE::Anim::FAnimNotifyMontageInstanceContext>()` 取得 UE5.6 的 MontageInstanceID（包含 `Animation/ActiveMontageInstanceScope.h`）。再以 `MeshComp + MontageInstanceID` 查询 RuntimeHost Registry，取得完整 ActionToken 和弱 AbilityInstance。`Kinsect Send/Recall Commit` 是 Layered Slot 兼容的例外：若 UE Context 缺失，Notify 仅把本次回调的源 `UAnimMontage` 传入 Resolver；Resolver 从**同一 Mesh** 的 AnimInstance 取得该 Montage 的当前 InstanceID，再走同一 Registry。它仍不是扫描 Ability，也不是按 Class 猜实例。Context/回退均无法解析、Token 无效、世代不符或实例已结束时不执行 Commit；Kinsect Commit 会记录 Warning 以便 PIE 定位。禁止 `GetActivatableAbilities()` 全表扫描，禁止按 AbilityClass 猜实例，禁止 Notify 资产对象保存运行时 Token。
+
+### UAnimNotifyState_ActionRootMotionPhase — 动作根运动阶段（M4-B.1 规划）
+
+该 NotifyState 不是根运动开关，也不直接操作 CharacterMovementComponent。它只把当前 Montage 实例路由到所属 Action；Ability 再以自己的 `FWeaponActionToken` 调用 RuntimeHost 的精确所有权接口。
+
+```text
+NotifyBegin
+  → Mesh + MontageInstanceID → ActionToken
+  → UMHGZAttackAbility::BeginMontageRootMotionPhase(ActionToken)
+  → RuntimeHost::AcquireMontageRootMotion(ActionToken)
+
+NotifyEnd / Ability End / Montage Interrupted
+  → 同一精确 Token
+  → UMHGZAttackAbility::EndMontageRootMotionPhase(ActionToken)
+  → RuntimeHost::ReleaseMontageRootMotion(ActionToken)
+```
+
+旧实例的 NotifyEnd、已被 Superseded 的 Ability、或不匹配的 RuntimeToken 必须静默忽略，绝不能释放新实例的所有权。已完成的 `GA_Dodge`、`GA_Sheathe` 和 `UMHGZDrawAttackAbility` 各自已有经验证的根运动生命周期；M4-B.1 先为后续普通攻击/特殊动作提供按阶段的通用路径，不重写这三条已接线动作，除非逐条资产审计和回归测试通过。
 
 ### UAnimNotifyState_ComboWindow — 连招窗口通知
 

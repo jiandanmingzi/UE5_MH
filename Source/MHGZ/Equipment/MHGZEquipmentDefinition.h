@@ -55,6 +55,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Weapon|Visual")
 	FName AttachSocket = "Weapon_L";
 
+	/** 收刀时武器视觉组件所附着的角色 Socket。AttachSocket 始终表示拔刀后的手部 Socket。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Weapon|Visual")
+	FName SheathedAttachSocket = "Weapon_Back";
+
+	/** 角色上代表此武器本体的 SkeletalMeshComponent 标签；默认沿用既有命中约定。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Weapon|Visual")
+	FName VisualComponentTag = "WeaponTrace";
+
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override
 	{
 		return FPrimaryAssetId(TEXT("EquipmentDef"), ItemID);

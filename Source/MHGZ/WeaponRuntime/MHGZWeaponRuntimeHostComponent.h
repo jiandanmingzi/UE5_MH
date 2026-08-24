@@ -101,6 +101,21 @@ public:
 	void DispatchInputRelease(const FWeaponInputSnapshot& Snapshot);
 
 	// ----------------------------------------------------------------------
+	// Montage Root Motion 单一所有者
+	// ----------------------------------------------------------------------
+	/** 当前已注册 Action 获取 Montage Root Motion 独占权；同一 Action 重复获取幂等。 */
+	bool AcquireMontageRootMotion(const FWeaponActionToken& ActionToken);
+
+	/** 仅精确所有者可释放；重复、旧 Runtime 或其他 Action 释放均失败。 */
+	bool ReleaseMontageRootMotion(const FWeaponActionToken& ActionToken);
+
+	/** 当前 Runtime 是否存在有效的 Montage Root Motion 所有者。 */
+	bool IsMontageRootMotionOwned() const;
+
+	/** 指定 ActionToken 是否为当前 Montage Root Motion 所有者。 */
+	bool IsMontageRootMotionOwnedBy(const FWeaponActionToken& ActionToken) const;
+
+	// ----------------------------------------------------------------------
 	// 精确 Montage 注册表
 	// ----------------------------------------------------------------------
 	bool RegisterMontage(
@@ -162,6 +177,11 @@ private:
 
 	bool ApplySheathedPose(bool bInSheathed);
 
+	/** 在收刀/拔刀姿态切换时更新带 VisualComponentTag 的武器视觉组件。 */
+	bool ApplyWeaponVisualAttachment(bool bInSheathed);
+
+	USkeletalMeshComponent* FindWeaponVisualComponent() const;
+
 	void ReleasePoseToken(FWeaponOwnedTagToken& Token);
 
 	// ----------------------------------------------------------------------
@@ -211,10 +231,12 @@ private:
 	bool bShuttingDown = false;
 	bool bGrounded = true;
 	bool bSheathed = true;
+	bool bWeaponVisualAttachmentWarningIssued = false;
 
 	FWeaponRuntimeTagLedger TagLedger;
 	TArray<FWeaponActionToken> ActiveActions;
 	TArray<FWeaponMontageRegistration> MontageRegistrations;
+	FWeaponActionToken MontageRootMotionOwner;
 	FPoseTokens PoseTokens;
 
 	/** 资源预留透传目标（可由 SetResourceProvider 测试入口注入）。 */

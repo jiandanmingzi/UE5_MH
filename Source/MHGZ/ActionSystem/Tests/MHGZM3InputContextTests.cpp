@@ -84,7 +84,7 @@ bool FMHGZM3ContextChordRoutingTest::RunTest(const FString& Parameters)
 		{ TEXT("Combat.State.Unsheathed"), TEXT("Combat.State.Grounded") },
 		EWeaponAimSnapshotContext::Kinsect);
 	AddContextChord(Profile, TEXT("Input.Sheathe"), TEXT("Input.Modifier.Sheathed"), nullptr,
-		{ TEXT("Combat.State.Unsheathed") });
+		{ TEXT("Combat.State.Unsheathed"), TEXT("Combat.State.Grounded") });
 	Router->SetInputProfile(Profile);
 
 	const FGameplayTag RT = InputTag(TEXT("Input.Modifier.RT"));
@@ -145,6 +145,15 @@ bool FMHGZM3ContextChordRoutingTest::RunTest(const FString& Parameters)
 			InputTag(TEXT("Input.Sheathe")));
 	}
 	Router->HandlePhysicalCompleted(RB, 3.1);
+
+	Host->SetGrounded(false);
+	const int32 BeforeAerialRB = Router->GetCapturedSnapshots().Num();
+	Router->HandlePhysicalStarted(RB, 3.2);
+	Router->FlushExpiredInputs(3.6);
+	TestEqual(TEXT("unsheathed aerial RB does not emit Sheathe"),
+		Router->GetCapturedSnapshots().Num(), BeforeAerialRB);
+	Router->HandlePhysicalCompleted(RB, 3.7);
+	Host->SetGrounded(true);
 
 	Host->SetSheathed(true);
 	const int32 BeforeSheathedRB = Router->GetCapturedSnapshots().Num();

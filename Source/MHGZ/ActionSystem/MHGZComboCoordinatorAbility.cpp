@@ -3,6 +3,8 @@
 #include "MHGZComboCoordinatorAbility.h"
 
 #include "MHGZAbilitySystemComponent.h"
+#include "MHGZAttackAbility.h"
+#include "MHGZDodgeAbility.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "MHGZCharacter.h"
 #include "TimerManager.h"
@@ -146,7 +148,8 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	const FComboTransition& Transition, const FWeaponInputSnapshot& Input) const
 {
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (!ASC || !DoesTransitionMatchState(Transition)
+	if (!ASC || HasPlayerActionInputLock(ASC)
+		|| !DoesTransitionMatchState(Transition)
 		|| !IsSnapshotPostureCompatible(Transition, Input))
 	{
 		return false;
@@ -222,7 +225,11 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 
 void UGA_WeaponComboCoordinator::HandleWeaponInput(const FWeaponInputSnapshot& Input)
 {
-	if (Input.Phase != EWeaponInputPhase::Started || PendingTransition.IsSet()) return;
+	if (Input.Phase != EWeaponInputPhase::Started || PendingTransition.IsSet()
+		|| HasPlayerActionInputLock(GetAbilitySystemComponentFromActorInfo()))
+	{
+		return;
+	}
 	if (const FComboTransition* Transition = FindBestMatch(Input))
 	{
 		ExecuteTransition(*Transition, Input);
@@ -544,6 +551,69 @@ void UGA_WeaponComboCoordinator::CloseComboWindow(
 		Host->ReleaseTags(Entry->TagToken);
 	}
 	ComboWindows.Remove(Key);
+}
+
+bool UGA_WeaponComboCoordinator::CanDodgeSupersedeActiveAction() const
+{
+	if (!ActiveTransition.IsSet())
+	{
+		return false;
+	}
+
+	const FWeaponActionToken& ActiveAction = ActiveTransition->ActionToken;
+	const UMHGZAttackAbility* Attack = Cast<UMHGZAttackAbility>(
+		ActiveAction.AbilityInstance.Get());
+	return Attack && Attack->HasOpenDodgeAcceptWindow(ActiveAction);
+}
+
+bool UGA_WeaponComboCoordinator::PrepareActiveActionForDodge(
+	const FWeaponActionToken& DodgeActionToken)
+{
+	UMHGZDodgeAbility* Dodge = Cast<UMHGZDodgeAbility>(
+		DodgeActionToken.AbilityInstance.Get());
+	if (!Dodge || DodgeActionToken != Dodge->GetActionToken()
+		|| !Dodge->IsActionActivationCommitted()
+		|| !CanDodgeSupersedeActiveAction())
+	{
+		return false;
+	}
+
+	const FWeaponActionToken PreviousAction = ActiveTransition->ActionToken;
+	UMHGZAttackAbility* PreviousAttack = Cast<UMHGZAttackAbility>(
+		PreviousAction.AbilityInstance.Get());
+	if (!PreviousAttack)
+	{
+		return false;
+	}
+
+	return PreviousAttack->PrepareDodgeSupersede(DodgeActionToken);
+}
+
+bool UGA_WeaponComboCoordinator::CommitActiveActionDodgeSupersede(
+	const FWeaponActionToken& DodgeActionToken)
+{
+	if (!ActiveTransition.IsSet())
+	{
+		return false;
+	}
+	UMHGZAttackAbility* PreviousAttack = Cast<UMHGZAttackAbility>(
+		ActiveTransition->ActionToken.AbilityInstance.Get());
+	return PreviousAttack
+		&& PreviousAttack->CommitDodgeSupersede(DodgeActionToken);
+}
+
+void UGA_WeaponComboCoordinator::CancelActiveActionDodgeSupersede(
+	const FWeaponActionToken& DodgeActionToken)
+{
+	if (!ActiveTransition.IsSet())
+	{
+		return;
+	}
+	if (UMHGZAttackAbility* PreviousAttack = Cast<UMHGZAttackAbility>(
+		ActiveTransition->ActionToken.AbilityInstance.Get()))
+	{
+		PreviousAttack->CancelDodgeSupersede(DodgeActionToken);
+	}
 }
 
 void UGA_WeaponComboCoordinator::CloseWindowsFor(const FWeaponActionToken& ActionToken)

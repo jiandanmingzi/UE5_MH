@@ -93,6 +93,13 @@ public:
 		const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo) const override;
 
+	virtual bool CanActivateAbility(
+		const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo,
+		const FGameplayTagContainer* SourceTags,
+		const FGameplayTagContainer* TargetTags,
+		FGameplayTagContainer* OptionalRelevantTags) const override;
+
 	virtual void ActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
@@ -134,6 +141,12 @@ public:
 	/** 以 Ability 所有者身份经 Ledger 获取 Action Tags；EndAbility 时自动释放。 */
 	FWeaponOwnedTagToken AcquireActionTags(const FGameplayTagContainer& Tags, FName LocalID = NAME_None);
 
+	/**
+	 * 提前释放本 Action 已获取的一个 Ability Tag Token。
+	 * 仅匹配 OwnedActionTagTokens 中的精确 Token；不会按 Tag 名影响其他所有者。
+	 */
+	bool ReleaseActionTag(FWeaponOwnedTagToken& InOutToken);
+
 	/** 释放本 Action 已获取的全部 Ability Tags。 */
 	void ReleaseActionTags();
 
@@ -146,6 +159,12 @@ public:
 	UMHGZWeaponRuntimeHostComponent* GetRuntimeHost() const;
 
 protected:
+	/** Infrastructure/forced-reaction abilities override this explicitly. */
+	virtual bool ShouldIgnorePlayerActionLocks() const { return false; }
+
+	/** True while an exact Sheathing or Dodging owner is present on the ASC. */
+	static bool HasPlayerActionInputLock(const UAbilitySystemComponent* ASC);
+
 	/**
 	 * Action 依赖预检（Commit 前、零副作用时调用）。
 	 * 返回 false 时本次激活直接 Reject/End，不产生预留、成本、冷却或 Tag。

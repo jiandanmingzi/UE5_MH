@@ -12,15 +12,24 @@
 4. 每条 Combo 转移拥有唯一 TransitionID；自动派生按 ID 定位。ActivateAbility 边经过 Pending→Resource Reserve→GAS Commit→Consume→Confirm，StateOnly 只用于同一 ActionToken 的自动阶段变化。
 5. TryActivate、Reserve 或 Commit 失败均不改变 CurrentState/Tag，且 reservation 被释放；旧 Ability 的迟到 Hit/End/Notify 不能清理或重置新 ActiveTransition。
 
+### M4-B.1 入口 Section 与分段位移（规划验证）
+
+1. Slash1 的 ComboWindow 内输入下一招 → Coordinator 冻结 `TransitionID=IG.Slash1.To.Slash2`、`SourceState=Slash1`；`GA_IG_Slash2` 完成 Commit+Confirm 后，从 `AM_IG_Slash2.Entry_From_Slash1` 启动，而不是从 Montage 开头播放后再跳转。
+2. Slash2 缺少对应 Section、依赖或 Commit 失败时，不播放连接片段，Slash1 不以 Superseded 结束；无下一招输入时，Slash1 正常播放自己的 Recovery 并回 Idle。验证 `TransitionID` 映射优先于 `SourceState`，`SourceState` 优先于 Default，没有任何映射才从 Montage 开头。
+3. in-place 的 Entry/Recovery 播放时 `MontageRootMotionOwner` 为空；进入真实根位移的 Core/Travel 时，`ActionRootMotionPhase` 以当前 MontageInstanceID 获取当前 ActionToken 的 Owner，MM 输出零根位移；Phase End 后若动作进入 MoveExit，先释放 Owner、再由 MM 接管。
+4. 旧 BlendOut/NotifyEnd、被 Superseded 的旧 Ability 或错误 RuntimeToken 均不能释放新动作的 Owner；看似大位移但根骨骼无位移的序列只能启动有终止条件的 MovementTask，不能取得 Montage Owner。
+
 ### E4-A / M4-A 最小纵切
 
 在完整 Demo 验收前，先只验证以下项目；通过不等于三灯、完整连招、空战、虫印、粉尘或 UI 已完成：
 
-E4-A.1. `DA_IG_Combat` 已引用 `DA_IG_Kinsect_Speed` 与 White/Orange/Red/TripleUp 四个 GE；Data Validation 通过。角色 Skeleton 存在 `Kinsect_Arm_Socket`，且不与武器的 `Weapon_L` 共用。
-E4-A.2. 收刀地面按 RT：只产生一次 `Input.Weapon.RT`，`GA_IG_DrawAndSendKinsect` 成功后猎虫直飞、角色停止奔跑并切到 Unsheathed；无有效配置或 Commit 失败时不切姿态、不放虫。
-E4-A.3. 持刀地面 LT+Y：`GA_IG_SendKinsect` 使用冻结 Kinsect Aim 放虫；LT+B：`GA_IG_RecallKinsect` 只在猎虫已离手时召回。两者不通过蓝图 Tick/直接 Spawn 绕过 Resource。
-E4-A.4. 持刀地面按 RB：Router 只输出一次 `Input.Sheathe`，`GA_Sheathe` 选 Idle/Walk Section；攻击/硬直中拒绝；Montage 正常完成前仍为 Unsheathed，完成后才切 Sheathed。收刀 RB ≥0.1s 仍只走 Character 奔跑路径，不产生 Sheathe 快照。
-E4-A.5. 用户选定的 Y 起手动作只经 `DA_IG_Combo` 的唯一 `Idle → GroundStarter` Transition 由 Coordinator 激活；Commit/中断失败不改变姿态、不残留 ActionToken/窗口/碰撞。若它是拔刀起手，成功激活时停止奔跑并切 Unsheathed。
+**验证范围规则：** 此处的 Data Validation 指 E4-A 所有者资产及其直接依赖（RuntimeDefinition、InputProfile、CombatConfig、Combo、E4-A GA/Montage/Notify）。全 Content 的 Data Validation 只在 E7/M7 作为发布门禁。M6/E6 前 `DA_WeaponRuntime_IG` 必须有 `ResourceComponentClass`，但 `ResourceWidgetClass` 必须保持 `None`；校验合同已允许该组合，Widget 非空时才要求 Resource 非空。`DA_TrainingDummy` 的 Red/White/Orange 是 E5-A 资产门禁，阻塞 M3 三色闭环和全项目验证，但不是 E4-A 送虫/收虫功能的新增要求。阶段与阻塞归属见 [阶段门禁](../design/milestone-gates.md)。
+
+E4-A.1. `DA_IG_Combat` 已引用 `DA_IG_Kinsect_Speed` 与 White/Orange/Red/TripleUp 四个 GE；E4-A 阶段范围的 Data Validation 通过。角色 Skeleton 存在 `Kinsect_Arm_Socket`，且不与武器的 `Weapon_L` 共用。
+E4-A.2. 收刀地面按 RT：只产生一次 `Input.Weapon.RT`，`GA_IG_DrawAndSendKinsect` 使用与持刀送虫共用的 in-place `UpperBody_IGAction` `AM_IG_SendKinsect`；全程没有 Attacking、BlockMovement 或 MontageRootMotionOwner，摇杆持续驱动当前姿态的 locomotion。角色只在其实际 `DrawCommit` 后停止奔跑、切到 Unsheathed，且武器 SkeletalMeshComponent 从 `Weapon_Back` 切到 `Weapon_L`；后续精确 `KinsectSendCommit` 才让猎虫直飞。DrawCommit 前中断保持 Sheathed/背部，DrawCommit 后中断保持 Unsheathed/手部；SendCommit 前中断不放虫，SendCommit 后中断不回滚 Flight；无有效配置或 GAS Commit 失败时不切姿态、不放虫。
+E4-A.3. 持刀地面 LT+Y：`GA_IG_SendKinsect` 使用冻结 Kinsect Aim 放虫；LT+B：`GA_IG_RecallKinsect` 只在猎虫已离手时召回。二者由现有原生 GA 的新增 `ActionMontage` 字段播放各自正式无伤害、in-place 的 `UpperBody_IGAction` Montage，并仅在其精确 `KinsectSendCommit`/`KinsectRecallCommit` 后开始送虫/收虫；Commit 前中断不改变猎虫状态，Commit 后中断不回滚已开始的 Flight/Return。动作途中持续推任意方向摇杆时，持刀 Motion Matching 的下半身移动/转向不中断；二者没有 Attacking、BlockMovement、RootMotionOwner、AttackSegment 或 AttackCollision，也不通过蓝图 Tick/直接 Spawn 绕过 Resource。
+E4-A.4. 持刀**地面**按 RB：Router 只输出一次 `Input.Sheathe`，`GA_Sheathe` 选 Idle/Walk Section；攻击/硬直/击倒/死亡/动作锁中拒绝。空中按 RB 不产生 Sheathe 快照；`SheatheCommit` 前仍为 Unsheathed、之后为 Sheathed，且 `Sheathing` 直到 Montage/Ability 结束才释放。收刀 RB ≥0.1s 仍只走 Character 奔跑路径，不产生 Sheathe 快照。
+E4-A.5. 收刀地面按 Y 只产生一个 `Input.Weapon.Y` 快照：无、左、右、后输入匹配 `Idle → DrawOnly` 的 `GA_IG_Draw`，仅拔刀且无 AttackSegment；Forward 输入因具体方向优先匹配 `Idle → GroundStarter` 的 `GA_IG_DrawSlash`，播放拔刀攻击并按配置造成伤害。二者均只在 `DrawCommit` 后停止奔跑、切 Unsheathed 并将武器从背部切到手部；Commit/GAS 失败或 Commit 前中断不改变姿态与视觉挂点，结束/中断不残留 ActionToken、窗口或碰撞。
 
 ### 输入与地面连招
 
@@ -28,7 +37,7 @@ E4-A.5. 用户选定的 Y 起手动作只经 `DA_IG_Combo` 的唯一 `Idle → G
 7. 角色面朝屏幕左侧且摇杆向左时，`前+Y+B` 匹配 Forward；摇杆上推不匹配。方向、按键、修饰态和 Ground/Aerial、Sheathed/Unsheathed 均来自同一 InputSnapshot；Grace 期间变姿态不误触发新姿态动作。
 8. 收刀 LT 只进入未使用的投射物瞄准；收刀不能 LT+Y 放虫；收刀 RT 执行拔刀并沿角色 Forward 放虫。
 8a. **RT ReleaseFallback**：(a) 持刀地面按住 RT、未按 A/B/Y/LT 后松开→恰好一次 `Input.Weapon.RT` Started→虫印斩；(b) 持刀 RT+A/B/Y 或 LT+RT 获胜→松开 RT 只派发该获胜动作的 Completed，不补发 RT；(c) 收刀地面按下 RT 仍立即拔刀直飞；(d) 空中任意收/拔刀状态按下 RT→恰好一次 RT Started→急袭突刺，松开不补发。
-9. 持刀 LT+Y/LT+B 分别送虫/召回；普通 Y/B 仍用于《世界》地面连招，不被猎虫操作抢占。
+9. 持刀 LT+Y/LT+B 分别送虫/召回；收刀 Y 按 E4-A.5 的两条拔刀边分流；持刀普通 Y/B 仍用于《世界》地面连招，不被猎虫操作抢占。
 10. 《世界》地面基底动作按 ComboData 正常起手、派生、超时和回 Idle。
 11. Y+B 的 Idle Start 边不要求窗口；Derive 边只在 ComboWindow 内从除飞圆斩外的地面动作派生四连印斩；不能任意帧打断。四个 AttackSegment 独立去重。
 12. Forward+Y+B 在相同候选中优先触发突进回旋斩；未成功反击时结束规则与四连印斩一致。
@@ -66,11 +75,11 @@ E4-A.5. 用户选定的 Y 起手动作只经 `DA_IG_Combo` 的唯一 `Idle → G
 35. 任意动作在受击、落地、死亡、收刀、换武器或 PIE End 时不残留 PendingTransition、Timer、Delegate、Reserved Powder、Loose Tag/GE、攻击窗口、Projectile 或 RootMotionSource；急袭突刺/降龙的 AbilityOwned Landing 不被通用落地重置提前截断。
 36. Packaged Development Build 中完整执行 [编辑器接线指南](demo-setup.md) 第 10 节的分层验证，结果与 PIE 一致。
 37. 动作 GA 为 InstancedPerExecution、协调器为 InstancedPerActor；连续激活同一 GA Class/Spec 时两个实例有不同 ActionToken，旧实例以 Superseded 结束。
-38. 同时存在旧 BlendOut 与新 Montage 时，AttackCollision/Combo/Dodge Notify 只通过 Mesh+MontageInstanceID 调用所属 AbilityInstance；Notify 不遍历全部 Active Specs。旧 NotifyEnd 不关闭新窗口。
+38. 同时存在旧 BlendOut 与新 Montage 时，AttackCollision/Combo/Dodge Notify 只通过 Mesh+MontageInstanceID 调用所属 AbilityInstance；Notify 不遍历全部 Active Specs。送虫/收虫 Commit Notify 在 UE Context 缺少 InstanceID 的 Layered Slot 回调中，只可由该回调的源 Montage 取得同一 Mesh 的当前 InstanceID 后再走同一精确注册表；不得按 AbilityClass 猜实例。旧 NotifyEnd 不关闭新窗口。
 39. InputComponent 是唯一 IMC/Binding 所有者。连续两次 Setup、UnPossess→Possess、死亡重生后，按一次键只收到一次快照；ASC/PlayerController 不持有第二份 UInputAction 绑定。
-40. `Input.Dodge` 只使用 InputSnapshot.Direction；缺 Montage/AnimInstance、Commit 失败、Montage Interrupted 时均无 BlockMovement/Invincible 残留，各碰撞通道恢复 NotifyBegin 前原响应而非固定 Block；最终 `PlayerCapsule` 必须恢复为 Weapon=Ignore、MonsterAttack=Block。
+40. `Input.Dodge` 只用冻结 InputSnapshot 姿态与 Direction 选择一次变体：收刀/持刀 Forward/None 选前向且才允许按实时输入走 MoveExit；持刀 Left/Right/Back 选对应 Montage 并强制 IdleExit；收刀 Left/Right/Back 拒绝且不耗耐。所有允许变体使用同一 Instant 耐力成本。缺 Montage/AnimInstance、Commit 失败、Montage Interrupted 时均无 BlockMovement/Invincible 残留，各碰撞通道恢复 NotifyBegin 前原响应而非固定 Block；最终 `PlayerCapsule` 必须恢复为 Weapon=Ignore、MonsterAttack=Block。
 41. 护甲、饰品、镶嵌和同一 WeaponSnapshot 重复广播不重建 Runtime、不清空精华/舞踏/Pending；真正更换武器才执行一次完整 Shutdown/Initialize。
-42. 动作拥有 Movement Token 时 Character locomotion 不覆盖旋转；正常完成、Superseded、受击、死亡、换装和失败早退后不存在本动作 RootMotionSource 或 WarpTarget。
+42. 动作拥有 Movement Token 时 Character locomotion 不覆盖旋转；正常完成、Superseded、受击、死亡、换装和失败早退后不存在本动作 RootMotionSource。只有显式目标对齐的特殊动作才可拥有 WarpTarget，且结束后必须清理；普通攻击入口瞬转不创建 WarpTarget。
 43. 猎虫第一次回手交付 Red 后 Pending 为空，第二次命中 White 可正常交付；迟到 Return 回调不能重复交付 Red。
 44. 猎虫耐力从正值降到 0 时警告音效和 ForceRecall 各一次；保持 0 或已 Returning/Attached 的后续 Tick 不重复触发。
 45. Runtime Ready 同 Token 重复广播为 UI no-op；Viewport 只有一份 WBP_HUD，资源面板只作为 WeaponResourceSlot 的一个子控件。旧 Pawn Invalidated 不能删除新面板。
@@ -105,7 +114,7 @@ E4-A.5. 用户选定的 Y 起手动作只经 `DA_IG_Combo` 的唯一 `Idle → G
 22. **Montage 完成回 Idle**：Montage 自然播完→GA EndAbility→协调器 OnActionFinished(ActionToken, Reason)→CurrentState="Idle"
 23. **协调器 Infinite**：装备太刀期间 ASC→GetActiveAbilities() 始终包含 GA_WeaponComboCoordinator
 24. **地面/空中态隔离**：被击飞后 Aerial+Hitstun→地面招式 RequiredTags 不满足→按 △ 无响应；落地恢复
-25. **拔刀/纳刀态**：默认 Sheathed→按 △ 触发拔刀斩→后续地面招式可正常连招；持刀态按 RB 立即纳刀（静止/移动选段，攻击或硬直中无效）→攻击招式不可用、恢复 Sheathed
+25. **拔刀/纳刀态**：默认 Sheathed→按 △ 触发拔刀斩→后续地面招式可正常连招；仅持刀地面态按 RB 才立即纳刀（静止/移动选段，攻击、硬直、击倒、死亡或动作锁中无效；空中不派发收刀）→攻击招式不可用、恢复 Sheathed
 26. **统一派发路由**：按 Y→lambda 捕获 Input.Weapon.Y→OnInputActionTriggered→MatchesTag("Input.Weapon")=true→协调器→HandleWeaponInput
 27. **部位命中顺序**：同一帧的所有 Region/采样点/时间子步汇总后，武器轨迹先掠过翅膀(防御 0.5)再命中身体(防御 1.0)→取归一化帧时间最早的翅膀→伤害按翅膀倍率
 28. **部位去重**：同一斩击命中怪物头部→记录（怪物A, Head），后续同帧 Overlap 到身体→跳过
@@ -118,7 +127,7 @@ E4-A.5. 用户选定的 Y 起手动作只经 `DA_IG_Combo` 的唯一 `Idle → G
 35. **bRequiresWindowOpen=false + DodgeAcceptOpen**：(a) 虫棍纵斩 DodgeAcceptOpen 内按 LT+B→收虫触发。(b) 窗口外按 LT+B→不触发。(c) 普通纵斩 DodgeAcceptOpen 内按 A→翻滚触发
 36. **DataManager 全局查询**：(a) EquipmentComponent 查词条目录→正常返回。(b) ExecCalc 获取曲线表→得正确数值。(c) 资产未加载→FindEntryDefinition 返回 false→日志警告
 37. **移速同步**：(a) 装备大剑→MoveSpeedMultiplier=0.6→CMC 同步。(b) 喝加速药水→叠加 0.8→CMC 同步。(c) 卸下大剑→回归 1.0
-38. **RB 双语义（纳刀/奔跑）**：(a) 收刀态按住 RB ≥0.1s→进入奔跑（SprintCruise），点按 <0.1s 不闪跑。(b) 拔刀后按 RB→不奔跑，Router 输出 `Input.Sheathe`→`GA_Sheathe` 播纳刀（攻击/硬直中拒绝激活）。(c) 奔跑中按 Y 或 RT 拔刀→奔跑立即中断、切 Unsheathed 并执行拔刀动作。(d) 纳刀播完→恢复 `Combat.State.Sheathed`→再按住 RB 可重新奔跑。
+38. **RB 双语义（纳刀/奔跑）**：(a) 收刀态按住 RB ≥0.1s→进入奔跑（SprintCruise），点按 <0.1s 不闪跑。(b) 仅在拔刀地面态按 RB→不奔跑，Router 输出 `Input.Sheathe`→`GA_Sheathe` 播纳刀；空中不输出该输入，攻击/硬直/击倒/死亡/动作锁中拒绝激活。(c) 奔跑中按 Y 或 RT 拔刀→奔跑立即中断、切 Unsheathed 并执行拔刀动作。(d) 纳刀播完→恢复 `Combat.State.Sheathed`→再按住 RB 可重新奔跑。
 39. **GameplayEvent 受击连打**：(a) 受击→GA_HitReaction 实例1 激活。(b) 连打中再次受击→实例2 激活（InstancedPerExecution）→实例1 被打断。(c) 实例2 播完→Hitstun Tag 移除
 40. **StaminaRequired vs StaminaCost**：(a) Required=20, Cost=20→检查通过→扣 20。(b) Required=25, Cost=20→CurrentStamina=22→门槛不通过。(c) CurrentStamina=30→门槛通过→扣 20→剩余 10
 41. **持续耗耐帧率无关**：(a) 60 FPS 奔跑 1s→累计扣除 = CostRate × 1.0。(b) 30 FPS 奔跑 1s→累计扣除一致。(c) 耐力扣到 0→Clamp→EndAbility
@@ -126,7 +135,8 @@ E4-A.5. 用户选定的 Y 起手动作只经 `DA_IG_Combo` 的唯一 `Idle → G
 43. **无敌帧碰撞穿透**：(a) NotifyBegin→Weapon 通道=Ignore+Invincible Tag。(b) 怪物攻击 Sweep→Ignore→不命中。(c) Pawn 通道 Block→无法穿过怪物。(d) NotifyEnd→恢复
 44. **怪物攻击碰撞**：(a) NotifyBegin→部位 MonsterAttack 通道=Block。(b) NotifyTick Sweep 检测玩家→命中→Apply 伤害。(c) NotifyEnd→恢复 Ignore→收招不误伤。(d) 龙车高速冲撞→首帧 Sweep→命中
 45. **怪物部位胶囊体常态**：(a) 头部始终 Block Weapon→玩家斩击能命中。(b) 头部始终 Block Pawn→玩家不能穿过。(c) MonsterAttack 常态 Ignore→待机不误伤
-46. **方向修正**：(a) MaxCorrectionAngle=30°→摇杆前推 20°→角色朝向旋向目标。(b) 摇杆前推 50°→不修正。(c) 无摇杆输入→不修正
+46. **普通攻击入口方向修正**：(a) Action Confirm 后、Montage 播放前，MaxCorrectionAngle=30° 且冻结摇杆方向偏差 20°→Actor Yaw 一次性转到目标，Root Motion 从新朝向开始；(b) 冻结方向偏差 50°→不修正；(c) 无摇杆或 MaxCorrectionAngle=0→不修正；(d) 蒙太奇播放期间改变摇杆不改变本招朝向，且本招没有 `AttackDirection` WarpTarget。
+46a. **单帧招内方向修正**：(a) 攻击已 Confirm 且播放到 `Action Direction Correction` 时，实时 `LastMovementInputDir` 偏差 20°、Override=30°→只在该 Notify 帧转向一次；(b) 实时偏差 50°、无实时方向、Override=0 或错误/旧 ActionToken→不转向；(c) Override=-1 时回退 GA 的 `MaxCorrectionAngle`；(d) 同一 Montage 的其他帧及 Notify 后改变摇杆均不再修正；(e) 全程不创建 `AttackDirection` WarpTarget，不使用 MotionWarping。
 47. **蓄力释放方向修正**：(a) 蓄力期间摇杆推左→Completed 时读方向→Warp Target=左+60°→Montage 播放时旋向目标
 48. **见切多段二次修正**：(a) 激活→段1 Warp Target=后方 180°→后撤。(b) 段1 NotifyEnd→段2 Warp Target=左方 120°→回砍修正。(c) 超出 120°→截断
 49. **多段攻击不同 MotionValue**：(a) 横扫段 MotionValue=0.6、下劈段=1.2→两段分别读取。(b) 两段都命中→伤害分别为 Attack×0.6 和 Attack×1.2
