@@ -43,6 +43,7 @@
 | [ui-system.md](ui-system.md) | HUD 唯一所有权、准心和资源面板接口 |
 | [motion-matching.md](motion-matching.md) | Locomotion、Trajectory、旋转和动画图 |
 | [locomotion-refactor.md](locomotion-refactor.md) | 已冻结、待 M4-A.5 后实施的 CMC + 状态机 + Distance Matching 普通移动重构 |
+| [locomotion-refactor-code-guide.md](locomotion-refactor-code-guide.md) | L0～L5 的代码文件、冻结接口、AI 实施边界、测试与退出条件 |
 | [directory-structure.md](directory-structure.md) | Source/Content 目录和资产归属规范 |
 | [design-decisions.md](design-decisions.md) | 已冻结决策和被取代方案 |
 | [pending.md](pending.md) | 明确延期内容 |

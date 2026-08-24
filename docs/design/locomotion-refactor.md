@@ -5,6 +5,8 @@
 > **实施门槛：** 先完成 M4-A.5 的非移动核心代码与 E4-A 阶段资产接线；随后执行本文 L0～L5，再做 M4-A 最终移动 PIE/阶段验证。不得在完成 L5 前进入依赖基础移动接管的 M4-B.1/M5 批量动作接线。全项目 Data Validation 仍属于 M7/E7，而不是要求用未来 E5/E6 资产阻塞 E4-A。
 >
 > **当前系统真相源：** 重构实施前，实际行为仍以 [`MHGZCharacter`](../../Source/MHGZ/MHGZCharacter.cpp) 和 [motion-matching.md](motion-matching.md) 为准。本文实施完成并通过验收后，普通 locomotion 章节才取代旧 MM Root Motion 主链路。
+>
+> **执行文档：** AI/程序员按 [代码侧设计与实施指南](locomotion-refactor-code-guide.md) 逐阶段改代码；代码编译后按 [UE5.6 编辑器具体操作指南](../editor/locomotion-refactor-setup.md) 制作资产、接 AnimBP 并执行 PIE。本文只维护架构和不可违反的合同。
 
 ## 1. 冻结结论
 
@@ -220,9 +222,9 @@ bWasStandardLocomoting
 
 - Start：使用 `Advance Time By Distance Matching`，按胶囊每帧实际移动距离推进。
 - Stop：使用 `Predict Ground Movement Stop Location` 与 `Distance Match To Target`，按剩余停止距离选姿势。
-- Loop：可使用 `Set Playrate To Match Speed`，再按需要增加 Stride Warping。
+- Loop：从保留根位移的源序列测量 `AuthoredLoopSpeed`；真正去根平移的运行时序列使用 `PlayRate = Speed2D / AuthoredLoopSpeed`，再按需要增加 Stride Warping。只有运行时序列仍保留可提取 Root Motion 且已证明不会造成 Mesh 漂移时，才直接使用 `Set Playrate To Match Speed`。
 
-Distance Curve 的压缩设置必须满足运行时索引要求；具体编辑器步骤在实施时写入 `docs/editor/`，不在本文混入点击清单。
+Distance Curve 的压缩设置必须满足运行时索引要求；具体点击步骤见 [普通移动重构编辑器指南](../editor/locomotion-refactor-setup.md#34-生成-distance-曲线)。
 
 ### 7.2 Sync Marker
 

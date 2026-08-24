@@ -99,7 +99,7 @@ L 不是新的玩法阶段，而是 M4-A 与 M4-B/M5 之间的基础设施门禁
 | L4 步态表现 | L3。 | Walk/Run/Sprint 脚相、速度与同步稳定。 | 未开始。 |
 | L5 清理切换 | L4。 | 删除普通 MM 根位移旧路径；更新术语、测试和验收。 | 未开始。 |
 
-技术设计、数据流和细化验收见 [普通移动系统重构冻结方案](locomotion-refactor.md)。
+技术设计与数据流见 [普通移动系统重构冻结方案](locomotion-refactor.md)；AI/程序员按 [代码侧设计与实施指南](locomotion-refactor-code-guide.md) 执行，代码编译后按 [UE5.6 编辑器具体操作指南](../editor/locomotion-refactor-setup.md) 接线和验收。
 
 ## 6. 当前门禁清单
 
@@ -110,7 +110,7 @@ L 不是新的玩法阶段，而是 M4-A 与 M4-B/M5 之间的基础设施门禁
 | G-001 | M0/M2 验证合同，影响 E4-A | **已解除（2026-08-24）。** `IsDataValid` 已改为只拒绝“Widget 非空、Resource 为空”；Resource 非空、Widget 为 `None` 合法。新增 `MHGZ.M2.Validation.ResourceWidgetRequiresResourceComponent`，完整自动化 54/54 通过；全 Content Data Validation 已确认 `DA_WeaponRuntime_IG` 不再报错。 | 无。 | 不阻塞。 |
 | G-002 | E5-A | `DA_TrainingDummy` 当前不满足恰好 Red/White/Orange 三个 Hitzone。 | 在 E5-A 按 Head=Red、Torso=Orange、Leg=White 配置并验证不重叠。 | M3 三色端到端、E5-A、全项目验证；**不阻塞 E4-A 的送虫/收虫功能验收。** |
 | G-003 | L0～L5 | 旧 Motion Matching/PSS 仍会发生 Stop 误选、起步/停步抖动和动作退出交接不稳定。 | 完成 L1～L5，并按 L2/L3/L4 验收。 | M4-A 最终移动验收、M4-B.1、M5。 |
-| G-004 | E4-A | 收刀、翻滚、Draw、送虫/收虫与 AnimGraph 的最终资产需完成保存、阶段验证和 PIE 手测。 | 逐项通过 E4-A 验收；使用 `UpperBody_IGAction`：静止可全身表现，移动时 `spine_01` 以上覆盖、下半身保留 locomotion。 | M4-A.5 阶段提交与 L0 开始。 |
+| G-004 | E4-A | 收刀、翻滚、Draw、送虫/收虫与 AnimGraph 的最终资产需完成保存、阶段验证和 PIE 手测。 | 逐项通过 E4-A 验收；送虫/收虫固定使用 `UpperBody_IGAction` 的 `spine_01` 以上覆盖，下半身始终保留当前 locomotion；不按 `IsMoving` 切换两套遮罩。 | M4-A.5 阶段提交与 L0 开始。 |
 
 ## 7. 当前项目位置与下一步
 

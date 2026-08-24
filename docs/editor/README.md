@@ -14,6 +14,7 @@
 | 文档 | 用途 |
 |---|---|
 | [demo-setup.md](demo-setup.md) | 重构代码完成后的完整编辑器操作顺序 |
+| [locomotion-refactor-setup.md](locomotion-refactor-setup.md) | L0～L5 普通移动重构的资产预处理、AnimBP/Distance Matching 接线与 PIE 验收 |
 | [verification.md](verification.md) | PIE、生命周期、伤害、输入和打包验收 |
 | [asset-organization.md](asset-organization.md) | Content Browser/AssetTools 移动、Redirector 和引用保护 |
 
