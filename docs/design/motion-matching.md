@@ -2,14 +2,14 @@
 
 > **实施状态说明（以源码和当前 AnimBP 资产为准）：** Motion Matching 主链路已经接入；附录脚步 IK 和本文中仍以“修改/实施步骤”描述的扩展内容继续作为详细方案保留。若示例代码与当前源码不同，以 `MHGZCharacter` 为准。
 >
-> **已冻结的后续替代方案（2026-08-20，尚未实施）：** 当前 PIE 已确认普通 locomotion 的手工 Trajectory、稀疏正向数据库和动作尾姿共用候选池无法仅靠 PSS 调参稳定满足启停与动作交接。完成 M4-A.5 非移动核心工作后，普通移动将按 [普通移动系统重构冻结方案](locomotion-refactor.md) 迁移为“CMC 位移 + 确定性状态机 + Distance Matching/Sync Marker”；攻击、翻滚、收拔刀的 Montage Root Motion/RootMotionSource 合同继续保留。迁移完成前，本文继续描述当前已实现系统；不得把冻结方案误报为当前行为，也不得在 M4-B.1/M5 扩展旧 MM 最终接管路径。
+> **后续路线已于 2026-08-25 改为纯 Motion Matching：** 当前手工直线 Trajectory 和两个空实现 Curve Channel 尚不能稳定选择 Start/Stop；后续按 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) 的 PMM-0～PMM-6 修正查询、曲线和数据库。`locomotion-refactor*.md` 中的 CMC + 状态机方案保留为历史备选，不再是当前执行路线，也不能与纯 MM Root Motion 路线并行实施。
 
 ## 当前实现快照
 
 | 项目 | 当前值/状态 |
 |------|-------------|
 | Pose Search | `PSS_MH_Move`、`PSD_MH_Shth_Move`、`PSD_MH_UnSh_Move` 已存在，AnimBP 使用收刀/拔刀双数据库。 |
-| 巡航速度 | `WalkCruise_Sheathed=150`、`RunCruise_Sheathed=500`、`SprintCruise=650`、`RunCruise_Unsheathed=450`。 |
+| 巡航速度 | `WalkCruise_Sheathed=160`、`RunCruise_Sheathed=460`、`SprintCruise=575`、`RunCruise_Unsheathed=440`；与当前正式 Loop 根位移速度基本一致。 |
 | 速度平滑 | `DesiredSpeedInterpSpeed=20`；`DoMove` 与无输入帧的 `Tick` 使用 `FMath::FInterpTo`。 |
 | 转向 | CMC 的 `bOrientRotationToMovement=false`、`RotationRate=0`；Character `Tick` 使用最短角差并把每帧转角限制为 `TurnRate × DeltaTime`，默认 `TurnRate=360°/s`。 |
 | CMC | `MaxWalkSpeed=1200`、`JumpZVelocity=500`、`AirControl=0.01`、`BrakingDecelerationFalling=80`、`GravityScale=1`。 |
@@ -465,7 +465,7 @@ Notify 不直接操作 CharacterMovementComponent，也不直接清全局 Tag。
 
 **交接点：** `MontageRootMotionOwner` 只能在 Montage 不再贡献根位移、Slot 正要/已经 Blend Out 时释放。之后 `bForceMMIdle=false`，MM 根据在 `SteeringRootMotion` 阶段已更新的 `DesiredSpeed`、Actor Yaw 与 Trajectory 接管。若通用数据库不能稳定匹配动作尾姿，将尾段裁为非循环 transition sequence，加入目标 Database；仍不足时才用短暂的专用 Exit Database/Chooser 约束，绝不让该序列同时被 Montage 与 MM 驱动。
 
-> **历史实现说明：** 本节描述当前旧 Motion Matching 路径及其动作交接合同；其中的日期型实现进度不再作为阶段依据。当前状态、M4-A.5 的 E4-A 接线门禁、L0～L5 的顺序以及 M4-B.1/M5 禁入条件，以 [阶段门禁](milestone-gates.md) 和 [普通移动系统重构冻结方案](locomotion-refactor.md) 为准。
+> **历史实现说明：** 本节描述改造前的 Motion Matching 路径及其动作交接合同；其中的日期型实现进度不再作为阶段依据。当前状态、M4-A.5 的 E4-A 接线门禁、PMM-0～PMM-6 的顺序以及 M4-B.1/M5 禁入条件，以 [阶段门禁](milestone-gates.md) 和 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) 为准。`locomotion-refactor*.md` 中的 CMC + 状态机路线只保留为历史备选。
 
 ### 8.2 MoveSpeedMultiplier
 

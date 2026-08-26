@@ -189,18 +189,18 @@ private:
 	// ── 收刀态巡航速度常量 ─────────────────────────────────────
 
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed")
-	float WalkCruise_Sheathed = 150.f;
+	float WalkCruise_Sheathed = 160.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed")
-	float RunCruise_Sheathed = 500.f;
+	float RunCruise_Sheathed = 460.f;
 
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed")
-	float SprintCruise = 650.f;
+	float SprintCruise = 575.f;
 
 	// ── 拔刀态巡航速度（单速，走跑合一）────────────────────────
 
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Unsheathed")
-	float RunCruise_Unsheathed = 450.f;
+	float RunCruise_Unsheathed = 440.f;
 
 	// ── 其他参数 ────────────────────────────────────────────────
 

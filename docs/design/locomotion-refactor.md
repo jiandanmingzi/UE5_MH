@@ -1,12 +1,12 @@
 # 普通移动系统重构冻结方案
 
-> **状态：已冻结，尚未实施。** 本文是普通地面移动的下一版目标设计，不代表当前源码或 `ABP_MH_Character` 已完成这些改动；当前阶段与已知阻塞项以 [阶段门禁](milestone-gates.md#5-l普通移动重构门禁) 为准。
+> **状态：历史备选，当前不执行。** 2026-08-25 已选择继续使用 Animation Root Motion 的纯 Motion Matching 路线；当前执行文档为 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md)。本文的 CMC + 状态机方案只保留作回退参考，不能与 PMM-0～PMM-6 并行实施。
 >
-> **实施门槛：** 先完成 M4-A.5 的非移动核心代码与 E4-A 阶段资产接线；随后执行本文 L0～L5，再做 M4-A 最终移动 PIE/阶段验证。不得在完成 L5 前进入依赖基础移动接管的 M4-B.1/M5 批量动作接线。全项目 Data Validation 仍属于 M7/E7，而不是要求用未来 E5/E6 资产阻塞 E4-A。
+> **历史路线的原实施门槛：** 以下 L0～L5 只在用户明确恢复 CMC + 状态机路线后才有效；当前纯 MM 路线不得执行这些步骤。全项目 Data Validation 仍属于 M7/E7，而不是要求用未来 E5/E6 资产阻塞 E4-A。
 >
 > **当前系统真相源：** 重构实施前，实际行为仍以 [`MHGZCharacter`](../../Source/MHGZ/MHGZCharacter.cpp) 和 [motion-matching.md](motion-matching.md) 为准。本文实施完成并通过验收后，普通 locomotion 章节才取代旧 MM Root Motion 主链路。
 >
-> **执行文档：** AI/程序员按 [代码侧设计与实施指南](locomotion-refactor-code-guide.md) 逐阶段改代码；代码编译后按 [UE5.6 编辑器具体操作指南](../editor/locomotion-refactor-setup.md) 制作资产、接 AnimBP 并执行 PIE。本文只维护架构和不可违反的合同。
+> **历史路线执行文档：** 仅在路线被明确恢复后，AI/程序员才按 [代码侧设计与实施指南](locomotion-refactor-code-guide.md) 和 [UE5.6 编辑器具体操作指南](../editor/locomotion-refactor-setup.md) 工作；当前不得据此开工。
 
 ## 1. 冻结结论
 

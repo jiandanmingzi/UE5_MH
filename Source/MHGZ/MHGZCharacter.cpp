@@ -2,6 +2,7 @@
 
 #include "MHGZCharacter.h"
 #include "MHGZ.h"
+#include "Animation/MHGZMotionMatchingMath.h"
 #include "MHGZPlayerState.h"
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
@@ -255,38 +256,26 @@ void AMHGZCharacter::Tick(float DeltaTime)
 
 float AMHGZCharacter::CalcCruiseSpeed(float StickMagnitude) const
 {
-	if (StickMagnitude < MoveDeadzone) return 0.f;
-
-	// 拔刀态：走跑合一，单速
+	// 普通移动只有 Walk / Run / Sprint / Unsheathed 四条正式 Root Motion
+	// Loop。TargetCruiseSpeed 必须只输出这些动画真实拥有的速度档位，不能再
+	// 输出 PSS 中不存在的中间速度，否则 Pose Search 会在 Loop 之间摇摆。
+	bool bIsUnsheathed = false;
 	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
 	if (PS)
 	{
 		UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
-		if (ASC && ASC->HasMatchingGameplayTag(
-			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Unsheathed"))))
-		{
-			return RunCruise_Unsheathed;
-		}
+		bIsUnsheathed = ASC && ASC->HasMatchingGameplayTag(
+			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Unsheathed")));
 	}
 
-	// 收刀态：摇杆幅度映射三档速度
-	// 0.1 ≤ 摇杆 < 0.5 → 线性映射 0 → WalkCruise_Sheathed
-	// 0.5 ≤ 摇杆 ≤ 1.0 → 线性映射 WalkCruise_Sheathed → RunCruise_Sheathed
-	if (StickMagnitude < 0.5f)
-	{
-		const float T = (StickMagnitude - MoveDeadzone) / (0.5f - MoveDeadzone);
-		return FMath::Lerp(0.f, WalkCruise_Sheathed, FMath::Clamp(T, 0.f, 1.f));
-	}
-	else if (StickMagnitude <= 0.9f)
-	{
-		const float T = (StickMagnitude - 0.5f) / 0.4f;
-		return FMath::Lerp(WalkCruise_Sheathed, RunCruise_Sheathed, FMath::Clamp(T, 0.f, 1.f));
-	}
-	else
-	{
-		// 摇杆 > 0.9 且冲刺键按住 → SprintCruise
-		return bSprintHeld ? SprintCruise : RunCruise_Sheathed;
-	}
+	MHGZMotionMatching::FMHGZMotionMatchingCruiseSpeedSettings Settings;
+	Settings.MoveDeadzone = MoveDeadzone;
+	Settings.WalkCruiseSpeed = WalkCruise_Sheathed;
+	Settings.RunCruiseSpeed = RunCruise_Sheathed;
+	Settings.SprintCruiseSpeed = SprintCruise;
+	Settings.UnsheathedCruiseSpeed = RunCruise_Unsheathed;
+	return MHGZMotionMatching::QuantizeCruiseSpeed(Settings, StickMagnitude,
+		bIsUnsheathed, bSprintHeld);
 }
 
 // ── 输入 ────────────────────────────────────────────────────

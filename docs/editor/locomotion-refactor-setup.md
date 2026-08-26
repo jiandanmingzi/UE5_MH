@@ -1,6 +1,6 @@
 # 普通移动重构：UE5.6 编辑器具体操作指南
 
-> **用途：** 本文是 [普通移动重构代码侧设计](../design/locomotion-refactor-code-guide.md) 的编辑器配套步骤。只执行当前已完成代码阶段对应的小节。字段、枚举或函数未在编译后的编辑器中出现时立即停止，不要用蓝图临时变量猜测替代。
+> **状态：历史备选，禁止按本文接线。** 2026-08-25 已改用 [纯 Motion Matching 普通移动实施指南](../design/pure-motion-matching-locomotion-guide.md)。本文只保留 CMC + 状态机回退步骤；除非用户明确撤销纯 MM 决策，否则不得执行下面的 L0～L5 编辑器操作。
 >
 > **最终目标：** 普通移动由 CMC 位移，AnimBP 状态机只表现 Idle/Start/Loop/Stop；全身动作继续走 `DefaultSlot`，送虫/收虫继续走一个固定的 `UpperBody_IGAction` 上半身层。不要重新加入按 `IsMoving` 切换两套骨骼遮罩的图。
 
