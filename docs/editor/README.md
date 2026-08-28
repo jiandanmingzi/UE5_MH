@@ -9,12 +9,14 @@
 3. 按 [验证方案](verification.md) 执行当前 Demo 验收。
 4. 只有需要移动或重存资产时，读取 [资产目录整理规范](asset-organization.md)。
 
+> **普通移动状态路由：** 当前处于设计目录的 PMM-7.1 Stop 候选生命周期修复。任何涉及 `ABP_MH_Character`、PSS、PSD、Stop 曲线或 PoseSearch Notify 的操作，先读 [阶段门禁](../design/milestone-gates.md) 和 [纯 Motion Matching 普通移动实施指南](../design/pure-motion-matching-locomotion-guide.md)；不要执行本目录的 CMC/状态机历史备选文档。
+
 ## 文档
 
 | 文档 | 用途 |
 |---|---|
 | [demo-setup.md](demo-setup.md) | 重构代码完成后的完整编辑器操作顺序 |
-| [locomotion-refactor-setup.md](locomotion-refactor-setup.md) | L0～L5 普通移动重构的资产预处理、AnimBP/Distance Matching 接线与 PIE 验收 |
+| [locomotion-refactor-setup.md](locomotion-refactor-setup.md) | 历史备选：CMC + 状态机路线的编辑器操作；当前纯 MM 路线下禁止执行 |
 | [verification.md](verification.md) | PIE、生命周期、伤害、输入和打包验收 |
 | [asset-organization.md](asset-organization.md) | Content Browser/AssetTools 移动、Redirector 和引用保护 |
 
@@ -94,7 +96,7 @@ Montage Section 没有独立的 Crossfade 时间。若 `DodgeCore`、`IdleExit`�
 - Pose Search Schema 的 Trajectory/Pose 通道权重、采样时间点
 - `PlayRate` / `PlayRateMultiplier`
 
-它们决定 MM 何时、从哪个候选中选择，不决定两个姿势如何混合。此前走路抽搐、误选停步的根因属于这一组和轨迹输入，留给 `../design/locomotion-refactor.md` 的单独重构处理。
+它们决定 MM 何时、从哪个候选中选择，不决定两个姿势如何混合。当前走路抽搐、误选停步的根因属于这一组和轨迹输入，必须按 [纯 Motion Matching 普通移动实施指南](../design/pure-motion-matching-locomotion-guide.md) 的当前 PMM 阶段处理；不得误开 `locomotion-refactor.md` 的 CMC 备选路线。
 
 ### 4. Slot 与 `Layered Blend per Bone`：区分“关闭渐变”和“隐藏整层”
 

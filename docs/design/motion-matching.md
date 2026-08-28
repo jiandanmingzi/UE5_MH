@@ -1,5 +1,7 @@
 # MHGZ Motion Matching 移动系统设计文档
 
+> **当前执行路由（2026-08-28）：** 本文只保留架构快照与背景说明。普通移动的当前阶段、允许工作和退出条件以 [阶段门禁](milestone-gates.md) 为准；当前主线是 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) 的 **PMM-7.1 Stop 候选生命周期修复**。不得从本文旧的 PMM-0～PMM-6 描述推断当前可开工事项，也不得恢复 CMC/状态机备选路线。
+
 > **实施状态说明（以源码和当前 AnimBP 资产为准）：** Motion Matching 主链路已经接入；附录脚步 IK 和本文中仍以“修改/实施步骤”描述的扩展内容继续作为详细方案保留。若示例代码与当前源码不同，以 `MHGZCharacter` 为准。
 >
 > **后续路线已于 2026-08-25 改为纯 Motion Matching：** 当前手工直线 Trajectory 和两个空实现 Curve Channel 尚不能稳定选择 Start/Stop；后续按 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) 的 PMM-0～PMM-6 修正查询、曲线和数据库。`locomotion-refactor*.md` 中的 CMC + 状态机方案保留为历史备选，不再是当前执行路线，也不能与纯 MM Root Motion 路线并行实施。

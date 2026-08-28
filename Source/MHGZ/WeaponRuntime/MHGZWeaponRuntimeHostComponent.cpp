@@ -573,6 +573,24 @@ void UMHGZWeaponRuntimeHostComponent::DispatchInputRelease(const FWeaponInputSna
 	}
 }
 
+FString UMHGZWeaponRuntimeHostComponent::GetActiveActionsDebugString() const
+{
+	TArray<FString> Actions;
+	Actions.Reserve(ActiveActions.Num());
+	for (const FWeaponActionToken& Action : ActiveActions)
+	{
+		if (!Action.IsValid() || !IsTokenCurrent(Action.RuntimeToken))
+		{
+			continue;
+		}
+		const UGameplayAbility* Ability = Action.AbilityInstance.Get();
+		const FString AbilityName = Ability ? Ability->GetClass()->GetName() : TEXT("InvalidAbility");
+		Actions.Add(FString::Printf(TEXT("%s#%u"), *AbilityName, Action.ActivationSequenceID));
+	}
+	Actions.Sort();
+	return FString::Join(Actions, TEXT("|"));
+}
+
 // ----------------------------------------------------------------------
 // Montage Root Motion 单一所有者
 // ----------------------------------------------------------------------
@@ -625,6 +643,18 @@ bool UMHGZWeaponRuntimeHostComponent::IsMontageRootMotionOwnedBy(
 	const FWeaponActionToken& ActionToken) const
 {
 	return IsMontageRootMotionOwned() && MontageRootMotionOwner == ActionToken;
+}
+
+FString UMHGZWeaponRuntimeHostComponent::GetMontageRootMotionOwnerDebugString() const
+{
+	if (!IsMontageRootMotionOwned())
+	{
+		return FString();
+	}
+	const UGameplayAbility* Ability = MontageRootMotionOwner.AbilityInstance.Get();
+	const FString AbilityName = Ability ? Ability->GetClass()->GetName() : TEXT("InvalidAbility");
+	return FString::Printf(TEXT("%s#%u"), *AbilityName,
+		MontageRootMotionOwner.ActivationSequenceID);
 }
 
 // ----------------------------------------------------------------------

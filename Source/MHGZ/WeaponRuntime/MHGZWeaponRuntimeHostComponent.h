@@ -100,6 +100,9 @@ public:
 	/** 将 Release 快照分发给 InputTag 精确匹配的 Active Action。 */
 	void DispatchInputRelease(const FWeaponInputSnapshot& Snapshot);
 
+	/** Compact active GA names and activation sequences for opt-in runtime capture. */
+	FString GetActiveActionsDebugString() const;
+
 	// ----------------------------------------------------------------------
 	// Montage Root Motion 单一所有者
 	// ----------------------------------------------------------------------
@@ -114,6 +117,9 @@ public:
 
 	/** 指定 ActionToken 是否为当前 Montage Root Motion 所有者。 */
 	bool IsMontageRootMotionOwnedBy(const FWeaponActionToken& ActionToken) const;
+
+	/** Active GA that owns Montage Root Motion, or an empty string. */
+	FString GetMontageRootMotionOwnerDebugString() const;
 
 	// ----------------------------------------------------------------------
 	// 精确 Montage 注册表

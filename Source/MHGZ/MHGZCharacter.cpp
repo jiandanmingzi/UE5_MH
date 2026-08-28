@@ -342,6 +342,15 @@ void AMHGZCharacter::SprintPressed(const FInputActionValue& Value)
 	}
 
 	bSprintPressed = true;
+	// While locomotion is already active, RB is a direct gait request. Waiting
+	// for the legacy hold timer here made Run -> Sprint appear to accelerate
+	// gradually even though the player had already committed to movement.
+	if (bHasInput)
+	{
+		bSprintHeld = true;
+		return;
+	}
+
 	GetWorldTimerManager().SetTimer(
 		SprintHoldTimer, this, &AMHGZCharacter::OnSprintHoldTimerExpired,
 		FMath::Max(0.f, SprintHoldThreshold), false);

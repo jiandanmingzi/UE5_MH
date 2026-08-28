@@ -31,6 +31,19 @@ public class MHGZ : ModuleRules
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.AddRange(new string[] {
+				"AnimationBlueprintLibrary",
+				"BlueprintGraph",
+				"Kismet",
+				"PoseSearchEditor",
+				"TraceAnalysis",
+				"TraceServices",
+				"UnrealEd"
+			});
+		}
+
 		PublicIncludePaths.AddRange(new string[] {
 			"MHGZ",
 			"MHGZ/ActionSystem",

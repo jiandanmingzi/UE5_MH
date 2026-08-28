@@ -61,6 +61,13 @@ bool FMHGZPMMTrajectoryMath::RunTest(const FString& Parameters)
 	TestTrue(TEXT("stop query uses the required negative convention"), StopQuery < 0.0f);
 	TestTrue(TEXT("stop query magnitude matches the predicted stop distance"),
 		FMath::IsNearlyEqual(-StopQuery, StopAt1, KINDA_SMALL_NUMBER));
+
+	const FTransform TurnedActor(FRotator(0.0f, 90.0f, 0.0f), FVector::ZeroVector);
+	const FVector ImportedTrajectoryForward = GetImportedLocomotionTrajectoryForward(TurnedActor);
+	TestTrue(TEXT("imported locomotion trajectory uses actor local Y"),
+		ImportedTrajectoryForward.Equals(TurnedActor.GetUnitAxis(EAxis::Y), KINDA_SMALL_NUMBER));
+	TestTrue(TEXT("imported locomotion trajectory does not use actor local X"),
+		!ImportedTrajectoryForward.Equals(TurnedActor.GetUnitAxis(EAxis::X), KINDA_SMALL_NUMBER));
 	return true;
 }
 
@@ -83,6 +90,28 @@ bool FMHGZPMMMotionMeasurementReset::RunTest(const FString& Parameters)
 		ShouldResetMotionMeasurement(false, false, true, false, 1.0f / 60.0f));
 	TestFalse(TEXT("normal grounded locomotion keeps the measurement"),
 		ShouldResetMotionMeasurement(false, false, true, true, 1.0f / 60.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZPMMConsumedStopSelection,
+	"MHGZ.PMM.Query.ConsumedStopSelection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZPMMConsumedStopSelection::RunTest(const FString& Parameters)
+{
+	using namespace MHGZMotionMatching;
+
+	TestTrue(TEXT("the accepted Stop may be sampled before another selection result arrives"),
+		ShouldContinueConsumedStopSelection(true, false, false, 0.4f, 0.4f));
+	TestTrue(TEXT("the same Stop may advance through Pose Search continuation"),
+		ShouldContinueConsumedStopSelection(true, true, true, 0.4f, 0.45f));
+	TestFalse(TEXT("a fresh Stop search cannot re-arm the consumed release"),
+		ShouldContinueConsumedStopSelection(true, true, false, 1.2f, 0.4f));
+	TestFalse(TEXT("a different Stop animation cannot re-arm the consumed release"),
+		ShouldContinueConsumedStopSelection(false, true, false, 1.2f, 0.4f));
+	TestFalse(TEXT("a continuing result must not seek backwards into a Stop entry"),
+		ShouldContinueConsumedStopSelection(true, true, true, 1.2f, 0.4f));
 	return true;
 }
 

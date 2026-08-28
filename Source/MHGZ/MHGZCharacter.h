@@ -163,6 +163,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	bool HasRawMovementInput() const { return RawMoveInput.Size() >= MoveDeadzone; }
 
+	/** True once the currently held RB input has activated Sprint. */
+	UFUNCTION(BlueprintPure, Category="Input")
+	bool IsSprintHeld() const { return bSprintHeld; }
+
 	// ── Motion Matching 期望速度 ────────────────────────────────
 
 	/** 当前期望速度（平滑插值后的值，cm/s）——AnimBP 拿此值喂 Trajectory */

@@ -16,6 +16,13 @@ class UWeaponInputProfile;
 struct FInputActionInstance;
 struct FWeaponChordDefinition;
 
+/** Immutable input event retained for opt-in runtime diagnostics. */
+struct FWeaponInputCaptureEvent
+{
+	uint64 Serial = 0;
+	FWeaponInputSnapshot Snapshot;
+};
+
 /**
  * UMHGZWeaponInputRouterComponent - raw physical input -> immutable input facts.
  *
@@ -71,6 +78,13 @@ public:
 
 	/** Bounded capture of every emitted snapshot, most recent last. */
 	const TArray<FWeaponInputSnapshot>& GetCapturedSnapshots() const { return CapturedSnapshots; }
+
+	/** Bounded event stream with a monotonic serial; it preserves short presses between CSV samples. */
+	const TArray<FWeaponInputCaptureEvent>& GetInputCaptureEvents() const { return InputCaptureEvents; }
+	uint64 GetLatestInputCaptureEventSerial() const { return NextInputCaptureEventSerial - 1; }
+
+	/** Stable, pipe-separated physical controls currently held by the router. */
+	FString GetHeldPhysicalInputTagsDebugString() const;
 
 protected:
 	virtual void BeginPlay() override;
@@ -171,9 +185,11 @@ private:
 	TSet<FGameplayTag> DelayedTags;
 	TMap<FGameplayTag, TArray<FReleaseRegistration>> ReleaseRegistry;
 	TArray<FWeaponInputSnapshot> CapturedSnapshots;
+	TArray<FWeaponInputCaptureEvent> InputCaptureEvents;
 	TArray<FGameplayTag> AimChildTags;
 	TArray<FWeaponOwnedTagToken> AimChildTokens;
 	TMap<FGameplayTag, FDelegateHandle> PoseTagEventHandles;
 	uint32 NextSequenceID = 1;
+	uint64 NextInputCaptureEventSerial = 1;
 	bool bAcceptingInput = true;
 };

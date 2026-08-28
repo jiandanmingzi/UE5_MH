@@ -1,6 +1,6 @@
 # 虫棍木桩 Demo：阶段门禁、顺序与当前状态
 
-> **唯一状态真相源（2026-08-24）。** 本文定义 M（C++/运行时）、E（编辑器资产）和 L（普通移动重构）之间的顺序、进入条件、退出条件及当前状态。其他文档中的日期型“当前状态”只作为当时记录；与本文冲突时，以本文为准。玩法规则仍以动作/资源设计文档为准，接口仍以冻结实施计划为准。
+> **唯一状态真相源（2026-08-28）。** 本文定义 M（C++/运行时）、E（编辑器资产）和 PMM（纯 Motion Matching 普通移动）之间的顺序、进入条件、退出条件及当前状态。阶段状态必须同时有本文的验收项、可复核的验证证据和阶段快照；Git 提交本身只能证明快照，不可替代 PIE 或编辑器验证。其他文档中的日期型“当前状态”只作为当时记录；与本文冲突时，以本文为准。玩法规则仍以动作/资源设计文档为准，接口仍以冻结实施计划为准。
 
 ## 1. 状态与验收规则
 
@@ -11,6 +11,7 @@
 | 已完成 | 本阶段代码、所属资产和规定验证均已完成；可以作为后续阶段前置。 |
 | 代码完成 | 原生代码与自动化已完成，但仍缺本阶段资产接线、PIE 或数据验证。 |
 | 接线中 | 所需原生接口已存在，正在创建/配置本阶段编辑器资产。 |
+| 修复中 | 已完成基础接入，但有已复现的本阶段验收失败；只能修复该失败并重跑本阶段验收，不能作为后续阶段前置。 |
 | 阻塞 | 有明确、可复现的门禁未满足；表中必须写明归属与解除动作。 |
 | 未开始 | 不得提前创建依赖该阶段接口或运行时合同的资产。 |
 
@@ -35,7 +36,11 @@ M0 -> M1 -> M2 -> M3
  |     |     |     |
 E0/E1  E2    E3    E5-A（木桩三色部位与猎虫物理）
                          \
-                          M4-A 代码 -> E4-A 接线 -> PMM-0~PMM-6 纯 Motion Matching 修正
+                          M4-A 代码 -> E4-A 接线 -> PMM-0~PMM-5
+                                                    -> PMM-6（调试，尚未签收）
+                                                    -> PMM-7 基础接入
+                                                    -> PMM-7.1 Stop 生命周期修复
+                                                    -> PMM-6 最终固定矩阵回归
                                                     -> M4-A 最终 PIE/阶段验证
                                                     -> M4-B.0 -> M4-B.1 -> E4-B
                                                     -> M5 -> E5-B
@@ -46,7 +51,7 @@ E0/E1  E2    E3    E5-A（木桩三色部位与猎虫物理）
 规则如下：
 
 1. M0～M3 的运行时代码必须先于依赖其反射字段的 E3/E4/E5 资产接线。
-2. E4-A 的非移动动作资产完成后，必须完成 PMM-0～PMM-6，才允许进入 M4-B.1 或 M5 的批量动作资产接线。
+2. E4-A 的非移动动作资产完成后，必须完成 PMM-7.1 并重跑通过 PMM-6 最终固定矩阵，才允许进入 M4-B.0、M4-B.1 或 M5 的批量动作资产接线。
 3. M4-B.0 是 M4-B.1 的前置；M4-B.1 的 Entry Section/Root Motion Phase 是所有拆分招式资产的前置。
 4. M6/E6 才创建并赋值 `ResourceWidgetClass`。此前不得为满足校验创建空 Widget。
 5. E7/M7 才做“全 Content 必须无 Data Validation 错误”的发布验收；各早期阶段只对自己的验收集负责。
@@ -59,11 +64,11 @@ E0/E1  E2    E3    E5-A（木桩三色部位与猎虫物理）
 | M1 生命周期/输入/FSM | M0 类型与 Tag 可用。 | 输入快照、组合键、Token、窗口、Superseded 与基础 Dodge 的自动化通过。 | 已完成。 |
 | M2 RuntimeHost/命中/木桩运行时 | M1 生命周期合同完成。 | RuntimeHost、命中上下文、Body/Hitzone 运行时和旧读取清理完成。 | 代码完成；实体木桩资产由 E5-A 完成。 |
 | M3 猎虫/精华/瞄准 | M2 运行时与萃取规则已冻结。 | Collision Root、Hitzone Sweep、萃取/三灯、基础飞行与召回代码完成；三色端到端验收须有 E5-A。 | 代码完成；E5-A 未完成。 |
-| M4-A 最小动作纵切 | M3 接口已编译；E4-A 使用最终 GA/DataAsset，不走临时蓝图路径。 | 收刀、翻滚、Y 拔刀分流、收刀 RT、LT+Y/LT+B 的 Commit/中断合同与阶段 PIE 均通过。普通移动最终交接须在 PMM-6 后验收。 | **接线中，当前主阶段。** |
-| M4-B.0 输入释放补丁 | M4-A 最终验收、PMM-6 完成。 | `OnReleaseIfUnconsumed` 不破坏已有组合键/释放身份。 | 未开始。 |
-| M4-B.1 入口 Section/根运动阶段 | M4-B.0、PMM-6 完成。 | Section 在播放前选择；Root Motion Phase 与 MovementTask 所有权可验证。 | 未开始。 |
+| M4-A 最小动作纵切 | M3 接口已编译；E4-A 使用最终 GA/DataAsset，不走临时蓝图路径。 | 收刀、翻滚、Y 拔刀分流、收刀 RT、LT+Y/LT+B 的 Commit/中断合同与阶段 PIE 均通过；普通移动须完成 PMM-7.1 与 PMM-6 最终回归。 | **非移动纵切已在 M4-A.5 快照完成；最终交接被 PMM-7.1 阻塞。** |
+| M4-B.0 输入释放补丁 | M4-A 最终验收、PMM-7.1 与 PMM-6 最终回归完成。 | `OnReleaseIfUnconsumed` 不破坏已有组合键/释放身份。 | 未开始。 |
+| M4-B.1 入口 Section/根运动阶段 | M4-B.0、PMM-7.1 与 PMM-6 最终回归完成。 | Section 在播放前选择；Root Motion Phase 与 MovementTask 所有权可验证。 | 未开始。 |
 | M4-B 地面招式/虫印 | M4-B.1 完成、最终 Combo 壳有效。 | 地面连段、虫印、反击/舞踏入口符合动作设计。 | 未开始。 |
-| M5 空中/舞踏/终结 | M4-B 与 PMM-6 完成。 | 空中位移、舞踏、落地和取消只保留一个位移所有者。 | 未开始。 |
+| M5 空中/舞踏/终结 | M4-B 与 PMM-7.1、PMM-6 最终回归完成。 | 空中位移、舞踏、落地和取消只保留一个位移所有者。 | 未开始。 |
 | M6 觉虫击/粉尘/UI | M5、觉虫击规则和表现接口已冻结。 | HUD 唯一所有权、Resource Widget、Cue、粉尘和觉虫击闭环。 | 未开始。 |
 | M7 集成/打包 | M0～M6 与 E0～E6 均完成。 | 全项目验证、反复 PIE、压力测试、Win64 Development 打包通过。 | 未开始。 |
 
@@ -77,7 +82,7 @@ E0/E1  E2    E3    E5-A（木桩三色部位与猎虫物理）
 | E1 项目设置 | M0 配置已编译。 | Collision Channel、Preset、Tag 基础正确。 | 已完成。 |
 | E2 核心蓝图 | M1 父类/组件稳定。 | GameMode、Controller、PlayerState、Character 的所有权唯一。 | 已完成。 |
 | E3 Runtime/Input/Combat 数据 | M2/M3 数据类型可用。 | RuntimeDefinition、InputProfile、Combat/Combo 最终数据壳存在；旧输入/旧 Combo 引用清理。 | 已完成，后续字段由 E4 回填。 |
-| E4-A 最小动作资产 | M4-A 原生父类/Notify 已编译，E3 数据壳有效。 | 最终 GA、Montage、Notify、两条 Y 边、CoreAbilities 与 AnimGraph 接线完成；对 E4-A 资产做阶段验证。 | **接线中。** |
+| E4-A 最小动作资产 | M4-A 原生父类/Notify 已编译，E3 数据壳有效。 | 最终 GA、Montage、Notify、两条 Y 边、CoreAbilities 与 AnimGraph 接线完成；对 E4-A 资产做阶段验证。 | **已完成；M4-A.5 阶段快照 `15bbb6b`。** |
 | E4-B 其余地面动作 | M4-B.1 已完成。 | 批量地面招式均从正确 Section 启动并正确结束。 | 未开始。 |
 | E5-A 木桩/基础猎虫 | M3 Collision Root 与 Sweep 已完成。 | `DA_TrainingDummy` 恰有 Head=Red、Torso=Orange、Leg=White；Body/Hitzone 碰撞与猎虫物理配置正确。 | 阻塞/待接线。 |
 | E5-B 猎虫表现/训练场 | M5 或对应表现接口完成。 | 正式猎虫表现、训练场、可用的粉尘/虫印表现资产按所属阶段接线。 | 部分资产存在，未验收。 |
@@ -92,13 +97,15 @@ PMM 不是新的玩法阶段，而是 M4-A 与 M4-B/M5 之间的基础设施门�
 
 | 阶段 | 进入条件 | 退出条件 | 当前状态 |
 |---|---|---|---|
-| PMM-0 基线 | E4-A 的非移动动作接线达到可验证状态。 | Git 基线、故障录屏与当前 PSS/PSD 参数记录完成。 | 当前准备阶段。 |
-| PMM-1 查询代码 | PMM-0。 | C++ AnimInstance 能生成实际速度、语义查询、停步距离和加减速轨迹；编译/数学测试通过。 | **代码已提前实现并验证；PMM-0/E4-A 前置尚未验收，不能据此宣告阶段通过或启动 PMM-2。** |
-| PMM-2 查询接线 | PMM-1。 | ABP Reparent；两个 BPSC 只读 C++ AnimInstance 缓存值，PIE 数值正确。 | 未开始；受 PMM-0/E4-A 门禁与编辑器接线阻塞。 |
-| PMM-3 动画语义 | PMM-2。 | 所有正式动画曲线一致；Start/Stop 的 Transition/Continuing Notify 正确。 | 未开始。 |
-| PMM-4 PSS/PSD | PMM-3。 | 纯前向 Schema、双脚姿势、完整 Stop 候选和 Brute Force 调试配置完成。 | 未开始。 |
-| PMM-5 AnimBP 切换 | PMM-4。 | Pose History 使用新轨迹；旧直线查询删除；先验证选帧再恢复短 Blend Stack。 | 未开始。 |
-| PMM-6 调试验收 | PMM-5。 | 启停、首次拔刀、动作退出和左右脚 Stop 固定矩阵通过。 | 未开始。 |
+| PMM-0 基线 | E4-A 的非移动动作接线达到可验证状态。 | Git 基线、故障录屏与当前 PSS/PSD 参数记录完成。 | **已完成；阶段快照 `97cf7ae`。** |
+| PMM-1 查询代码 | PMM-0。 | C++ AnimInstance 能生成实际速度、语义查询、停步距离和加减速轨迹；编译/数学测试通过。 | **已完成；实现与测试随 `97cf7ae` 进入基线。** |
+| PMM-2 查询接线 | PMM-1。 | ABP Reparent；两个 BPSC 只读 C++ AnimInstance 缓存值，PIE 数值正确。 | **已完成；已确认 Reparent、两个 BPSC 接线与 PIE 查询值。** |
+| PMM-3 动画语义 | PMM-2。 | 所有正式动画曲线一致；Start/Stop 的 Transition/Continuing Notify 正确。 | **基础审计已完成；PMM-7.1 后必须重跑。** |
+| PMM-4 PSS/PSD | PMM-3。 | 纯前向 Schema、双脚姿势、完整 Stop 候选和 Brute Force 调试配置完成。 | **基础配置已完成；PMM-7.1 后必须重建索引并复验。** |
+| PMM-5 AnimBP 切换 | PMM-4。 | Pose History 使用新轨迹；旧直线查询删除；先验证选帧再恢复短 Blend Stack。 | **已接通；其最终表现验收并入 PMM-6。** |
+| PMM-6 调试验收 | PMM-5。 | 启停、首次拔刀、动作退出和左右脚 Stop 固定矩阵通过。 | **调试已进行，未签收；须在 PMM-7.1 后完整重跑。** |
+| PMM-7 相位化 Extended Stop | PMM-5；PMM-6 可先进行候选/成本调试。 | 九条生成候选、StopGait/MoveGait、运行时曲线跟随、PSD 接入和基础审计完成；随后通过 PIE Stop 生命周期验收。 | **代码和资产基础接入完成；最终 PIE 验收失败，转入 PMM-7.1。** |
+| PMM-7.1 Stop 生命周期修复 | PMM-7 基础接入和可复核的 Telemetry/PoseSearch 证据。 | Generated Stop 的全局可进入区、Continuing 区、语义归零区和 PSD 索引尾部按 60Hz 合同一致；无二次 Stop，随后 PMM-6 固定矩阵全过。 | **当前阶段；设计已冻结，尚未实施。** |
 
 技术设计、代码字段、UE5.6 编辑器点击步骤和验收顺序统一见 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md)。
 
@@ -110,26 +117,19 @@ PMM 不是新的玩法阶段，而是 M4-A 与 M4-B/M5 之间的基础设施门�
 |---|---|---|---|---|
 | G-001 | M0/M2 验证合同，影响 E4-A | **已解除（2026-08-24）。** `IsDataValid` 已改为只拒绝“Widget 非空、Resource 为空”；Resource 非空、Widget 为 `None` 合法。新增 `MHGZ.M2.Validation.ResourceWidgetRequiresResourceComponent`，完整自动化 54/54 通过；全 Content Data Validation 已确认 `DA_WeaponRuntime_IG` 不再报错。 | 无。 | 不阻塞。 |
 | G-002 | E5-A | `DA_TrainingDummy` 当前不满足恰好 Red/White/Orange 三个 Hitzone。 | 在 E5-A 按 Head=Red、Torso=Orange、Leg=White 配置并验证不重叠。 | M3 三色端到端、E5-A、全项目验证；**不阻塞 E4-A 的送虫/收虫功能验收。** |
-| G-003 | PMM-0～PMM-6 | 当前 Curve Channel 查询恒 0，旧直线 Trajectory/PSS 仍会发生 Stop 误选、起步/停步抖动和动作退出交接不稳定。 | 完成 PMM-1～PMM-6 并通过固定测试矩阵。 | M4-A 最终移动验收、M4-B.1、M5。 |
-| G-004 | E4-A | 收刀、翻滚、Draw、送虫/收虫与 AnimGraph 的最终资产需完成保存、阶段验证和 PIE 手测。 | 逐项通过 E4-A 验收；送虫/收虫固定使用 `UpperBody_IGAction` 的 `spine_01` 以上覆盖，下半身始终保留当前 locomotion；不按 `IsMoving` 切换两套遮罩。 | M4-A.5 阶段提交与 PMM-0 开始。 |
+| G-003 | PMM-7.1 | **当前阻塞。** 收刀 `Run_Stop_Right_Extended` 在 PSD 尾部失去可索引 Pose，下一帧不能 Continuing；残留的 `MM_StopGait=Run` 被迫进行全局搜索，随后进入另一条边界未被 Block 的 Stop。根因是数据库级 `ExcludeFromDatabaseParameters=[0,-0.05]` 与 Generated Stop 的 `0.001s` Notify 边界/曲线尾部合同冲突，不是普通攻击 GA、`BlockMovement` 或单纯 PSS 权重问题。 | 按纯 MM 指南 §14.10 实现帧对齐的 Stop 生命周期合同，重建九条候选和 PSD，并重跑 PMM-3/4/6 审计与 PIE。 | M4-A 最终移动验收、M4-B.0、M4-B.1、M5。 |
+| G-004 | E4-A | **已解除；** 收刀、翻滚、Draw、送虫/收虫与 AnimGraph 已在 `15bbb6b` 的 M4-A.5 阶段快照中保存。 | 无；以后若修改这些资产，按 E4-A 阶段验证重新确认。 | 不阻塞 PMM。 |
 
-## 7. 当前项目位置与下一步
+## 7. 当前项目位置与唯一允许的下一步
 
-项目当前位于 **M4-A.5 / E4-A 的最终接线与阶段验证**，尚未进入 PMM-0，也绝不能进入 M4-B.1、M5 或 M6。
+**当前阶段：PMM-7.1 Stop 生命周期修复（修复中，尚未实施）。**
 
-### 7.1 进入 PMM-0 前的任务按类型拆分
+已完成的是 M4-A.5/E4-A 非移动纵切、PMM-1～PMM-5 的基础链路，以及 PMM-7 的生成资产、频道、运行时跟随和数据库接入。它们不等于普通移动最终验收通过。最新 Telemetry 已证明收刀 Extended Stop 在 PSD 尾部失去 Continuing 后触发一次不合法的全局 Stop 重选；因此 PMM-6 不能签收，M4-A 也不能标记最终完成。
 
-**当前门禁没有未完成的 C++ 前置任务。** G-001 的代码修正、编译和完整自动化回归均已完成；PMM-0 本身是下一阶段工作，不能提前混入 E4-A 收尾。
+当前只允许进行以下工作：
 
-| 类型 | 是否是进入 PMM-0 的前置 | 任务 |
-|---|---|---|
-| 代码 | 是，但已完成 | G-001：Resource Widget 校验改为单向依赖；Development Editor 编译成功，`Automation RunTests MHGZ` 为 54/54。 |
-| 编辑器 | **是** | G-004 / E4-A：保存并编译最终 Runtime、GA、Montage、Combo、PlayerState 与 AnimGraph；对 E4-A 范围做 Data Validation 和 PIE 手测。 |
-| 编辑器 | 否，可并行 | G-002 / E5-A：配置木桩 Head=Red、Torso=Orange、Leg=White。它阻塞 M3 三色闭环和全项目验收，但不阻塞 PMM-0。 |
+1. 按 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) §14.10 修改 Generated Stop、PMM Fixup、索引审计和必要的运行时 Stop 收束逻辑；不得以降低 `MM_Intent` 权重、长 Blend、强制提前 Idle 或删除 `BlockTransition` 掩盖问题。
+2. 重建生成资产和两个 PSD，重跑 PMM-3/PMM-4 自动审计，再录制并分析 Stop 生命周期 Telemetry。
+3. 只有 PMM-7.1 的专属 PIE 验收通过，才重新执行 PMM-6 固定矩阵；PMM-6 全绿后才解除 G-003。
 
-严格顺序为：
-
-1. 只完成 G-004 的 E4-A 编辑器验收；通过后即可提交 M4-A.5 阶段快照并启动 PMM-0。
-2. G-002 可在同一轮编辑器工作中完成，也可在 PMM 期间并行完成；完成后验证 M3 三色萃取。
-3. PMM-0 完成后按 PMM-1→PMM-6 进行纯 Motion Matching 修正。
-4. 只有 PMM-6 通过后，开始 M4-B.0、M4-B.1 和批量地面/空中动作资产。
+仍不得开始 M4-B.0、M4-B.1、M4-B、M5、M6 或它们的编辑器批量接线。G-002 / E5-A 的木桩三色配置可独立并行，但不改变本项目当前主线阶段。

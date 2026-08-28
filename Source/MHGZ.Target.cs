@@ -10,6 +10,9 @@ public class MHGZTarget : TargetRules
 		Type = TargetType.Game;
 		DefaultBuildSettings = BuildSettingsVersion.V5;
 		IncludeOrderVersion = EngineIncludeOrderVersion.Unreal5_6;
+		// Match the editor target: this codebase contains independent file-local
+		// helpers whose names collide only after Unity source aggregation.
+		bUseUnityBuild = false;
 		ExtraModuleNames.Add("MHGZ");
 	}
 }

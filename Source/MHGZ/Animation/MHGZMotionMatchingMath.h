@@ -85,6 +85,19 @@ FORCEINLINE float CalculatePredictedDistance(const float InitialSpeed,
 	return FMath::Max(0.0f, DistanceToTarget + V1 * (Time - TimeToTarget));
 }
 
+/**
+ * Converts the project's forward-only query distance into world space.
+ *
+ * The imported locomotion clips use an unusual root-bone basis: their forward
+ * root motion is indexed on the Pose Search trajectory's local +Y axis. Keep
+ * this convention in one place so query samples and the indexed animation data
+ * use the same axis even when the Actor has turned in world space.
+ */
+FORCEINLINE FVector GetImportedLocomotionTrajectoryForward(const FTransform& ActorTransform)
+{
+	return ActorTransform.GetUnitAxis(EAxis::Y);
+}
+
 /** True when the actual Root Motion measurement must be discarded for this update. */
 FORCEINLINE bool ShouldResetMotionMeasurement(const bool bForceMMIdle,
 	const bool bWasForceMMIdle, const bool bMovingOnGround,
@@ -92,5 +105,27 @@ FORCEINLINE bool ShouldResetMotionMeasurement(const bool bForceMMIdle,
 {
 	return bForceMMIdle || bWasForceMMIdle || !bMovingOnGround
 		|| !bHasPreviousLocation || DeltaSeconds <= 0.0f;
+}
+
+/**
+ * A Stop request is a one-shot input-edge semantic. Once it has accepted a
+ * Pose Search result, only the same continuously-playing result may feed its
+ * MM curves back into the next query. A newly searched Stop entry would start
+ * its curve near -1 again and re-arm the same release indefinitely.
+ */
+FORCEINLINE bool ShouldContinueConsumedStopSelection(const bool bSameAnimation,
+	const bool bHasNewSelectionEvent, const bool bIsContinuingPoseSearch,
+	const float PreviousAnimationTime, const float CurrentAnimationTime)
+{
+	if (!bSameAnimation)
+	{
+		return false;
+	}
+	if (!bHasNewSelectionEvent)
+	{
+		return true;
+	}
+	return bIsContinuingPoseSearch
+		&& CurrentAnimationTime + KINDA_SMALL_NUMBER >= PreviousAnimationTime;
 }
 }

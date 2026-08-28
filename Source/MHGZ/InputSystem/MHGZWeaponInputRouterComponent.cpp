@@ -14,6 +14,7 @@
 namespace
 {
 constexpr int32 MaxCapturedSnapshots = 128;
+constexpr int32 MaxInputCaptureEvents = 256;
 
 FGameplayTag LTModifierTag()
 {
@@ -153,6 +154,9 @@ void UMHGZWeaponInputRouterComponent::AttachToPawn(APawn* InPawn)
 		bResolved = false;
 	}
 	ReleaseRegistry.Reset();
+	CapturedSnapshots.Reset();
+	InputCaptureEvents.Reset();
+	NextInputCaptureEventSerial = 1;
 
 	CachedCharacter = Character;
 	CachedASC = nullptr;
@@ -182,10 +186,12 @@ void UMHGZWeaponInputRouterComponent::ShutdownRouter()
 	}
 	ReleaseRegistry.Reset();
 	CapturedSnapshots.Reset();
+	InputCaptureEvents.Reset();
 	CachedCharacter.Reset();
 	CachedASC.Reset();
 	OwnerPC.Reset();
 	NextSequenceID = 1;
+	NextInputCaptureEventSerial = 1;
 }
 
 void UMHGZWeaponInputRouterComponent::SetInputProfile(UWeaponInputProfile* InProfile)
@@ -1086,6 +1092,14 @@ void UMHGZWeaponInputRouterComponent::EmitSnapshot(const FWeaponInputSnapshot& S
 		CapturedSnapshots.RemoveAt(0, CapturedSnapshots.Num() - MaxCapturedSnapshots);
 	}
 
+	FWeaponInputCaptureEvent& Event = InputCaptureEvents.AddDefaulted_GetRef();
+	Event.Serial = NextInputCaptureEventSerial++;
+	Event.Snapshot = Snapshot;
+	if (InputCaptureEvents.Num() > MaxInputCaptureEvents)
+	{
+		InputCaptureEvents.RemoveAt(0, InputCaptureEvents.Num() - MaxInputCaptureEvents);
+	}
+
 	if (UMHGZAbilitySystemComponent* ASC = CachedASC.Get())
 	{
 		if (Snapshot.Phase == EWeaponInputPhase::Completed)
@@ -1097,6 +1111,18 @@ void UMHGZWeaponInputRouterComponent::EmitSnapshot(const FWeaponInputSnapshot& S
 			ASC->HandleResolvedInputSnapshot(Snapshot);
 		}
 	}
+}
+
+FString UMHGZWeaponInputRouterComponent::GetHeldPhysicalInputTagsDebugString() const
+{
+	TArray<FString> Tags;
+	Tags.Reserve(HeldControls.Num());
+	for (const TPair<FGameplayTag, FPhysicalInputState>& Pair : HeldControls)
+	{
+		Tags.Add(Pair.Key.ToString());
+	}
+	Tags.Sort();
+	return FString::Join(Tags, TEXT("|"));
 }
 
 void UMHGZWeaponInputRouterComponent::RecomputeAimChildTags()
