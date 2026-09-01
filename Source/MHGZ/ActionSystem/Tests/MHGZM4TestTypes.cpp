@@ -7,6 +7,8 @@
 UMHGZM4TestAttackAbility::UMHGZM4TestAttackAbility()
 {
 	StaminaCostPolicy = EAbilityStaminaCostPolicy::None;
+	AllowedMotionMatchingHandoffTypes.Add(
+		EMHGZMotionMatchingHandoffType::AttackExit);
 }
 
 void UMHGZM4TestAttackAbility::ActivateAbility(
@@ -24,6 +26,14 @@ void UMHGZM4TestAttackAbility::ActivateAbility(
 	FGameplayTagContainer Tags;
 	Tags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")));
 	AcquireActionTags(Tags, FName(TEXT("M4TestAttackState")));
+}
+
+bool UMHGZM4TestAttackAbility::GetMotionMatchingRawMoveInput(
+	FVector2D& OutRawMoveInput, bool& bOutHasRawMoveInput) const
+{
+	OutRawMoveInput = RawMoveInputForTest;
+	bOutHasRawMoveInput = RawMoveInputForTest.Size() >= 0.1f;
+	return true;
 }
 
 void UMHGZM4TestDrawAbility::ActivateAbility(

@@ -122,6 +122,28 @@ public:
 	FString GetMontageRootMotionOwnerDebugString() const;
 
 	// ----------------------------------------------------------------------
+	// Motion Matching Handoff (M4.4)
+	// ----------------------------------------------------------------------
+	/**
+	 * Publish one exact Action-owned exit payload for the AnimBP/Chooser.  The
+	 * Host accepts it only while the action is still registered in this runtime.
+	 * Publication itself never changes movement, tags, or root-motion ownership.
+	 */
+	bool PublishMotionMatchingHandoff(const FWeaponActionToken& ActionToken,
+		FWeaponMotionMatchingHandoff Handoff);
+
+	/** Read the current pending payload. It may outlive the source GA cleanup. */
+	UFUNCTION(BlueprintPure, Category = "Movement|MM|Handoff")
+	bool GetPendingMotionMatchingHandoff(FWeaponMotionMatchingHandoff& OutHandoff) const;
+
+	/**
+	 * Clear exactly the serial that the AnimBP/Chooser consumed.  A stale graph
+	 * update cannot clear a newer handoff published in the same runtime.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Movement|MM|Handoff")
+	bool ClearPendingMotionMatchingHandoff(int64 ExpectedSerial);
+
+	// ----------------------------------------------------------------------
 	// 精确 Montage 注册表
 	// ----------------------------------------------------------------------
 	bool RegisterMontage(
@@ -243,6 +265,8 @@ private:
 	TArray<FWeaponActionToken> ActiveActions;
 	TArray<FWeaponMontageRegistration> MontageRegistrations;
 	FWeaponActionToken MontageRootMotionOwner;
+	FWeaponMotionMatchingHandoff PendingMotionMatchingHandoff;
+	int64 NextMotionMatchingHandoffSerial = 1;
 	FPoseTokens PoseTokens;
 
 	/** 资源预留透传目标（可由 SetResourceProvider 测试入口注入）。 */

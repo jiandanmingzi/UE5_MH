@@ -159,6 +159,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Input")
 	FVector2D GetRawMoveInput() const { return RawMoveInput; }
 
+	/** Maps a physical stick magnitude to this Character's currently configured locomotion lane. */
+	float GetQuantizedCruiseSpeedForRawMoveInput(float StickMagnitude) const;
+
 	/** True when the physical stick is outside the movement deadzone, even while an action blocks locomotion. */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	bool HasRawMovementInput() const { return RawMoveInput.Size() >= MoveDeadzone; }

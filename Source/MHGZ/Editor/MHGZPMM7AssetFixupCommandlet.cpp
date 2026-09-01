@@ -26,7 +26,7 @@ constexpr TCHAR SheathedDatabasePath[] = TEXT("/Game/Blueprints/Characters/Demo/
 constexpr TCHAR UnsheathedDatabasePath[] = TEXT("/Game/Blueprints/Characters/Demo/Animation/MotionMatching/PSD_MH_UnSh_Move.PSD_MH_UnSh_Move");
 
 constexpr float ContinuingPoseCostBias = -0.05f;
-constexpr float ExcludeEndTime = -0.05f;
+constexpr float OrdinaryNonLoopSearchTailTrim = 0.05f;
 // Stop family is a categorical constraint at the input-release edge.  With
 // lanes spaced by only 1/3, weight 8 allowed a pose-similar Walk Stop to beat
 // a Run/Sprint request.  Keep MoveGait permissive, but make StopGait decisive.
@@ -39,6 +39,28 @@ struct FPMM7SequenceSpec
 	float StopGaitValue = 0.0f;
 	float MoveGaitValue = 0.0f;
 };
+
+bool IsGeneratedStop(const UAnimSequence& Sequence)
+{
+	const FString Name = Sequence.GetName();
+	return Name.Contains(TEXT("Extended")) || Name.Contains(TEXT("FirstStepCommitStop"));
+}
+
+FFloatInterval GetSamplingRange(const UAnimSequence& Sequence)
+{
+	// A zero interval means the complete animation range in UE Pose Search.
+	// Generated Stops own a frame-aligned zero tail and must keep it indexed so
+	// their final normal update can resolve as a Continuing pose. Loop/Idle
+	// candidates are also intentionally complete. Only ordinary one-shot assets
+	// retain the historical 50 ms global-search trim, now as entry-local policy.
+	if (Sequence.bLoop || Sequence.GetName().Contains(TEXT("_Idle")) || IsGeneratedStop(Sequence))
+	{
+		return FFloatInterval(0.0f, 0.0f);
+	}
+
+	return FFloatInterval(0.0f,
+		FMath::Max(0.0f, Sequence.GetPlayLength() - OrdinaryNonLoopSearchTailTrim));
+}
 
 const TArray<FPMM7SequenceSpec>& GetSheathedSequenceSpecs()
 {
@@ -270,7 +292,10 @@ bool ConfigureDatabase(UPoseSearchDatabase& Database, const TArray<UAnimSequence
 
 	Database.ContinuingPoseCostBias = ContinuingPoseCostBias;
 	Database.LoopingCostBias = 0.0f;
-	Database.ExcludeFromDatabaseParameters = FFloatInterval(0.0f, ExcludeEndTime);
+	// Do not trim the whole database: that used to remove the generated Stop
+	// zero tail before its lifecycle could return the query to Idle. Ranges are
+	// applied below per sequence instead.
+	Database.ExcludeFromDatabaseParameters = FFloatInterval(0.0f, 0.0f);
 	Database.PoseSearchMode = EPoseSearchMode::BruteForce;
 	for (int32 Index = 0; Index < Database.GetNumAnimationAssets(); ++Index)
 	{
@@ -282,6 +307,7 @@ bool ConfigureDatabase(UPoseSearchDatabase& Database, const TArray<UAnimSequence
 		}
 		Entry->SetDisableReselection(true);
 		Entry->MirrorOption = EPoseSearchMirrorOption::UnmirroredOnly;
+		Entry->SamplingRange = GetSamplingRange(*Entry->Sequence);
 	}
 	return true;
 }

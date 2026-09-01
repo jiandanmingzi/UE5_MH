@@ -48,6 +48,10 @@ public:
 	{
 		InActionDirectionForTest = Direction;
 	}
+	void SetRawMoveInputForTest(const FVector2D& RawMoveInput)
+	{
+		RawMoveInputForTest = RawMoveInput;
+	}
 
 	virtual void ActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
@@ -61,9 +65,12 @@ protected:
 	{
 		return InActionDirectionForTest;
 	}
+	virtual bool GetMotionMatchingRawMoveInput(FVector2D& OutRawMoveInput,
+		bool& bOutHasRawMoveInput) const override;
 
 private:
 	FVector InActionDirectionForTest = FVector::ZeroVector;
+	FVector2D RawMoveInputForTest = FVector2D::ZeroVector;
 };
 
 /** Test-only draw ability that keeps the native DrawCommit contract without a montage asset. */

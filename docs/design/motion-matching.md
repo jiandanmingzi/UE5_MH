@@ -1,10 +1,10 @@
 # MHGZ Motion Matching 移动系统设计文档
 
-> **当前执行路由（2026-08-28）：** 本文只保留架构快照与背景说明。普通移动的当前阶段、允许工作和退出条件以 [阶段门禁](milestone-gates.md) 为准；当前主线是 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) 的 **PMM-7.1 Stop 候选生命周期修复**。不得从本文旧的 PMM-0～PMM-6 描述推断当前可开工事项，也不得恢复 CMC/状态机备选路线。
+> **当前执行路由（2026-08-29）：** 本文只保留架构快照与背景说明。普通移动的当前阶段、允许工作和退出条件以 [阶段门禁](milestone-gates.md) 为准；M4.2 普通移动 / Stop、M4.3 输入释放补丁和 M4.4 动作退出 / 根运动交接基础设施均已验收，当前主线是 **E4.2 动作退出资产**，之后才是 M4.5 动作退出纵切。不得从本文旧的 PMM 记录推断当前可开工事项，也不得恢复 CMC/状态机备选路线。
 
 > **实施状态说明（以源码和当前 AnimBP 资产为准）：** Motion Matching 主链路已经接入；附录脚步 IK 和本文中仍以“修改/实施步骤”描述的扩展内容继续作为详细方案保留。若示例代码与当前源码不同，以 `MHGZCharacter` 为准。
 >
-> **后续路线已于 2026-08-25 改为纯 Motion Matching：** 当前手工直线 Trajectory 和两个空实现 Curve Channel 尚不能稳定选择 Start/Stop；后续按 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) 的 PMM-0～PMM-6 修正查询、曲线和数据库。`locomotion-refactor*.md` 中的 CMC + 状态机方案保留为历史备选，不再是当前执行路线，也不能与纯 MM Root Motion 路线并行实施。
+> **后续路线已改为纯 Motion Matching：** 查询、曲线和数据库的已落地基线以源码与历史 Stop 生命周期专项为准；后续按 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) 的 M4.2 → M4.3 → M4.4 → E4.2 → M4.5 顺序推进。`locomotion-refactor*.md` 中的 CMC + 状态机方案保留为历史备选，不再是当前执行路线，也不能与纯 MM Root Motion 路线并行实施。
 
 ## 当前实现快照
 
@@ -190,7 +190,7 @@ bool bForceMMIdle = false;
 
 RuntimeHost 需要提供按 ActionToken 获取/释放的根位移所有权（例如 `AcquireMontageRootMotion`、`ReleaseMontageRootMotion`、`IsMontageRootMotionOwned`）。它不是 Loose Tag，旧 Montage、取消回调或其他 Ability 均不得释放不属于自己的所有权。GA 结束、Montage 中断、换装、死亡和 Runtime Shutdown 必须统一回收。
 
-#### 上半身送虫/收虫（M4-A.5）
+#### 上半身送虫/收虫（M4.1.5）
 
 持刀 `LT+Y` / `LT+B` 的送虫、收虫不是“动作尾段接移动”，而是从第一帧起就允许完整持刀移动。二者的 Montage 必须为 in-place、无 Root Motion，并只播放 `UpperBody_IGAction` Slot；AnimGraph 以 Armed Motion Matching 为 Base Pose，将该 Slot 作为 `Layered Blend per Bone` 的 Blend Pose，从骨盆上方第一根脊椎骨开始混合全部上半身。它们不获取 `MontageRootMotionOwner`，不持有 `BlockMovement`，因此 `bForceMMIdle=false`，下半身的起步、移动、停步和转向始终由正常持刀 MM 输出。该规则只影响视觉分层；GA 在 Montage 中仍以 ActionToken 注册实例，送虫/收虫仅在各自精确 Commit Notify 执行，不能因移动而重读或更改冻结的 Aim 请求。
 
@@ -421,7 +421,7 @@ AnimBP 通过 Actor Yaw 的帧间差计算 `AngularVelocity`（度/秒），填�
 | `SteeringRootMotion` | 无 | 有 | 实时摇杆更新巡航速度与平滑朝向 | Montage RM；MM 零 RM |
 | `MotionMatching` | 无 | 无 | 正常 | MM |
 
-#### 拆分 Animation Sequence 的根运动阶段（M4-B.1 / M5 前置）
+#### 拆分 Animation Sequence 的根运动阶段（M4.4 / M5 前置）
 
 UE 的 Montage Section 只负责“从哪里开始、下一段跳到哪里”，**没有**“本 Section 开/关 Root Motion”的独立开关。当前帧是否有 Root Motion 由 Montage 正在播放的 AnimSequence 根骨骼数据及其资产设置决定。因此同一 Montage 可以线性播放 in-place 的 Entry、真实 Root Motion 的 Travel/Core、再播放 in-place 的 Recovery；但不能把一条本身有移动根轨迹的序列仅靠关闭某个 Section 的提取来变成安全的 in-place 片段——那会造成 Mesh 与 Capsule 漂移、回弹或脚底滑动。应使用根轨迹本来静止的序列，或重新处理/裁切为真正的 in-place 资产。
 
@@ -439,11 +439,11 @@ UE 的 Montage Section 只负责“从哪里开始、下一段跳到哪里”，
 
 **移动收刀：** `Idle`/`Walk` 仅由激活快照决定，之后不允许切换 Section。`Idle` 持有 `BlockMovement`；`Walk` 从第一帧起不持有它，因此实时摇杆可转向。两段只要仍含 Root Motion 就都持有 `MontageRootMotionOwner`；动画应只有前向 Root 位移、没有与代码转向竞争的 Root Yaw。转向后的 Root Motion 在 Actor 新朝向上形成平滑弯曲轨迹；这不是瞬时 180° 改轨，若要瞬时大幅重定向，必须另做方向资产或使用经验证的 Motion Warping。
 
-#### 收刀输入互斥（M4-A 必需）
+#### 收刀输入互斥（M4.1 必需）
 
 `BlockMovement` 和 `MontageRootMotionOwner` 都**不是输入锁**：前者只冻结移动/转向，后者只禁止 MM 与 Montage 同时贡献根位移。尤其 `Walk` 收刀故意不持有 `BlockMovement`，因此不能把“可转向”误解为“可打断”。
 
-本 Demo 的纳刀资格固定为：`Grounded + Unsheathed`，且当前不处于攻击、硬直、击倒、死亡、收刀或翻滚动作锁中。InputProfile 的 `Input.Sheathe` Chord 必须同时要求 `Combat.State.Grounded` 与 `Combat.State.Unsheathed`，从源头不产生空中收刀快照；`UMHGZSheatheAbility::CanActivateAbility` 仍必须以当前 RuntimeHost/ASC 状态二次确认 Grounded（并拒绝 Aerial）与上述阻塞状态。这样即使输入快照后的极短时间内起跳，也不会把旧的地面输入误激活成空中收刀。空中收刀不属于 M4-A，留给 M5 的空中动作设计明确接入。
+本 Demo 的纳刀资格固定为：`Grounded + Unsheathed`，且当前不处于攻击、硬直、击倒、死亡、收刀或翻滚动作锁中。InputProfile 的 `Input.Sheathe` Chord 必须同时要求 `Combat.State.Grounded` 与 `Combat.State.Unsheathed`，从源头不产生空中收刀快照；`UMHGZSheatheAbility::CanActivateAbility` 仍必须以当前 RuntimeHost/ASC 状态二次确认 Grounded（并拒绝 Aerial）与上述阻塞状态。这样即使输入快照后的极短时间内起跳，也不会把旧的地面输入误激活成空中收刀。空中收刀不属于 M4.1，留给 M5 的空中动作设计明确接入。
 
 `GA_Sheathe` 在成功提交 Action 后必须以自己的 `FWeaponOwnedTagToken` 获取 `Combat.State.Sheathing`，并从激活开始一直持有到 `EndAbility`；不得在 `SheatheCommit` 时释放。该 Tag 与姿态 Tag 正交：Commit 前为 `Unsheathed + Sheathing`，Commit 后为 `Sheathed + Sheathing`。这样武器已归位但 Montage 尾帧/Root Motion 尚未结束时，普通玩家按键仍不能插入新动作。
 
@@ -455,7 +455,7 @@ UE 的 Montage Section 只负责“从哪里开始、下一段跳到哪里”，
 4. `UGA_WeaponComboCoordinator::HandleWeaponInput`/Transition 匹配在该 Tag 存在时直接拒绝，不能建立 PendingTransition 或预输入；`Input.Dodge`、猎虫等通用路由最终也必须被 GA 激活检查拒绝。
 5. 仅硬直、死亡等明确的强制取消路径可打断收刀；若未来要设计“收刀后摇可翻滚取消”，必须另做精确 `SheatheCancelWindow` 和明确的取消规则，不能复用 `DodgeWindow` 或提前清 `Sheathing`。
 
-#### 翻滚取消与翻滚动作锁（M4-A 必需）
+#### 翻滚取消与翻滚动作锁（M4.1 必需）
 
 最终 `GA_Dodge` 与 `GA_Sheathe` 同属 `CoreAbilities`，且 `Input.Dodge` 只能有一个已授予的最终 Spec；它不进入任何武器 ComboData。CoreAbilities 只保证通用输入始终有目标，**不**提供取消优先级或动作互斥。
 
@@ -467,7 +467,7 @@ Notify 不直接操作 CharacterMovementComponent，也不直接清全局 Tag。
 
 **交接点：** `MontageRootMotionOwner` 只能在 Montage 不再贡献根位移、Slot 正要/已经 Blend Out 时释放。之后 `bForceMMIdle=false`，MM 根据在 `SteeringRootMotion` 阶段已更新的 `DesiredSpeed`、Actor Yaw 与 Trajectory 接管。若通用数据库不能稳定匹配动作尾姿，将尾段裁为非循环 transition sequence，加入目标 Database；仍不足时才用短暂的专用 Exit Database/Chooser 约束，绝不让该序列同时被 Montage 与 MM 驱动。
 
-> **历史实现说明：** 本节描述改造前的 Motion Matching 路径及其动作交接合同；其中的日期型实现进度不再作为阶段依据。当前状态、M4-A.5 的 E4-A 接线门禁、PMM-0～PMM-6 的顺序以及 M4-B.1/M5 禁入条件，以 [阶段门禁](milestone-gates.md) 和 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) 为准。`locomotion-refactor*.md` 中的 CMC + 状态机路线只保留为历史备选。
+> **历史实现说明：** 本节描述改造前的 Motion Matching 路径及其动作交接合同；其中的日期型实现进度不再作为阶段依据。当前状态、M4.1.5 的 E4.1 接线门禁、M4.2～M4.5 的顺序以及 M4.6/M4.7/M5 禁入条件，以 [阶段门禁](milestone-gates.md) 和 [纯 Motion Matching 普通移动实施指南](pure-motion-matching-locomotion-guide.md) 为准。`locomotion-refactor*.md` 中的 CMC + 状态机路线只保留为历史备选。
 
 ### 8.2 MoveSpeedMultiplier
 

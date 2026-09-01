@@ -342,6 +342,8 @@ bool FMHGZM4DodgeDirectionalSelection::RunTest(const FString& Parameters)
 			DodgeDefaults->StaminaCostPolicy, EAbilityStaminaCostPolicy::Instant);
 		TestEqual(TEXT("all dodge variants share the same stamina cost"),
 			DodgeDefaults->StaminaCost.GetValueAtLevel(1.f), 25.f);
+		TestFalse(TEXT("Forward rolls keep legacy root owner until E4.2 places phase notifies"),
+			DodgeDefaults->bForwardDodgeUsesActionRootMotionPhase);
 	}
 	const FGameplayAbilitySpecHandle DodgeHandle =
 		H.GiveAbility(UMHGZM4TestDodgeAbility::StaticClass());

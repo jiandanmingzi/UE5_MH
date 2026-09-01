@@ -9,6 +9,8 @@
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "AbilitySystemComponent.h"
+#include "MHGZCharacter.h"
+#include "MHGZ.h"
 
 UMHGZGameplayAbility::UMHGZGameplayAbility()
 {
@@ -172,6 +174,7 @@ void UMHGZGameplayAbility::ActivateAbility(
 	const FGameplayEventData* TriggerEventData)
 {
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+	MotionMatchingPhaseState = FMotionMatchingPhaseState();
 
 	UMHGZAbilitySystemComponent* MHGZASC =
 		Cast<UMHGZAbilitySystemComponent>(ActorInfo->AbilitySystemComponent.Get());
@@ -314,6 +317,7 @@ void UMHGZGameplayAbility::EndAbility(
 	}
 	bMHGZEndCleanupDone = true;
 	bIsActionActivationCommitted = false;
+	MotionMatchingPhaseState = FMotionMatchingPhaseState();
 
 	// 1. 结束耐力消耗任务。
 	if (StaminaDrainTask.IsValid())
@@ -468,6 +472,266 @@ UMHGZWeaponRuntimeHostComponent* UMHGZGameplayAbility::GetRuntimeHost() const
 	const UMHGZAbilitySystemComponent* MHGZASC =
 		Cast<const UMHGZAbilitySystemComponent>(ASC);
 	return MHGZASC ? MHGZASC->GetRuntimeHost() : nullptr;
+}
+
+// ----------------------------------------------------------------------
+// M4.4 Root Motion Phase / Motion Matching Handoff
+// ----------------------------------------------------------------------
+
+bool UMHGZGameplayAbility::IsCurrentMotionMatchingAction(
+	const FWeaponActionToken& ActionToken) const
+{
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	return IsActive() && !bMHGZEndCleanupDone && bIsActionActivationCommitted
+		&& ActionToken.IsValid() && ActionToken == CurrentActionToken
+		&& Host && Host->IsTokenCurrent(ActionToken.RuntimeToken);
+}
+
+void UMHGZGameplayAbility::SampleMotionMatchingPhaseInput()
+{
+	if (MotionMatchingPhaseState.InputObservationPhaseDepth <= 0)
+	{
+		return;
+	}
+
+	FVector2D RawMoveInput = FVector2D::ZeroVector;
+	bool bHasRawMoveInput = false;
+	GetMotionMatchingRawMoveInput(RawMoveInput, bHasRawMoveInput);
+	MotionMatchingPhaseState.LastRawMoveInput = RawMoveInput;
+	if (bHasRawMoveInput)
+	{
+		MotionMatchingPhaseState.bObservedRawMoveInput = true;
+		if (const AMHGZCharacter* Character = Cast<AMHGZCharacter>(
+			GetAvatarActorFromActorInfo()))
+		{
+			MotionMatchingPhaseState.LastActiveRawMoveCruiseSpeed =
+				Character->GetQuantizedCruiseSpeedForRawMoveInput(RawMoveInput.Size());
+		}
+	}
+	else if (MotionMatchingPhaseState.bRawMoveInputWasActive
+		&& MotionMatchingPhaseState.bObservedRawMoveInput)
+	{
+		// This uses raw physical input, not bHasInput/BlockMovement. A mobile
+		// action tail can therefore remember a real release even while its
+		// locomotion output is intentionally suppressed.
+		MotionMatchingPhaseState.bReleasedRawMoveInput = true;
+	}
+	MotionMatchingPhaseState.bRawMoveInputWasActive = bHasRawMoveInput;
+}
+
+bool UMHGZGameplayAbility::BeginActionRootMotionPhase(
+	const FWeaponActionToken& ActionToken, const bool bOwnsMontageRootMotion,
+	const bool bObserveRawMovementInput)
+{
+	if (!IsCurrentMotionMatchingAction(ActionToken))
+	{
+		return false;
+	}
+
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	if (!Host)
+	{
+		UE_LOG(LogMHGZ, Warning, TEXT("[MotionMatchingHandoff] Rejected Ability=%s: missing RuntimeHost."),
+			*GetClass()->GetName());
+		return false;
+	}
+	if (Host->IsMontageRootMotionOwned() && !Host->IsMontageRootMotionOwnedBy(ActionToken))
+	{
+		UE_LOG(LogMHGZ, Warning,
+			TEXT("[MotionMatchingHandoff] Rejected Ability=%s: a competing Montage Root Motion owner exists."),
+			*GetClass()->GetName());
+		return false;
+	}
+
+	if (bOwnsMontageRootMotion && !Host->AcquireMontageRootMotion(ActionToken))
+	{
+		return false;
+	}
+
+	++MotionMatchingPhaseState.ActivePhaseDepth;
+	if (bOwnsMontageRootMotion)
+	{
+		++MotionMatchingPhaseState.OwningRootMotionPhaseDepth;
+	}
+	if (bObserveRawMovementInput)
+	{
+		++MotionMatchingPhaseState.InputObservationPhaseDepth;
+		SampleMotionMatchingPhaseInput();
+	}
+	MotionMatchingPhaseState.bObservedAnyPhase = true;
+	return true;
+}
+
+bool UMHGZGameplayAbility::ObserveActionRootMotionPhase(
+	const FWeaponActionToken& ActionToken)
+{
+	if (!IsCurrentMotionMatchingAction(ActionToken)
+		|| MotionMatchingPhaseState.ActivePhaseDepth <= 0)
+	{
+		return false;
+	}
+
+	SampleMotionMatchingPhaseInput();
+	return true;
+}
+
+bool UMHGZGameplayAbility::EndActionRootMotionPhase(
+	const FWeaponActionToken& ActionToken, const bool bOwnedMontageRootMotion,
+	const bool bObservedRawMovementInput)
+{
+	if (!IsCurrentMotionMatchingAction(ActionToken)
+		|| MotionMatchingPhaseState.ActivePhaseDepth <= 0
+		|| (bOwnedMontageRootMotion
+			&& MotionMatchingPhaseState.OwningRootMotionPhaseDepth <= 0)
+		|| (bObservedRawMovementInput
+			&& MotionMatchingPhaseState.InputObservationPhaseDepth <= 0))
+	{
+		return false;
+	}
+
+	if (bObservedRawMovementInput)
+	{
+		SampleMotionMatchingPhaseInput();
+		--MotionMatchingPhaseState.InputObservationPhaseDepth;
+	}
+	if (bOwnedMontageRootMotion)
+	{
+		--MotionMatchingPhaseState.OwningRootMotionPhaseDepth;
+	}
+	--MotionMatchingPhaseState.ActivePhaseDepth;
+
+	// Ending the phase proves an authored no-root-motion safety segment begins,
+	// but deliberately does not release yet.  MMHandoff validates Commit/type/
+	// ownership and publishes atomically; a missing or malformed Handoff thus
+	// leaves the old Montage on its compatibility owner instead of exposing MM
+	// to its functional tail.
+	return true;
+}
+
+bool UMHGZGameplayAbility::HandleMotionMatchingHandoff(
+	const FWeaponActionToken& ActionToken,
+	const EMHGZMotionMatchingHandoffType HandoffType)
+{
+	const TCHAR* RejectionReason = nullptr;
+	if (!IsCurrentMotionMatchingAction(ActionToken))
+	{
+		RejectionReason = TEXT("stale or foreign action token");
+	}
+	else if (HandoffType == EMHGZMotionMatchingHandoffType::None)
+	{
+		RejectionReason = TEXT("notify has no HandoffType");
+	}
+	else if (!AllowedMotionMatchingHandoffTypes.Contains(HandoffType))
+	{
+		RejectionReason = TEXT("ability does not declare this HandoffType");
+	}
+	else if (!MotionMatchingPhaseState.bObservedAnyPhase)
+	{
+		RejectionReason = TEXT("no ActionRootMotionPhase was observed");
+	}
+	else if (MotionMatchingPhaseState.ActivePhaseDepth != 0)
+	{
+		RejectionReason = TEXT("ActionRootMotionPhase is still active");
+	}
+	else if (MotionMatchingPhaseState.OwningRootMotionPhaseDepth != 0)
+	{
+		RejectionReason = TEXT("Root Motion owner phase is still active");
+	}
+	else if (!IsMotionMatchingHandoffCommitComplete())
+	{
+		RejectionReason = TEXT("required ability Commit has not completed");
+	}
+	if (RejectionReason)
+	{
+		UE_LOG(LogMHGZ, Warning,
+			TEXT("[MotionMatchingHandoff] Rejected Ability=%s Type=%d Sequence=%d: %s."),
+			*GetClass()->GetName(), static_cast<int32>(HandoffType), ActionToken.ActivationSequenceID,
+			RejectionReason);
+		return false;
+	}
+
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	// Handoff is deliberately after the final Root Motion phase. A competing
+	// owner proves that the asset's safety frame was misplaced; do not end the
+	// GA or release anybody else's owner as a fallback. An in-place phase may
+	// legitimately have no owner at all.
+	if (!Host)
+	{
+		UE_LOG(LogMHGZ, Warning, TEXT("[MotionMatchingHandoff] Rejected Ability=%s: missing RuntimeHost."),
+			*GetClass()->GetName());
+		return false;
+	}
+	if (Host->IsMontageRootMotionOwned() && !Host->IsMontageRootMotionOwnedBy(ActionToken))
+	{
+		UE_LOG(LogMHGZ, Warning,
+			TEXT("[MotionMatchingHandoff] Rejected Ability=%s: a competing Montage Root Motion owner exists."),
+			*GetClass()->GetName());
+		return false;
+	}
+
+	FVector2D RawMoveInput = FVector2D::ZeroVector;
+	bool bHasRawMoveInput = false;
+	GetMotionMatchingRawMoveInput(RawMoveInput, bHasRawMoveInput);
+	FWeaponMotionMatchingHandoff Handoff;
+	Handoff.Type = HandoffType;
+	Handoff.RawMoveInput = RawMoveInput;
+	Handoff.bHasRawMoveInputAtHandoff = bHasRawMoveInput;
+	Handoff.bHadRawMoveInputInMobilePhase =
+		MotionMatchingPhaseState.bObservedRawMoveInput;
+	// The ActionRootMotionPhase can deliberately close several authored frames
+	// before the Handoff Notify so UE always dispatches NotifyEnd first. The
+	// Handoff still samples the physical stick at its exact authored frame: if
+	// the player moved earlier in the mobile phase and is now neutral, that is
+	// a real release even when no later NotifyTick had a chance to observe it.
+	Handoff.bReleasedRawMoveInputInMobilePhase =
+		MotionMatchingPhaseState.bReleasedRawMoveInput
+		|| (Handoff.bHadRawMoveInputInMobilePhase && !bHasRawMoveInput);
+	Handoff.bPendingStopAtHandoff = Handoff.bHadRawMoveInputInMobilePhase
+		&& Handoff.bReleasedRawMoveInputInMobilePhase
+		&& !Handoff.bHasRawMoveInputAtHandoff;
+	Handoff.LastActiveRawMoveCruiseSpeedInMobilePhase =
+		MotionMatchingPhaseState.LastActiveRawMoveCruiseSpeed;
+
+	const bool bReleasesExistingOwner = Host->IsMontageRootMotionOwnedBy(ActionToken);
+	if (bReleasesExistingOwner && !Host->ReleaseMontageRootMotion(ActionToken))
+	{
+		return false;
+	}
+
+	if (!Host->PublishMotionMatchingHandoff(ActionToken, MoveTemp(Handoff)))
+	{
+		// The Host can reject only before source-Action teardown. Restore the
+		// exact owner so an invalid handoff never creates a root-motion gap.
+		if (bReleasesExistingOwner)
+		{
+			Host->AcquireMontageRootMotion(ActionToken);
+		}
+		return false;
+	}
+
+	// The Handoff Notify is authored only in a no-function safety frame. Ending
+	// the Action lets its AbilityTask blend out the old Montage after this exact
+	// release; the published payload remains Host-owned until the AnimBP/Chooser
+	// consumes its serial.
+	RequestEndAction(EWeaponActionEndReason::Normal);
+	return true;
+}
+
+bool UMHGZGameplayAbility::GetMotionMatchingRawMoveInput(
+	FVector2D& OutRawMoveInput, bool& bOutHasRawMoveInput) const
+{
+	OutRawMoveInput = FVector2D::ZeroVector;
+	bOutHasRawMoveInput = false;
+	const AMHGZCharacter* Character = Cast<AMHGZCharacter>(
+		GetAvatarActorFromActorInfo());
+	if (!Character)
+	{
+		return false;
+	}
+
+	OutRawMoveInput = Character->GetRawMoveInput();
+	bOutHasRawMoveInput = Character->HasRawMovementInput();
+	return true;
 }
 
 // ── Spec 构造 ───────────────────────────────────────────────────────────────

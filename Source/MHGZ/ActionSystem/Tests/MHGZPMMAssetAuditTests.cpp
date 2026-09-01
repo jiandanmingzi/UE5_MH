@@ -10,7 +10,9 @@
 #include "Animation/MHGZPoseSearchFeatureChannel_StopGait.h"
 #include "PoseSearch/PoseSearchAnimNotifies.h"
 #include "PoseSearch/PoseSearchDatabase.h"
+#include "PoseSearch/PoseSearchDerivedData.h"
 #include "PoseSearch/PoseSearchFeatureChannel_Curve.h"
+#include "PoseSearch/PoseSearchIndex.h"
 #include "PoseSearch/PoseSearchSchema.h"
 
 namespace
@@ -19,9 +21,9 @@ constexpr float PMMTimeTolerance = 0.05f;
 constexpr float PMMValueTolerance = 0.01f;
 constexpr float PMMZeroTolerance = 0.02f;
 constexpr float PMMGeneratedStopControlTolerance = 0.01f;
-constexpr float PMMGeneratedStopEndPadding = 0.001f;
-constexpr float PMMGeneratedStopBlockCommitLead = 0.001f;
 constexpr float PMMSampleInterval = 1.0f / 60.0f;
+constexpr int32 PMMGeneratedStopZeroTailSampleCount = 3;
+constexpr int32 PMMGeneratedStopBlockLeadSampleCount = 1;
 constexpr float PMMStartContinuingWindow = 0.10f;
 constexpr float PMMStartBlockTailWindow = 1.0f / 30.0f;
 constexpr float PMMStartContinuingModifier = 0.0f;
@@ -580,15 +582,16 @@ void ValidatePoseSearchControlNotifies(FAutomationTestBase& Test, const UAnimSeq
 			CommitKeyIndex != INDEX_NONE);
 		if (CommitKeyIndex != INDEX_NONE)
 		{
-			// BlockTransition includes its start boundary in a global Pose Search
-			// result. The generated asset must therefore start the blacklist just
-			// before the first negative Stop key, not on that key.
+			// PMM-7.1 aligns lifecycle controls to the PSS grid. Start one full
+			// indexed sample before the real Stop commit, so the commit frame is
+			// never globally selectable even at an exact Notify boundary.
+			const int32 CommitSampleIndex = FMath::Max(0,
+				FMath::CeilToInt(DistanceTimes[CommitKeyIndex] / PMMSampleInterval));
 			ExpectedBlockStart = FMath::Max(0.0f,
-				DistanceTimes[CommitKeyIndex] - PMMGeneratedStopBlockCommitLead);
+				(CommitSampleIndex - PMMGeneratedStopBlockLeadSampleCount) * PMMSampleInterval);
 		}
-		ExpectedBlockEnd = FMath::Max(ExpectedBlockStart + PMMGeneratedStopEndPadding,
-			Length - PMMGeneratedStopEndPadding);
-		ExpectedContinuingEnd = FMath::Max(0.0f, Length - PMMGeneratedStopEndPadding);
+		ExpectedBlockEnd = Length;
+		ExpectedContinuingEnd = Length;
 		ControlTolerance = PMMGeneratedStopControlTolerance;
 	}
 	TestNearlyEqual(Test, FString::Printf(TEXT("%s Block Transition In start time"), *GetAssetLabel(Sequence)), BlockTransition->GetTriggerTime(), ExpectedBlockStart, ControlTolerance);
@@ -610,6 +613,120 @@ void ValidatePoseSearchControlNotifies(FAutomationTestBase& Test, const UAnimSeq
 		ContinuingBiasState->CostAddend,
 		ExpectedContinuingModifier,
 		PMMValueTolerance);
+}
+
+void ValidateGeneratedStopIndexLifecycle(FAutomationTestBase& Test)
+{
+	using namespace UE::PoseSearch;
+
+	int32 GeneratedStopAssetCount = 0;
+	for (const FPMMDatabaseSpec& Spec : GetPMMDatabaseSpecs())
+	{
+		UPoseSearchDatabase* Database = LoadObject<UPoseSearchDatabase>(nullptr, Spec.ObjectPath);
+		if (!Test.TestNotNull(FString::Printf(TEXT("Loads Pose Search database for indexed Stop audit: %s"), Spec.ObjectPath), Database))
+		{
+			continue;
+		}
+
+		const ERequestAsyncBuildFlag BuildFlags = ERequestAsyncBuildFlag::NewRequest
+			| ERequestAsyncBuildFlag::WaitForCompletion;
+		if (!Test.TestEqual(FString::Printf(TEXT("Builds current Pose Search index: %s"), Spec.ObjectPath),
+			FAsyncPoseSearchDatabasesManagement::RequestAsyncBuildIndex(Database, BuildFlags),
+			EAsyncBuildIndexResult::Success))
+		{
+			continue;
+		}
+
+		const FSearchIndex& SearchIndex = Database->GetSearchIndex();
+		for (const FSearchIndexAsset& IndexAsset : SearchIndex.Assets)
+		{
+			const FPoseSearchDatabaseSequence* Entry =
+				Database->GetDatabaseAnimationAsset<FPoseSearchDatabaseSequence>(IndexAsset);
+			const UAnimSequenceBase* Sequence = Entry ? Entry->Sequence.Get() : nullptr;
+			if (!Sequence || !IsGeneratedStop(*Sequence))
+			{
+				continue;
+			}
+
+			++GeneratedStopAssetCount;
+			Test.TestTrue(FString::Printf(TEXT("%s generated Stop uses the complete entry sampling range"),
+				*GetAssetLabel(*Sequence)),
+				FMath::IsNearlyZero(Entry->SamplingRange.Min, PMMValueTolerance)
+					&& FMath::IsNearlyZero(Entry->SamplingRange.Max, PMMValueTolerance));
+
+			const FFloatCurve* IntentCurve = RequireFloatCurve(Test, *Sequence, TEXT("MM_Intent"));
+			const FFloatCurve* DistanceCurve = RequireFloatCurve(Test, *Sequence, TEXT("MM_DistanceToStop"));
+			if (!IntentCurve || !DistanceCurve || IndexAsset.GetNumPoses() <= 0)
+			{
+				Test.AddError(FString::Printf(TEXT("%s cannot be checked for an indexed zero tail."),
+					*GetAssetLabel(*Sequence)));
+				continue;
+			}
+
+			int32 FirstZeroPoseIndex = INDEX_NONE;
+			int32 ZeroTailPoseCount = 0;
+			bool bZeroTailContiguous = true;
+			bool bZeroTailBlocked = true;
+			const int32 FirstPoseIndex = IndexAsset.GetFirstPoseIdx();
+			const int32 EndPoseIndex = FirstPoseIndex + IndexAsset.GetNumPoses();
+			for (int32 PoseIndex = FirstPoseIndex; PoseIndex < EndPoseIndex; ++PoseIndex)
+			{
+				const float Time = Database->GetRealAssetTime(PoseIndex);
+				const bool bZeroQuery = FMath::IsNearlyZero(IntentCurve->Evaluate(Time), PMMZeroTolerance)
+					&& FMath::IsNearlyZero(DistanceCurve->Evaluate(Time), PMMZeroTolerance);
+				if (bZeroQuery && FirstZeroPoseIndex == INDEX_NONE)
+				{
+					FirstZeroPoseIndex = PoseIndex;
+				}
+				if (FirstZeroPoseIndex != INDEX_NONE)
+				{
+					bZeroTailContiguous &= bZeroQuery;
+					if (bZeroQuery)
+					{
+						++ZeroTailPoseCount;
+						bZeroTailBlocked &= SearchIndex.PoseMetadata[PoseIndex].IsBlockTransition();
+					}
+				}
+			}
+
+			const float LastIndexedTime = Database->GetRealAssetTime(EndPoseIndex - 1);
+			Test.TestTrue(FString::Printf(TEXT("%s has at least %d indexed zero-query tail poses"),
+				*GetAssetLabel(*Sequence), PMMGeneratedStopZeroTailSampleCount - 1),
+				ZeroTailPoseCount >= PMMGeneratedStopZeroTailSampleCount - 1);
+			Test.TestTrue(FString::Printf(TEXT("%s indexed zero-query tail is contiguous"),
+				*GetAssetLabel(*Sequence)), bZeroTailContiguous);
+			Test.TestTrue(FString::Printf(TEXT("%s indexed zero-query tail is BlockTransition metadata"),
+				*GetAssetLabel(*Sequence)), bZeroTailBlocked);
+
+			const FAnimNotifyEvent* BlockState = nullptr;
+			const FAnimNotifyEvent* ContinuingState = nullptr;
+			for (const FAnimNotifyEvent& Notify : Sequence->Notifies)
+			{
+				if (Cast<UAnimNotifyState_PoseSearchBlockTransition>(Notify.NotifyStateClass))
+				{
+					BlockState = &Notify;
+				}
+				else if (Cast<UAnimNotifyState_PoseSearchOverrideContinuingPoseCostBias>(Notify.NotifyStateClass))
+				{
+					ContinuingState = &Notify;
+				}
+			}
+			Test.TestNotNull(FString::Printf(TEXT("%s has a Block state for the zero tail"),
+				*GetAssetLabel(*Sequence)), BlockState);
+			Test.TestNotNull(FString::Printf(TEXT("%s has a Continuing state for the zero tail"),
+				*GetAssetLabel(*Sequence)), ContinuingState);
+			if (BlockState && ContinuingState)
+			{
+				Test.TestTrue(FString::Printf(TEXT("%s Block state covers its final indexed zero pose"),
+					*GetAssetLabel(*Sequence)), BlockState->GetEndTriggerTime() + PMMSampleInterval >= LastIndexedTime);
+				Test.TestTrue(FString::Printf(TEXT("%s Continuing state covers its final indexed zero pose"),
+					*GetAssetLabel(*Sequence)), ContinuingState->GetEndTriggerTime() + PMMSampleInterval >= LastIndexedTime);
+			}
+		}
+	}
+
+	Test.TestEqual(TEXT("PMM-7 sheathed database exposes nine generated Stop index assets"),
+		GeneratedStopAssetCount, 9);
 }
 
 void ValidatePMM7Schema(FAutomationTestBase& Test)
@@ -707,6 +824,17 @@ bool FMHGZPMMAssetPoseSearchControlNotifies::RunTest(const FString& Parameters)
 			ValidatePoseSearchControlNotifies(*this, *Sequence);
 		}
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZPMMGeneratedStopIndexLifecycle,
+	"MHGZ.PMM.Assets.GeneratedStopIndexLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZPMMGeneratedStopIndexLifecycle::RunTest(const FString& Parameters)
+{
+	ValidateGeneratedStopIndexLifecycle(*this);
 	return true;
 }
 

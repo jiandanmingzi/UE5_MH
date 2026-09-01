@@ -18,6 +18,7 @@
 #include "Misc/Parse.h"
 #include "Misc/PackageName.h"
 #include "PoseSearch/PoseSearchAnimNotifies.h"
+#include "PoseSearch/PoseSearchSchema.h"
 #include "ReferenceSkeleton.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -35,6 +36,7 @@ constexpr TCHAR WalkStartPath[] = TEXT("/Game/Characters/Demo/Anims/Sequences/Un
 constexpr TCHAR RunStartPath[] = TEXT("/Game/Characters/Demo/Anims/Sequences/Unarmed/Locomotion/AS_Shth_Run_Start.AS_Shth_Run_Start");
 constexpr TCHAR SprintStartPath[] = TEXT("/Game/Characters/Demo/Anims/Sequences/Unarmed/Locomotion/AS_Shth_Sprint_Start.AS_Shth_Sprint_Start");
 constexpr TCHAR GeneratedDirectory[] = TEXT("/Game/Characters/Demo/Anims/Sequences/Unarmed/Locomotion/Generated");
+constexpr TCHAR SchemaPath[] = TEXT("/Game/Blueprints/Characters/Demo/Animation/MotionMatching/PSS_MH_Move.PSS_MH_Move");
 constexpr TCHAR GeneratedLeftName[] = TEXT("AS_Shth_Run_Stop_Left_Extended");
 constexpr TCHAR GeneratedRightName[] = TEXT("AS_Shth_Run_Stop_Right_Extended");
 constexpr TCHAR GeneratedWalkLeftName[] = TEXT("AS_Shth_Walk_Stop_Left_Extended");
@@ -45,18 +47,11 @@ constexpr TCHAR GeneratedWalkFirstStepCommitStopName[] = TEXT("AS_Shth_Walk_Firs
 constexpr TCHAR GeneratedRunFirstStepCommitStopName[] = TEXT("AS_Shth_Run_FirstStepCommitStop");
 constexpr TCHAR GeneratedSprintFirstStepCommitStopName[] = TEXT("AS_Shth_Sprint_FirstStepCommitStop");
 
-constexpr float EndPadding = 0.001f;
-// Generated Stop curves own the entire real Stop segment. The notify windows
-// must cover that exact same interval: leaving even a short tail uncovered
-// lets Pose Search globally re-enter a fresh Stop candidate while the runtime
-// is still sampling a negative Stop curve.
-// BlockTransition's start boundary is not itself excluded by the Pose Search
-// index. Start one millisecond before the real Stop commit so the first
-// negative Stop sample is blacklisted from a fresh global search, while the
-// preceding Loop prefix sample remains eligible.
-constexpr float StopBlockCommitLead = EndPadding;
-constexpr float StopBlockEndPadding = EndPadding;
-constexpr float StopContinuingEndPadding = EndPadding;
+// PMM-7.1 lifecycle boundaries are expressed in PSS sample indexes, never in
+// arbitrary millisecond padding.  Three authored zero samples leave at least
+// two real indexed zero poses even if Pose Search omits the exact sequence end.
+constexpr int32 GeneratedStopZeroTailSampleCount = 3;
+constexpr int32 GeneratedStopBlockLeadSampleCount = 1;
 constexpr float StopContinuingModifier = -0.50f;
 constexpr int32 MinimumFirstStepCommitPrefixFrames = 3;
 constexpr int32 RunAndSprintFirstStepSearchFrame = 20;
@@ -95,6 +90,63 @@ struct FGeneratedStopInfo
 	bool bEnableRootMotion = false;
 	bool bForceRootLock = true;
 };
+
+struct FGeneratedStopTiming
+{
+	int32 SampleRate = 0;
+	int32 CommitSampleIndex = INDEX_NONE;
+	int32 BlockStartSampleIndex = INDEX_NONE;
+	int32 ZeroTailStartSampleIndex = INDEX_NONE;
+	float SampleInterval = 0.0f;
+	float CommitTime = 0.0f;
+	float BlockStartTime = 0.0f;
+	float ZeroTailStartTime = 0.0f;
+};
+
+bool BuildGeneratedStopTiming(const float SequenceLength, const float PrefixDuration,
+	const int32 SampleRate, FGeneratedStopTiming& OutTiming)
+{
+	if (SampleRate <= 0 || SequenceLength <= KINDA_SMALL_NUMBER || PrefixDuration < 0.0f)
+	{
+		return false;
+	}
+
+	OutTiming.SampleRate = SampleRate;
+	OutTiming.SampleInterval = 1.0f / static_cast<float>(SampleRate);
+	OutTiming.CommitSampleIndex = FMath::Max(0, FMath::CeilToInt(PrefixDuration * SampleRate));
+	OutTiming.CommitTime = OutTiming.CommitSampleIndex * OutTiming.SampleInterval;
+	OutTiming.BlockStartSampleIndex = FMath::Max(0,
+		OutTiming.CommitSampleIndex - GeneratedStopBlockLeadSampleCount);
+	OutTiming.BlockStartTime = OutTiming.BlockStartSampleIndex * OutTiming.SampleInterval;
+
+	// Animation sequences are authored on the same 60 Hz grid as PSS_MH_Move.
+	// Round here rather than subtracting a fractional epsilon so a generated
+	// sequence of N samples always receives a deterministic indexed tail.
+	const int32 LastSequenceSampleIndex = FMath::Max(0, FMath::RoundToInt(SequenceLength * SampleRate));
+	OutTiming.ZeroTailStartSampleIndex = LastSequenceSampleIndex - GeneratedStopZeroTailSampleCount;
+	OutTiming.ZeroTailStartTime = OutTiming.ZeroTailStartSampleIndex * OutTiming.SampleInterval;
+	if (OutTiming.ZeroTailStartSampleIndex <= OutTiming.CommitSampleIndex
+		|| OutTiming.ZeroTailStartTime <= OutTiming.CommitTime
+		|| OutTiming.ZeroTailStartTime >= SequenceLength)
+	{
+		return false;
+	}
+
+	return true;
+}
+
+bool LoadPoseSearchSampleRate(int32& OutSampleRate)
+{
+	const UPoseSearchSchema* Schema = LoadObject<UPoseSearchSchema>(nullptr, SchemaPath);
+	if (!Schema || Schema->SampleRate <= 0)
+	{
+		UE_LOG(LogTemp, Error, TEXT("[PMMExtendedStop] Could not load a valid PSS_MH_Move sample rate."));
+		return false;
+	}
+
+	OutSampleRate = Schema->SampleRate;
+	return true;
+}
 
 bool SaveAsset(UObject& Asset)
 {
@@ -553,7 +605,7 @@ bool GetFloatCurveKeys(const UAnimSequence& Sequence, const FName CurveName,
 }
 
 bool ConfigureExtendedCurves(UAnimSequence& Output, const UAnimSequence& SourceStop,
-	const float PrefixDuration, const float StopGaitValue)
+	const float PrefixDuration, const float StopGaitValue, const FGeneratedStopTiming& Timing)
 {
 	TArray<float> SourceIntentTimes;
 	TArray<float> SourceIntentValues;
@@ -565,32 +617,51 @@ bool ConfigureExtendedCurves(UAnimSequence& Output, const UAnimSequence& SourceS
 		return false;
 	}
 
-	TArray<float> IntentTimes = { 0.0f, PrefixDuration };
-	TArray<float> IntentValues = { -1.0f, -1.0f };
+	auto AddKey = [](TArray<float>& Times, TArray<float>& Values, const float Time, const float Value)
+	{
+		if (!Times.IsEmpty() && FMath::IsNearlyEqual(Times.Last(), Time, KINDA_SMALL_NUMBER))
+		{
+			Values.Last() = Value;
+			return;
+		}
+		Times.Add(Time);
+		Values.Add(Value);
+	};
+
+	TArray<float> IntentTimes;
+	TArray<float> IntentValues;
+	AddKey(IntentTimes, IntentValues, 0.0f, -1.0f);
+	AddKey(IntentTimes, IntentValues, PrefixDuration, -1.0f);
 	for (int32 Index = 0; Index < SourceIntentTimes.Num(); ++Index)
 	{
-		if (SourceIntentTimes[Index] > EndPadding)
+		const float OutputTime = PrefixDuration + SourceIntentTimes[Index];
+		if (SourceIntentTimes[Index] > KINDA_SMALL_NUMBER && OutputTime < Timing.ZeroTailStartTime)
 		{
-			IntentTimes.Add(PrefixDuration + SourceIntentTimes[Index]);
-			IntentValues.Add(SourceIntentValues[Index]);
+			AddKey(IntentTimes, IntentValues, OutputTime, SourceIntentValues[Index]);
 		}
 	}
-	IntentTimes.Last() = Output.GetPlayLength();
-	IntentValues.Last() = 0.0f;
+	AddKey(IntentTimes, IntentValues, Timing.ZeroTailStartTime, 0.0f);
+	AddKey(IntentTimes, IntentValues, Output.GetPlayLength(), 0.0f);
 
 	// Distance is deliberately neutral throughout the copied Loop prefix. Once
 	// the real Stop begins, it preserves the source stop's authored curve so
 	// PMM-7 can later sample that selected candidate instead of re-deriving it
 	// from CharacterMovement speed.
-	TArray<float> DistanceTimes = { 0.0f, FMath::Max(0.0f, PrefixDuration - EndPadding) };
-	TArray<float> DistanceValues = { 0.0f, 0.0f };
+	TArray<float> DistanceTimes;
+	TArray<float> DistanceValues;
+	AddKey(DistanceTimes, DistanceValues, 0.0f, 0.0f);
+	AddKey(DistanceTimes, DistanceValues,
+		FMath::Max(0.0f, PrefixDuration - Timing.SampleInterval), 0.0f);
 	for (int32 Index = 0; Index < SourceDistanceTimes.Num(); ++Index)
 	{
-		DistanceTimes.Add(PrefixDuration + SourceDistanceTimes[Index]);
-		DistanceValues.Add(SourceDistanceValues[Index]);
+		const float OutputTime = PrefixDuration + SourceDistanceTimes[Index];
+		if (OutputTime < Timing.ZeroTailStartTime)
+		{
+			AddKey(DistanceTimes, DistanceValues, OutputTime, SourceDistanceValues[Index]);
+		}
 	}
-	DistanceTimes.Last() = Output.GetPlayLength();
-	DistanceValues.Last() = 0.0f;
+	AddKey(DistanceTimes, DistanceValues, Timing.ZeroTailStartTime, 0.0f);
+	AddKey(DistanceTimes, DistanceValues, Output.GetPlayLength(), 0.0f);
 
 	return ReplaceFloatCurve(Output, TEXT("MM_Intent"), IntentTimes, IntentValues)
 		&& ReplaceFloatCurve(Output, TEXT("MM_DistanceToStop"), DistanceTimes, DistanceValues)
@@ -602,7 +673,7 @@ bool ConfigureExtendedCurves(UAnimSequence& Output, const UAnimSequence& SourceS
 			{ 0.0f, Output.GetPlayLength() }, { StopGaitValue, StopGaitValue });
 }
 
-bool ConfigureExtendedStopNotifies(UAnimSequence& Sequence, const float PrefixDuration)
+bool ConfigureExtendedStopNotifies(UAnimSequence& Sequence, const FGeneratedStopTiming& Timing)
 {
 	const FName ControlTrackName(TEXT("PoseSearchControl"));
 	Sequence.Notifies.RemoveAll([](const FAnimNotifyEvent& Notify)
@@ -618,19 +689,18 @@ bool ConfigureExtendedStopNotifies(UAnimSequence& Sequence, const float PrefixDu
 
 	const float Length = Sequence.GetPlayLength();
 	// The prefix is the only globally searchable part of a generated Stop. The
-	// first frame of the source Stop is already a committed deceleration pose,
-	// so it must not remain open to a new global search. Pose Search includes a
-	// candidate exactly at a Notify start time, therefore lead the Block state
-	// by EndPadding rather than starting it at PrefixDuration itself.
-	const float BlockStart = FMath::Max(0.0f, PrefixDuration - StopBlockCommitLead);
-	const float BlockEnd = FMath::Max(BlockStart + EndPadding, Length - StopBlockEndPadding);
+	// Block starts one PSS sample before the committed source Stop and covers the
+	// complete authored tail. Continuing playback is intentionally not filtered
+	// by BlockTransition, so it remains legal through the final indexed zero pose.
+	const float BlockStart = Timing.BlockStartTime;
+	const float BlockEnd = Length;
 	UAnimNotifyState* BlockState = UAnimationBlueprintLibrary::AddAnimationNotifyStateEvent(
 		&Sequence, ControlTrackName, BlockStart, BlockEnd - BlockStart,
 		UAnimNotifyState_PoseSearchBlockTransition::StaticClass());
 	UAnimNotifyState_PoseSearchOverrideContinuingPoseCostBias* ContinuingState =
 		Cast<UAnimNotifyState_PoseSearchOverrideContinuingPoseCostBias>(
 			UAnimationBlueprintLibrary::AddAnimationNotifyStateEvent(&Sequence, ControlTrackName,
-				0.0f, FMath::Max(EndPadding, Length - StopContinuingEndPadding),
+				0.0f, Length,
 				UAnimNotifyState_PoseSearchOverrideContinuingPoseCostBias::StaticClass()));
 	if (ContinuingState)
 	{
@@ -689,7 +759,7 @@ float GetExtractedRootMotionDistance(const UAnimSequence& Sequence)
 }
 
 bool ValidateGeneratedStop(const UAnimSequence& Output, const UAnimSequence& Loop,
-	const UAnimSequence& SourceStop, FGeneratedStopInfo& Info)
+	const UAnimSequence& SourceStop, const FGeneratedStopTiming& Timing, FGeneratedStopInfo& Info)
 {
 	bool bValid = true;
 	bValid &= Output.GetSkeleton() == Loop.GetSkeleton() && Output.GetSkeleton() == SourceStop.GetSkeleton();
@@ -713,9 +783,11 @@ bool ValidateGeneratedStop(const UAnimSequence& Output, const UAnimSequence& Loo
 		const float PrefixLastTime = GetFrameTime(Output, Info.PrefixFrames - 1);
 		bValid &= FMath::IsNearlyEqual(IntentCurve->Evaluate(0.0f), -1.0f, 0.01f);
 		bValid &= FMath::IsNearlyEqual(IntentCurve->Evaluate(PrefixLastTime), -1.0f, 0.01f);
+		bValid &= FMath::IsNearlyZero(IntentCurve->Evaluate(Timing.ZeroTailStartTime), 0.01f);
 		bValid &= FMath::IsNearlyEqual(IntentCurve->Evaluate(Output.GetPlayLength()), 0.0f, 0.01f);
 		bValid &= FMath::IsNearlyZero(DistanceCurve->Evaluate(0.0f), 0.01f);
 		bValid &= FMath::IsNearlyZero(DistanceCurve->Evaluate(PrefixLastTime), 0.01f);
+		bValid &= FMath::IsNearlyZero(DistanceCurve->Evaluate(Timing.ZeroTailStartTime), 0.01f);
 		bValid &= FMath::IsNearlyZero(DistanceCurve->Evaluate(Output.GetPlayLength()), 0.01f);
 		bValid &= StopGaitCurve->Evaluate(0.0f) > 0.0f;
 		bValid &= StopGaitCurve->Evaluate(PrefixLastTime) > 0.0f;
@@ -732,18 +804,15 @@ bool ValidateGeneratedStop(const UAnimSequence& Output, const UAnimSequence& Loo
 		if (Cast<UAnimNotifyState_PoseSearchBlockTransition>(Notify.NotifyStateClass))
 		{
 			++BlockCount;
-			bValid &= FMath::IsNearlyEqual(Notify.GetTriggerTime(),
-				FMath::Max(0.0f, Info.PrefixDuration - StopBlockCommitLead), 0.01f);
-			bValid &= FMath::IsNearlyEqual(Notify.GetEndTriggerTime(),
-				Output.GetPlayLength() - StopBlockEndPadding, 0.01f);
+			bValid &= FMath::IsNearlyEqual(Notify.GetTriggerTime(), Timing.BlockStartTime, 0.01f);
+			bValid &= FMath::IsNearlyEqual(Notify.GetEndTriggerTime(), Output.GetPlayLength(), 0.01f);
 		}
 		else if (const UAnimNotifyState_PoseSearchOverrideContinuingPoseCostBias* Continuing =
 			Cast<UAnimNotifyState_PoseSearchOverrideContinuingPoseCostBias>(Notify.NotifyStateClass))
 		{
 			++ContinuingCount;
 			bValid &= FMath::IsNearlyZero(Notify.GetTriggerTime(), 0.01f);
-			bValid &= FMath::IsNearlyEqual(Notify.GetEndTriggerTime(),
-				Output.GetPlayLength() - StopContinuingEndPadding, 0.01f);
+			bValid &= FMath::IsNearlyEqual(Notify.GetEndTriggerTime(), Output.GetPlayLength(), 0.01f);
 			bValid &= FMath::IsNearlyEqual(Continuing->CostAddend, StopContinuingModifier, 0.01f);
 		}
 	}
@@ -879,10 +948,14 @@ bool CreateStopCandidate(const UAnimSequence& PrefixSource, const UAnimSequence&
 
 	const float PrefixDuration = static_cast<float>(PrefixModel->GetFrameRate().AsSeconds(
 		FFrameNumber(PrefixFrameCount)));
-	if (!ConfigureExtendedCurves(*Output, SourceStop, PrefixDuration, StopGaitValue)
-		|| !ConfigureExtendedStopNotifies(*Output, PrefixDuration))
+	int32 PoseSearchSampleRate = 0;
+	FGeneratedStopTiming Timing;
+	if (!LoadPoseSearchSampleRate(PoseSearchSampleRate)
+		|| !BuildGeneratedStopTiming(Output->GetPlayLength(), PrefixDuration, PoseSearchSampleRate, Timing)
+		|| !ConfigureExtendedCurves(*Output, SourceStop, PrefixDuration, StopGaitValue, Timing)
+		|| !ConfigureExtendedStopNotifies(*Output, Timing))
 	{
-		UE_LOG(LogTemp, Error, TEXT("[PMMExtendedStop] Failed to configure curves or Pose Search notifies for %s."), *PackageName);
+		UE_LOG(LogTemp, Error, TEXT("[PMMExtendedStop] Failed to configure PMM-7.1 indexed curves or Pose Search notifies for %s."), *PackageName);
 		return false;
 	}
 
@@ -905,14 +978,16 @@ bool CreateStopCandidate(const UAnimSequence& PrefixSource, const UAnimSequence&
 	OutInfo.StopFrames = GetFrameCount(SourceStop);
 	OutInfo.TotalFrames = FramePlan.Num();
 	OutInfo.PrefixDuration = PrefixDuration;
-	if (!ValidateGeneratedStop(*Output, PrefixSource, SourceStop, OutInfo))
+	if (!ValidateGeneratedStop(*Output, PrefixSource, SourceStop, Timing, OutInfo))
 	{
 		return false;
 	}
-	UE_LOG(LogTemp, Display, TEXT("[PMMExtendedStop] Built %s %s PrefixFrames=%d StopFrames=%d TotalFrames=%d EntryFrame=%d Cost=%.6f RootMotion=%.3fcm"),
+	UE_LOG(LogTemp, Display, TEXT("[PMMExtendedStop] Built %s %s PrefixFrames=%d StopFrames=%d TotalFrames=%d EntryFrame=%d Cost=%.6f ZeroTail=%d@%.3fs BlockStart=%d@%.3fs RootMotion=%.3fcm"),
 		*CandidateKind.ToString(),
 		*OutInfo.OutputPath, OutInfo.PrefixFrames, OutInfo.StopFrames, OutInfo.TotalFrames,
-		OutInfo.LoopEntryFrame, OutInfo.MatchCost, OutInfo.ExtractedRootMotionCm);
+		OutInfo.LoopEntryFrame, OutInfo.MatchCost, Timing.ZeroTailStartSampleIndex,
+		Timing.ZeroTailStartTime, Timing.BlockStartSampleIndex, Timing.BlockStartTime,
+		OutInfo.ExtractedRootMotionCm);
 	return true;
 }
 

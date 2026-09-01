@@ -207,12 +207,15 @@ void UMHGZWeaponInputRouterComponent::SetInputProfile(UWeaponInputProfile* InPro
 
 	// Existing formations belong to the previous profile; keep held keys but reset
 	// their single-obligation flags and refresh the frozen snapshots with the new
-	// profile's modifier set (identity: same SequenceID/StartedTime).
+	// profile's modifier set (identity: same SequenceID/StartedTime). A physical
+	// press that began under the old profile must never release into a newly added
+	// OnReleaseIfUnconsumed chord.
 	for (TPair<FGameplayTag, FPhysicalInputState>& Pair : HeldControls)
 	{
 		FPhysicalInputState& State = Pair.Value;
 		State.bSingleEmitted = false;
 		State.bSingleConsumed = false;
+		State.bReleaseFallbackConsumed = true;
 		State.FrozenSingleSnapshot = BuildSnapshot(
 			Pair.Key, Pair.Key, State.SequenceID,
 			EWeaponInputPhase::Started, State.StartedTime, EWeaponAimSnapshotContext::None);
@@ -227,6 +230,8 @@ void UMHGZWeaponInputRouterComponent::RebuildChordCache()
 	Chords.Reset();
 	ConfiguredModifierTags.Reset();
 	SingleChordOwnedTags.Reset();
+	ReleaseFallbackOwnedTags.Reset();
+	ReleaseFallbackChordByControl.Reset();
 	DelayedTags.Reset();
 	DeferredChords.Reset();
 
@@ -245,6 +250,24 @@ void UMHGZWeaponInputRouterComponent::RebuildChordCache()
 		Info.TriggerCount = Definition.TriggerControls.Num();
 		Info.ModifierCount = Definition.RequiredHeldModifiers.Num();
 		Info.bMultiMember = (Info.TriggerCount + Info.ModifierCount) > 1;
+
+		if (Definition.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed)
+		{
+			// Data Validation rejects malformed declarations. Keep the runtime cache
+			// defensive so an unsaved/bad asset cannot create ambiguous release output.
+			if (Definition.TriggerControls.Num() == 1
+				&& Definition.TriggerControls[0].IsValid()
+				&& Definition.RequiredHeldModifiers.IsEmpty()
+				&& !Definition.ReleaseControlTag.IsValid()
+				&& !ReleaseFallbackChordByControl.Contains(Definition.TriggerControls[0]))
+			{
+				const FGameplayTag Trigger = Definition.TriggerControls[0];
+				ReleaseFallbackChordByControl.Add(Trigger, Chords.Num());
+				ReleaseFallbackOwnedTags.Add(Trigger);
+			}
+			Chords.Add(MoveTemp(Info));
+			continue;
+		}
 
 		for (const FGameplayTag& Trigger : Definition.TriggerControls)
 		{
@@ -277,6 +300,14 @@ void UMHGZWeaponInputRouterComponent::RebuildChordCache()
 	{
 		bResolved = false;
 	}
+}
+
+bool UMHGZWeaponInputRouterComponent::IsReleaseFallbackChord(int32 ChordIndex) const
+{
+	return Chords.IsValidIndex(ChordIndex)
+		&& Chords[ChordIndex].Definition
+		&& Chords[ChordIndex].Definition->DispatchPolicy
+			== EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed;
 }
 
 bool UMHGZWeaponInputRouterComponent::IsBetterChord(const FChordInfo& A, const FChordInfo& B)
@@ -429,7 +460,8 @@ bool UMHGZWeaponInputRouterComponent::DoChordContextRequirementsPass(int32 Chord
 
 bool UMHGZWeaponInputRouterComponent::IsPossiblyCompletable(int32 ChordIndex, double Now) const
 {
-	if (!CurrentProfile || !Chords.IsValidIndex(ChordIndex))
+	if (!CurrentProfile || !Chords.IsValidIndex(ChordIndex)
+		|| IsReleaseFallbackChord(ChordIndex))
 	{
 		return false;
 	}
@@ -497,7 +529,7 @@ void UMHGZWeaponInputRouterComponent::EvaluateChords(double Now)
 	int32 BestIndex = INDEX_NONE;
 	for (int32 Index = 0; Index < Chords.Num(); ++Index)
 	{
-		if (ResolvedChords[Index])
+		if (ResolvedChords[Index] || IsReleaseFallbackChord(Index))
 		{
 			continue;
 		}
@@ -521,7 +553,7 @@ void UMHGZWeaponInputRouterComponent::EvaluateChords(double Now)
 	bool bDefer = false;
 	for (int32 Index = 0; Index < Chords.Num(); ++Index)
 	{
-		if (Index == BestIndex || ResolvedChords[Index])
+		if (Index == BestIndex || ResolvedChords[Index] || IsReleaseFallbackChord(Index))
 		{
 			continue;
 		}
@@ -562,7 +594,8 @@ void UMHGZWeaponInputRouterComponent::EvaluateChords(double Now)
 	// are discarded for this formation (a member release re-enables them).
 	for (int32 Index = 0; Index < Chords.Num(); ++Index)
 	{
-		if (Index != BestIndex && !ResolvedChords[Index] && IsChordComplete(Index))
+		if (Index != BestIndex && !ResolvedChords[Index]
+			&& !IsReleaseFallbackChord(Index) && IsChordComplete(Index))
 		{
 			ResolvedChords[Index] = true;
 			DeferredChords.Remove(Index);
@@ -572,7 +605,7 @@ void UMHGZWeaponInputRouterComponent::EvaluateChords(double Now)
 
 void UMHGZWeaponInputRouterComponent::EmitChord(int32 ChordIndex, double Now)
 {
-	if (!Chords.IsValidIndex(ChordIndex))
+	if (!Chords.IsValidIndex(ChordIndex) || IsReleaseFallbackChord(ChordIndex))
 	{
 		return;
 	}
@@ -589,6 +622,7 @@ void UMHGZWeaponInputRouterComponent::EmitChord(int32 ChordIndex, double Now)
 		Snapshot = BuildChordSnapshot(ChordIndex, Now);
 	}
 	ResolvedChords[ChordIndex] = true;
+	ConsumeReleaseFallbackForMembers(Chord);
 
 	// Consume TriggerControls only when configured; modifiers used by a chord are
 	// always suppressed as single outputs.
@@ -616,7 +650,8 @@ void UMHGZWeaponInputRouterComponent::EmitChord(int32 ChordIndex, double Now)
 	// released so dropping RT cannot retroactively emit Y+B after RT+Y+B won.
 	for (int32 Index = 0; Index < Chords.Num(); ++Index)
 	{
-		if (Index != ChordIndex && IsTriggerSubset(Chords[Index], Chord))
+		if (Index != ChordIndex && !IsReleaseFallbackChord(Index)
+			&& IsTriggerSubset(Chords[Index], Chord))
 		{
 			ResolvedChords[Index] = true;
 			DeferredChords.Remove(Index);
@@ -629,6 +664,37 @@ void UMHGZWeaponInputRouterComponent::EmitChord(int32 ChordIndex, double Now)
 	}
 
 	EmitSnapshot(Snapshot);
+}
+
+TOptional<FWeaponInputSnapshot> UMHGZWeaponInputRouterComponent::BuildReleaseFallbackSnapshot(
+	FGameplayTag PhysicalTag, const FPhysicalInputState& State, double Now) const
+{
+	const int32* ChordIndex = ReleaseFallbackChordByControl.Find(PhysicalTag);
+	if (!ChordIndex || State.bReleaseFallbackConsumed
+		|| !IsReleaseFallbackChord(*ChordIndex)
+		|| !IsChordComplete(*ChordIndex))
+	{
+		return {};
+	}
+
+	const FWeaponChordDefinition& Definition = *Chords[*ChordIndex].Definition;
+	return BuildSnapshot(
+		Definition.OutputTag, PhysicalTag, State.SequenceID,
+		EWeaponInputPhase::Started, Now, Definition.AimSnapshotContext);
+}
+
+void UMHGZWeaponInputRouterComponent::ConsumeReleaseFallbackForMembers(const FChordInfo& Winner)
+{
+	for (const FGameplayTag& Member : Winner.Members)
+	{
+		if (ReleaseFallbackOwnedTags.Contains(Member))
+		{
+			if (FPhysicalInputState* State = HeldControls.Find(Member))
+			{
+				State->bReleaseFallbackConsumed = true;
+			}
+		}
+	}
 }
 
 void UMHGZWeaponInputRouterComponent::FlushExpiredInputs(double Now)
@@ -715,6 +781,10 @@ void UMHGZWeaponInputRouterComponent::FlushExpiredInputs(double Now)
 		{
 			continue;
 		}
+		if (ReleaseFallbackOwnedTags.Contains(Pair.Key))
+		{
+			continue;
+		}
 		if (Now < State.StartedTime + Grace)
 		{
 			continue;
@@ -756,7 +826,8 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalStarted(FGameplayTag Physica
 	FPhysicalInputState* Held = HeldControls.Find(PhysicalTag);
 	if (Held && !Held->bSingleConsumed && !DelayedTags.Contains(PhysicalTag)
 		&& !ConfiguredModifierTags.Contains(PhysicalTag)
-		&& !SingleChordOwnedTags.Contains(PhysicalTag))
+		&& !SingleChordOwnedTags.Contains(PhysicalTag)
+		&& !ReleaseFallbackOwnedTags.Contains(PhysicalTag))
 	{
 		Held->bSingleEmitted = true;
 		RegisterRelease(Held->FrozenSingleSnapshot, PhysicalTag);
@@ -782,7 +853,8 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalCompleted(FGameplayTag Physi
 	int32 BestComplete = INDEX_NONE;
 	for (int32 Index = 0; Index < Chords.Num(); ++Index)
 	{
-		if (ResolvedChords[Index] || !Chords[Index].Members.Contains(PhysicalTag)
+		if (ResolvedChords[Index] || IsReleaseFallbackChord(Index)
+			|| !Chords[Index].Members.Contains(PhysicalTag)
 			|| !IsChordComplete(Index))
 		{
 			continue;
@@ -798,7 +870,7 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalCompleted(FGameplayTag Physi
 		for (int32 Index = 0; Index < Chords.Num(); ++Index)
 		{
 			if (Index != BestComplete && !ResolvedChords[Index]
-				&& IsChordComplete(Index))
+				&& !IsReleaseFallbackChord(Index) && IsChordComplete(Index))
 			{
 				ResolvedChords[Index] = true;
 				DeferredChords.Remove(Index);
@@ -812,12 +884,19 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalCompleted(FGameplayTag Physi
 	{
 		if (!State->bSingleEmitted && !State->bSingleConsumed
 			&& !ConfiguredModifierTags.Contains(PhysicalTag)
-			&& !SingleChordOwnedTags.Contains(PhysicalTag))
+			&& !SingleChordOwnedTags.Contains(PhysicalTag)
+			&& !ReleaseFallbackOwnedTags.Contains(PhysicalTag))
 		{
 			State->bSingleEmitted = true;
 			RegisterRelease(State->FrozenSingleSnapshot, PhysicalTag);
 			EmitSnapshot(State->FrozenSingleSnapshot);
 		}
+	}
+
+	TOptional<FWeaponInputSnapshot> ReleaseFallbackSnapshot;
+	if (const FPhysicalInputState* State = HeldControls.Find(PhysicalTag))
+	{
+		ReleaseFallbackSnapshot = BuildReleaseFallbackSnapshot(PhysicalTag, *State, Now);
 	}
 
 	// Emit Completed only for identities registered under this control tag. The
@@ -833,6 +912,13 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalCompleted(FGameplayTag Physi
 			ReleaseSnapshot.Timestamp = Now;
 			EmitSnapshot(ReleaseSnapshot);
 		}
+	}
+
+	if (ReleaseFallbackSnapshot.IsSet())
+	{
+		// This is a new discrete Started input produced at the physical release.
+		// It deliberately has no ReleaseRegistry entry and therefore no Completed.
+		EmitSnapshot(ReleaseFallbackSnapshot.GetValue());
 	}
 
 	HeldControls.Remove(PhysicalTag);

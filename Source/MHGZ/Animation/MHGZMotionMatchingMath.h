@@ -108,6 +108,50 @@ FORCEINLINE bool ShouldResetMotionMeasurement(const bool bForceMMIdle,
 }
 
 /**
+ * A mobile Action Handoff is the one case where a Root-Motion measurement reset
+ * must retain a locomotion edge. A held stick must enter the Exit tail as an
+ * existing cruise request, while a release observed during that mobile phase
+ * must survive for one normal update so it becomes the legal Stop edge.
+ *
+ * A locked action never satisfies this predicate: its later stick state is a
+ * new locomotion request and must therefore use the normal Start path.
+ */
+FORCEINLINE bool ShouldPreserveHandoffInputAcrossMeasurementReset(
+	const bool bLeavingForcedMeasurement, const bool bHandoffActive,
+	const bool bHadRawMoveInputInMobilePhase, const bool bHasRawMoveInputAtHandoff,
+	const bool bPendingStopAtHandoff)
+{
+	return bLeavingForcedMeasurement && bHandoffActive
+		&& bHadRawMoveInputInMobilePhase
+		&& (bHasRawMoveInputAtHandoff || bPendingStopAtHandoff);
+}
+
+/**
+ * A non-handoff action ended with no locomotion input. The next MM search must
+ * use the isolated Idle candidate database rather than the unrestricted Move
+ * database, whose feet pose can otherwise self-start a Loop.
+ */
+FORCEINLINE bool ShouldPublishActionIdleContextOnMeasurementRelease(
+	const bool bLeavingForcedMeasurement, const bool bHandoffActive,
+	const bool bHasLocomotionInput)
+{
+	return bLeavingForcedMeasurement && !bHandoffActive && !bHasLocomotionInput;
+}
+
+/**
+ * An approved mobile Action Exit begins only after its functional/root-motion
+ * phase has ended. A real release during that non-functional transition must
+ * therefore hand the current pose to the ordinary Move PSD immediately: the
+ * existing one-shot Stop query owns selection from that frame onward. Keeping
+ * the Exit continuing pose would otherwise defer Stop until its tail.
+ */
+FORCEINLINE bool ShouldInterruptMobileActionExitForStop(
+	const bool bRouteOwnsMobileExit, const bool bStopRequestActive)
+{
+	return bRouteOwnsMobileExit && bStopRequestActive;
+}
+
+/**
  * A Stop request is a one-shot input-edge semantic. Once it has accepted a
  * Pose Search result, only the same continuously-playing result may feed its
  * MM curves back into the next query. A newly searched Stop entry would start

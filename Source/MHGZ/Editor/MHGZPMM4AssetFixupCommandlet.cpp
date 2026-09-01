@@ -22,8 +22,28 @@ constexpr TCHAR SheathedDatabasePath[] = TEXT("/Game/Blueprints/Characters/Demo/
 constexpr TCHAR UnsheathedDatabasePath[] = TEXT("/Game/Blueprints/Characters/Demo/Animation/MotionMatching/PSD_MH_UnSh_Move.PSD_MH_UnSh_Move");
 
 constexpr float ContinuingPoseCostBias = -0.05f;
-constexpr float ExcludeEndTime = -0.05f;
+constexpr float OrdinaryNonLoopSearchTailTrim = 0.05f;
 constexpr float TrajectoryChannelWeight = 6.0f;
+
+bool IsGeneratedStop(const UAnimSequence& Sequence)
+{
+	const FString Name = Sequence.GetName();
+	return Name.Contains(TEXT("Extended")) || Name.Contains(TEXT("FirstStepCommitStop"));
+}
+
+FFloatInterval GetSamplingRange(const UAnimSequence& Sequence)
+{
+	// A zero interval means the complete animation range. Generated PMM-7 Stops
+	// need their indexed zero tail for the final Continuing update, while normal
+	// one-shots retain the old tail trim as a per-entry, not global, policy.
+	if (Sequence.bLoop || Sequence.GetName().Contains(TEXT("_Idle")) || IsGeneratedStop(Sequence))
+	{
+		return FFloatInterval(0.0f, 0.0f);
+	}
+
+	return FFloatInterval(0.0f,
+		FMath::Max(0.0f, Sequence.GetPlayLength() - OrdinaryNonLoopSearchTailTrim));
+}
 
 bool SaveAsset(UObject& Asset)
 {
@@ -121,7 +141,7 @@ bool ConfigureDatabase(UPoseSearchDatabase& Database)
 	Database.Modify();
 	Database.ContinuingPoseCostBias = ContinuingPoseCostBias;
 	Database.LoopingCostBias = 0.0f;
-	Database.ExcludeFromDatabaseParameters = FFloatInterval(0.0f, ExcludeEndTime);
+	Database.ExcludeFromDatabaseParameters = FFloatInterval(0.0f, 0.0f);
 	Database.PoseSearchMode = EPoseSearchMode::BruteForce;
 
 	bool bSuccess = true;
@@ -141,6 +161,7 @@ bool ConfigureDatabase(UPoseSearchDatabase& Database)
 		// the same transition from frame zero.
 		Entry->SetDisableReselection(true);
 		Entry->MirrorOption = EPoseSearchMirrorOption::UnmirroredOnly;
+		Entry->SamplingRange = GetSamplingRange(*Entry->Sequence);
 	}
 
 	return bSuccess;

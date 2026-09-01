@@ -92,6 +92,7 @@ UMHGZSheatheAbility::UMHGZSheatheAbility()
 {
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.Sheathe"));
 	StaminaCostPolicy = EAbilityStaminaCostPolicy::None;
+	AllowedMotionMatchingHandoffTypes.Add(EMHGZMotionMatchingHandoffType::SheatheMoveExit);
 }
 
 FName UMHGZSheatheAbility::SelectSectionName(const FWeaponInputSnapshot& Input) const
@@ -178,12 +179,15 @@ void UMHGZSheatheAbility::ActivateAbility(
 	}
 
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
-	if (!Host || !Host->AcquireMontageRootMotion(GetActionToken()))
+	const bool bUseLegacyMontageRootMotionOwner = !bUsingWalkSection
+		|| !bWalkUsesActionRootMotionPhase;
+	if (!Host || (bUseLegacyMontageRootMotionOwner
+		&& !Host->AcquireMontageRootMotion(GetActionToken())))
 	{
 		RequestEndAction(EWeaponActionEndReason::Cancelled);
 		return;
 	}
-	bOwnsMontageRootMotion = true;
+	bOwnsMontageRootMotion = bUseLegacyMontageRootMotionOwner;
 
 	if (!bUsingWalkSection)
 	{

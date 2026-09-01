@@ -365,6 +365,8 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 	ActiveActions.Reset();
 	MontageRegistrations.Reset();
 	MontageRootMotionOwner = FWeaponActionToken();
+	PendingMotionMatchingHandoff = FWeaponMotionMatchingHandoff();
+	NextMotionMatchingHandoffSerial = 1;
 	PoseTokens = FPoseTokens();
 	bGrounded = true;
 	bSheathed = true;
@@ -399,6 +401,8 @@ void UMHGZWeaponRuntimeHostComponent::RebuildRuntime(
 	bInitialized = true;
 	bShuttingDown = false;
 	NextActivationSequenceID = 1;
+	PendingMotionMatchingHandoff = FWeaponMotionMatchingHandoff();
+	NextMotionMatchingHandoffSerial = 1;
 
 	CurrentToken.Host = this;
 	CurrentToken.Generation = Generation;
@@ -516,6 +520,14 @@ bool UMHGZWeaponRuntimeHostComponent::RegisterAction(const FWeaponActionToken& A
 		|| !ActionToken.IsValid())
 	{
 		return false;
+	}
+
+	if (PendingMotionMatchingHandoff.IsValid()
+		&& PendingMotionMatchingHandoff.ActionToken != ActionToken)
+	{
+		// A new functional Action supersedes any Exit that has not yet been
+		// consumed by the AnimBP. Never let an old tail route a later action.
+		PendingMotionMatchingHandoff = FWeaponMotionMatchingHandoff();
 	}
 
 	if (!ActiveActions.Contains(ActionToken))
@@ -655,6 +667,59 @@ FString UMHGZWeaponRuntimeHostComponent::GetMontageRootMotionOwnerDebugString() 
 	const FString AbilityName = Ability ? Ability->GetClass()->GetName() : TEXT("InvalidAbility");
 	return FString::Printf(TEXT("%s#%u"), *AbilityName,
 		MontageRootMotionOwner.ActivationSequenceID);
+}
+
+// ----------------------------------------------------------------------
+// Motion Matching Handoff
+// ----------------------------------------------------------------------
+
+bool UMHGZWeaponRuntimeHostComponent::PublishMotionMatchingHandoff(
+	const FWeaponActionToken& ActionToken, FWeaponMotionMatchingHandoff Handoff)
+{
+	if (!bInitialized || bShuttingDown || !ActionToken.IsValid()
+		|| !IsTokenCurrent(ActionToken.RuntimeToken)
+		|| !ActiveActions.Contains(ActionToken)
+		|| Handoff.Type == EMHGZMotionMatchingHandoffType::None)
+	{
+		return false;
+	}
+
+	Handoff.ActionToken = ActionToken;
+	Handoff.ActivationSequenceID = static_cast<int32>(ActionToken.ActivationSequenceID);
+	Handoff.Serial = NextMotionMatchingHandoffSerial++;
+	if (NextMotionMatchingHandoffSerial <= 0)
+	{
+		NextMotionMatchingHandoffSerial = 1;
+	}
+	PendingMotionMatchingHandoff = MoveTemp(Handoff);
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::GetPendingMotionMatchingHandoff(
+	FWeaponMotionMatchingHandoff& OutHandoff) const
+{
+	OutHandoff = FWeaponMotionMatchingHandoff();
+	if (!bInitialized || bShuttingDown || !PendingMotionMatchingHandoff.IsValid())
+	{
+		return false;
+	}
+
+	OutHandoff = PendingMotionMatchingHandoff;
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::ClearPendingMotionMatchingHandoff(
+	const int64 ExpectedSerial)
+{
+	if (!bInitialized || bShuttingDown || ExpectedSerial <= 0
+		|| !PendingMotionMatchingHandoff.IsValid()
+		|| PendingMotionMatchingHandoff.Serial != ExpectedSerial)
+	{
+		return false;
+	}
+
+	PendingMotionMatchingHandoff = FWeaponMotionMatchingHandoff();
+	return true;
 }
 
 // ----------------------------------------------------------------------

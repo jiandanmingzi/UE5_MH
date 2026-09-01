@@ -10,6 +10,14 @@
 
 class UInputAction;
 
+/** 决定一个 Chord 在物理按压期间还是在未消费的松开时派发。 */
+UENUM(BlueprintType)
+enum class EWeaponChordDispatchPolicy : uint8
+{
+	OnPress UMETA(DisplayName = "On Press"),
+	OnReleaseIfUnconsumed UMETA(DisplayName = "On Release If Unconsumed")
+};
+
 /**
  * 组合键声明：全部 TriggerControls 必须在 ChordGracePeriod 内 Started，
  * RequiredHeldModifiers 可提前长按或在 Trigger 候选等待期内最后补齐。
@@ -50,6 +58,10 @@ struct FWeaponChordDefinition
 	/** 形成组合后是否消费 TriggerControls */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	bool bConsumeTriggerControls = true;
+
+	/** OnPress 立即派发；OnReleaseIfUnconsumed 只在本次物理按压未被 OnPress Chord 消费时于松开派发。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
+	EWeaponChordDispatchPolicy DispatchPolicy = EWeaponChordDispatchPolicy::OnPress;
 
 	/** 需要释放身份的动作显式指定的释放键；必须是本 Chord 的 Trigger 或 Modifier */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")

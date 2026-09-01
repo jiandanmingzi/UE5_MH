@@ -46,6 +46,10 @@ public:
 protected:
 	virtual bool ValidateActionDependencies() const override;
 	virtual bool PrepareAttackMontage() override;
+	virtual bool IsMotionMatchingHandoffCommitComplete() const override
+	{
+		return bDrawCommitted;
+	}
 
 	/** Derived draw actions may perform their post-pose commit work exactly once. */
 	virtual void OnDrawCommitted() {}

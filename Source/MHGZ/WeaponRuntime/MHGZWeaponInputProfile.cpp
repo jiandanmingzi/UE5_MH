@@ -99,6 +99,7 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 		}
 	}
 
+	TMap<FGameplayTag, int32> ReleaseFallbackTriggerOwners;
 	for (int32 Index = 0; Index < Chords.Num(); ++Index)
 	{
 		const FWeaponChordDefinition& Chord = Chords[Index];
@@ -216,6 +217,46 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 			AddError(FText::Format(
 				LOCTEXT("InvalidReleaseControl", "Chords[{0}] ReleaseControlTag '{1}' is not one of its TriggerControls/RequiredHeldModifiers."),
 				IndexText, FText::FromString(Chord.ReleaseControlTag.ToString())));
+		}
+
+		if (Chord.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed)
+		{
+			if (Chord.TriggerControls.Num() != 1)
+			{
+				AddError(FText::Format(
+					LOCTEXT("ReleaseFallbackTriggerCount", "Chords[{0}] OnReleaseIfUnconsumed requires exactly one TriggerControl."),
+					IndexText));
+			}
+			if (Chord.RequiredHeldModifiers.Num() != 0)
+			{
+				AddError(FText::Format(
+					LOCTEXT("ReleaseFallbackModifiers", "Chords[{0}] OnReleaseIfUnconsumed cannot declare RequiredHeldModifiers."),
+					IndexText));
+			}
+			if (Chord.ReleaseControlTag.IsValid())
+			{
+				AddError(FText::Format(
+					LOCTEXT("ReleaseFallbackReleaseControl", "Chords[{0}] OnReleaseIfUnconsumed must leave ReleaseControlTag empty."),
+					IndexText));
+			}
+
+			if (Chord.TriggerControls.Num() == 1
+				&& Chord.TriggerControls[0].IsValid()
+				&& Chord.RequiredHeldModifiers.Num() == 0
+				&& !Chord.ReleaseControlTag.IsValid())
+			{
+				const FGameplayTag Trigger = Chord.TriggerControls[0];
+				if (const int32* OtherIndex = ReleaseFallbackTriggerOwners.Find(Trigger))
+				{
+					AddError(FText::Format(
+						LOCTEXT("DuplicateReleaseFallback", "Chords[{0}] and Chords[{1}] both declare OnReleaseIfUnconsumed for TriggerControl '{2}'."),
+						IndexText, FText::AsNumber(*OtherIndex), FText::FromString(Trigger.ToString())));
+				}
+				else
+				{
+					ReleaseFallbackTriggerOwners.Add(Trigger, Index);
+				}
+			}
 		}
 
 		// 相同成员与同 Priority 必须产生唯一 OutputTag，否则解析结果不确定。

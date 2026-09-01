@@ -69,6 +69,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Audio")
 	FGameplayTag AudioIdentityTag;
 
+	/**
+	 * Explicitly authored exit families this Action may hand to Motion Matching.
+	 * An empty array is the safe default: a stray Notify never ends a GA or
+	 * changes Root Motion ownership.  E4.2 configures only the audited M4.1
+	 * actions; the enum routes a PSD/Chooser family, never an animation.
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Motion Matching")
+	TArray<EMHGZMotionMatchingHandoffType> AllowedMotionMatchingHandoffTypes;
+
 	// ═══════════════════════════════════════════
 	// GAS 覆写（成本/冷却均走原生 GE）
 	// ═══════════════════════════════════════════
@@ -158,6 +167,24 @@ public:
 
 	UMHGZWeaponRuntimeHostComponent* GetRuntimeHost() const;
 
+	// ------------------------------------------------------------------
+	// M4.4 authored Root Motion Phase / Motion Matching Handoff contract
+	// ------------------------------------------------------------------
+	/** Called only by AnimNotifyState_ActionRootMotionPhase. */
+	bool BeginActionRootMotionPhase(const FWeaponActionToken& ActionToken,
+		bool bOwnsMontageRootMotion, bool bObserveRawMovementInput);
+
+	/** Called by the same NotifyState each animation tick while observing input. */
+	bool ObserveActionRootMotionPhase(const FWeaponActionToken& ActionToken);
+
+	/** Called only by the matching NotifyState end. */
+	bool EndActionRootMotionPhase(const FWeaponActionToken& ActionToken,
+		bool bOwnedMontageRootMotion, bool bObservedRawMovementInput);
+
+	/** Called only by AnimNotify_MotionMatchingHandoff after an authored safe frame. */
+	bool HandleMotionMatchingHandoff(const FWeaponActionToken& ActionToken,
+		EMHGZMotionMatchingHandoffType HandoffType);
+
 protected:
 	/** Infrastructure/forced-reaction abilities override this explicitly. */
 	virtual bool ShouldIgnorePlayerActionLocks() const { return false; }
@@ -171,6 +198,17 @@ protected:
 	 * 默认 true；子类（如 Dodge）在此校验角色、AnimInstance、方向蒙太奇等依赖。
 	 */
 	virtual bool ValidateActionDependencies() const { return true; }
+
+	/** Leaf actions with a gameplay Commit override this before opting into a handoff. */
+	virtual bool IsMotionMatchingHandoffCommitComplete() const { return true; }
+
+	/**
+	 * Production reads AMHGZCharacter's physical-stick state. The virtual seam
+	 * lets native automation use the existing lightweight ACharacter harness
+	 * without changing movement semantics or injecting a fake player input path.
+	 */
+	virtual bool GetMotionMatchingRawMoveInput(FVector2D& OutRawMoveInput,
+		bool& bOutHasRawMoveInput) const;
 
 	/** 构造 Instant 耐力成本 GE Spec（SetByCaller Data.Cost.Stamina = CostMagnitude）。 */
 	FGameplayEffectSpecHandle MakeStaminaCostSpec(float CostMagnitude) const;
@@ -194,4 +232,22 @@ private:
 	TArray<FWeaponOwnedTagToken> OwnedActionTagTokens;
 	TWeakObjectPtr<UAbilityTask_MHGZStaminaDrain> StaminaDrainTask;
 	bool bMHGZEndCleanupDone = false;
+
+	struct FMotionMatchingPhaseState
+	{
+		int32 ActivePhaseDepth = 0;
+		int32 OwningRootMotionPhaseDepth = 0;
+		int32 InputObservationPhaseDepth = 0;
+		bool bObservedAnyPhase = false;
+		bool bObservedRawMoveInput = false;
+		bool bReleasedRawMoveInput = false;
+		bool bRawMoveInputWasActive = false;
+		FVector2D LastRawMoveInput = FVector2D::ZeroVector;
+		float LastActiveRawMoveCruiseSpeed = 0.0f;
+	};
+
+	FMotionMatchingPhaseState MotionMatchingPhaseState;
+
+	bool IsCurrentMotionMatchingAction(const FWeaponActionToken& ActionToken) const;
+	void SampleMotionMatchingPhaseInput();
 };

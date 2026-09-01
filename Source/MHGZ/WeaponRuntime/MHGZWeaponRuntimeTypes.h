@@ -56,6 +56,22 @@ enum class EWeaponRuntimeEndReason : uint8
 	RuntimeShutdown
 };
 
+/**
+ * A deliberately small routing vocabulary for the point where a functional
+ * Montage hands its no-function tail to Motion Matching.  The enum identifies
+ * a candidate *family*, never a concrete animation: E4.2's Chooser selects a
+ * Pose Search database from it and Pose Search still makes the final choice.
+ */
+UENUM(BlueprintType)
+enum class EMHGZMotionMatchingHandoffType : uint8
+{
+	None UMETA(DisplayName = "None"),
+	SheatheMoveExit UMETA(DisplayName = "Sheathe Move Exit"),
+	DodgeMoveExit UMETA(DisplayName = "Dodge Move Exit"),
+	DrawExit UMETA(DisplayName = "Draw Exit"),
+	AttackExit UMETA(DisplayName = "Attack Exit")
+};
+
 /** 临时 Loose Tag 的所有权来源种类 */
 UENUM(BlueprintType)
 enum class EWeaponTagOwnerKind : uint8
@@ -274,6 +290,57 @@ struct FWeaponMontageRegistration
 
 	UPROPERTY()
 	int32 MontageInstanceID = INDEX_NONE;
+};
+
+/**
+ * Runtime-only, generation-scoped payload published by the exact owning
+ * Action when an authored MotionMatchingHandoff notify succeeds.  It survives
+ * that Action's normal EndAbility cleanup so the AnimBP/Chooser can consume it
+ * on the following MM update, but the next unrelated Action registration
+ * invalidates it.  It deliberately contains no selected animation.
+ */
+USTRUCT(BlueprintType)
+struct FWeaponMotionMatchingHandoff
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	EMHGZMotionMatchingHandoffType Type = EMHGZMotionMatchingHandoffType::None;
+
+	UPROPERTY(BlueprintReadOnly)
+	int64 Serial = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	int32 ActivationSequenceID = 0;
+
+	UPROPERTY(BlueprintReadOnly)
+	FVector2D RawMoveInput = FVector2D::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bHasRawMoveInputAtHandoff = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bHadRawMoveInputInMobilePhase = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bReleasedRawMoveInputInMobilePhase = false;
+
+	/** True only for a mobile Exit that observed input and its later release. */
+	UPROPERTY(BlueprintReadOnly)
+	bool bPendingStopAtHandoff = false;
+
+	/** The configured locomotion lane of the last non-neutral physical input sampled in the mobile phase. */
+	UPROPERTY(BlueprintReadOnly)
+	float LastActiveRawMoveCruiseSpeedInMobilePhase = 0.0f;
+
+	/** Internal identity used only by RuntimeHost to invalidate stale payloads. */
+	UPROPERTY()
+	FWeaponActionToken ActionToken;
+
+	bool IsValid() const
+	{
+		return Type != EMHGZMotionMatchingHandoffType::None && Serial > 0;
+	}
 };
 
 /** TagLedger 计数账本中的所有权身份；Release 只回退该 OwnerID 增加的计数 */

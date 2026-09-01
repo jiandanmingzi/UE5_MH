@@ -41,6 +41,7 @@ UMHGZDodgeAbility::UMHGZDodgeAbility()
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.Dodge"));
 	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
 	StaminaCost = FScalableFloat(25.f);
+	AllowedMotionMatchingHandoffTypes.Add(EMHGZMotionMatchingHandoffType::DodgeMoveExit);
 }
 
 bool UMHGZDodgeAbility::CanActivateAbility(
@@ -152,12 +153,15 @@ void UMHGZDodgeAbility::ActivateAbility(
 	}
 
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
-	if (!Host || !Host->AcquireMontageRootMotion(GetActionToken()))
+	const bool bUseLegacyMontageRootMotionOwner = !bActiveDodgeAllowsMoveExit
+		|| !bForwardDodgeUsesActionRootMotionPhase;
+	if (!Host || (bUseLegacyMontageRootMotionOwner
+		&& !Host->AcquireMontageRootMotion(GetActionToken())))
 	{
 		RequestEndAction(EWeaponActionEndReason::Cancelled);
 		return;
 	}
-	bOwnsMontageRootMotion = true;
+	bOwnsMontageRootMotion = bUseLegacyMontageRootMotionOwner;
 
 	FGameplayTagContainer BlockMovementTags;
 	BlockMovementTags.AddTag(Tag(TEXT("Combat.State.BlockMovement")));

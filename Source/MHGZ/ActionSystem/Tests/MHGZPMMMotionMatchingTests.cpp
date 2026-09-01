@@ -90,6 +90,24 @@ bool FMHGZPMMMotionMeasurementReset::RunTest(const FString& Parameters)
 		ShouldResetMotionMeasurement(false, false, true, false, 1.0f / 60.0f));
 	TestFalse(TEXT("normal grounded locomotion keeps the measurement"),
 		ShouldResetMotionMeasurement(false, false, true, true, 1.0f / 60.0f));
+	TestTrue(TEXT("a held mobile Handoff preserves its existing locomotion edge"),
+		ShouldPreserveHandoffInputAcrossMeasurementReset(true, true, true, true, false));
+	TestTrue(TEXT("a release observed in the mobile phase survives as one Stop edge"),
+		ShouldPreserveHandoffInputAcrossMeasurementReset(true, true, true, false, true));
+	TestFalse(TEXT("a locked action release does not bypass the normal Start path"),
+		ShouldPreserveHandoffInputAcrossMeasurementReset(true, false, true, true, false));
+	TestTrue(TEXT("a no-input non-Handoff action publishes the idle-only candidate context"),
+		ShouldPublishActionIdleContextOnMeasurementRelease(true, false, false));
+	TestFalse(TEXT("a mobile Handoff takes precedence over the generic idle context"),
+		ShouldPublishActionIdleContextOnMeasurementRelease(true, true, false));
+	TestFalse(TEXT("a held stick after an action must return to normal movement routing"),
+		ShouldPublishActionIdleContextOnMeasurementRelease(true, false, true));
+	TestFalse(TEXT("a non-Exit route must not force a Stop handoff"),
+		ShouldInterruptMobileActionExitForStop(false, true));
+	TestFalse(TEXT("a held Exit must preserve its authored mobile transition"),
+		ShouldInterruptMobileActionExitForStop(true, false));
+	TestTrue(TEXT("a real release interrupts a non-functional mobile Exit for normal Stop selection"),
+		ShouldInterruptMobileActionExitForStop(true, true));
 	return true;
 }
 

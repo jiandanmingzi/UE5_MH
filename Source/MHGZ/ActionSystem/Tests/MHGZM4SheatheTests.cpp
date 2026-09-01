@@ -70,6 +70,8 @@ bool FMHGZM4SheatheDefaultsAndSnapshotSection::RunTest(const FString& Parameters
 	TestEqual(TEXT("walk section default"), Ability->WalkSectionName,
 		FName(TEXT("Walk")));
 
+	TestFalse(TEXT("Walk keeps legacy root owner until E4.2 places its phase notify"),
+		Ability->bWalkUsesActionRootMotionPhase);
 	FWeaponInputSnapshot IdleInput = M3::MakePosedInput(true, false);
 	IdleInput.Direction = EDirectionalInput::None;
 	TestEqual(TEXT("neutral frozen input selects idle section"),

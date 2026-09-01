@@ -278,6 +278,11 @@ float AMHGZCharacter::CalcCruiseSpeed(float StickMagnitude) const
 		bIsUnsheathed, bSprintHeld);
 }
 
+float AMHGZCharacter::GetQuantizedCruiseSpeedForRawMoveInput(const float StickMagnitude) const
+{
+	return CalcCruiseSpeed(StickMagnitude);
+}
+
 // ── 输入 ────────────────────────────────────────────────────
 
 void AMHGZCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputComponent)

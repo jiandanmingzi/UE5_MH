@@ -33,6 +33,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sheathe")
 	FName WalkSectionName = FName(TEXT("Walk"));
 
+	/**
+	 * E4.2 migration switch. When enabled, only the Walk Section relies on
+	 * AnimNotifyState_ActionRootMotionPhase for Montage root-motion ownership.
+	 * Keep false until that NotifyState has been placed and audited on the
+	 * configured Walk Section; Idle always keeps its legacy whole-action owner.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sheathe|Motion Matching",
+		meta = (DisplayName = "Walk Uses Action Root Motion Phase"))
+	bool bWalkUsesActionRootMotionPhase = false;
+
 	/** Uses only the frozen input snapshot; live movement is never resampled. */
 	FName SelectSectionName(const FWeaponInputSnapshot& Input) const;
 
@@ -62,6 +72,10 @@ public:
 protected:
 	virtual bool ValidateActionDependencies() const override;
 	virtual bool ValidateSheatheMontageDependencies() const;
+	virtual bool IsMotionMatchingHandoffCommitComplete() const override
+	{
+		return bSheatheCommitted;
+	}
 
 	/** Test seam for the asynchronous montage boundary; production owns the task. */
 	virtual bool StartSheatheMontage(ACharacter& Character, UAnimMontage* Montage,

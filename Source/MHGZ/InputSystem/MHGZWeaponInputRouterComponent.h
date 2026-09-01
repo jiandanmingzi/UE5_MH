@@ -101,6 +101,7 @@ private:
 		uint32 SequenceID = 0;
 		bool bSingleEmitted = false;   // fallback single already emitted
 		bool bSingleConsumed = false;  // fallback single suppressed by a chord
+		bool bReleaseFallbackConsumed = false; // this physical press lost its release fallback to an OnPress chord
 		FWeaponInputSnapshot FrozenSingleSnapshot;
 	};
 
@@ -138,6 +139,7 @@ private:
 	static bool IsTriggerSubset(const FChordInfo& Sub, const FChordInfo& Super);
 
 	void RebuildChordCache();
+	bool IsReleaseFallbackChord(int32 ChordIndex) const;
 	void EvaluateChords(double Now);
 	bool IsChordComplete(int32 ChordIndex) const;
 	bool IsPossiblyCompletable(int32 ChordIndex, double Now) const;
@@ -152,6 +154,9 @@ private:
 		double Timestamp,
 		EWeaponAimSnapshotContext AimContext = EWeaponAimSnapshotContext::None) const;
 	FWeaponInputSnapshot BuildChordSnapshot(int32 ChordIndex, double Now);
+	TOptional<FWeaponInputSnapshot> BuildReleaseFallbackSnapshot(
+		FGameplayTag PhysicalTag, const FPhysicalInputState& State, double Now) const;
+	void ConsumeReleaseFallbackForMembers(const FChordInfo& Winner);
 	void EmitChord(int32 ChordIndex, double Now);
 	void RegisterRelease(const FWeaponInputSnapshot& Snapshot, const FGameplayTag& ControlTag);
 	void EmitSnapshot(const FWeaponInputSnapshot& Snapshot);
@@ -182,6 +187,10 @@ private:
 	TSet<FGameplayTag> ConfiguredModifierTags;
 	/** 被单成员 Chord 拥有的物理键；上下文不满足时静默，不回退发出原始 PhysicalTag。 */
 	TSet<FGameplayTag> SingleChordOwnedTags;
+	/** 只允许 OnReleaseIfUnconsumed 派发的物理键；按下和 Grace 到期均不回退原始 PhysicalTag。 */
+	TSet<FGameplayTag> ReleaseFallbackOwnedTags;
+	/** 每个 release-fallback 物理键唯一对应的一条合法 Chord。 */
+	TMap<FGameplayTag, int32> ReleaseFallbackChordByControl;
 	TSet<FGameplayTag> DelayedTags;
 	TMap<FGameplayTag, TArray<FReleaseRegistration>> ReleaseRegistry;
 	TArray<FWeaponInputSnapshot> CapturedSnapshots;
