@@ -1,6 +1,6 @@
 # 参考 Game Animation Sample 的 MHGZ Motion Matching 改进设计
 
-> **状态（2026-09-02）：M4.5 与 E4.2 已完成并签收；当前阶段为 M4.2.1 普通移动档位重搜 / Blend。** M4.2 普通移动 / Stop 固定矩阵、历史 Stop 生命周期专项、M4.3 输入释放补丁、M4.4 根运动交接、E4.2 Exit / ActionIdle 路由均已签收。阶段状态、唯一允许的下一阶段与完成证据以 [阶段门禁](milestone-gates.md) 为准；M4.2.1 通过后才进入 M4.6，M4.6 前不得创建 E4.3 的批量地面动作资产。
+> **状态（2026-09-02）：M4.5 与 E4.2 已完成并签收；当前阶段为 M4.2.1 收刀 Run/Sprint Loop 候选库重路由。** M4.2 普通移动 / Stop 固定矩阵、历史 Stop 生命周期专项、M4.3 输入释放补丁、M4.4 根运动交接、E4.2 Exit / ActionIdle 路由均已签收。阶段状态、唯一允许的下一阶段与完成证据以 [阶段门禁](milestone-gates.md) 为准；M4.2.1 通过后才进入 M4.6，M4.6 前不得创建 E4.3 的批量地面动作资产。
 
 > **目的：** 在不放弃 MHGZ 的“前向 Root Motion + GAS 动作所有权 + 纯 Motion Matching 普通移动”路线的前提下，借鉴 UE5.6 Game Animation Sample（GASP）的**候选集组织**和**动作退出交接**方法，解决：
 >
@@ -130,9 +130,11 @@ Chooser 是未来候选集路由层：它读取 Gameplay Context，返回一个�
 
 MM_MoveGait 会在输入阈值或 RB 状态改变时立即变为目标 Family。这是正确的长期约束：它防止角色持续停在 Walk / Run / Sprint 的错误循环中。但档位变化还必须产生一次明确的“允许重新搜索”边沿；仅改变查询值不足以打破正在持续播放的源 Loop。候选库只有各自的 Start / Loop / Stop 时，MM 只能在“源 Loop”和“目标 Loop”之间选择，姿势、脚相或根速度可能不连续。
 
-没有现成桥接资产时，首选方案是让 MM 依据 Pose、Trajectory、脚相和 MM_MoveGait 立即重搜目标 Loop，再以短 Blend 隐藏切帧。短 Blend 只改善源 Pose 到目标 Pose 的视觉接缝；它不自行触发重搜，也不改变 Root Motion 所有权。
+没有现成桥接资产时，不能让包含 Start/Stop 的全量库在巡航改挡时直接竞争。现行方案先把 Run/Sprint 的巡航改挡路由到仅含目标 Loop 的候选库，再由 MM 依据 Pose、Trajectory 和脚相选帧；短 Blend 只改善已经发生的正确选帧接缝。完整合同见 [M4.2.1 收刀 Run/Sprint Loop 候选库重设计](m4.2.1-run-sprint-loop-routing-redesign.md)。
 
-### 4.2 首选方案：Phase / Pose 匹配后的短 Blend
+### 4.2 已回退的短 Blend / 强制重搜试验（禁止执行）
+
+> 以下保留为失败试验的历史记录，**不得**恢复 GaitChangeSerial、无条件 ForceInterruptAndInvalidateContinuingPose 或三节点  .06s Blend 原子配置。2026-09-02 的录制已证明它们不能改变错误候选集，且会回归已签收的 Stop 生命周期。唯一可执行的 M4.2.1 设计是 [Loop 候选库重路由](m4.2.1-run-sprint-loop-routing-redesign.md)。
 
 初始调试合同如下，具体数值以固定矩阵和 Telemetry 为准：
 
@@ -145,7 +147,7 @@ MM_MoveGait 会在输入阈值或 RB 状态改变时立即变为目标 Family。
 
 三个节点参数是一组原子配置：启用 `Blend Time=0.06 s` 时，必须同时保持 `Use Inertial Blend=false` 与 `Max Active Blends=1`。不得只调整 Blend Time。
 
-### 4.2.1 档位改变的一次性重搜合同
+### 4.2.1 已回退的一次性 `GaitChange` 合同（历史记录）
 
 在收刀普通移动中，目标移动 Family 在有效输入期间发生变化（包括 Run→Sprint、Sprint→Run，以及后续经审计允许的 Walk↔Run）时，系统必须产生一次性 `GaitChange` 边沿：
 
@@ -396,9 +398,9 @@ M4.2 与 M4.3 通过后，实施一个**唯一的、可复用的**动作退出�
 
 通过后才签收 M4.1 最终 PIE。此时“功能动作退出”不再是未验证的直接全库交接，而是有资产、候选语境和 Telemetry 的正式合同。
 
-### M4.2.1：普通移动档位重搜 / Blend
+### M4.2.1：Run/Sprint Loop 候选库重路由
 
-M4.5 已通过。M4.2.1 是独立的普通移动修正切片：先实现第 4.2.1 节的一次性 `GaitChange` 重搜合同，再以完整的短 Blend 原子配置验证 Walk↔Run、Run↔Sprint、RB 按下/松开与多个脚相。它不修改攻击 Entry Section、Combo、Stop 生命周期或动作退出所有权。
+M4.5 已通过。M4.2.1 是独立的收刀 Run/Sprint 巡航改挡切片：它以两个仅含目标 Loop 的 PSD 替代全量库中的强制重搜，使 Start/Stop 的 BlockTransition 继续只服务于各自的生命周期。它不修改攻击 Entry Section、Combo、Stop 生命周期、Action Exit、PSS 权重或节点 Blend 配置。**状态（2026-09-02）：设计已冻结，尚未实施。** 详细接口、资产、顺序和验收见 [M4.2.1 收刀 Run/Sprint Loop 候选库重设计](m4.2.1-run-sprint-loop-routing-redesign.md)。
 
 ### M4.6 / E4.3 / M4.7：攻击入口与后续扩展
 

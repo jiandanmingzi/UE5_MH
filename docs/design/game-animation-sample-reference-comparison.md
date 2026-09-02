@@ -309,7 +309,7 @@ GASP 同时拥有：
 | P-01：动作后无输入仍被 Loop 胜出 | **可以，原则层面。** `FromTraversal`、Traversal PSD 和 Chooser 说明“功能动作退出”应是独立候选语境。 | 未来为移动收刀、前向翻滚 MoveExit 等有无功能尾段的动作建立 `ExitTransition` 候选库，并在 Handoff 后优先路由至该库。 | 立即把攻击 Montage 加入普通 Move PSD，或恢复强制 Idle。 |
 | P-03：收刀后自动 Walk，碰墙才停 | **可以，和 P-01 同一方向。** | 在错误 Loop 获得资格前消除交接失配；无输入时 Exit 末段自然回 Idle。 | 由非玩家松杆制造 Stop 来“刹住”。 |
 | 动作期间曾推杆、退出前松杆 | **可以，概念上。** | ExitTransition 先消化必须播放的无功能尾段；在安全交接点消费一次 PendingStop，而非在功能 Montage 尾帧直接搜索全量库。 | 把 Stop 在任何 Montage 结束时强行设为 -1。 |
-| Walk/Run/Sprint 的直接换 Loop 违和 | **部分可以。** 样例按 gait / transition 组织资源。 | 先保持 MM 搜索，再用短 Blend 平滑已经发生的换帧；只有特定档位仍失败才审计真正 GaitTransition 资源。 | 退回由状态机强制完整播放 Start / Loop。 |
+| Walk/Run/Sprint 的直接换 Loop 违和 | **部分可以。** 样例按 gait / transition 组织资源。 | 对已证实同相的 Run/Sprint，先路由到仅含目标 Loop 的候选库，再用现有短 Blend 平滑正确选帧；Walk/Run 仍先审计资源或相位兼容性。 | 退回由状态机强制完整播放 Start / Loop。 |
 | 真实松杆后 Stop 重选 | 不需要引用官方解决。 | 继续维持已验收的一次性 Stop + Continuing 合同。 | 为了“像官方”删除 `BlockTransition` 或拆 `PSS_Stop`。 |
 
 ### 4.4 已裁定的门禁：分离 M4.2 与 M4.5，而非用 Idle 掩盖矛盾
