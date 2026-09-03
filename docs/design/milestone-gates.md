@@ -73,8 +73,8 @@ E0/E1  E2    E3    E5.1（木桩三色部位与猎虫物理）
 | M4.3 输入释放补丁 | M4.2 通过。 | `OnReleaseIfUnconsumed` 不破坏已有组合键/释放身份；按 [M4.3 详细设计与实施](m4.3-input-release-implementation.md) 的自动化完成签收。 | **已完成（2026-08-29）：Development Editor 编译通过；`MHGZ.M4.3.Input` 7/7、`MHGZ.M1.Input` 9/9 通过。** |
 | M4.4 动作退出 / 根运动交接基础设施 | M4.2、M4.3。 | 通用 `MMHandoff`、ActionToken 精确 Root Motion Phase、候选库路由和 Telemetry 合同可验证；只接 M4.1 已存在的动作。 | **已完成（2026-08-31）：Development Editor 编译通过；本次 `MHGZ.M4.4.Handoff` 3/3、`MHGZ.PMM.Query` 4/4 通过；E4.2 自动路由已保存并审计。允许进入 M4.5 PIE。** |
 | M4.5 动作退出固定矩阵与 M4.1 最终验收 | M4.4、E4.2。 | 既存收刀/翻滚/拔刀/突刺在 Exit→Loop/Stop/Idle 下的固定矩阵通过，并完成 M4.1 最终 PIE。 | **已完成（2026-09-01）：PIE 与 RuntimeTelemetry 确认 Exit 起始进入、持续输入 Exit→Move、真实松杆即时一次 Stop、无输入 ActionIdle；M4.1 最终 PIE 已签收。** |
-| M4.2.1 收刀 Run/Sprint Loop 候选库重路由 | M4.5；M4.2 的 Stop 生命周期保持已签收。 | 已进入 Run/Sprint Loop 的持续输入改挡，只通过候选数据库成员变化触发一次合法搜索；目标 Loop 库不得暴露 Start/Stop；真实松杆仍回既有 FullMove 并保持一次正确 Stop。节点 Blend 配置保持基线。 | **设计冻结（2026-09-02），尚未实施。** 旧 `GaitChangeSerial` / 无条件 Force 重搜试验已完整回退；详见 [M4.2.1 收刀 Run/Sprint Loop 候选库重设计](m4.2.1-run-sprint-loop-routing-redesign.md)。 |
-| M4.6 攻击 Entry Section | M4.5、M4.2.1。 | Section 在播放前选择；拆分攻击的 Root Motion Phase 与 MovementTask 所有权可验证。 | 未开始。 |
+| M4.2.1 收刀 Run/Sprint Loop 候选库重路由 | M4.5；M4.2 的 Stop 生命周期保持已签收。 | 已进入 Run/Sprint Loop 的持续输入改挡，只通过候选数据库成员变化触发一次合法搜索；目标 Loop 库不得暴露 Start/Stop；真实松杆仍回既有 FullMove 并保持一次正确 Stop。节点 Blend 配置保持基线。 | **已完成并签收（2026-09-03）：** Development Editor 编译通过；`MHGZ.PMM` 11/11（资产 5/5、查询 6/6）通过；LoopOnly commandlet `-AuditOnly` 为 2/2。PIE Telemetry `Saved/RuntimeTelemetry/20260903-211806-BP_IG_Character_C_0-53906` 已确认：`RunLoopOnly` 与 `SprintLoopOnly` 会在至多两个动画更新内双向切换，目标候选库不含 Start/Stop；Start 期间保持 FullMove；真实松杆仍只产生一次正确 Stop。用户已完成目视回归且未发现问题。**允许进入 M4.6。** |
+| M4.6 攻击 Entry Section | M4.5、M4.2.1。 | Section 在播放前选择；拆分攻击的 Root Motion Phase 与 MovementTask 所有权可验证。 | **可开始（未实施）。** M4.2.1 已签收，前置条件满足。 |
 | M4.7 地面招式 / 虫印 | M4.6 完成、E4.3 的最终 Combo 壳有效。 | 地面连段、虫印、反击/舞踏入口符合动作设计。 | 未开始。 |
 | M5 空中/舞踏/终结 | M4.7 与 M4.5 最终回归完成。 | 空中位移、舞踏、落地和取消只保留一个位移所有者。 | 未开始。 |
 | M6 觉虫击/粉尘/UI | M5、觉虫击规则和表现接口已冻结。 | HUD 唯一所有权、Resource Widget、Cue、粉尘和觉虫击闭环。 | 未开始。 |
@@ -126,8 +126,8 @@ M4.2 的唯一退出条件仍是普通 Idle、Start、Loop、真实松杆 Stop�
 
 ## 7. 当前项目位置与唯一允许的下一步
 
-**当前阶段：M4.2.1 收刀 Run/Sprint Loop 候选库重路由（设计冻结，待实施）。** M4.1/E4.1、M4.2～M4.5 与 E4.2 均已签收；最近 PIE 与 RuntimeTelemetry 已确认动作退出的 Exit→Move/Stop/Idle 合同。2026-09-02 的录制证明：全量 `PSD_MH_Shth_Move` 在 Run→Sprint 时把低成本 Sprint Start 候选正确地 BlockTransition 掉，随后才回落到 Sprint Loop；这不是 Stop 或 PSS 权重问题。首次 M4.2.1 的 `GaitChangeSerial` / 无条件 Force 重搜试验已完整回退，最新 Telemetry 保留为重设计证据。
+**当前阶段：M4.6 攻击 Entry Section（前置已签收，未实施）。** M4.1/E4.1、M4.2～M4.5、M4.2.1 与 E4.2 均已签收。M4.2.1 的两个 LoopOnly PSD 已创建并只含目标 Loop；运行时仅在已实际获选 Run/Sprint Loop 的目标挡位改变时切换候选库。旧 `GaitChangeSerial` / 无条件 Force 重搜方案仍禁止恢复。
 
-当前唯一允许的下一步仍是 M4.2.1，按 [M4.2.1 收刀 Run/Sprint Loop 候选库重设计](m4.2.1-run-sprint-loop-routing-redesign.md) 先创建可审计的 LoopOnly PSD，再实现数据库成员驱动的路由和自动化。不得复用已回退的 GaitChange Serial / 无条件 Force 方案，不得重置 Stop 生命周期、不得每帧强制重搜、不得以 `DesiredSpeed` 或输入死区代替改挡。
+M4.2.1 已于 2026-09-03 完成 PIE Telemetry 验收。当前唯一允许的下一步是 **M4.6 攻击 Entry Section**；E4.3、M4.7 与 M5 仍按各自前置门禁保持阻塞。
 
-M4.2.1 的代码、Telemetry 与 PIE 通过前，不得开始 M4.6。其后 M4.6 在 `UMHGZAttackAbility` 中实现播放前的 Entry Section 选择与校验，优先级固定为 `TransitionID → SourceState → DefaultEntrySection → Montage 开头`；必须在创建 Montage Task 前传入 StartSection，不得先播放再 Jump。E4.3 仅在 M4.6 完成后开放；M4.7 仍同时要求 M4.6 完成和 E4.3 的最终 Combo 壳有效。若今后出现动作退出回归，回归归属仍为 E4.2/M4.5。
+M4.2.1 完成后，M4.6 在 `UMHGZAttackAbility` 中实现播放前的 Entry Section 选择与校验，优先级固定为 `TransitionID → SourceState → DefaultEntrySection → Montage 开头`；必须在创建 Montage Task 前传入 StartSection，不得先播放再 Jump。E4.3 仅在 M4.6 完成后开放；M4.7 仍同时要求 M4.6 完成和 E4.3 的最终 Combo 壳有效。若今后出现动作退出回归，回归归属仍为 E4.2/M4.5。

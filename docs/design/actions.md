@@ -16,7 +16,7 @@
 | GAS 输入 | `UMHGZInputComponent` 独占 Enhanced Input 绑定，`UMHGZWeaponInputRouterComponent` 生成组合键、方向、姿态、Aim 与释放身份不可变快照；ASC 只接收已解析输入，不拥有物理键。 |
 | 攻击 | `UMHGZAttackAbility` 使用 Montage Task、多 `TraceRegions` 自适应 Socket Sweep 和真实 `FHitResult`。同帧多 Region 选最早命中；默认接触式去重，只有显式 `LockedTargetTicks` 才离散复击并逐跳重验；旧 Socket/Shape 字段只剩序列化壳。普通攻击入口已使用 Confirm 后、Montage 前的冻结输入 Yaw 瞬转，不创建动态 WarpTarget；M4-A.5 的单帧招内修正沿用同一直接 Yaw 算法，但只在原生普通 Notify 的精确帧读取实时摇杆。 |
 | 连招 | `UGA_WeaponComboCoordinator` 使用 `FComboTransition/Transitions`、不可变 ActivationContext 与 Pending/Confirm/Active 两阶段状态；方向、窗口、自动边、StateOnly、命中授予和 Superseded 实例隔离均已接通。最终虫棍 Transitions 仍待 E4 配置。 |
-| 闪避 | M4-A.3 已实现前向 `LockedRootMotion → SteeringRootMotion → MotionMatching`，以及 `Dodging`、攻击侧 DodgeAcceptWindow、两阶段安全 Superseded 交接、GA 自身 Montage `SectionChanged` 出口处理与逐通道恢复。前向 `GA_Dodge`/Montage 已完成编辑器接线；M4-A.3.1 已完成持刀左/右/后翻滚的原生选择、强制 IdleExit、按变体 Section 校验与自动化测试，尚待创建并配置这三个 Montage 后进行 PIE 验证。 |
+| 闪避 | M4-A.3 已实现前向 `LockedRootMotion → SteeringRootMotion → MotionMatching`，以及 `Dodging`、攻击侧 DodgeAcceptWindow、两阶段安全 Superseded 交接、GA 自身 Montage `SectionChanged` 出口处理与逐通道恢复。前向 `GA_Dodge`/Montage 与 M4-A.3.1 的持刀左/右/后翻滚选择、IdleExit/Section 校验均已纳入后续 E4.2/M4.5 PIE 固定矩阵并签收；现行工作项以 [阶段门禁](milestone-gates.md) 为准。 |
 | 边缘跳越 | `UMHGZEdgeVaultComponent` 目前仅为关闭 Tick 的桩组件；检测链和 `GA_EdgeVault` 属于下文保留方案。 |
 | 基础消耗/冷却 | None/Instant/PerSecond 已分别使用有效原生 GE/Drain Task；Cooldown 使用 HasDuration GE 与动态 GrantedTag；武器资源走 reservation→Commit→Consume/Release 事务。具体虫棍三灯消费由 M3/M6 完成。 |
 

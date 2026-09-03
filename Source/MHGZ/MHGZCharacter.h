@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "AbilitySystemInterface.h"
+#include "Animation/MHGZMotionMatchingMath.h"
 #include "Logging/LogMacros.h"
 #include "MHGZCharacter.generated.h"
 
@@ -180,6 +181,14 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category="Movement|MM")
 	float TargetCruiseSpeed = 0.f;
 
+	/** True while a Run/Sprint -> lower non-zero gait request is being confirmed. */
+	UPROPERTY(BlueprintReadOnly, Category="Movement|MM|Input")
+	bool bDownshiftConfirmActive = false;
+
+	/** Remaining confirmation time in seconds; zero whenever no downshift is pending. */
+	UPROPERTY(BlueprintReadOnly, Category="Movement|MM|Input")
+	float DownshiftConfirmRemaining = 0.0f;
+
 	/** 强制 MM 输出 Idle Pose——BlockMovement 时切断 MM，防止 RM 和蒙太奇 RM 叠加 */
 	UPROPERTY(BlueprintReadOnly, Category="Movement|MM")
 	bool bForceMMIdle = false;
@@ -192,6 +201,8 @@ private:
 	// ── 速度计算 ────────────────────────────────────────────────
 
 	float CalcCruiseSpeed(float StickMagnitude) const;
+	bool IsUnsheathedForLocomotion() const;
+	void RefreshDownshiftConfirmDebugState();
 
 	// ── 收刀态巡航速度常量 ─────────────────────────────────────
 
@@ -214,6 +225,22 @@ private:
 	/** 摇杆死区 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|Deadzone")
 	float MoveDeadzone = 0.1f;
+
+	/** Minimum physical stick magnitude that begins a sheathed Walk request. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement|MM|Input", meta=(AllowPrivateAccess="true", ClampMin="0.0", ClampMax="1.0"))
+	float SheathedWalkInputThreshold = 0.5f;
+
+	/** Minimum physical stick magnitude that promotes sheathed Walk to Run. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement|MM|Input", meta=(AllowPrivateAccess="true", ClampMin="0.0", ClampMax="1.0"))
+	float SheathedRunInputThreshold = 0.75f;
+
+	/** RB plus a stick magnitude above this value requests Sprint. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement|MM|Input", meta=(AllowPrivateAccess="true", ClampMin="0.0", ClampMax="1.0"))
+	float SprintInputThreshold = 0.9f;
+
+	/** Time a lower non-zero gait must remain requested before it replaces Run/Sprint. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement|MM|Input", meta=(AllowPrivateAccess="true", ClampMin="0.0", ClampMax="0.25"))
+	float DownshiftConfirmDuration = 0.025f;
 
 	/** 期望速度平滑速率——DesiredSpeed 追踪 TargetCruiseSpeed 的 InterpSpeed（>1 时越大越灵敏） */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM")
@@ -244,6 +271,9 @@ private:
 
 	/** 相机相对的原始移动轴，供输入快照冻结方向。 */
 	FVector2D RawMoveInput = FVector2D::ZeroVector;
+
+	/** Stable sheathed locomotion lane and its short downward-confirmation timer. */
+	MHGZMotionMatching::FMHGZDownshiftProbeState LocomotionDownshiftProbe;
 
 	/** 本帧已处理理论速度的帧号——防止 Tick 和 DoMove 同帧重复处理 */
 	uint64 LastTheoryUpdateFrame = 0;

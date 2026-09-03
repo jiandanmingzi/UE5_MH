@@ -6,12 +6,15 @@
 #include "Animation/AnimExecutionContext.h"
 #include "Animation/AnimNodeReference.h"
 #include "Animation/AnimInstance.h"
+#include "Animation/MHGZMotionMatchingMath.h"
 #include "Animation/TrajectoryTypes.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZMotionMatchingAnimInstance.generated.h"
 
 class AMHGZCharacter;
 class UPoseSearchDatabase;
+class UAnimSequenceBase;
+struct FMotionMatchingAnimNodeReference;
 
 /** Identifies the existing forward-only locomotion Motion Matching nodes in ABP_MH_Character. */
 UENUM(BlueprintType)
@@ -360,9 +363,23 @@ private:
 	TQueue<int64, EQueueMode::Mpsc> MMPendingActionIdleContextConsumptionSerials;
 	int64 NextMMActionIdleContextSerial = 1;
 
+	/** The last target gait and installed bank for the narrow Run/Sprint Loop route. */
+	MHGZMotionMatching::EMHGZNormalMoveGait MMSheathedTargetMoveGait =
+		MHGZMotionMatching::EMHGZNormalMoveGait::None;
+	MHGZMotionMatching::EMHGZNormalMoveCandidateSet MMSheathedNormalMoveCandidateSet =
+		MHGZMotionMatching::EMHGZNormalMoveCandidateSet::FullMove;
+
 	/** Loaded once on the game thread; worker-thread callbacks only read these references. */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMSheathedMoveDatabase;
+	UPROPERTY(Transient)
+	TObjectPtr<UPoseSearchDatabase> MMSheathedRunLoopOnlyDatabase;
+	UPROPERTY(Transient)
+	TObjectPtr<UPoseSearchDatabase> MMSheathedSprintLoopOnlyDatabase;
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequenceBase> MMSheathedRunLoopSequence;
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimSequenceBase> MMSheathedSprintLoopSequence;
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMUnsheathedMoveDatabase;
 	UPROPERTY(Transient)
@@ -395,12 +412,17 @@ private:
 	void DrainMMActionIdleContextConsumptions();
 	void DiscardMMActionIdleContextConsumptions();
 	void LoadActionExitDatabases();
+	void LoadSheathedLoopCandidateDatabases();
+	void ResetSheathedNormalMoveCandidateRouting();
 	void ResetActionExitRouting();
 	void RouteMotionMatchingPreSearch(const FAnimNodeReference& AnimNodeReference,
 		EMHGZMotionMatchingNode MotionMatchingNode);
 	void ObserveMotionMatchingPostSearch(const FAnimNodeReference& AnimNodeReference,
 		EMHGZMotionMatchingNode MotionMatchingNode);
 	UPoseSearchDatabase* GetMoveDatabase(EMHGZMotionMatchingNode MotionMatchingNode) const;
+	UPoseSearchDatabase* GetSheathedLoopCandidateDatabase(
+		MHGZMotionMatching::EMHGZNormalMoveCandidateSet CandidateSet) const;
+	void RouteSheathedNormalMovePreSearch(const FMotionMatchingAnimNodeReference& MotionMatchingReference);
 	UPoseSearchDatabase* GetActionIdleDatabase(EMHGZMotionMatchingNode MotionMatchingNode) const;
 	UPoseSearchDatabase* GetExitDatabase(EMHGZMotionMatchingNode MotionMatchingNode,
 		EMHGZMotionMatchingHandoffType HandoffType) const;
@@ -438,6 +460,9 @@ private:
 	bool IsLegacyStopAnimation(const FMotionMatchingSelectionEvent& Selection) const;
 	EMHGZStopGait GetGaitFromSelection(const FMotionMatchingSelectionEvent* Selection) const;
 	EMHGZStopGait GetGaitFromTargetSpeed(float TargetSpeed) const;
+	static MHGZMotionMatching::EMHGZNormalMoveGait ToNormalMoveGait(EMHGZStopGait Gait);
+	MHGZMotionMatching::EMHGZNormalMoveGait GetExactSheathedLoopGait(
+		const FMotionMatchingSelectionEvent* Selection) const;
 	static float GetStopGaitCurveValue(EMHGZStopGait Gait);
 	float EvaluateSelectedCurve(const FMotionMatchingSelectionEvent& Selection, FName CurveName) const;
 	float GetPredictedForwardDistance(float TimeInSeconds, const FVector& Origin,

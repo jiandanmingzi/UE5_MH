@@ -2,7 +2,7 @@
 
 > **文档性质：只读审计与后续设计依据，2026-08-29 重建并裁定门禁。** 本文先分别记录 MHGZ 和本机 UE5.6 Game Animation Sample（下称 **GASP**）的实际构成与证据，最后才做受限对比。本文不直接实施运行时或资产改动；已据此更新 [阶段门禁](milestone-gates.md)，将普通移动验收（M4.2）与动作退出验收（M4.5）分开。
 >
-> **当前项目位置：E4.2 动作退出资产。** M4.2 普通移动 / Stop 固定矩阵、历史“真实松杆后 Stop 不二次重选”专项、M4.3 输入释放补丁和 M4.4 根运动交接合同已经通过；动作结束后的异常 Loop 留给 E4.2 / M4.5。阶段真相以 [milestone-gates.md](milestone-gates.md) 为准。
+> **当前项目位置：M4.6 攻击 Entry Section。** M4.2 普通移动 / Stop 固定矩阵、历史“真实松杆后 Stop 不二次重选”专项、M4.3 输入释放补丁、M4.4 根运动交接、E4.2 动作退出资产、M4.5 验收与 M4.2.1 Run/Sprint Loop 候选分流均已签收。阶段真相以 [milestone-gates.md](milestone-gates.md) 为准。
 >
 > **本轮明确不采用的办法：** 不恢复或延长“动作结束后强制 Idle”的时间保持；它会用输入死区掩盖错误交接。代码中 `mhgz.MM.PostActionIdleHold` 默认关闭（0）。保留“锁定释放首帧重置位移测量”是另一件事：它只丢弃最后一个 Montage Root Motion 样本，不要求 AnimGraph 持续输出 Idle。
 
@@ -34,7 +34,7 @@
 |---|---|---|
 | **Root Motion 所有权释放** | ActionToken 释放 `MontageRootMotionOwner`，允许普通 MM 再次成为唯一根位移来源。 | 已实现。 |
 | **位移测量重置** | 释放所有权的首帧不把 Montage 尾帧位移计入 `MMActualSpeed2D`。 | 已实现，且不等于输入死区。 |
-| **候选语境交接** | 在“刚结束功能动作”的姿势/脚相/根速度下，决定普通移动允许搜索哪一组候选。 | 未实现；当前直接把同一 Move PSD 全量开放。 |
+| **候选语境交接** | 在“刚结束功能动作”的姿势/脚相/根速度下，决定普通移动允许搜索哪一组候选。 | **部分已实现：** M4.5 已有 ActionExit/ActionIdle 语境；M4.2.1 已有收刀 Run/Sprint LoopOnly 候选库。更广泛的功能动作 ExitTransition/Chooser 仍属后续切片。 |
 
 后文发现的核心问题属于第三项，不能用第一项或第二项的时间保持代替。
 

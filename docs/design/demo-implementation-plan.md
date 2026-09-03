@@ -649,7 +649,7 @@ M3 输入接线补充：`FWeaponChordDefinition` 增加通用 `RequiredContextTa
 
 > **历史条目映射：** 本节冻结细节中的 `M4-A.2`、`M4-A.3.1`、`M4-A.4`、`M4-A.5` 分别读作 **M4.1.2、M4.1.3.1、M4.1.4、M4.1.5**；`E4-A` 读作 **E4.1**。这些是已完成历史条目，不是新的任务名。
 
-> **状态入口：** M4.1.2～M4.1.5 的原生合同、动作数据和验收范围如下；实际完成度、已知阻塞项与下一步只查 [阶段门禁](milestone-gates.md#7-当前项目位置与下一步)。M4.1.5 的非移动 E4.1 接线达到阶段验收后，必须依次通过 M4.2、M4.3、M4.4、E4.2 和 M4.5，才进行 M4.1 的最终移动 PIE 验收。不得在此前进入 M4.6/E4.3/M5 的批量动作接线。
+> **状态入口：** M4.1.2～M4.1.5 的原生合同、动作数据和验收范围如下；实际完成度、已知阻塞项与下一步只查 [阶段门禁](milestone-gates.md#7-当前项目位置与下一步)。上述 M4.1/E4.1、M4.2～M4.5 与 M4.2.1 已于 2026-09-03 签收；当前允许进入 M4.6，E4.3/M4.7/M5 仍受其各自前置门禁限制。
 
 **修改范围：** 通用 ActionToken 的 Montage Root Motion 所有权与单 Token 提前释放、收刀/翻滚期间的 `Combat.State.Sheathing`/`Combat.State.Dodging` 输入互斥、攻击→翻滚的精确取消窗口、`UMHGZDodgeAbility` 的锁定/MoveExit 阶段和方向选择、`UMHGZSheatheAbility` 与 `GA_Sheathe` 的最终原生运行时语义、Y 拔刀专属 Ability/Commit、收/拔刀 Commit 驱动的武器视觉 Socket 切换、普通攻击的激活瞬转、持刀送虫/收虫的无伤害 Montage/Commit，以及对应的 Combo/GA/Montage 接线与测试；不实现其余地面动作、特殊技或完整 Transition 表。
 
@@ -676,7 +676,7 @@ M3 输入接线补充：`FWeaponChordDefinition` 增加通用 `RequiredContextTa
 
 **修改范围：** `InputSystem` 的通用 ReleaseFallback、虫棍 ComboData、地面 GA/Montage/Notify 与虫印 Resource 接口；不实现完整空中动作。
 
-**进入条件：** M4.1.5/E4.1 已完成非移动纵切，M4.2 已签收；M2 已解除旧 DT/Equipment/Attack 运行时读取，编辑器 E3 已按删除清单移除旧 Combo/GA/Montage 并创建最终数据壳。此处先只允许 M4.3 与 M4.4；在 M4.5 / M4.1 最终验收前，不得删除序列化兼容字段或开始批量创建动作资产。
+> **历史执行记录：** 本节的进入条件已在后续 M4.3、M4.4、E4.2、M4.5 与 M4.2.1 中满足并完成验收。当前不得以本节的旧顺序推断工作项；现行门禁是 M4.6，E4.3/M4.7/M5 仍保持阻塞，详见 [阶段门禁](milestone-gates.md#7-当前项目位置与唯一允许的下一步)。
 
 **工作：**
 

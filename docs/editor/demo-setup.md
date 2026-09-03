@@ -394,7 +394,7 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 
 ### 6.0 E4.1——最小纵切资产接线
 
-> **M4.1 已完成接口：** 原生 M4.1.2～M4.1.5 接口已经可供本节使用；本节只记录最终 GA/Montage/Combo/AnimGraph 接线，不在 Event Graph 播放 Montage、直接操作猎虫或写姿态 Tag。M4.1/E4.1 本体已验收；当前下一步、动作退出顺序和未完成项统一查 [阶段门禁](../design/milestone-gates.md#7-当前项目位置与下一步)。在 M4.5 最终验收前禁止进入 M4.6/E4.3/M5 批量动作接线。
+> **M4.1 已完成接口：** 原生 M4.1.2～M4.1.5 接口已经可供本节使用；本节只记录最终 GA/Montage/Combo/AnimGraph 接线，不在 Event Graph 播放 Montage、直接操作猎虫或写姿态 Tag。M4.1/E4.1 本体已验收；当前下一步、动作退出顺序和未完成项统一查 [阶段门禁](../design/milestone-gates.md#7-当前项目位置与下一步)。M4.5 与 M4.2.1 已签收，M4.6 已开放；E4.3、M4.7 与 M5 仍须遵守各自前置门禁。
 
 先只创建下列最终资产，并直接使用本节列出的最终父类/路径；不要为“先跑起来”创建第二套临时 InputAction、ComboData、Resource 或姿态 Bool：
 

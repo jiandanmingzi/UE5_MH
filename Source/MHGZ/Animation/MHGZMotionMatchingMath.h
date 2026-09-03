@@ -13,10 +13,78 @@
  */
 namespace MHGZMotionMatching
 {
+/** Semantic gait families used only by the normal-move candidate-bank router. */
+enum class EMHGZNormalMoveGait : uint8
+{
+	None,
+	Walk,
+	Run,
+	Sprint
+};
+
+/** The candidate context installed on the sheathed normal locomotion MM node. */
+enum class EMHGZNormalMoveCandidateSet : uint8
+{
+	FullMove,
+	RunLoopOnly,
+	SprintLoopOnly
+};
+
+/** Inputs to the pure M4.2.1 candidate-bank decision. */
+struct FMHGZNormalMoveCandidateRouteInput
+{
+	EMHGZNormalMoveCandidateSet CurrentCandidateSet = EMHGZNormalMoveCandidateSet::FullMove;
+	EMHGZNormalMoveGait TargetGait = EMHGZNormalMoveGait::None;
+	bool bActionRouteIsMove = true;
+	bool bHasLocomotionInput = false;
+	bool bStopRequestActive = false;
+	bool bStartQueryActive = false;
+	bool bLatestSelectionIsRunLoop = false;
+	bool bLatestSelectionIsSprintLoop = false;
+};
+
+/**
+ * Narrows a full normal-move search only after a real Run/Sprint Loop result
+ * has already been selected and the target family changes. This deliberately
+ * leaves first Starts, Stops, Walk, ActionExit and unsheathed locomotion on
+ * their existing candidate paths.
+ */
+FORCEINLINE EMHGZNormalMoveCandidateSet ResolveSheathedNormalMoveCandidateSet(
+	const FMHGZNormalMoveCandidateRouteInput& Input)
+{
+	if (!Input.bActionRouteIsMove || !Input.bHasLocomotionInput
+		|| Input.bStopRequestActive || Input.bStartQueryActive)
+	{
+		return EMHGZNormalMoveCandidateSet::FullMove;
+	}
+
+	if (Input.CurrentCandidateSet != EMHGZNormalMoveCandidateSet::FullMove)
+	{
+		return Input.TargetGait == EMHGZNormalMoveGait::Run
+			? EMHGZNormalMoveCandidateSet::RunLoopOnly
+			: Input.TargetGait == EMHGZNormalMoveGait::Sprint
+				? EMHGZNormalMoveCandidateSet::SprintLoopOnly
+				: EMHGZNormalMoveCandidateSet::FullMove;
+	}
+
+	if (Input.bLatestSelectionIsRunLoop && Input.TargetGait == EMHGZNormalMoveGait::Sprint)
+	{
+		return EMHGZNormalMoveCandidateSet::SprintLoopOnly;
+	}
+	if (Input.bLatestSelectionIsSprintLoop && Input.TargetGait == EMHGZNormalMoveGait::Run)
+	{
+		return EMHGZNormalMoveCandidateSet::RunLoopOnly;
+	}
+	return EMHGZNormalMoveCandidateSet::FullMove;
+}
 struct FMHGZMotionMatchingCruiseSpeedSettings
 {
-	float MoveDeadzone = 0.1f;
-	float WalkInputThreshold = 0.5f;
+	/** Physical stick noise threshold. This does not decide whether sheathed locomotion starts. */
+	float RawMoveDeadzone = 0.1f;
+	/** Minimum stick magnitude that starts a sheathed Walk request. */
+	float SheathedWalkInputThreshold = 0.5f;
+	/** Minimum stick magnitude that promotes a sheathed Walk request to Run. */
+	float SheathedRunInputThreshold = 0.75f;
 	float SprintInputThreshold = 0.9f;
 	float WalkCruiseSpeed = 160.0f;
 	float RunCruiseSpeed = 460.0f;
@@ -28,7 +96,7 @@ struct FMHGZMotionMatchingCruiseSpeedSettings
 FORCEINLINE float QuantizeCruiseSpeed(const FMHGZMotionMatchingCruiseSpeedSettings& Settings,
 	const float StickMagnitude, const bool bUnsheathed, const bool bSprintHeld)
 {
-	if (StickMagnitude < Settings.MoveDeadzone)
+	if (StickMagnitude < Settings.RawMoveDeadzone)
 	{
 		return 0.0f;
 	}
@@ -36,13 +104,101 @@ FORCEINLINE float QuantizeCruiseSpeed(const FMHGZMotionMatchingCruiseSpeedSettin
 	{
 		return Settings.UnsheathedCruiseSpeed;
 	}
+	if (StickMagnitude < Settings.SheathedWalkInputThreshold)
+	{
+		return 0.0f;
+	}
 	if (StickMagnitude > Settings.SprintInputThreshold && bSprintHeld)
 	{
 		return Settings.SprintCruiseSpeed;
 	}
-	return StickMagnitude < Settings.WalkInputThreshold
+	return StickMagnitude < Settings.SheathedRunInputThreshold
 		? Settings.WalkCruiseSpeed
 		: Settings.RunCruiseSpeed;
+}
+
+/**
+ * State for the short, one-directional Run/Sprint -> lower-lane confirmation.
+ * It only delays committing a lower non-zero gait. Releasing below the
+ * configured locomotion threshold remains immediate.
+ */
+struct FMHGZDownshiftProbeState
+{
+	float CommittedCruiseSpeed = 0.0f;
+	float PreviousStickMagnitude = 0.0f;
+	float ElapsedSeconds = 0.0f;
+	bool bActive = false;
+
+	FORCEINLINE void Reset()
+	{
+		CommittedCruiseSpeed = 0.0f;
+		PreviousStickMagnitude = 0.0f;
+		ElapsedSeconds = 0.0f;
+		bActive = false;
+	}
+};
+
+/**
+ * Resolves the authoritative locomotion cruise speed for one input sample.
+ * Up-shifts and RB-only changes commit immediately. A real downward stick
+ * transition from Run/Sprint to a lower non-zero lane waits briefly so a
+ * normal stick release cannot publish an intermediate Walk request.
+ */
+FORCEINLINE float ResolveCruiseSpeedWithDownshiftProbe(
+	FMHGZDownshiftProbeState& State, const float RequestedCruiseSpeed,
+	const float StickMagnitude, const float DeltaSeconds,
+	const float ConfirmDurationSeconds, const bool bAllowDownshiftProbe)
+{
+	const float SafeStickMagnitude = FMath::Max(0.0f, StickMagnitude);
+	const auto CommitRequested = [&State, SafeStickMagnitude](const float Speed)
+	{
+		State.CommittedCruiseSpeed = FMath::Max(0.0f, Speed);
+		State.PreviousStickMagnitude = SafeStickMagnitude;
+		State.ElapsedSeconds = 0.0f;
+		State.bActive = false;
+		return State.CommittedCruiseSpeed;
+	};
+
+	if (RequestedCruiseSpeed <= KINDA_SMALL_NUMBER)
+	{
+		return CommitRequested(0.0f);
+	}
+
+	if (!bAllowDownshiftProbe || State.CommittedCruiseSpeed <= KINDA_SMALL_NUMBER)
+	{
+		return CommitRequested(RequestedCruiseSpeed);
+	}
+
+	const bool bRequestedDownshift = RequestedCruiseSpeed
+		< State.CommittedCruiseSpeed - KINDA_SMALL_NUMBER;
+	if (!bRequestedDownshift)
+	{
+		return CommitRequested(RequestedCruiseSpeed);
+	}
+
+	if (!State.bActive)
+	{
+		const bool bStickMagnitudeFell = SafeStickMagnitude
+			< State.PreviousStickMagnitude - KINDA_SMALL_NUMBER;
+		if (!bStickMagnitudeFell || ConfirmDurationSeconds <= KINDA_SMALL_NUMBER)
+		{
+			return CommitRequested(RequestedCruiseSpeed);
+		}
+
+		State.ElapsedSeconds = 0.0f;
+		State.bActive = true;
+		State.PreviousStickMagnitude = SafeStickMagnitude;
+		return State.CommittedCruiseSpeed;
+	}
+
+	State.ElapsedSeconds += FMath::Max(0.0f, DeltaSeconds);
+	State.PreviousStickMagnitude = SafeStickMagnitude;
+	if (State.ElapsedSeconds >= ConfirmDurationSeconds)
+	{
+		return CommitRequested(RequestedCruiseSpeed);
+	}
+
+	return State.CommittedCruiseSpeed;
 }
 
 /** Signed remaining distance convention used by the MM_DistanceToStop curve: negative -> zero. */

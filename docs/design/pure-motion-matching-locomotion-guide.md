@@ -1,6 +1,6 @@
 # 参考 Game Animation Sample 的 MHGZ Motion Matching 改进设计
 
-> **状态（2026-09-02）：M4.5 与 E4.2 已完成并签收；当前阶段为 M4.2.1 收刀 Run/Sprint Loop 候选库重路由。** M4.2 普通移动 / Stop 固定矩阵、历史 Stop 生命周期专项、M4.3 输入释放补丁、M4.4 根运动交接、E4.2 Exit / ActionIdle 路由均已签收。阶段状态、唯一允许的下一阶段与完成证据以 [阶段门禁](milestone-gates.md) 为准；M4.2.1 通过后才进入 M4.6，M4.6 前不得创建 E4.3 的批量地面动作资产。
+> **状态（2026-09-02）：** M4.5 / E4.2 已签收；M4.2.1 的代码与候选资产已完成并通过自动化，当前只等待 PIE Telemetry 验收。阶段门禁与下一步以 [阶段门禁](milestone-gates.md) 为准；M4.2.1 通过后才进入 M4.6。
 
 > **目的：** 在不放弃 MHGZ 的“前向 Root Motion + GAS 动作所有权 + 纯 Motion Matching 普通移动”路线的前提下，借鉴 UE5.6 Game Animation Sample（GASP）的**候选集组织**和**动作退出交接**方法，解决：
 >

@@ -224,6 +224,8 @@ void AMHGZCharacter::Tick(float DeltaTime)
 		bHasInput = false;
 		TargetCruiseSpeed = 0.f;
 		DesiredSpeed = 0.f;
+		LocomotionDownshiftProbe.Reset();
+		RefreshDownshiftConfirmDebugState();
 		return;
 	}
 
@@ -236,6 +238,8 @@ void AMHGZCharacter::Tick(float DeltaTime)
 		bHasInput = false;
 		TargetCruiseSpeed = 0.f;
 		DesiredSpeed = FMath::FInterpTo(DesiredSpeed, 0.f, DeltaTime, DesiredSpeedInterpSpeed);
+		LocomotionDownshiftProbe.Reset();
+		RefreshDownshiftConfirmDebugState();
 	}
 
 	// 旋转（每帧，在 Trajectory 生成之前）
@@ -259,23 +263,38 @@ float AMHGZCharacter::CalcCruiseSpeed(float StickMagnitude) const
 	// 普通移动只有 Walk / Run / Sprint / Unsheathed 四条正式 Root Motion
 	// Loop。TargetCruiseSpeed 必须只输出这些动画真实拥有的速度档位，不能再
 	// 输出 PSS 中不存在的中间速度，否则 Pose Search 会在 Loop 之间摇摆。
-	bool bIsUnsheathed = false;
-	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
-	if (PS)
-	{
-		UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
-		bIsUnsheathed = ASC && ASC->HasMatchingGameplayTag(
-			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Unsheathed")));
-	}
-
 	MHGZMotionMatching::FMHGZMotionMatchingCruiseSpeedSettings Settings;
-	Settings.MoveDeadzone = MoveDeadzone;
+	Settings.RawMoveDeadzone = MoveDeadzone;
+	Settings.SheathedWalkInputThreshold = SheathedWalkInputThreshold;
+	Settings.SheathedRunInputThreshold = SheathedRunInputThreshold;
+	Settings.SprintInputThreshold = SprintInputThreshold;
 	Settings.WalkCruiseSpeed = WalkCruise_Sheathed;
 	Settings.RunCruiseSpeed = RunCruise_Sheathed;
 	Settings.SprintCruiseSpeed = SprintCruise;
 	Settings.UnsheathedCruiseSpeed = RunCruise_Unsheathed;
 	return MHGZMotionMatching::QuantizeCruiseSpeed(Settings, StickMagnitude,
-		bIsUnsheathed, bSprintHeld);
+		IsUnsheathedForLocomotion(), bSprintHeld);
+}
+
+bool AMHGZCharacter::IsUnsheathedForLocomotion() const
+{
+	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
+	if (!PS)
+	{
+		return false;
+	}
+
+	UMHGZAbilitySystemComponent* ASC = PS->GetMHGZAbilitySystemComponent();
+	return ASC && ASC->HasMatchingGameplayTag(
+		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Unsheathed")));
+}
+
+void AMHGZCharacter::RefreshDownshiftConfirmDebugState()
+{
+	bDownshiftConfirmActive = LocomotionDownshiftProbe.bActive;
+	DownshiftConfirmRemaining = bDownshiftConfirmActive
+		? FMath::Max(0.0f, DownshiftConfirmDuration - LocomotionDownshiftProbe.ElapsedSeconds)
+		: 0.0f;
 }
 
 float AMHGZCharacter::GetQuantizedCruiseSpeedForRawMoveInput(const float StickMagnitude) const
@@ -450,14 +469,21 @@ void AMHGZCharacter::DoMove(float Right, float Forward)
 		bHasInput = false;
 		TargetCruiseSpeed = 0.f;
 		DesiredSpeed = 0.f;
+		LocomotionDownshiftProbe.Reset();
+		RefreshDownshiftConfirmDebugState();
 		return;
 	}
 
 	// 4. 计算目标巡航速度 + 平滑期望速度
-	bHasInput = Mag >= MoveDeadzone;
-	InputMagnitude = bHasInput ? Mag : 0.f;
 	const float DeltaTime = GetWorld()->GetDeltaSeconds();
-	TargetCruiseSpeed = CalcCruiseSpeed(InputMagnitude);
+	const bool bIsUnsheathed = IsUnsheathedForLocomotion();
+	const float RequestedCruiseSpeed = CalcCruiseSpeed(Mag);
+	bHasInput = RequestedCruiseSpeed > KINDA_SMALL_NUMBER;
+	InputMagnitude = bHasInput ? Mag : 0.f;
+	TargetCruiseSpeed = MHGZMotionMatching::ResolveCruiseSpeedWithDownshiftProbe(
+		LocomotionDownshiftProbe, RequestedCruiseSpeed, Mag, DeltaTime,
+		DownshiftConfirmDuration, !bIsUnsheathed);
+	RefreshDownshiftConfirmDebugState();
 	DesiredSpeed = FMath::FInterpTo(DesiredSpeed, TargetCruiseSpeed, DeltaTime, DesiredSpeedInterpSpeed);
 
 	// 5. 记录帧号——Tick 中不再重复计算速度

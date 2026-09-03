@@ -838,4 +838,81 @@ bool FMHGZPMMGeneratedStopIndexLifecycle::RunTest(const FString& Parameters)
 	return true;
 }
 
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZPMMLoopOnlyCandidateAssets,
+	"MHGZ.PMM.Assets.LoopOnlyCandidates",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZPMMLoopOnlyCandidateAssets::RunTest(const FString& Parameters)
+{
+	using namespace UE::PoseSearch;
+
+	struct FLoopOnlySpec
+	{
+		const TCHAR* DatabasePath;
+		const TCHAR* SequenceName;
+	};
+	const FLoopOnlySpec Specs[] =
+	{
+		{
+			TEXT("/Game/Blueprints/Characters/Demo/Animation/MotionMatching/PSD_MH_Shth_Run_LoopOnly.PSD_MH_Shth_Run_LoopOnly"),
+			TEXT("AS_Shth_Run_Loop")
+		},
+		{
+			TEXT("/Game/Blueprints/Characters/Demo/Animation/MotionMatching/PSD_MH_Shth_Sprint_LoopOnly.PSD_MH_Shth_Sprint_LoopOnly"),
+			TEXT("AS_Shth_Sprint_Loop_125x")
+		}
+	};
+
+	UPoseSearchDatabase* FullMoveDatabase = LoadObject<UPoseSearchDatabase>(nullptr,
+		TEXT("/Game/Blueprints/Characters/Demo/Animation/MotionMatching/PSD_MH_Shth_Move.PSD_MH_Shth_Move"));
+	if (!TestNotNull(TEXT("loads full sheathed Move database for LoopOnly comparison"), FullMoveDatabase))
+	{
+		return false;
+	}
+
+	for (const FLoopOnlySpec& Spec : Specs)
+	{
+		UPoseSearchDatabase* Database = LoadObject<UPoseSearchDatabase>(nullptr, Spec.DatabasePath);
+		if (!TestNotNull(FString::Printf(TEXT("loads LoopOnly database %s"), Spec.DatabasePath), Database))
+		{
+			continue;
+		}
+		TestEqual(FString::Printf(TEXT("%s has one candidate"), Spec.DatabasePath),
+			Database->GetNumAnimationAssets(), 1);
+		TestTrue(FString::Printf(TEXT("%s shares the full-move PSS"), Spec.DatabasePath),
+			Database->Schema == FullMoveDatabase->Schema);
+		TestEqual(FString::Printf(TEXT("%s shares the full-move search mode"), Spec.DatabasePath),
+			Database->PoseSearchMode, FullMoveDatabase->PoseSearchMode);
+		TestTrue(FString::Printf(TEXT("%s shares Continuing Pose Cost Bias"), Spec.DatabasePath),
+			FMath::IsNearlyEqual(Database->ContinuingPoseCostBias,
+				FullMoveDatabase->ContinuingPoseCostBias, PMMValueTolerance));
+		TestEqual(FString::Printf(TEXT("%s index builds"), Spec.DatabasePath),
+			FAsyncPoseSearchDatabasesManagement::RequestAsyncBuildIndex(Database,
+				ERequestAsyncBuildFlag::NewRequest | ERequestAsyncBuildFlag::WaitForCompletion),
+			EAsyncBuildIndexResult::Success);
+		TestTrue(FString::Printf(TEXT("%s has no indexed BlockTransition"), Spec.DatabasePath),
+			!Database->GetSearchIndex().bAnyBlockTransition);
+
+		const FPoseSearchDatabaseSequence* Entry =
+			Database->GetDatabaseAnimationAsset<FPoseSearchDatabaseSequence>(0);
+		const UAnimSequenceBase* Sequence = Entry ? Entry->Sequence.Get() : nullptr;
+		if (!TestNotNull(FString::Printf(TEXT("%s resolves its one sequence"), Spec.DatabasePath), Sequence))
+		{
+			continue;
+		}
+		TestEqual(FString::Printf(TEXT("%s exposes the expected Loop"), Spec.DatabasePath),
+			Sequence->GetName(), FString(Spec.SequenceName));
+		TestTrue(FString::Printf(TEXT("%s candidate disables reselection"), Spec.DatabasePath),
+			Entry->bDisableReselection);
+		TestTrue(FString::Printf(TEXT("%s candidate uses an unbounded range"), Spec.DatabasePath),
+			FMath::IsNearlyZero(Entry->SamplingRange.Min, PMMValueTolerance)
+				&& FMath::IsNearlyZero(Entry->SamplingRange.Max, PMMValueTolerance));
+		TestTrue(FString::Printf(TEXT("%s Loop source carries no PoseSearch control notifies"), Spec.DatabasePath),
+			Sequence->Notifies.IsEmpty());
+		ValidateRoleAndCurves(*this, *Sequence);
+	}
+	return true;
+}
 #endif
