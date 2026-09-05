@@ -36,6 +36,27 @@ bool UMHGZM4TestAttackAbility::GetMotionMatchingRawMoveInput(
 	return true;
 }
 
+UMHGZM4TestEntryAttackAbility::UMHGZM4TestEntryAttackAbility()
+{
+	StaminaCostPolicy = EAbilityStaminaCostPolicy::None;
+}
+
+bool UMHGZM4TestEntryAttackAbility::ValidateActionDependencies() const
+{
+	FName StartSection;
+	return SelectAttackMontageStartSection(StartSection);
+}
+
+bool UMHGZM4TestEntryAttackAbility::StartAttackMontage(ACharacter& Character,
+	UAnimMontage* Montage, FName StartSection)
+{
+	(void)Character;
+	(void)Montage;
+	LastStartedSection = StartSection;
+	++StartCallCount;
+	return bStartResult;
+}
+
 void UMHGZM4TestDrawAbility::ActivateAbility(
 	const FGameplayAbilitySpecHandle Handle,
 	const FGameplayAbilityActorInfo* ActorInfo,

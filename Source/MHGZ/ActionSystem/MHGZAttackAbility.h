@@ -262,6 +262,26 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	TObjectPtr<UAnimMontage> AttackMontage;
 
+	/**
+	 * 没有更具体入口时的 Montage Section。None 表示从 Montage 开头播放。
+	 * 入口 Section 属于目标攻击 Ability，而不是来源攻击的尾段。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Entry Section")
+	FName DefaultEntrySection;
+
+	/**
+	 * 按 Combo TransitionID 选择入口。键存在即表示必须使用有效、非空的
+	 * Montage Section；其优先级高于 SourceState 和 DefaultEntrySection。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Entry Section")
+	TMap<FName, FName> EntrySectionByTransitionID;
+
+	/**
+	 * 按来源 Combo State 选择入口，仅在没有 TransitionID 专属映射时使用。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack|Entry Section")
+	TMap<FName, FName> EntrySectionBySourceState;
+
 	// ═══════════════════════════════════════════
 	// 覆写
 	// ═══════════════════════════════════════════
@@ -337,6 +357,21 @@ protected:
 
 	/** Runs after ActionToken registration and before the attack montage starts. */
 	virtual bool PrepareAttackMontage() { return true; }
+
+	/**
+	 * 根据 Coordinator 冻结的 ActivationContext 选择并验证播放入口。
+	 * 返回 false 表示配置非法；调用方必须在播放 Montage 前取消，不能回退到错误开头。
+	 */
+	bool SelectAttackMontageStartSection(FName& OutStartSection) const;
+	bool SelectAttackMontageStartSection(const FWeaponAbilityActivationContext& Context,
+		FName& OutStartSection) const;
+
+	/**
+	 * 开始已选入口的攻击 Montage，并登记精确 MontageInstanceID。
+	 * 测试子类可覆写此边界以验证 StartSection，而无需异步 AnimInstance。
+	 */
+	virtual bool StartAttackMontage(ACharacter& Character, UAnimMontage* Montage,
+		FName StartSection);
 
 	/**
 	 * 在 Action Confirm 后、Montage 开始前，按冻结输入一次性修正 Actor Yaw。

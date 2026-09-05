@@ -34,6 +34,7 @@ public class MHGZ : ModuleRules
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.AddRange(new string[] {
+				"AssetRegistry",
 				"AnimationBlueprintLibrary",
 				"BlueprintGraph",
 				"Kismet",

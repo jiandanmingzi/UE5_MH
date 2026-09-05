@@ -17,6 +17,11 @@
 #include "Animation/AnimMontage.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
+#if WITH_EDITOR
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "WeaponRuntime/MHGZWeaponCombatConfig.h"
+#endif
+
 namespace
 {
 	/** Shared direct-Yaw correction used by exact in-action attack notifies. */
@@ -155,6 +160,98 @@ EDataValidationResult UMHGZAttackAbility::IsDataValid(FDataValidationContext& Co
 		}
 	}
 
+	if (!AttackMontage)
+	{
+		if (!DefaultEntrySection.IsNone() || !EntrySectionByTransitionID.IsEmpty()
+			|| !EntrySectionBySourceState.IsEmpty())
+		{
+			AddError(TEXT("AttackMontage is required when configuring attack Entry Sections."));
+		}
+	}
+	else
+	{
+		auto ValidateSection = [this, &AddError](FName SectionName,
+			const FString& PropertyPath, bool bAllowNone)
+		{
+			if (SectionName.IsNone())
+			{
+				if (!bAllowNone)
+				{
+					AddError(FString::Printf(TEXT("%s must not be None."), *PropertyPath));
+				}
+				return;
+			}
+			if (!AttackMontage->IsValidSectionName(SectionName))
+			{
+				AddError(FString::Printf(TEXT("%s references missing AttackMontage section '%s'."),
+					*PropertyPath, *SectionName.ToString()));
+			}
+		};
+
+		ValidateSection(DefaultEntrySection, TEXT("DefaultEntrySection"), true);
+		for (const TPair<FName, FName>& Pair : EntrySectionBySourceState)
+		{
+			if (Pair.Key.IsNone())
+			{
+				AddError(TEXT("EntrySectionBySourceState must not contain a None source-state key."));
+			}
+			ValidateSection(Pair.Value,
+				FString::Printf(TEXT("EntrySectionBySourceState[%s]"), *Pair.Key.ToString()), false);
+		}
+
+		TArray<FAssetData> CombatConfigAssets;
+		FARFilter CombatConfigFilter;
+		CombatConfigFilter.ClassPaths.Add(UWeaponCombatConfigBase::StaticClass()->GetClassPathName());
+		CombatConfigFilter.bRecursiveClasses = true;
+		FAssetRegistryModule& AssetRegistryModule =
+			FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+		AssetRegistryModule.Get().GetAssets(CombatConfigFilter, CombatConfigAssets);
+
+		for (const TPair<FName, FName>& Pair : EntrySectionByTransitionID)
+		{
+			if (Pair.Key.IsNone())
+			{
+				AddError(TEXT("EntrySectionByTransitionID must not contain a None TransitionID key."));
+			}
+			ValidateSection(Pair.Value,
+				FString::Printf(TEXT("EntrySectionByTransitionID[%s]"), *Pair.Key.ToString()), false);
+
+			bool bReferencesThisAbility = false;
+			for (const FAssetData& AssetData : CombatConfigAssets)
+			{
+				const UWeaponCombatConfigBase* CombatConfig =
+					Cast<UWeaponCombatConfigBase>(AssetData.GetAsset());
+				const UMHGZWeaponComboData* ComboData = CombatConfig
+					? CombatConfig->ComboData
+					: nullptr;
+				if (!ComboData)
+				{
+					continue;
+				}
+				for (const FComboTransition& Transition : ComboData->Transitions)
+				{
+					if (Transition.TransitionID == Pair.Key
+						&& Transition.AbilityClass == GetClass())
+					{
+						bReferencesThisAbility = true;
+						break;
+					}
+				}
+				if (bReferencesThisAbility)
+				{
+					break;
+				}
+			}
+
+			if (!bReferencesThisAbility)
+			{
+				AddError(FString::Printf(
+					TEXT("EntrySectionByTransitionID[%s] must reference a Combo transition whose AbilityClass is this Attack Ability."),
+					*Pair.Key.ToString()));
+			}
+		}
+	}
+
 	return bInvalid ? EDataValidationResult::Invalid
 		: (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);
 }
@@ -169,8 +266,6 @@ void UMHGZAttackAbility::ActivateAbility(
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 	if (!IsActionActivationCommitted()) return;
 	ACharacter* Character = Cast<ACharacter>(ActorInfo ? ActorInfo->AvatarActor.Get() : nullptr);
-	UAnimInstance* AnimInstance = Character && Character->GetMesh()
-		? Character->GetMesh()->GetAnimInstance() : nullptr;
 
 	FGameplayTagContainer ActionTags;
 	ActionTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")));
@@ -193,23 +288,15 @@ void UMHGZAttackAbility::ActivateAbility(
 		return;
 	}
 
-	ActiveAttackMontage = AttackMontage;
-	MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
-		this, FName(TEXT("AttackMontage")), AttackMontage, 1.0f);
-	if (!MontageTask)
+	FName StartSection;
+	if (!SelectAttackMontageStartSection(StartSection))
 	{
 		RequestEndAction(EWeaponActionEndReason::Cancelled);
 		return;
 	}
 
-	MontageTask->OnCompleted.AddDynamic(this, &UMHGZAttackAbility::OnMontageCompleted);
-	MontageTask->OnInterrupted.AddDynamic(this, &UMHGZAttackAbility::OnMontageInterrupted);
-	MontageTask->OnCancelled.AddDynamic(this, &UMHGZAttackAbility::OnMontageInterrupted);
-	MontageTask->ReadyForActivation();
-
-	FAnimMontageInstance* MontageInstance = AnimInstance->GetActiveInstanceForMontage(AttackMontage);
-	if (!MontageInstance
-		|| !RegisterMontageInstance(Character->GetMesh(), MontageInstance->GetInstanceID()))
+	ActiveAttackMontage = AttackMontage;
+	if (!Character || !StartAttackMontage(*Character, AttackMontage, StartSection))
 	{
 		RequestEndAction(EWeaponActionEndReason::Interrupted);
 	}
@@ -218,8 +305,90 @@ void UMHGZAttackAbility::ActivateAbility(
 bool UMHGZAttackAbility::ValidateActionDependencies() const
 {
 	const ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-	return Character && Character->GetMesh() && Character->GetMesh()->GetAnimInstance()
-		&& AttackMontage;
+	if (!Character || !Character->GetMesh() || !Character->GetMesh()->GetAnimInstance()
+		|| !AttackMontage)
+	{
+		return false;
+	}
+
+	// 此预检发生在 Resource Reserve / GAS Commit / Coordinator Confirm 之前：
+	// 无效入口绝不能把来源动作以 Superseded 结束。
+	FName StartSection;
+	return SelectAttackMontageStartSection(StartSection);
+}
+
+bool UMHGZAttackAbility::SelectAttackMontageStartSection(FName& OutStartSection) const
+{
+	return SelectAttackMontageStartSection(GetWeaponActivationContext(), OutStartSection);
+}
+
+bool UMHGZAttackAbility::SelectAttackMontageStartSection(
+	const FWeaponAbilityActivationContext& Context, FName& OutStartSection) const
+{
+	OutStartSection = NAME_None;
+	if (!AttackMontage)
+	{
+		return false;
+	}
+
+	bool bHasExplicitMapping = false;
+	if (!Context.TransitionID.IsNone())
+	{
+		if (const FName* Section = EntrySectionByTransitionID.Find(Context.TransitionID))
+		{
+			OutStartSection = *Section;
+			bHasExplicitMapping = true;
+		}
+	}
+	if (!bHasExplicitMapping && !Context.SourceState.IsNone())
+	{
+		if (const FName* Section = EntrySectionBySourceState.Find(Context.SourceState))
+		{
+			OutStartSection = *Section;
+			bHasExplicitMapping = true;
+		}
+	}
+	if (!bHasExplicitMapping && !DefaultEntrySection.IsNone())
+	{
+		OutStartSection = DefaultEntrySection;
+		bHasExplicitMapping = true;
+	}
+
+	// 没有配置入口是合法回退：由 AbilityTask 从 Montage 开头开始。
+	if (!bHasExplicitMapping)
+	{
+		return true;
+	}
+	return !OutStartSection.IsNone()
+		&& AttackMontage->IsValidSectionName(OutStartSection);
+}
+
+bool UMHGZAttackAbility::StartAttackMontage(ACharacter& Character,
+	UAnimMontage* Montage, FName StartSection)
+{
+	UAnimInstance* AnimInstance = Character.GetMesh()
+		? Character.GetMesh()->GetAnimInstance()
+		: nullptr;
+	if (!AnimInstance || !Montage)
+	{
+		return false;
+	}
+
+	MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+		this, FName(TEXT("AttackMontage")), Montage, 1.0f, StartSection);
+	if (!MontageTask)
+	{
+		return false;
+	}
+
+	MontageTask->OnCompleted.AddDynamic(this, &UMHGZAttackAbility::OnMontageCompleted);
+	MontageTask->OnInterrupted.AddDynamic(this, &UMHGZAttackAbility::OnMontageInterrupted);
+	MontageTask->OnCancelled.AddDynamic(this, &UMHGZAttackAbility::OnMontageInterrupted);
+	MontageTask->ReadyForActivation();
+
+	FAnimMontageInstance* MontageInstance = AnimInstance->GetActiveInstanceForMontage(Montage);
+	return MontageInstance
+		&& RegisterMontageInstance(Character.GetMesh(), MontageInstance->GetInstanceID());
 }
 
 void UMHGZAttackAbility::EndAbility(

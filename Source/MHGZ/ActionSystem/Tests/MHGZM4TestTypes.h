@@ -73,6 +73,38 @@ private:
 	FVector2D RawMoveInputForTest = FVector2D::ZeroVector;
 };
 
+/**
+ * Test-only attack that preserves the M4.6 pre-Commit Entry Section validation
+ * while replacing asynchronous Montage playback with an observable boundary.
+ */
+UCLASS()
+class UMHGZM4TestEntryAttackAbility : public UMHGZAttackAbility
+{
+	GENERATED_BODY()
+
+public:
+	UMHGZM4TestEntryAttackAbility();
+
+	FName GetLastStartedSectionForTest() const { return LastStartedSection; }
+	int32 GetStartCallCountForTest() const { return StartCallCount; }
+	void SetStartResultForTest(bool bInStartResult) { bStartResult = bInStartResult; }
+	bool SelectEntrySectionForTest(const FWeaponAbilityActivationContext& Context,
+		FName& OutStartSection) const
+	{
+		return SelectAttackMontageStartSection(Context, OutStartSection);
+	}
+
+protected:
+	virtual bool ValidateActionDependencies() const override;
+	virtual bool StartAttackMontage(ACharacter& Character, UAnimMontage* Montage,
+		FName StartSection) override;
+
+private:
+	FName LastStartedSection;
+	int32 StartCallCount = 0;
+	bool bStartResult = true;
+};
+
 /** Test-only draw ability that keeps the native DrawCommit contract without a montage asset. */
 UCLASS()
 class UMHGZM4TestDrawAbility : public UMHGZDrawAttackAbility

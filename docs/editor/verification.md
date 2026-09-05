@@ -12,12 +12,14 @@
 4. 每条 Combo 转移拥有唯一 TransitionID；自动派生按 ID 定位。ActivateAbility 边经过 Pending→Resource Reserve→GAS Commit→Consume→Confirm，StateOnly 只用于同一 ActionToken 的自动阶段变化。
 5. TryActivate、Reserve 或 Commit 失败均不改变 CurrentState/Tag，且 reservation 被释放；旧 Ability 的迟到 Hit/End/Notify 不能清理或重置新 ActiveTransition。
 
-### M4-B.1 入口 Section 与分段位移（规划验证）
+### M4.6 入口 Section 与分段位移（代码验证；E4.3 待执行）
 
 1. Slash1 的 ComboWindow 内输入下一招 → Coordinator 冻结 `TransitionID=IG.Slash1.To.Slash2`、`SourceState=Slash1`；`GA_IG_Slash2` 完成 Commit+Confirm 后，从 `AM_IG_Slash2.Entry_From_Slash1` 启动，而不是从 Montage 开头播放后再跳转。
 2. Slash2 缺少对应 Section、依赖或 Commit 失败时，不播放连接片段，Slash1 不以 Superseded 结束；无下一招输入时，Slash1 正常播放自己的 Recovery 并回 Idle。验证 `TransitionID` 映射优先于 `SourceState`，`SourceState` 优先于 Default，没有任何映射才从 Montage 开头。
 3. in-place 的 Entry/Recovery 播放时 `MontageRootMotionOwner` 为空；进入真实根位移的 Core/Travel 时，`ActionRootMotionPhase` 以当前 MontageInstanceID 获取当前 ActionToken 的 Owner，MM 输出零根位移；Phase End 后若动作进入 MoveExit，先释放 Owner、再由 MM 接管。
 4. 旧 BlendOut/NotifyEnd、被 Superseded 的旧 Ability 或错误 RuntimeToken 均不能释放新动作的 Owner；看似大位移但根骨骼无位移的序列只能启动有终止条件的 MovementTask，不能取得 Montage Owner。
+
+**已完成的原生验证（2026-09-04）：** Development Editor 编译通过；`MHGZ.M4` 自动化 25/25 通过，其中 `MHGZ.M4.6.Attack.EntrySection.Precedence` 验证 `TransitionID → SourceState → Default` 优先级，`MHGZ.M4.6.Attack.EntrySection.FallbackAndReject` 验证无映射从 Montage 开头开始、无效映射在播放前拒绝。上述 1～4 的真实目标动作 PIE、Root Motion Phase 和 MovementTask 所有权验证，留待 E4.3 创建最终地面动作资产后执行。
 
 ### E4-A / M4-A 最小纵切
 
