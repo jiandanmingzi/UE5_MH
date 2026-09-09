@@ -20,6 +20,7 @@ bool HaveSameMatchCondition(const FComboTransition& A, const FComboTransition& B
 		&& A.BlockedTags == B.BlockedTags
 		&& A.StaminaRequired == B.StaminaRequired
 		&& A.bRequiresComboWindow == B.bRequiresComboWindow
+		&& A.bRequiresDodgeAcceptWindow == B.bRequiresDodgeAcceptWindow
 		&& A.bAutoTransition == B.bAutoTransition
 		&& A.Priority == B.Priority;
 }
@@ -34,21 +35,6 @@ bool IsClearlyGroundState(const FName State)
 FPrimaryAssetId UMHGZWeaponComboData::GetPrimaryAssetId() const
 {
 	return FPrimaryAssetId(TEXT("WeaponComboData"), GetFName());
-}
-
-void UMHGZWeaponComboData::PostLoad()
-{
-	Super::PostLoad();
-
-	// bool -> enum 无法由 PropertyRedirect 安全转换，只在加载旧资产时迁移一次。
-	for (FComboTransition& Transition : Transitions)
-	{
-		if (Transition.bRequiresHitToGrantTags)
-		{
-			Transition.GrantTiming = ETransitionGrantTiming::OnFirstHit;
-			Transition.bRequiresHitToGrantTags = false;
-		}
-	}
 }
 
 #if WITH_EDITOR
@@ -135,6 +121,15 @@ EDataValidationResult UMHGZWeaponComboData::IsDataValid(FDataValidationContext& 
 			&& !Transition.bMatchAnyState && IsClearlyGroundState(Transition.SourceState))
 		{
 			AddError(FText::Format(LOCTEXT("GroundAbilityOwnedLanding", "Transitions[{0}] is a ground transition and cannot own landing."), IndexText));
+		}
+
+		const FGameplayTag DodgeAcceptOpen = FGameplayTag::RequestGameplayTag(
+			TEXT("Combat.State.DodgeAcceptOpen"));
+		if (Transition.RequiredTags.HasTagExact(DodgeAcceptOpen))
+		{
+			AddError(FText::Format(LOCTEXT("DodgeAcceptMustUseExactRequirement",
+				"Transitions[{0}] must use bRequiresDodgeAcceptWindow instead of RequiredTags.DodgeAcceptOpen, so the active ActionToken is verified."),
+				IndexText));
 		}
 
 		for (int32 OtherIndex = 0; OtherIndex < Index; ++OtherIndex)

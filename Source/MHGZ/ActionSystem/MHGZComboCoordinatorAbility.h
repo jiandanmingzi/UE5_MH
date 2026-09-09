@@ -92,6 +92,7 @@ private:
 	bool IsSnapshotPostureCompatible(const FComboTransition& Transition,
 		const FWeaponInputSnapshot& Input) const;
 	bool HasOpenWindowFor(const FWeaponActionToken& ActionToken) const;
+	bool HasOpenDodgeAcceptWindowFor(const FWeaponActionToken& ActionToken) const;
 	void GrantActiveTransitionTags(const FComboTransition& Transition);
 	void ReleaseActiveTransitionTags();
 	void CloseWindowsFor(const FWeaponActionToken& ActionToken);

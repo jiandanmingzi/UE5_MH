@@ -333,20 +333,6 @@ UMHGZDodgeAbility::FDodgeSelection UMHGZDodgeAbility::SelectDodgeSelection() con
 	{
 		return FDodgeSelection{DirectMontage.LoadSynchronous(), true};
 	}
-
-	const TMap<EDirectionalInput, TSoftObjectPtr<UAnimMontage>>& LegacyMontages =
-		bSheathed ? SheathedDodgeMontages : UnsheathedDodgeMontages;
-	for (const EDirectionalInput Key : {
-		EDirectionalInput::Forward, EDirectionalInput::None })
-	{
-		if (const TSoftObjectPtr<UAnimMontage>* Found = LegacyMontages.Find(Key))
-		{
-			if (!Found->IsNull())
-			{
-				return FDodgeSelection{Found->LoadSynchronous(), true};
-			}
-		}
-	}
 	return FDodgeSelection{nullptr, true};
 }
 

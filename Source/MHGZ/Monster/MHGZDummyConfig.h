@@ -45,13 +45,6 @@ struct FDummyHitzoneConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float Radius = 30.f;
 
-	/**
-	 * Deprecated serialization shell kept only for loading compatibility.
-	 * Runtime generation uses RelativeLocation + Radius and never reads this.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite,
-		meta = (ToolTip = "Deprecated serialization shell; runtime uses RelativeLocation/Radius."))
-	FVector HalfExtent = FVector(30, 30, 30);
 };
 
 /** Deterministic counter-test attack definition for the training dummy. */

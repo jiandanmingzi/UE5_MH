@@ -14,7 +14,7 @@
 | 移动 | `AMHGZCharacter::DoMove` 只计算 `InputMagnitude`、`TargetCruiseSpeed` 和 `DesiredSpeed`，不调用 `AddMovementInput`；AnimBP 使用 Motion Matching/Root Motion。角色在 `Tick` 中按 `TurnRate` 限制最大转角，默认 `360°/s`，180° 不再瞬转。 |
 | 冲刺与瞄准 | 冲刺是 Character 上的 `bSprintHeld`，RB 收刀态持有 0.1s 后成立；M3 已将瞄准拆成 `Combat.State.Aiming.Kinsect/Action/Slinger`，由 InputRouter 通过 TagLedger Token 按 LT/RT 与收刀姿态派生。它们不是 `GA_Sprint`/`GA_Aim` 驱动。 |
 | GAS 输入 | `UMHGZInputComponent` 独占 Enhanced Input 绑定，`UMHGZWeaponInputRouterComponent` 生成组合键、方向、姿态、Aim 与释放身份不可变快照；ASC 只接收已解析输入，不拥有物理键。 |
-| 攻击 | `UMHGZAttackAbility` 使用 Montage Task、多 `TraceRegions` 自适应 Socket Sweep 和真实 `FHitResult`。同帧多 Region 选最早命中；默认接触式去重，只有显式 `LockedTargetTicks` 才离散复击并逐跳重验；旧 Socket/Shape 字段只剩序列化壳。普通攻击入口已使用 Confirm 后、Montage 前的冻结输入 Yaw 瞬转，不创建动态 WarpTarget；M4-A.5 的单帧招内修正沿用同一直接 Yaw 算法，但只在原生普通 Notify 的精确帧读取实时摇杆。 |
+| 攻击 | `UMHGZAttackAbility` 使用 Montage Task、多 `TraceRegions` 自适应 Socket Sweep 和真实 `FHitResult`。同帧多 Region 选最早命中；默认接触式去重，只有显式 `LockedTargetTicks` 才离散复击并逐跳重验；旧 Socket/Shape 字段已移除。普通攻击入口已使用 Confirm 后、Montage 前的冻结输入 Yaw 瞬转，不创建动态 WarpTarget；M4-A.5 的单帧招内修正沿用同一直接 Yaw 算法，但只在原生普通 Notify 的精确帧读取实时摇杆。 |
 | 连招 | `UGA_WeaponComboCoordinator` 使用 `FComboTransition/Transitions`、不可变 ActivationContext 与 Pending/Confirm/Active 两阶段状态；方向、窗口、自动边、StateOnly、命中授予和 Superseded 实例隔离均已接通。最终虫棍 Transitions 仍待 E4 配置。 |
 | 闪避 | M4-A.3 已实现前向 `LockedRootMotion → SteeringRootMotion → MotionMatching`，以及 `Dodging`、攻击侧 DodgeAcceptWindow、两阶段安全 Superseded 交接、GA 自身 Montage `SectionChanged` 出口处理与逐通道恢复。前向 `GA_Dodge`/Montage 与 M4-A.3.1 的持刀左/右/后翻滚选择、IdleExit/Section 校验均已纳入后续 E4.2/M4.5 PIE 固定矩阵并签收；现行工作项以 [阶段门禁](milestone-gates.md) 为准。 |
 | 边缘跳越 | `UMHGZEdgeVaultComponent` 目前仅为关闭 Tick 的桩组件；检测链和 `GA_EdgeVault` 属于下文保留方案。 |
@@ -624,7 +624,7 @@ class UMHGZAttackAbility : public UMHGZGameplayAbility
 | HitzoneQueryTag | FGameplayTag | 空 | 限定碰撞仅检测带此 Tag 的组件。空=不限制（检测所有碰撞） |
 | bDrawDebug | bool | false | 绘制 Sweep 轨迹用于校准 |
 
-`TraceEndSocketName`、`AttachSocketName`、旧 `TraceStartSocketName/Shape/ShapeExtent/TraceSampleCount` 只属于旧原型。2026-08-11 审计决定不转存两个旧攻击 GA；M2 删除兼容读取，E3 删除旧 GA，M4 移除序列化壳，E4 在全新 GA 的 `TraceRegions` 中按最终动作重新配置。运行时不保留“TraceRegions 为空就读旧字段”的兼容分支。
+`TraceEndSocketName`、`AttachSocketName`、旧 `TraceStartSocketName/Shape/ShapeExtent/TraceSampleCount` 已随 M4 序列化清理移除。运行时只接受最终 `TraceRegions`，为空即干净失败，不保留旧字段回退。
 
 #### FAttackDamageConfig — 单段伤害配置
 
@@ -663,7 +663,7 @@ struct FAttackSegmentConfig
 | MultiHitCount | int32 | 1 | 每目标在该窗口内最多结算次数；1=普通单次命中 |
 | MultiHitInterval | float | 0.1 | 同目标两次结算的最小间隔；不能只靠 Timer 对已离开区域的缓存目标继续伤害 |
 | LockedTargetMaxDistance | float | 0 | 仅 LockedTargetTicks 使用；每跳验证攻击者到原 Hitzone 的距离，0 禁止配置该策略 |
-| MaxWarpAngle | float | 30.0 | 为将来**特殊动作**的段内 MotionWarping 预留的旋转上限；与入口 `MaxCorrectionAngle` 独立。当前通用 `UMHGZAttackAbility` 没有读取它，也没有为普通攻击建立 WarpTarget，因此编辑器填写它不会产生运行时效果。待某个特殊 GA 显式实现其目标、Warp Notify 与消费逻辑后，才可为该 GA 启用；0 表示该特殊段不做旋转 Warp。 |
+| MaxWarpAngle | float | 0.0 | 为将来**特殊动作**的段内 MotionWarping 预留的旋转上限；与入口 `MaxCorrectionAngle` 独立。当前通用 `UMHGZAttackAbility` 没有读取它，也没有为普通攻击建立 WarpTarget，因此编辑器填写它不会产生运行时效果。待某个特殊 GA 显式实现其目标、Warp Notify 与消费逻辑后，才可为该 GA 启用；0 表示该特殊段不做旋转 Warp。 |
 
 ### 攻击 GA 成员
 
@@ -719,7 +719,7 @@ struct FAttackSegmentConfig
     3. 将原始 HitResult、HitStaggerTag、HitCueTag、ElementalCueTag 和 AttackInstanceID 写入项目自定义 GameplayEffectContext
     4. 虫棍空中攻击写入激活时快照的 `Damage.DanceMultiplier`；其他来源默认为 1
     5. DynamicAssetTags 可保留用于调试/查询，但不负责触发 GameplayCue
-    6. 旧 `DamageSetByCallerTag` 在资产迁移后删除；Knockback、SwingSound 和 `MaxWarpAngle` 若不进入 Demo 最终数据流则不得作为假可用字段保留
+    6. 旧 `DamageSetByCallerTag` 已在资产迁移后删除；Knockback、SwingSound 和 `MaxWarpAngle` 若不进入 Demo 最终数据流则不得作为假可用字段保留
 
 - `bool ShouldContinueAfterHit() const` (BlueprintNativeEvent)
   - 输出：当前碰撞窗口命中后，是否继续下一段碰撞窗口。
@@ -1097,7 +1097,7 @@ HandleResolvedInputSnapshot(Input.Dodge)
 - DodgeWindow 缓存并恢复 NotifyBegin 前每个被修改通道的 CollisionResponse；不得统一恢复成 Block。
 - Ability End 兜底释放仍存活的 Invincible/DodgeAccept Token 和碰撞快照，即使 Montage 中断未触发 NotifyEnd。
 
-取消动作（如虫棍收虫）仍可配置 `bRequiresComboWindow=false` 并要求 `Combat.State.DodgeAcceptOpen`，但它们必须通过自己的 Transition/ActionToken 执行，不能直接篡改 Dodge 实例。
+取消动作（如虫棍收虫）仍可配置 `bRequiresComboWindow=false`；若只允许在当前攻击的翻滚取消帧执行，则设置 `bRequiresDodgeAcceptWindow=true`。它校验当前 ActiveTransition 的精确 Attack ActionToken，不能以 `RequiredTags` 中的聚合 `Combat.State.DodgeAcceptOpen` 代替，也不能直接篡改 Dodge 实例。
 
 ## UMHGZEdgeVaultComponent — 边缘跳越组件（规划；当前关闭 Tick）
 
@@ -1260,8 +1260,9 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 | RequiredTags | FGameplayTagContainer | 空 | 激活前提——ASC **必须持有全部**这些 Tag（AND）。含状态标签：`Grounded/Unsheathed`（地面招式）、`Aerial/Unsheathed`（空中招式）、`Sheathed`（拔刀攻击）。Buff/PowerUp 也在此列 |
 | BlockedTags | FGameplayTagContainer | 空 | 激活阻止——ASC **必须不持有任一**这些 Tag（NOR）。用于排除特定状态：登龙剑设 `BlockedTags={Combo.Branch.PostRoundslash}`，大回旋 `GrantedTags` 含此 Tag → 登龙无法从大回旋后派生 |
 | GrantedTags | FGameplayTagContainer | 空 | 由本次 Transition ActionToken 拥有，进入下一转移或 Reset 时精确释放 |
-| GrantTiming | ETransitionGrantTiming | OnActivation | OnActivation 或 OnFirstHit；旧布尔 `bRequiresHitToGrantTags` 在旧包删除门槛满足后删除 |
+| GrantTiming | ETransitionGrantTiming | OnActivation | OnActivation 或 OnFirstHit |
 | bRequiresComboWindow | bool | false | true 时要求 ComboWindowOpen；旧名 `bRequiresWindowOpen` 只用于历史包加载审计 |
+| bRequiresDodgeAcceptWindow | bool | false | true 时要求当前 ActiveTransition 的攻击实例持有精确的 DodgeAcceptWindow；不能用聚合 `DodgeAcceptOpen` Tag 替代 |
 | Priority | int32 | 0 | 显式匹配优先级。同层（精确招式/通用招式 + DirectionalInput）内有多个候选行满足 InputAction 条件时，Priority 高的优先匹配 |
 | bAutoTransition | bool | false | 自动 ε 转移由唯一 TransitionID + SourceActionToken 请求 |
 
@@ -1269,6 +1270,7 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 
 - `Direction`：输入层先把摇杆转换为世界方向，再与角色 Forward/Right 比较。方向、组合键和修饰态在同一个 InputSnapshot 中冻结；具体方向节点优先于 None。
 - `bRequiresComboWindow`：为 true 时仅在 `Combat.State.ComboWindowOpen` 存在时匹配；为 false 时允许收虫、纳刀等取消动作绕过连招窗口，但仍受 RequiredTags 约束。
+- `bRequiresDodgeAcceptWindow`：为 true 时仅在当前 ActiveTransition 的 `UMHGZAttackAbility` 对应 ActionToken 实际持有 DodgeAcceptWindow 时匹配；其他 Ability 或手工添加的同名 Tag 不能授权该边。
 - `GrantTiming`：OnFirstHit 只接受当前 ActionToken 的首次命中；OnActivation 在 Ability 激活成功后授予。
 - `bAutoTransition`：允许 InputTag 为空的 ε 转移；GA 命中或阶段完成后通过确定的 `TransitionID` 请求协调器执行该边，不能只传 TargetState。
 - `ExecutionPolicy=StateOnly`：只用于当前 GA 内的命中/落地/收尾阶段变更；协调器验证 SourceActionToken 后更新同一 ActiveTransition，不为纯状态变化创建空 GA。

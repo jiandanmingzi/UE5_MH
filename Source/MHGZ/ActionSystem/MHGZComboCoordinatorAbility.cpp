@@ -144,6 +144,14 @@ bool UGA_WeaponComboCoordinator::HasOpenWindowFor(
 	return false;
 }
 
+bool UGA_WeaponComboCoordinator::HasOpenDodgeAcceptWindowFor(
+	const FWeaponActionToken& ActionToken) const
+{
+	const UMHGZAttackAbility* Attack = Cast<UMHGZAttackAbility>(
+		ActionToken.AbilityInstance.Get());
+	return Attack && Attack->HasOpenDodgeAcceptWindow(ActionToken);
+}
+
 bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	const FComboTransition& Transition, const FWeaponInputSnapshot& Input) const
 {
@@ -175,6 +183,12 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	if (Transition.bRequiresComboWindow
 		&& (!ActiveTransition.IsSet()
 			|| !HasOpenWindowFor(ActiveTransition->ActionToken)))
+	{
+		return false;
+	}
+	if (Transition.bRequiresDodgeAcceptWindow
+		&& (!ActiveTransition.IsSet()
+			|| !HasOpenDodgeAcceptWindowFor(ActiveTransition->ActionToken)))
 	{
 		return false;
 	}
@@ -561,9 +575,7 @@ bool UGA_WeaponComboCoordinator::CanDodgeSupersedeActiveAction() const
 	}
 
 	const FWeaponActionToken& ActiveAction = ActiveTransition->ActionToken;
-	const UMHGZAttackAbility* Attack = Cast<UMHGZAttackAbility>(
-		ActiveAction.AbilityInstance.Get());
-	return Attack && Attack->HasOpenDodgeAcceptWindow(ActiveAction);
+	return HasOpenDodgeAcceptWindowFor(ActiveAction);
 }
 
 bool UGA_WeaponComboCoordinator::PrepareActiveActionForDodge(

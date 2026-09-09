@@ -100,6 +100,14 @@ struct FComboTransition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Requirements")
 	bool bRequiresComboWindow = false;
 
+	/**
+	 * Requires the exact active attack ActionToken to own an open
+	 * AnimNotifyState_DodgeAcceptWindow. This is intentionally stricter than
+	 * testing the aggregate DodgeAcceptOpen gameplay tag.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Requirements")
+	bool bRequiresDodgeAcceptWindow = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tags")
 	ETransitionGrantTiming GrantTiming = ETransitionGrantTiming::OnActivation;
 
@@ -112,12 +120,6 @@ struct FComboTransition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match")
 	int32 Priority = 0;
 
-	/**
-	 * 仅用于把旧资产的 bool 语义迁移到 GrantTiming；运行时不得读取。
-	 * E0 重存目标资产后由 M2 删除。
-	 */
-	UPROPERTY(meta = (DeprecatedProperty, DeprecationMessage = "Use GrantTiming"))
-	bool bRequiresHitToGrantTags = false;
 };
 
 /** 武器连招图：平面边数组，运行时由协调器建立 SourceState 索引。 */
@@ -141,5 +143,4 @@ public:
 #if WITH_EDITOR
 	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
 #endif
-	virtual void PostLoad() override;
 };

@@ -13,6 +13,7 @@ class USpringArmComponent;
 class UCameraComponent;
 class UInputAction;
 class UMotionWarpingComponent;
+class USkeletalMeshComponent;
 class UMHGZAimComponent;
 class UMHGZEdgeVaultComponent;
 class UMHGZAbilitySystemComponent;
@@ -45,6 +46,17 @@ class AMHGZCharacter : public ACharacter, public IAbilitySystemInterface
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	UCameraComponent* FollowCamera;
+
+	/**
+	 * 模块化头部。Body、Head 的共同骨骼名相同但祖先链不同，因此它以自身
+	 * Head_00 参考变换的逆矩阵挂到身体 Head_00，而不是 Copy Pose 全骨架。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<USkeletalMeshComponent> HeadMesh;
+
+	/** 头发模块。以与头部相同的方式挂到 HeadMesh 的 Head_00。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
+	TObjectPtr<USkeletalMeshComponent> HairMesh;
 
 	/** MotionWarping 组件 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
@@ -101,9 +113,12 @@ public:
 	virtual void Tick(float DeltaTime) override;
 
 	// ── GAS 初始化 ──
+	virtual void PostLoad() override;
+	virtual void BeginPlay() override;
 	virtual void PossessedBy(AController* NewController) override;
 	virtual void UnPossessed() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	virtual void PostInitializeComponents() override;
 
 	// ── 着陆重置 ──
 	virtual void Landed(const FHitResult& Hit) override;
@@ -112,6 +127,8 @@ public:
 	// ── 组件访问 ──
 	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+	FORCEINLINE USkeletalMeshComponent* GetHeadMesh() const { return HeadMesh; }
+	FORCEINLINE USkeletalMeshComponent* GetHairMesh() const { return HairMesh; }
 	FORCEINLINE UMotionWarpingComponent* GetMotionWarpingComponent() const { return MotionWarpingComponent; }
 	FORCEINLINE UMHGZAimComponent* GetAimComponent() const { return AimComponent; }
 	FORCEINLINE UMHGZIncomingHitResolverComponent* GetIncomingHitResolver() const { return IncomingHitResolver; }

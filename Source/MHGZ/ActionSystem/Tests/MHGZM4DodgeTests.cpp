@@ -262,6 +262,89 @@ bool FMHGZM4DodgeExactAttackHandoff::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM4ComboTransitionRequiresDodgeAcceptWindow,
+	"MHGZ.M4.Combo.RequiredDodgeAcceptWindow",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM4ComboTransitionRequiresDodgeAcceptWindow::RunTest(const FString& Parameters)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup())
+	{
+		AddError(TEXT("required dodge-accept combo harness setup failed"));
+		H.Teardown();
+		return false;
+	}
+
+	FGameplayAbilitySpecHandle AttackHandle;
+	UGA_WeaponComboCoordinator* Coordinator = ConfigureTestAttack(H, AttackHandle);
+	if (!Coordinator)
+	{
+		AddError(TEXT("active coordinator missing"));
+		H.Teardown();
+		return false;
+	}
+	H.GiveAbility(UMHGZM1PlaceholderActionA::StaticClass());
+	UMHGZWeaponComboData* ComboData = NewObject<UMHGZWeaponComboData>(Coordinator);
+	FComboTransition& IdleToAttack = ComboData->Transitions.AddDefaulted_GetRef();
+	IdleToAttack.TransitionID = FName(TEXT("RequiredDodgeAcceptIdleToAttack"));
+	IdleToAttack.SourceState = FName(TEXT("Idle"));
+	IdleToAttack.TargetState = FName(TEXT("M4Attack"));
+	IdleToAttack.InputTag = M3::Tag(TEXT("Input.Weapon.Y"));
+	IdleToAttack.AbilityClass = UMHGZM4TestAttackAbility::StaticClass();
+	FComboTransition& WindowedFollowUp = ComboData->Transitions.AddDefaulted_GetRef();
+	WindowedFollowUp.TransitionID = FName(TEXT("RequiredDodgeAcceptFollowUp"));
+	WindowedFollowUp.SourceState = FName(TEXT("M4Attack"));
+	WindowedFollowUp.TargetState = FName(TEXT("M4FollowUp"));
+	WindowedFollowUp.InputTag = M3::Tag(TEXT("Input.Weapon.B"));
+	WindowedFollowUp.AbilityClass = UMHGZM1PlaceholderActionA::StaticClass();
+	WindowedFollowUp.bRequiresDodgeAcceptWindow = true;
+	Coordinator->InjectComboData(ComboData);
+
+	StartTestAttack(*Coordinator, 1);
+	UMHGZM4TestAttackAbility* Attack = GetActiveInstance<UMHGZM4TestAttackAbility>(
+		*H.ASC, AttackHandle);
+	TestNotNull(TEXT("source attack is active"), Attack);
+
+	auto SendFollowUp = [Coordinator](uint32 SequenceID)
+	{
+		FWeaponInputSnapshot Input = M3::MakePosedInput(true, true);
+		Input.ResolvedInputTag = M3::Tag(TEXT("Input.Weapon.B"));
+		Input.SourceControlTag = Input.ResolvedInputTag;
+		Input.SequenceID = SequenceID;
+		Input.Phase = EWeaponInputPhase::Started;
+		Coordinator->HandleWeaponInput(Input);
+	};
+
+	SendFollowUp(2);
+	TestEqual(TEXT("follow-up rejects outside the exact dodge-accept window"),
+		Coordinator->GetCurrentState(), FName(TEXT("M4Attack")));
+
+	const FGameplayTag DodgeAcceptOpen = M3::Tag(TEXT("Combat.State.DodgeAcceptOpen"));
+	H.ASC->AddLooseGameplayTag(DodgeAcceptOpen);
+	SendFollowUp(3);
+	TestEqual(TEXT("unowned aggregate DodgeAcceptOpen tag cannot authorize a combo edge"),
+		Coordinator->GetCurrentState(), FName(TEXT("M4Attack")));
+	H.ASC->RemoveLooseGameplayTag(DodgeAcceptOpen);
+
+	if (Attack)
+	{
+		TestTrue(TEXT("source attack opens its exact dodge-accept window"),
+			Attack->BeginDodgeAcceptWindow(FName(TEXT("RequiredDodgeAccept"))));
+	}
+	SendFollowUp(4);
+	TestEqual(TEXT("exact dodge-accept window authorizes the configured combo edge"),
+		Coordinator->GetCurrentState(), FName(TEXT("M4FollowUp")));
+	TestEqual(TEXT("windowed transition supersedes the old attack"),
+		Attack ? Attack->GetActionEndReason() : EWeaponActionEndReason::Normal,
+		EWeaponActionEndReason::Superseded);
+
+	Coordinator->ResetCombo(EWeaponActionEndReason::Normal);
+	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMHGZM4DodgeFailurePreservesAttack,
 	"MHGZ.M4.Dodge.FailedReplacementPreservesAttack",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)

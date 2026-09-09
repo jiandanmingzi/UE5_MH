@@ -92,14 +92,14 @@ M0 必须先记录工作树基线并只读清点下列引用：
 
 1. 在同一个可编译阶段建立最终 RuntimeDefinition、InputSnapshot、Transition、ActionToken、AttackSegment、CostSpec 和 MovementRequest 类型。
 2. M0 已加入的精确 `CoreRedirects/StructRedirects/PropertyRedirects` 只用于证明旧包可安全加载和审计；新建最终资产不得依赖 Redirect 生成数据。
-3. 旧字段在原型删除前可临时标记 Deprecated，但不得继续被最终运行时读取；M2 先删除运行时读取，E3 删除旧包，M4 再移除序列化壳与临时兼容代码。
+3. 旧字段在原型删除前可临时标记 Deprecated，但不得继续被最终运行时读取；M2 已删除运行时读取、E3 已删除旧包，M4 已移除序列化壳与临时兼容代码。
 
 ### 6.3 删除与重建
 
 1. E0 只检查保留资产，不补录、不重存、不删除旧动作原型。
 2. M1 已清除 ASC 的旧输入读取及 `InputBindings` 属性；E2 Compile/Save `BP_PlayerState` 清除旧序列化引用；E3 清除 IMC 旧组合映射并删除四个旧组合 InputAction。M2 删除 `DefaultGame.ini` 的旧表配置、DataManager Getter、Equipment 旧读取和 Attack 旧字段的运行时读取，但保留旧包加载所需的序列化壳。
 3. E3 用 Reference Viewer 复核无额外引用后，按引用者到依赖项删除旧 DT、旧 Combo、两个旧 GA、两个旧 Montage及零引用旧武器定义；不使用 Force Delete。
-4. E3 全新创建 `DA_IG_HuoLongGun`、`DA_WeaponRuntime_IG`、`DA_IG_InputProfile`、`DA_IG_Combat` 和空壳 `DA_IG_Combo`，然后才把 Character 默认武器指向新定义；M4 确认旧包已不存在后删除序列化壳；E4 全新创建最终 GA/Montage 后一次回填完整 Transitions。
+4. E3 全新创建 `DA_IG_HuoLongGun`、`DA_WeaponRuntime_IG`、`DA_IG_InputProfile`、`DA_IG_Combat` 和空壳 `DA_IG_Combo`，然后才把 Character 默认武器指向新定义；M4 已确认旧包不存在并删除序列化壳；E4 全新创建最终 GA/Montage 后一次回填完整 Transitions。
 5. E3 删除旧组合 InputAction 前，必须先让 E2 的 `BP_PlayerState` 和 E3 的 `IMC_MHGZ_Demo` 对 `IA_RTA/IA_RTB/IA_RTY/IA_YB` 的引用归零。
 6. `AS_Shth_BaDao`、`AS_Shth_R_TuCi`、`SK_Demo_Body`、全部其他原始动画和美术资产不是删除对象。
 

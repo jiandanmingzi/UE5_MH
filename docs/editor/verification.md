@@ -19,7 +19,7 @@
 3. in-place 的 Entry/Recovery 播放时 `MontageRootMotionOwner` 为空；进入真实根位移的 Core/Travel 时，`ActionRootMotionPhase` 以当前 MontageInstanceID 获取当前 ActionToken 的 Owner，MM 输出零根位移；Phase End 后若动作进入 MoveExit，先释放 Owner、再由 MM 接管。
 4. 旧 BlendOut/NotifyEnd、被 Superseded 的旧 Ability 或错误 RuntimeToken 均不能释放新动作的 Owner；看似大位移但根骨骼无位移的序列只能启动有终止条件的 MovementTask，不能取得 Montage Owner。
 
-**已完成的原生验证（2026-09-04）：** Development Editor 编译通过；`MHGZ.M4` 自动化 25/25 通过，其中 `MHGZ.M4.6.Attack.EntrySection.Precedence` 验证 `TransitionID → SourceState → Default` 优先级，`MHGZ.M4.6.Attack.EntrySection.FallbackAndReject` 验证无映射从 Montage 开头开始、无效映射在播放前拒绝。上述 1～4 的真实目标动作 PIE、Root Motion Phase 和 MovementTask 所有权验证，留待 E4.3 创建最终地面动作资产后执行。
+**已完成的原生验证（2026-09-04，2026-09-05 两次复验）：** Development Editor 编译通过；`MHGZ.M4` 自动化 26/26 通过，其中 `MHGZ.M4.6.Attack.EntrySection.Precedence` 验证 `TransitionID → SourceState → Default` 优先级，`MHGZ.M4.6.Attack.EntrySection.FallbackAndReject` 验证无映射从 Montage 开头开始、无效映射在播放前拒绝；`MHGZ.M4.Serialization.LegacyPropertiesRemoved` 断言攻击、闪避、Combo 与 Dummy 的旧反射属性均不存在，并确认两个 Dodge Montage 不含已删除的旧 Notify。第二轮清理还删除了 Combo `CoreRedirects`、两个旧 Notify 类及两个 Montage 中共四个实例。`-run=DataValidation` 冷启动加载 519 个资产，受影响的 GA、Combo、Montage 均可加载，未报告 Missing Property/Class 或蓝图编译错误；仅保留已知 G-002：`DA_TrainingDummy` 不含恰好 Red/White/Orange 三个 Hitzone。上述 1～4 的真实目标动作 PIE、Root Motion Phase 和 MovementTask 所有权验证，留待 E4.3 创建最终地面动作资产后执行。
 
 ### E4-A / M4-A 最小纵切
 

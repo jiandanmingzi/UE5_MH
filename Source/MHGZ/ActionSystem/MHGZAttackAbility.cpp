@@ -686,7 +686,7 @@ void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)
 		WindowState.Regions.Add(MoveTemp(RuntimeRegion));
 	};
 
-	// 运行时只接受非空 TraceRegions；旧 Collision/Socket 字段只作序列化壳，不参与决策。
+	// 运行时只接受非空 TraceRegions；为空时拒绝本次碰撞窗口。
 	if (Seg.Collision.TraceRegions.IsEmpty())
 	{
 		UE_LOG(LogTemp, Warning,
@@ -821,7 +821,7 @@ void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
 			FMath::CeilToInt(AngularDeltaDegrees /
 				FMath::Max(1.0f, RegionState.MaxAngularStepDegrees)), 1, 8);
 
-		// 新 TraceRegions 全部按球形 Sweep 结算；旧 Shape/ShapeExtent 不参与决策。
+		// TraceRegions 全部按球形 Sweep 结算。
 		const FCollisionShape QueryShape = FCollisionShape::MakeSphere(RegionState.Radius);
 		const FQuat QueryRotation = FQuat::Identity;
 
@@ -1240,18 +1240,6 @@ FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
 		FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.DamageNumber")));
 
 	return Spec;
-}
-
-FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
-	AActor* Target, FName HitzoneBoneName, int32 SegmentIndex)
-{
-	(void)Target;
-	(void)HitzoneBoneName;
-	// 旧签名序列化兼容壳：运行时攻击链路只走 FHitResult 版本。
-	UE_LOG(LogTemp, Warning,
-		TEXT("[Attack] Legacy MakeDamageSpec(Actor, Bone) is not supported at runtime; returning an invalid spec. Segment=%d"),
-		SegmentIndex);
-	return FGameplayEffectSpecHandle();
 }
 
 bool UMHGZAttackAbility::ShouldContinueAfterHit_Implementation() const

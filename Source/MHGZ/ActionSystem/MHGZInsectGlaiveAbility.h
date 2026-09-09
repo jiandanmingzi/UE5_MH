@@ -35,9 +35,6 @@ public:
 		const FGameplayAbilityActivationInfo ActivationInfo,
 		const FGameplayEventData* TriggerEventData) override;
 
-	virtual FGameplayEffectSpecHandle MakeDamageSpec(
-		AActor* Target, FName HitzoneBoneName, int32 SegmentIndex) override;
-
 	// ── 配置 ──
 
 	/** 三灯攻击音效——每个攻击 GA 激活时播放 */

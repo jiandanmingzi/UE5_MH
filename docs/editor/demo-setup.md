@@ -67,6 +67,32 @@ E0 不执行旧动作资产迁移，也不执行删除。记录保留资产的�
 6. 删除与重建完成后对相关目录执行 `Fix Up Redirectors in Folder`，重启并复查引用闭合。
 7. 同一资产批次完成后更新 `Scripts/AssetOrganization/verify_project_assets.py` 的资产总数、Blueprint 数与关键资产清单；在实际创建最终 GA 之前，不以旧的 `EXPECTED_BLUEPRINT_COUNT=8` 作为验收依据。
 
+### Demo 角色模块化头部
+
+`AMHGZCharacter` 原生创建 `HeadMesh` 与 `HairMesh`，默认分别使用
+`SKM_Demo_Head`、`SKM_Demo_Hair`。Body 的骨架含有 `Cog`/`Waist_00`/`Spine_00`，
+而 Head、Hair 直接从 `Root` 连到 `Spine_01`；虽有同名骨骼，父级拓扑并不相同，**不得**
+使用 Leader Pose 或 Copy Pose From Mesh。
+
+`HeadMesh` 挂到 Body 的 `Head_00`，`HairMesh` 挂到 HeadMesh 的 `Head_00`。每个模块都以
+自身参考姿势中 `Head_00` 的组件空间逆变换作为 Relative Transform，因此模块自己的
+`Head_00` 与父级的动态 `Head_00` 精确重合，不存在 Socket 与完整骨架变换叠加的问题。
+模块使用参考姿势；运行时会显式清除旧 Leader Pose 绑定，避免 Blueprint 默认值中的旧
+序列化配置干扰骨骼附着。
+
+现有身体动画继续绑定 `SK_Demo_Body`，无需因接入头部而重导。它们会经同名的
+身体动画的最终 `Head_00` 直接驱动头部与头发的位置和朝向；只要不做表情，头部特有的
+眼睛、眼皮和面部骨骼保持参考姿势即可。若以后要表情，为 `SK_Demo_Head` 建立只修改
+面部骨的专用 AnimBP，不必重导任何身体动作，也不要再复制 Body 的整套骨架姿势。
+
+### Demo 面部材质修复
+
+`SKM_Demo_Head` 的 `Face` 槽使用 `M_Demo_Face_Repaired`。它是原 `M_Demo_Face` 的独立
+副本：保留现有 Albedo/Normal 贴图，将 `NormalMapWeight` 设为 `0.18`，并将 Roughness 固定为
+`0.72`，避免导出 `NRRT` 法线在 UE PBR 下产生过强颗粒、脏斑与阴影。原
+`M_Demo_Face`、`MI_Demo_Face` 没有修改；如需回退，只需将该槽重新指定为
+`MI_Demo_Face`。
+
 ## 3. E1——Project Settings
 
 ### 3.1 插件
@@ -428,9 +454,9 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 1. 用角色 Skeleton 的前向翻滚序列创建最终 Montage（建议 `/Game/Weapons/Common/Anims/Montage/AM_Dodge_Forward`；若持刀/收刀骨架姿势必须不同，可各建一个 Montage）。开启动画序列的 Root Motion，确认翻滚本体只有前向位移，不含会与代码实时转向竞争的 Root Yaw。
 2. Montage 必须精确建立 `DodgeCore`、`IdleExit`、`MoveExit` 三个 Section。`DodgeCore` 从翻滚起点开始；两个 Exit 指向各自独立尾段。编辑器中三个 Section 的 Next Section 都设为 `None`，尤其不能让 IdleExit 播完后顺序串入 MoveExit；运行时由 GA 固定 `DodgeCore -> IdleExit`，并且只会按本次 Section 进入事件把前向翻滚改入 `MoveExit`。
 3. **不要**在 `DodgeCore` 末尾添加 `AnimNotify_DodgeExitDecision`。`UMHGZDodgeAbility` 会直接绑定它本次播放的 `FAnimMontageInstance::OnMontageSectionChanged`：运行时先固定 `DodgeCore -> IdleExit`，刚进入 `IdleExit` 时读取这一帧原始摇杆。无输入则保留 `IdleExit`；仅前向翻滚且有输入时，立即跳到 `MoveExit`。不得读取被 `BlockMovement` 清零的 locomotion `bHasInput`，也不在此边界释放移动锁。
-4. **不要**在 `MoveExit` 首帧添加 `AnimNotify_DodgeMoveExitBegin`。同一个 GA 在确认已进入 `MoveExit` 后才释放本次 Dodge 的 `BlockMovement` Token，使实时摇杆开始平滑转向；`Combat.State.Dodging` 与 Montage Root Motion 所有权仍保留。两个旧 Notify 类仅为已有资产兼容而保留，已经放在 Montage 上的实例可以删除，但即使暂时保留也不会执行逻辑或输出警告。
+4. **不要**在 `MoveExit` 首帧添加 `AnimNotify_DodgeMoveExitBegin`。同一个 GA 在确认已进入 `MoveExit` 后才释放本次 Dodge 的 `BlockMovement` Token，使实时摇杆开始平滑转向；`Combat.State.Dodging` 与 Montage Root Motion 所有权仍保留。旧 Notify 实例与兼容类均已清理，不得重新添加。
 5. 在翻滚实际无敌帧范围放 `AnimNotifyState_DodgeWindow`。它只持有 `Invincible` 并临时把 Weapon/MonsterAttack 通道改为 Ignore，结束或中断时恢复窗口前的逐通道响应；不要用它代替攻击侧取消窗口。
-6. 已完成的 `/Game/Blueprints/Ability/Common/GA_Dodge` 继续使用 `UMHGZDodgeAbility`。现有 `SheathedDodgeMontage`、`UnsheathedDodgeMontage` 保持为收刀/持刀**前向**资源（允许相同），Section 保持 `DodgeCore`/`IdleExit`/`MoveExit`；旧方向 Map 继续留空。M4-A.3.1 现已编译，应填写新增的 `UnsheathedLeftDodgeMontage`、`UnsheathedRightDodgeMontage`、`UnsheathedBackDodgeMontage`；每个左右后 Montage 只需要 `DodgeCore` 与 `IdleExit`，不要添加或填写 `MoveExit`。收刀左右后没有资产槽，也不创建“收刀侧滚/后滚”占位 GA。保留原生 `InputTag=Input.Dodge`、同一 Instant 耐力成本；Event Graph 保持空白。
+6. 已完成的 `/Game/Blueprints/Ability/Common/GA_Dodge` 继续使用 `UMHGZDodgeAbility`。现有 `SheathedDodgeMontage`、`UnsheathedDodgeMontage` 保持为收刀/持刀**前向**资源（允许相同），Section 保持 `DodgeCore`/`IdleExit`/`MoveExit`。M4-A.3.1 现已编译，应填写 `UnsheathedLeftDodgeMontage`、`UnsheathedRightDodgeMontage`、`UnsheathedBackDodgeMontage`；每个左右后 Montage 只需要 `DodgeCore` 与 `IdleExit`，不要添加或填写 `MoveExit`。收刀左右后没有资产槽，也不创建“收刀侧滚/后滚”占位 GA。保留原生 `InputTag=Input.Dodge`、同一 Instant 耐力成本；Event Graph 保持空白。
 7. 只把 `GA_Dodge` 加入一次 `BP_PlayerState.MHGZAbilitySystemComponent.CoreAbilities`。若已有旧 Dodge 类或同样输出 `Input.Dodge` 的 Spec，先移除旧项，确保全局只有这一个最终入口；不得把 `GA_Dodge` 加进 `DA_IG_Combo`。
 8. 对允许用翻滚取消的每个攻击 Montage，仅在允许取消的后摇帧放 `AnimNotifyState_DodgeAcceptWindow`。窗口外按 Dodge 必须失败；窗口内由旧攻击的精确 ActionToken 授权两阶段交接。不要在 ASC/GA 的 Tags 栏手填 `DodgeAcceptOpen`，也不要在 Montage 蓝图事件中调用 Cancel Ability。
 9. Compile、Save 后重启编辑器，依次验证：无输入走 IdleExit；翻滚本体期间推摇杆不改方向；`DodgeCore` 结束、实际进入 `IdleExit` 的同一帧持续推摇杆时立即改走 MoveExit，且只在 MoveExit 进入后开始转向；BlendOut 后 MM 接管且无论 Montage 是否补发 Completed 都会释放 Dodging；攻击窗口外 Dodge 不生效；窗口内成功 Dodge 令旧攻击以 Superseded 结束；耐力不足或缺 Montage 时旧攻击继续。
@@ -499,7 +525,7 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 
 《世界》地面基底若需要 Classic 无红灯弱动作与红灯正常动作，分别配置明确 GA/Montage 或同 Montage 的明确 Section，并由 ComboData Tag 条件选择；Numeric 模式只走正常动作。不要在 AnimBP 根据红灯临时替换动作。
 
-基础 `GA_Dodge` 的 `SheathedDodgeMontage`、`UnsheathedDodgeMontage` 分别配置角色通用的收刀/持刀前向翻滚，供 `Forward/None` 使用；M4-A.3.1 编译后再把持刀左/右/后资源填到三个新增直接字段。旧 `SheathedDodgeMontages`/`UnsheathedDodgeMontages` 方向 Map 只用于迁移并应留空；不要恢复旧 Dodge DataTable。收刀左/右/后在运行时被拒绝，不需要为它们创建 Montage。
+基础 `GA_Dodge` 的 `SheathedDodgeMontage`、`UnsheathedDodgeMontage` 分别配置角色通用的收刀/持刀前向翻滚，供 `Forward/None` 使用；M4-A.3.1 编译后再把持刀左/右/后资源填到三个直接字段。不要恢复旧 Dodge DataTable 或旧方向 Map。收刀左/右/后在运行时被拒绝，不需要为它们创建 Montage。
 
 每个有挥棍声音的 GA 填写稳定 `AudioIdentityTag`；具体武器若需要覆盖音色，在 `DA_IG_HuoLongGun` 的 SwingSoundOverrides 中按同一 Tag 配置。挥空音效放 AnimNotify，命中音效由 GameplayCue/FeedbackRouter 处理，避免一次命中播放两套声音。
 

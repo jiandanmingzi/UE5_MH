@@ -63,27 +63,6 @@ void UMHGZInsectGlaiveAbility::ActivateAbility(
 	}
 }
 
-FGameplayEffectSpecHandle UMHGZInsectGlaiveAbility::MakeDamageSpec(
-	AActor* Target, FName HitzoneBoneName, int32 SegmentIndex)
-{
-	// 父类构造基础 Spec
-	FGameplayEffectSpecHandle Spec = Super::MakeDamageSpec(Target, HitzoneBoneName, SegmentIndex);
-
-	// 三灯时注入额外 GameplayCue Tag
-	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (ASC && ASC->HasMatchingGameplayTag(
-		FGameplayTag::RequestGameplayTag(TEXT("Combat.Branch.TripleUp"))))
-	{
-		if (Spec.IsValid())
-		{
-			Spec.Data->AddDynamicAssetTag(
-				FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.IG.TripleUpActivated")));
-		}
-	}
-
-	return Spec;
-}
-
 bool UMHGZInsectGlaiveAbility::CheckExtractRequirement(FGameplayTag ExtractColor) const
 {
 	if (URes_InsectGlaive* RC = GetIGResourceComponent())

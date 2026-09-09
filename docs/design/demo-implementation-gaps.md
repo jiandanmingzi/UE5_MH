@@ -43,7 +43,7 @@
 | 攻击轨迹与多跳 | `MHGZAttackAbility` | 运行时只读 TraceRegions；同帧多 Region 选最早命中；默认接触式去重，只有显式 LockedTargetTicks 才能离散复击且逐跳重验；每个动作使用独占 WarpTarget 名称 |
 | 玩家来袭与反击窗口 | `MHGZIncomingHitResolverComponent` | Hit 必须属于 Resolver Owner；AttackInstanceID 权威去重；反击 Token 绑定当前 Runtime/Action 身份、优先级和 TTL；Apply 失败回滚去重记录 |
 | 木桩与部位 | `MHGZDummyConfig`、`MHGZMonsterBase`、`MHGZTrainingDummy` | C++ 可生成恰好 Red/White/Orange 三个互不重叠球形 Hitzone，并提供固定 HitResult/AttackInstanceID 的确定性提交入口；E5 仍需配置实际 DataAsset/蓝图位置 |
-| 旧运行时桥接 | `DefaultGame.ini`、`MHGZDataManager`、`MHGZEquipmentComponent`、`MHGZAttackAbility` | 旧 WeaponComboConfig/DataTable 查询和 Attack 旧字段兼容读取已归零；旧字段只剩不参与决策的序列化壳，待 E3 删除旧包后由 M4 移除 |
+| 旧运行时桥接 | `DefaultGame.ini`、`MHGZDataManager`、`MHGZEquipmentComponent`、`MHGZAttackAbility` | 旧 WeaponComboConfig/DataTable 查询与 Attack/Dodge/Combo 旧字段兼容读取均已归零；E3 删除旧包后，M4 已移除对应序列化壳与迁移代码 |
 
 构建、10 项 M2 测试及 M0～M2 共 30 项联合回归证据见 [M2 实施审计](m2-implementation-audit.md)。
 

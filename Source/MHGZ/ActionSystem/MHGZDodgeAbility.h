@@ -48,15 +48,6 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Unsheathed")
 	TSoftObjectPtr<UAnimMontage> UnsheathedBackDodgeMontage;
 
-	/** Legacy migration source. Runtime only reads Forward/None for forward rolls. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Legacy",
-		meta = (DeprecatedProperty, DeprecationMessage = "Use SheathedDodgeMontage"))
-	TMap<EDirectionalInput, TSoftObjectPtr<UAnimMontage>> SheathedDodgeMontages;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Legacy",
-		meta = (DeprecatedProperty, DeprecationMessage = "Use UnsheathedDodgeMontage"))
-	TMap<EDirectionalInput, TSoftObjectPtr<UAnimMontage>> UnsheathedDodgeMontages;
-
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Sections")
 	FName DodgeCoreSectionName = FName(TEXT("DodgeCore"));
 

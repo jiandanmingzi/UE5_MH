@@ -94,7 +94,7 @@ Core references independently justify keeping the remaining E0 assets: `DefaultE
 ## 5. 源码级迁移证据
 
 - `FComboNode/ComboTable` 已从源码运行时移除；协调器与装备收集代码只消费 `FComboTransition/Transitions`。旧结构/属性依靠 §6 的 Redirect 完成过只读加载审计。
-  - `bRequiresHitToGrantTags` 是唯一暂留的序列化兼容字段；最终 Combo 不从旧包迁移。M2 停止读取兼容语义，E3 删除旧包，M4 移除此字段与 `PostLoad` 兼容。
+  - `bRequiresHitToGrantTags` 曾是唯一暂留的序列化兼容字段；最终 Combo 不从旧包迁移。M2 停止读取兼容语义、E3 删除旧包后，已在 M4 移除此字段与 `PostLoad` 兼容。
 - C++ 与配置中的精华名已统一为 Orange；Yellow 只存在于两个 GameplayTagRedirect 的 OldTagName 和迁移说明中。`URes_InsectGlaive` 仍保留 `/Game/...GE_IG_OrangeExtract` 等硬编码旧路径，M3 接入 `DA_IG_Combat` 后删除。
 - Old falling tags (`IG_DanceJump`, `IG_JumpSlash`, `IG_KinsectSlashHit`, `IG_KinsectSlide`, `IG_PoleVault`) and `Input.Modifier.Aiming`: **no** `Source/` references found. Assets may still carry them (editor-only).
 

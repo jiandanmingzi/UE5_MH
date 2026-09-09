@@ -16,17 +16,6 @@ class UAbilityTask_PlayMontageAndWait;
 class UMHGZMonsterHitzoneComponent;
 class USkeletalMeshComponent;
 
-/**
- * 碰撞形状枚举
- */
-UENUM(BlueprintType)
-enum class EAttackCollisionShape : uint8
-{
-	Sphere  UMETA(DisplayName = "球体"),
-	Capsule UMETA(DisplayName = "胶囊体"),
-	Box     UMETA(DisplayName = "盒子")
-};
-
 /** 多段伤害默认只能来自真实接触；离散复击必须显式选择并逐跳重验。 */
 UENUM(BlueprintType)
 enum class EAttackMultiHitPolicy : uint8
@@ -88,26 +77,6 @@ struct FAttackCollisionConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
 	TArray<FWeaponTraceRegion> TraceRegions;
 
-	/** 旧版序列化壳；运行时不再读取，TraceRegions 为空时干净失败。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace")
-	FName TraceEndSocketName;
-
-	/** 旧版序列化壳；运行时不再读取。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (DeprecatedProperty, DeprecationMessage = "Use TraceEndSocketName or TraceRegions"))
-	FName AttachSocketName;
-
-	/** 旧版序列化壳；运行时不再读取。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FName TraceStartSocketName;
-
-	/** 旧版序列化壳；运行时不再读取。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	EAttackCollisionShape Shape = EAttackCollisionShape::Sphere;
-
-	/** 旧版序列化壳；运行时不再读取。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FVector ShapeExtent = FVector(20, 20, 20);
-
 	/** 碰撞通道 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TEnumAsByte<ECollisionChannel> CollisionChannel = ECC_GameTraceChannel1;
@@ -115,10 +84,6 @@ struct FAttackCollisionConfig
 	/** 限定碰撞仅检测带此 Tag 的组件 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag HitzoneQueryTag;
-
-	/** 旧版序列化壳；运行时不再读取。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1", ClampMax = "8"))
-	int32 TraceSampleCount = 3;
 
 	/** PIE 中绘制本段 Sweep，便于校准 Socket 和半径 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -156,10 +121,6 @@ struct FAttackDamageConfig
 	/** 硬直等级 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag HitStaggerTag;
-
-	/** 旧版序列化壳；伤害 SetByCaller 键统一为 Damage.MotionValue/BaseStagger。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	FGameplayTag DamageSetByCallerTag;
 
 	/** 是否按命中部位防御力修正伤害 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -230,9 +191,12 @@ struct FAttackSegmentConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1.0", EditCondition = "MultiHitPolicy == EAttackMultiHitPolicy::LockedTargetTicks"))
 	float LockedTargetMaxDistance = 300.0f;
 
-	/** ★ 本段 MotionWarping 允许的最大旋转修正角度 */
+	/**
+	 * 为特殊动作预留的段内 MotionWarping 旋转上限。通用攻击没有消费者；
+	 * 默认 0，避免未实现 Warp 的攻击被误配为已启用。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	float MaxWarpAngle = 30.0f;
+	float MaxWarpAngle = 0.0f;
 };
 
 /**
@@ -333,12 +297,6 @@ public:
 	/** 构造伤害 GE Spec：写满真实 HitResult/攻击身份/反馈参数。 */
 	virtual FGameplayEffectSpecHandle MakeDamageSpec(
 		const FHitResult& Hit, int32 SegmentIndex);
-
-	/** 旧签名序列化兼容壳（已无运行时调用方；保留以兼容子类覆写）。 */
-	virtual FGameplayEffectSpecHandle MakeDamageSpec(
-		AActor* Target,
-		FName HitzoneBoneName,
-		int32 SegmentIndex);
 
 	/** Apply 伤害到目标；真实 Sweep HitResult 全程不降级。 */
 	void ApplyDamage(const FHitResult& Hit, int32 SegmentIndex);

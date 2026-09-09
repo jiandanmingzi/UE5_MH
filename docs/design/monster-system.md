@@ -76,7 +76,8 @@ struct FDummyHitzoneConfig
     UPROPERTY(EditAnywhere) FGameplayTag ExtractColorTag;      // Extract.Red / Orange / White
     UPROPERTY(EditAnywhere) float DefenseMultiplier = 1.0f;    // 肉质（0.2=坚硬 / 1.0=弱点）
     UPROPERTY(EditAnywhere) float StaggerRate = 0.0f;          // 破坏值吸收率
-    UPROPERTY(EditAnywhere) FVector HalfExtent = FVector(30);  // 当前只使用 X 作为球半径
+    UPROPERTY(EditAnywhere) FVector RelativeLocation;           // 相对挂点位置
+    UPROPERTY(EditAnywhere) float Radius = 30.0f;               // 当前统一使用球形 Hitzone
 };
 ```
 

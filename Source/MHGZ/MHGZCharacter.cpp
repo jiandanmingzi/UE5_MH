@@ -7,6 +7,7 @@
 #include "Engine/LocalPlayer.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
@@ -28,6 +29,78 @@
 #include "Equipment/MHGZEquipmentComponent.h"
 #include "Equipment/MHGZEquipmentDefinition.h"
 #include "Equipment/MHGZEquipmentInstance.h"
+#include "ReferenceSkeleton.h"
+#include "UObject/ConstructorHelpers.h"
+
+namespace
+{
+const FName DemoHeadAttachmentBone(TEXT("Head_00"));
+
+bool GetReferenceBoneComponentTransform(const USkeletalMesh* SkeletalMesh, const FName BoneName,
+	FTransform& OutTransform)
+{
+	if (!SkeletalMesh)
+	{
+		return false;
+	}
+
+	const FReferenceSkeleton& ReferenceSkeleton = SkeletalMesh->GetRefSkeleton();
+	int32 BoneIndex = ReferenceSkeleton.FindBoneIndex(BoneName);
+	if (BoneIndex == INDEX_NONE)
+	{
+		return false;
+	}
+
+	OutTransform = FTransform::Identity;
+	for (; BoneIndex != INDEX_NONE; BoneIndex = ReferenceSkeleton.GetParentIndex(BoneIndex))
+	{
+		OutTransform = OutTransform * ReferenceSkeleton.GetRefBonePose()[BoneIndex];
+	}
+	return true;
+}
+
+void ConfigureHeadModule(USkeletalMeshComponent* MeshComponent, USkeletalMesh* SkeletalMesh)
+{
+	if (!MeshComponent || !SkeletalMesh)
+	{
+		return;
+	}
+
+	MeshComponent->SetSkeletalMesh(SkeletalMesh);
+
+	// A Blueprint can retain old component-template values.  Keep this setup in
+	// one function and run it again after components are initialized so an old
+	// AnimBP, leader-pose binding, or relative transform cannot win over it.
+	MeshComponent->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+
+	FTransform HeadBoneReferenceTransform;
+	if (GetReferenceBoneComponentTransform(SkeletalMesh, DemoHeadAttachmentBone,
+		HeadBoneReferenceTransform))
+	{
+		// The module is attached at the live Head_00 bone. Cancelling its own
+		// reference Head_00 transform makes the two Head_00 transforms coincide.
+		MeshComponent->SetRelativeTransform(HeadBoneReferenceTransform.Inverse());
+	}
+}
+
+void RestoreHeadModuleAttachment(USkeletalMeshComponent* MeshComponent)
+{
+	if (!MeshComponent)
+	{
+		return;
+	}
+
+	MeshComponent->SetLeaderPoseComponent(nullptr);
+	MeshComponent->SetAnimationMode(EAnimationMode::AnimationSingleNode);
+
+	FTransform HeadBoneReferenceTransform;
+	if (GetReferenceBoneComponentTransform(MeshComponent->GetSkeletalMeshAsset(),
+		DemoHeadAttachmentBone, HeadBoneReferenceTransform))
+	{
+		MeshComponent->SetRelativeTransform(HeadBoneReferenceTransform.Inverse());
+	}
+}
+}
 
 AMHGZCharacter::AMHGZCharacter()
 {
@@ -61,6 +134,33 @@ AMHGZCharacter::AMHGZCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
 
+	// Body、Head 与 Hair 是独立 SkeletalMesh。它们的同名骨骼有不同的祖先链，
+	// 因此不能使用 Copy Pose；模块挂到最终 Head_00 骨，并抵消自身参考 Head_00
+	// 变换，使各模块的 Head_00 在参考姿势和运行时都严格重合。
+	HeadMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HeadMesh"));
+	HeadMesh->SetupAttachment(GetMesh(), DemoHeadAttachmentBone);
+	HeadMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HeadMesh->SetGenerateOverlapEvents(false);
+	HeadMesh->SetCanEverAffectNavigation(false);
+	static ConstructorHelpers::FObjectFinder<USkeletalMesh> DemoHeadMesh(
+		TEXT("/Game/Characters/Demo/Meshes/Head/SKM_Demo_Head.SKM_Demo_Head"));
+	if (DemoHeadMesh.Succeeded())
+	{
+		ConfigureHeadModule(HeadMesh, DemoHeadMesh.Object);
+	}
+
+	HairMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("HairMesh"));
+	HairMesh->SetupAttachment(HeadMesh, DemoHeadAttachmentBone);
+	HairMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	HairMesh->SetGenerateOverlapEvents(false);
+	HairMesh->SetCanEverAffectNavigation(false);
+	static ConstructorHelpers::FObjectFinder<USkeletalMesh> DemoHairMesh(
+		TEXT("/Game/Characters/Demo/Meshes/Hair/SKM_Demo_Hair.SKM_Demo_Hair"));
+	if (DemoHairMesh.Succeeded())
+	{
+		ConfigureHeadModule(HairMesh, DemoHairMesh.Object);
+	}
+
 	// MotionWarping
 	MotionWarpingComponent = CreateDefaultSubobject<UMotionWarpingComponent>(TEXT("MotionWarpingComponent"));
 
@@ -88,6 +188,27 @@ UAbilitySystemComponent* AMHGZCharacter::GetAbilitySystemComponent() const
 		return PS->GetMHGZAbilitySystemComponent();
 	}
 	return nullptr;
+}
+
+void AMHGZCharacter::PostLoad()
+{
+	Super::PostLoad();
+
+	// Blueprint component templates are deserialized after the native
+	// constructor. Restore the module setup here as well, so asset previews use
+	// the corrected transform instead of an old serialized value.
+	RestoreHeadModuleAttachment(HeadMesh);
+	RestoreHeadModuleAttachment(HairMesh);
+}
+
+void AMHGZCharacter::BeginPlay()
+{
+	Super::BeginPlay();
+
+	// Last runtime guard in case an inherited Blueprint construction script or
+	// an old component template changes a module after its native construction.
+	RestoreHeadModuleAttachment(HeadMesh);
+	RestoreHeadModuleAttachment(HairMesh);
 }
 
 void AMHGZCharacter::PossessedBy(AController* NewController)
@@ -137,6 +258,16 @@ void AMHGZCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
 	ClearSprintHeld();
 	Super::EndPlay(EndPlayReason);
+}
+
+void AMHGZCharacter::PostInitializeComponents()
+{
+	Super::PostInitializeComponents();
+
+	// 显式覆写旧 Blueprint 序列化的 Leader Pose、AnimBP 与 Relative Transform，
+	// 避免它们把模块拉回曾经的错误骨架空间。
+	RestoreHeadModuleAttachment(HeadMesh);
+	RestoreHeadModuleAttachment(HairMesh);
 }
 
 UMHGZWeaponRuntimeHostComponent* AMHGZCharacter::GetWeaponRuntimeHost() const
