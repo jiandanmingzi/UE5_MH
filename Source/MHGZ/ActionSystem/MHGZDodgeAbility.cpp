@@ -17,6 +17,8 @@
 
 namespace
 {
+const FName DodgeEntrySectionName(TEXT("DodgeEntry"));
+
 FGameplayTag Tag(const TCHAR* Name)
 {
 	return FGameplayTag::RequestGameplayTag(Name);
@@ -153,8 +155,12 @@ void UMHGZDodgeAbility::ActivateAbility(
 	}
 
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
-	const bool bUseLegacyMontageRootMotionOwner = !bActiveDodgeAllowsMoveExit
-		|| !bForwardDodgeUsesActionRootMotionPhase;
+	// The member keeps its original serialized name for existing GA_Dodge
+	// assets, but Phase ownership now applies to every dodge direction. The
+	// three-frame static DodgeEntry gives an attacking source action time to be
+	// superseded before this Dodge's phase begins and acquires the exact owner.
+	const bool bUseLegacyMontageRootMotionOwner =
+		!bForwardDodgeUsesActionRootMotionPhase;
 	if (!Host || (bUseLegacyMontageRootMotionOwner
 		&& !Host->AcquireMontageRootMotion(GetActionToken())))
 	{
@@ -191,8 +197,12 @@ void UMHGZDodgeAbility::ActivateAbility(
 	}
 
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	const FName StartSection = ActiveDodgeMontage
+		&& ActiveDodgeMontage->IsValidSectionName(DodgeEntrySectionName)
+		? DodgeEntrySectionName
+		: DodgeCoreSectionName;
 	if (!Character
-		|| !StartDodgeMontage(*Character, ActiveDodgeMontage, DodgeCoreSectionName)
+		|| !StartDodgeMontage(*Character, ActiveDodgeMontage, StartSection)
 		|| !ConfigureDodgeCoreFallbackExit())
 	{
 		CancelPreparedAttackSupersede();

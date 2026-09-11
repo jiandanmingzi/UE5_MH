@@ -67,6 +67,14 @@ struct FWeaponChordDefinition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	FGameplayTag ReleaseControlTag;
 
+	/**
+	 * 除 ReleaseControlTag 外，同一 Chord 还应派发 Completed 的物理键。
+	 * 适用于“任一组合键松开即释放蓄力”这类动作；每个 Tag 同样必须属于
+	 * TriggerControls 或 RequiredHeldModifiers。空数组保持既有单一 ReleaseControlTag 行为。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
+	TArray<FGameplayTag> AdditionalReleaseControlTags;
+
 	/** 组合解析时调用 AimComponent 捕获瞄准快照的上下文；None 表示不捕获 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	EWeaponAimSnapshotContext AimSnapshotContext = EWeaponAimSnapshotContext::None;

@@ -63,6 +63,8 @@
 
 Montage Section 没有独立的 Crossfade 时间。若 `DodgeCore`、`IdleExit`、`MoveExit` 或其他 Section 之间看起来不连贯，应检查动作姿势、专用衔接序列或 MM 交接；不能在 Section 面板补一个 Blend Time。
 
+攻击的**进入蒙太奇混入**则由 `DA_IG_Combo` 的每条 `FComboTransition.MontageBlendInTime` 控制：`-1` 继承目标 Montage 的默认 Blend In，`0` 为硬切，非负值覆写该次播放的时长。它不修改 `.uasset` 的全局 Blend In，也不影响同一招式从其他边进入；例如 `ForwardY_TuCi=0.05s`、`FeiYuan_Y_TuCi=0.10s`。
+
 ### 2. `ABP_MH_Character`：关闭收刀/持刀 Bool 图分支的混合
 
 1. 打开 `ABP_MH_Character` → **AnimGraph**。

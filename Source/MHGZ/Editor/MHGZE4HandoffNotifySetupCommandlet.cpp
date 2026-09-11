@@ -24,6 +24,9 @@ namespace UE::MHGZ::E4HandoffNotifySetup
 constexpr TCHAR AuditDirectoryName[] = TEXT("ActionExitAudit");
 const FName NotifyTrackName(TEXT("MotionMatching"));
 constexpr float MontageFps = 60.0f;
+// Dodge Montages now begin with a three-frame static entry pose. Keep this
+// authored Handoff source-of-truth aligned to the moved Core timeline.
+constexpr int32 DodgeEntryHoldFrames = 3;
 // NotifyState End is evaluated after ordinary notifies when both are crossed
 // in one animation update. Three source frames leave a deterministic
 // ordering margin at 60fps while retaining the approved Handoff frame.
@@ -37,6 +40,7 @@ struct FMontageRoute
 	int32 HandoffFrame;
 	float PhaseStartTime;
 	EMHGZMotionMatchingHandoffType HandoffType;
+	bool bObserveRawMovementInput;
 };
 
 static const FMontageRoute Routes[] =
@@ -44,19 +48,55 @@ static const FMontageRoute Routes[] =
 	{
 		TEXT("SheatheMoveExit"),
 		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_ShouDao.AM_IG_ShouDao"),
-		115, 61.0f / MontageFps, EMHGZMotionMatchingHandoffType::SheatheMoveExit
+		115, 61.0f / MontageFps, EMHGZMotionMatchingHandoffType::SheatheMoveExit,
+		true
 	},
 	{
 		TEXT("SheathedDodgeMoveExit"),
 		TEXT("/Game/Characters/Demo/Anims/Montage/AM_Shth_Dodge.AM_Shth_Dodge"),
-		85, 0.0f, EMHGZMotionMatchingHandoffType::DodgeMoveExit
+		85 + DodgeEntryHoldFrames, static_cast<float>(DodgeEntryHoldFrames) / MontageFps,
+		EMHGZMotionMatchingHandoffType::DodgeMoveExit, true
 	},
 	{
 		TEXT("UnsheathedForwardDodgeMoveExit"),
 		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_Dodge_Forward.AM_IG_Dodge_Forward"),
-		100, 0.0f, EMHGZMotionMatchingHandoffType::DodgeMoveExit
+		100 + DodgeEntryHoldFrames, static_cast<float>(DodgeEntryHoldFrames) / MontageFps,
+		EMHGZMotionMatchingHandoffType::DodgeMoveExit, true
+	},
+	// Directional rolls never enter MoveExit. They still use a Phase so an
+	// attack's existing root-motion owner is released by Dodge supersede before
+	// the roll begins its authored root displacement. INDEX_NONE means Phase-only.
+	{
+		TEXT("UnsheathedBackDodge"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_Dodge_Back.AM_IG_Dodge_Back"),
+		INDEX_NONE, static_cast<float>(DodgeEntryHoldFrames) / MontageFps,
+		EMHGZMotionMatchingHandoffType::None, false
+	},
+	{
+		TEXT("UnsheathedLeftDodge"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_Dodge_Left.AM_IG_Dodge_Left"),
+		INDEX_NONE, static_cast<float>(DodgeEntryHoldFrames) / MontageFps,
+		EMHGZMotionMatchingHandoffType::None, false
+	},
+	{
+		TEXT("UnsheathedRightDodge"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_Dodge_Right.AM_IG_Dodge_Right"),
+		INDEX_NONE, static_cast<float>(DodgeEntryHoldFrames) / MontageFps,
+		EMHGZMotionMatchingHandoffType::None, false
 	}
 };
+
+bool RouteHasHandoff(const FMontageRoute& Route)
+{
+	return Route.HandoffFrame != INDEX_NONE;
+}
+
+float GetPhaseEndTime(const FMontageRoute& Route, const UAnimMontage& Montage)
+{
+	return RouteHasHandoff(Route)
+		? (static_cast<float>(Route.HandoffFrame - PhaseToHandoffSafetyFrames) / MontageFps)
+		: Montage.GetPlayLength();
+}
 
 bool SaveAsset(UObject& Asset)
 {
@@ -85,8 +125,11 @@ void RemoveExistingE4Notifies(UAnimMontage& Montage)
 
 bool ValidateMontage(const FMontageRoute& Route, const UAnimMontage& Montage)
 {
-	const float HandoffTime = static_cast<float>(Route.HandoffFrame) / MontageFps;
-	const float PhaseEndTime = HandoffTime - (static_cast<float>(PhaseToHandoffSafetyFrames) / MontageFps);
+	const bool bHasHandoff = RouteHasHandoff(Route);
+	const float HandoffTime = bHasHandoff
+		? static_cast<float>(Route.HandoffFrame) / MontageFps
+		: 0.0f;
+	const float PhaseEndTime = GetPhaseEndTime(Route, Montage);
 	int32 PhaseCount = 0;
 	int32 HandoffCount = 0;
 	for (const FAnimNotifyEvent& Event : Montage.Notifies)
@@ -97,7 +140,8 @@ bool ValidateMontage(const FMontageRoute& Route, const UAnimMontage& Montage)
 			++PhaseCount;
 			if (!FMath::IsNearlyEqual(Event.GetTriggerTime(), Route.PhaseStartTime, TimeTolerance)
 				|| !FMath::IsNearlyEqual(Event.GetEndTriggerTime(), PhaseEndTime, TimeTolerance)
-				|| !Phase->bOwnsMontageRootMotion || !Phase->bObserveRawMovementInput)
+				|| !Phase->bOwnsMontageRootMotion
+				|| Phase->bObserveRawMovementInput != Route.bObserveRawMovementInput)
 			{
 				return false;
 			}
@@ -106,22 +150,26 @@ bool ValidateMontage(const FMontageRoute& Route, const UAnimMontage& Montage)
 			Cast<UAnimNotify_MotionMatchingHandoff>(Event.Notify))
 		{
 			++HandoffCount;
-			if (!FMath::IsNearlyEqual(Event.GetTriggerTime(), HandoffTime, TimeTolerance)
+			if (!bHasHandoff
+				|| !FMath::IsNearlyEqual(Event.GetTriggerTime(), HandoffTime, TimeTolerance)
 				|| Handoff->HandoffType != Route.HandoffType)
 			{
 				return false;
 			}
 		}
 	}
-	return PhaseCount == 1 && HandoffCount == 1;
+	return PhaseCount == 1 && HandoffCount == (bHasHandoff ? 1 : 0);
 }
 
 bool ConfigureMontage(const FMontageRoute& Route, UAnimMontage& Montage)
 {
-	const float HandoffTime = static_cast<float>(Route.HandoffFrame) / MontageFps;
-	const float PhaseEndTime = HandoffTime - (static_cast<float>(PhaseToHandoffSafetyFrames) / MontageFps);
+	const bool bHasHandoff = RouteHasHandoff(Route);
+	const float HandoffTime = bHasHandoff
+		? static_cast<float>(Route.HandoffFrame) / MontageFps
+		: 0.0f;
+	const float PhaseEndTime = GetPhaseEndTime(Route, Montage);
 	if (Route.PhaseStartTime < 0.0f || PhaseEndTime <= Route.PhaseStartTime
-		|| HandoffTime >= Montage.GetPlayLength())
+		|| (bHasHandoff && HandoffTime >= Montage.GetPlayLength()))
 	{
 		UE_LOG(LogTemp, Error, TEXT("[E4HandoffSetup] Invalid approved time for %s."), Route.Label);
 		return false;
@@ -138,17 +186,23 @@ bool ConfigureMontage(const FMontageRoute& Route, UAnimMontage& Montage)
 			UAnimationBlueprintLibrary::AddAnimationNotifyStateEvent(&Montage, NotifyTrackName,
 				Route.PhaseStartTime, PhaseEndTime - Route.PhaseStartTime,
 				UAnimNotifyState_ActionRootMotionPhase::StaticClass()));
-	UAnimNotify_MotionMatchingHandoff* Handoff =
-		Cast<UAnimNotify_MotionMatchingHandoff>(
+	UAnimNotify_MotionMatchingHandoff* Handoff = nullptr;
+	if (bHasHandoff)
+	{
+		Handoff = Cast<UAnimNotify_MotionMatchingHandoff>(
 			UAnimationBlueprintLibrary::AddAnimationNotifyEvent(&Montage, NotifyTrackName,
 				HandoffTime, UAnimNotify_MotionMatchingHandoff::StaticClass()));
-	if (!Phase || !Handoff)
+	}
+	if (!Phase || (bHasHandoff && !Handoff))
 	{
 		return false;
 	}
 	Phase->bOwnsMontageRootMotion = true;
-	Phase->bObserveRawMovementInput = true;
-	Handoff->HandoffType = Route.HandoffType;
+	Phase->bObserveRawMovementInput = Route.bObserveRawMovementInput;
+	if (Handoff)
+	{
+		Handoff->HandoffType = Route.HandoffType;
+	}
 	Montage.RefreshCacheData();
 	return ValidateMontage(Route, Montage) && SaveAsset(Montage);
 }
@@ -224,15 +278,15 @@ bool WriteAudit(const TArray<FString>& Rows)
 	TArray<FString> Lines;
 	Lines.Add(TEXT("# E4.2 Handoff Notify Setup"));
 	Lines.Add(TEXT(""));
-	Lines.Add(TEXT("The three approved 60fps Montage frame selections were applied by commandlet."));
-	Lines.Add(FString::Printf(TEXT("Every Action Root Motion Phase ends exactly %d 60fps Montage frames before its Handoff."), PhaseToHandoffSafetyFrames));
+	Lines.Add(TEXT("Mobile routes receive approved 60fps Phase-to-Handoff selections; directional Dodge routes receive a Phase-only contract."));
+	Lines.Add(FString::Printf(TEXT("Every mobile Action Root Motion Phase ends exactly %d 60fps Montage frames before its Handoff."), PhaseToHandoffSafetyFrames));
 	Lines.Add(TEXT(""));
 	Lines.Add(TEXT("| Route | Montage | Phase | Handoff | HandoffType |"));
 	Lines.Add(TEXT("|---|---|---|---:|---|"));
 	Lines.Append(Rows);
 	Lines.Add(TEXT(""));
 	Lines.Add(TEXT("GA_Sheathe: Walk Uses Action Root Motion Phase=true; allowed type includes SheatheMoveExit."));
-	Lines.Add(TEXT("GA_Dodge: Forward Dodge Uses Action Root Motion Phase=true; allowed type includes DodgeMoveExit."));
+	Lines.Add(TEXT("GA_Dodge: Dodge Uses Action Root Motion Phase=true; directional rolls use Phase-only ownership and never publish a MoveExit handoff."));
 	return FFileHelper::SaveStringToFile(FString::Join(Lines, TEXT("\n")), *OutputPath,
 		FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 }
@@ -263,11 +317,19 @@ int32 UMHGZE4HandoffNotifySetupCommandlet::Main(const FString& Params)
 			bSucceeded = false;
 			continue;
 		}
-		const float HandoffTime = static_cast<float>(Route.HandoffFrame) / MontageFps;
-		Rows.Add(FString::Printf(TEXT("| %s | %s | %.4f-%.4f | %.4f (frame %d) | %d |"),
-			Route.Label, *Montage->GetPathName(), Route.PhaseStartTime,
-			HandoffTime - (static_cast<float>(PhaseToHandoffSafetyFrames) / MontageFps), HandoffTime, Route.HandoffFrame,
-			static_cast<int32>(Route.HandoffType)));
+		const float PhaseEndTime = GetPhaseEndTime(Route, *Montage);
+		if (RouteHasHandoff(Route))
+		{
+			const float HandoffTime = static_cast<float>(Route.HandoffFrame) / MontageFps;
+			Rows.Add(FString::Printf(TEXT("| %s | %s | %.4f-%.4f | %.4f (frame %d) | %d |"),
+				Route.Label, *Montage->GetPathName(), Route.PhaseStartTime, PhaseEndTime,
+				HandoffTime, Route.HandoffFrame, static_cast<int32>(Route.HandoffType)));
+		}
+		else
+		{
+			Rows.Add(FString::Printf(TEXT("| %s | %s | %.4f-%.4f | none | none |"),
+				Route.Label, *Montage->GetPathName(), Route.PhaseStartTime, PhaseEndTime));
+		}
 	}
 
 	UBlueprint* SheatheBlueprint = LoadObject<UBlueprint>(nullptr,

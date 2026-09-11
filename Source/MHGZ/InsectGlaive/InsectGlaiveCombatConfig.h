@@ -11,6 +11,7 @@ class UGameplayEffect;
 class UInsectGlaiveKinsectData;
 class USoundBase;
 class AIGMarkProjectile;
+class UParticleSystem;
 
 /** 红灯（Red Extract）动作模式 */
 UENUM(BlueprintType)
@@ -170,6 +171,10 @@ public:
 	/** 虫印弹从带 WeaponTrace ComponentTag 的武器 Mesh 上该 Socket 发射。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MarkProjectile")
 	FName KinsectMarkLaunchSocket = TEXT("IG_FrontTip");
+
+	/** 虫印成功附着后的持续视觉；应是一团附着在 Hitzone 上的黄色粉末。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MarkEffect")
+	TObjectPtr<UParticleSystem> KinsectMarkEstablishedEffect;
 
 	/** 无虫印时滑翔沿角色 Forward 的兜底飞行距离（cm） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Glide", meta = (ClampMin = "0.01"))

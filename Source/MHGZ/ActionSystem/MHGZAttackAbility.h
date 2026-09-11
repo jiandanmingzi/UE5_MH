@@ -324,6 +324,14 @@ protected:
 	bool SelectAttackMontageStartSection(const FWeaponAbilityActivationContext& Context,
 		FName& OutStartSection) const;
 
+	/** Resolves a Combo edge's per-play Blend In override, or the asset default. */
+	float ResolveAttackMontageBlendInTime(
+		const FWeaponAbilityActivationContext& Context) const;
+
+	/** Resolves a Combo edge's activation yaw cap, or this GA's default cap. */
+	float ResolveActivationMaxCorrectionAngle(
+		const FWeaponAbilityActivationContext& Context) const;
+
 	/**
 	 * 开始已选入口的攻击 Montage，并登记精确 MontageInstanceID。
 	 * 测试子类可覆写此边界以验证 StartSection，而无需异步 AnimInstance。
@@ -352,6 +360,12 @@ protected:
 
 	/** 当前招内修正可读取的实时世界方向；生产实现来自 Character 的原始摇杆缓存。 */
 	virtual FVector GetInActionCorrectionDirection() const;
+
+	/**
+	 * 每一次 Damage GE 成功提交后的扩展点。真实 HitResult 与段索引保持原样；
+	 * 派生招式可以在这里接入命中后的专属资源效果，不能在 Sweep 发现接触时提前结算。
+	 */
+	virtual void HandleSuccessfulAttackDamage(const FHitResult& Hit, int32 SegmentIndex) {}
 
 	// ═══════════════════════════════════════════
 	// 运行时状态

@@ -538,7 +538,7 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 3. 有入口差异的**目标招式**创建明确 Section，例如 `Entry_From_Idle`、`Entry_From_Slash1`、`Core`、`Recovery_Common`；所有 `Entry_From_*` 在 Montage 的 Next Section 中连接到同一个 `Core`，再由 `Core` 接 `Recovery_Common`。`Link_Slash1_To_Slash2` 属于 `AM_IG_Slash2` 的 `Entry_From_Slash1`，不能塞进 Slash1 的尾部。没有后续输入时才播放当前招式自己的 Recovery。
 4. `FComboTransition`/`DA_IG_Combo` 不填写 Montage 或 Section。M4-B.1 编译前可以先建 Section 和 Next Section 链，但不能假定现有 `UMHGZAttackAbility` 会选择它；它目前仍从 Montage 开头播放。M4-B.1 编译后，在**目标 GA**填写 `EntrySectionByTransitionID`（优先）、`EntrySectionBySourceState`（回退）和 `DefaultEntrySection`，选择顺序是 `TransitionID → SourceState → Default → Montage 开头`。映射的每个名字都必须是该 Montage 的真实 Section；不要在 Blueprint Event Graph 调 `Montage Jump to Section`，也不要在源 GA 填目标 GA 的 Section。
 5. 每个 AttackCollision Notify 的 ConfigIndex 必须对应 Ability 的一个 AttackSegment。
-6. ComboWindow、`AnimNotifyState_DodgeAcceptWindow`、CounterWindow、PoiseWindow 只标记精确帧区间。`DodgeAcceptWindow` 放在**攻击 Montage**，只允许当前攻击被 Dodge 取消；它由原生代码以该攻击的 ActionToken 持有 `DodgeAcceptOpen`，不得在蓝图手写 Tag。
+6. ComboWindow、`AnimNotifyState_DodgeAcceptWindow`、`AnimNotifyState_IG_AdvancingCounter`、PoiseWindow 只标记精确帧区间。`DodgeAcceptWindow` 放在**攻击 Montage**，只允许当前攻击被 Dodge 取消；它由原生代码以该攻击的 ActionToken 持有 `DodgeAcceptOpen`，不得在蓝图手写 Tag。回旋斩的反击 Notify 只放在 `AM_IG_TuJinHuiXuan` 的 `Counter` 轨道；它同样由原生代码按精确 ActionToken 注册/注销 IncomingHitResolver Token。
 7. Dodge Montage 使用 `AnimNotifyState_DodgeWindow`，它只负责无敌帧和恢复开始前的碰撞响应；它不是 `DodgeAcceptWindow`，不能决定攻击是否可取消。
 8. Section 没有 Root Motion 开关。逐个检查其中引用的 AnimSequence 根轨迹：Entry/Recovery 若应 in-place，其根骨骼必须实际静止；真实位移片段保留 Root Motion。不能把有位移的根轨迹仅靠“该 Section 不提取”伪装成 in-place。M4-B.1 编译后，在每段真实 Root Motion 的首帧至末帧放原生 `Action Root Motion Phase` NotifyState；它只按 MontageInstanceID 路由到 GA，由 GA 获取/释放所有权。in-place 片段不放它；没有真实根位移但玩法需要移动的片段由对应 GA 的 MovementTask 驱动。
 9. MotionWarping Notify 只属于经原生代码明确实现了**目标对齐**的特殊动作；普通攻击的入口方向修正是 `MaxCorrectionAngle` 控制的一次 Actor Yaw 瞬转，不添加 MotionWarping Notify。零 Root Motion 位移动作由 MovementTask 驱动。
@@ -551,7 +551,7 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 ### 6.4 特殊动作时间轴
 
 - 四连印斩：配置四个独立 AttackSegment/窗口；相邻段可重叠，但 ConfigIndex 各自独立。
-- 突进回旋斩：移动阶段内放 CounterWindow；成功反击后由 GA/Coordinator 分支，不由 Montage 猜结果。
+- 突进回旋斩：移动阶段内在 `Counter` 轨道放 `IG Advancing Counter Window`；成功反击后由 GA/Coordinator 分支，不由 Montage 猜结果。
 - 操虫斩：命中窗口和 MovementTask 的结束点分开；只有成功命中增加舞踏。
 - 强化操虫穿刺：只在操虫斩舞踏来源的派生窗口开放。
 - 强化跳跃斩、急袭突刺：校准末速度与惯性交接。

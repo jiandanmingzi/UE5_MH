@@ -73,14 +73,22 @@ void AMHGZMonsterBase::GenerateHitzonesFromConfig(UMHGZDummyConfig* Config)
 		Hitzone->DefenseMultiplier = HZConfig.DefenseMultiplier;
 		Hitzone->StaggerRate = HZConfig.StaggerRate;
 
-		// 挂载到对应骨骼
+		// 静态训练柱使用 None，直接挂到角色 Root；骨骼怪物仍跟随指定骨骼。
+		USceneComponent* AttachmentParent = HZConfig.BoneName.IsNone()
+			? GetRootComponent() : GetMesh();
+		if (!AttachmentParent)
+		{
+			Hitzone->DestroyComponent();
+			continue;
+		}
 		Hitzone->AttachToComponent(
-			GetMesh(),
-			FAttachmentTransformRules::SnapToTargetIncludingScale,
+			AttachmentParent,
+			FAttachmentTransformRules::KeepRelativeTransform,
 			HZConfig.BoneName);
 		AddInstanceComponent(Hitzone);
 		Hitzone->RegisterComponent();
 		Hitzone->SetRelativeLocation(HZConfig.RelativeLocation);
-		Hitzone->SetSphereRadius(FMath::Max(1.f, HZConfig.Radius));
+		Hitzone->Radius = FMath::Max(1.f, HZConfig.Radius);
+		Hitzone->SetSphereRadius(Hitzone->Radius);
 	}
 }

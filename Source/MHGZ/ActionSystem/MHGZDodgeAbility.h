@@ -58,13 +58,14 @@ public:
 	FName MoveExitSectionName = FName(TEXT("MoveExit"));
 
 	/**
-	 * E4.2 migration switch. When enabled, Forward/None rolls (the only rolls
-	 * allowed to enter MoveExit) acquire Montage root-motion ownership solely
-	 * through AnimNotifyState_ActionRootMotionPhase. Directional unsheathed
-	 * rolls retain the legacy whole-action owner.
+	 * E4.2 migration switch. When enabled, every Dodge variant acquires Montage
+	 * root-motion ownership solely through AnimNotifyState_ActionRootMotionPhase.
+	 * The serialized member name is retained so existing GA_Dodge assets preserve
+	 * their configured value; its editor label intentionally describes the
+	 * broadened all-direction contract.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Motion Matching",
-		meta = (DisplayName = "Forward Dodge Uses Action Root Motion Phase"))
+		meta = (DisplayName = "Dodge Uses Action Root Motion Phase"))
 	bool bForwardDodgeUsesActionRootMotionPhase = false;
 
 	virtual bool CanActivateAbility(

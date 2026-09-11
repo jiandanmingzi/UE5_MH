@@ -368,6 +368,14 @@ bool FMHGZM2DummyConfigThreeColorValidation::RunTest(const FString& Parameters)
 	FDataValidationContext EditorContext;
 	TestEqual(TEXT("editor IsDataValid passes"),
 		Config->IsDataValid(EditorContext), EDataValidationResult::Valid);
+	TestTrue(TEXT("default two-metre fire-ring config validates"),
+		Config->ValidateConfig(Error));
+	TestEqual(TEXT("fire-ring default diameter is two metres"),
+		Config->FireRing.Radius * 2.0f, 200.0f);
+	Config->FireRing.ActiveDuration = Config->FireRing.EmissionInterval + 0.01f;
+	TestFalse(TEXT("fire-ring duration longer than its emission interval is rejected"),
+		Config->ValidateConfig(Error));
+	Config->FireRing.ActiveDuration = 1.0f;
 
 	TArray<FDummyHitzoneConfig> Overlap = Good;
 	Overlap[2].RelativeLocation = FVector(50.f, 0.f, 0.f); // 50 < 30+30

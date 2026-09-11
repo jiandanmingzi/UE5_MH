@@ -8,13 +8,21 @@
 #include "Net/UnrealNetwork.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
+namespace
+{
+// Temporary M4.7 input/animation test pool. Keep the initial value and the
+// max-value clamp together so later Gameplay Effects cannot silently reduce it
+// back to the former 200-point test ceiling.
+constexpr float TestStaminaPool = 100000.0f;
+}
+
 UMHGZAttributeSet::UMHGZAttributeSet()
 {
 	// 基础值
 	InitHealth(100.f);
 	InitMaxHealth(100.f);
-	InitStamina(100.f);
-	InitMaxStamina(100.f);
+	InitStamina(TestStaminaPool);
+	InitMaxStamina(TestStaminaPool);
 	InitStaminaRegenRate(1.0f);
 	InitStaminaDeductionRate(1.0f);
 	InitStaminaConsumptionRate(1.0f);
@@ -66,7 +74,7 @@ void UMHGZAttributeSet::ClampAttribute(const FGameplayAttribute& Attribute, floa
 	}
 	else if (Attribute == GetMaxStaminaAttribute())
 	{
-		NewValue = FMath::Clamp(NewValue, 1.f, 200.f);
+		NewValue = FMath::Clamp(NewValue, 1.f, TestStaminaPool);
 	}
 	else if (Attribute == GetCriticalRateAttribute())
 	{

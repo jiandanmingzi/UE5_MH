@@ -30,6 +30,20 @@ FWeaponAbilityActivationContext MakeEntryContext(FName TransitionID, FName Sourc
 	Context.SourceState = SourceState;
 	return Context;
 }
+
+FWeaponAbilityActivationContext MakeBlendContext(float BlendInTime)
+{
+	FWeaponAbilityActivationContext Context;
+	Context.MontageBlendInTime = BlendInTime;
+	return Context;
+}
+
+FWeaponAbilityActivationContext MakeCorrectionContext(float MaxCorrectionAngle)
+{
+	FWeaponAbilityActivationContext Context;
+	Context.MaxCorrectionAngle = MaxCorrectionAngle;
+	return Context;
+}
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -94,6 +108,50 @@ bool FMHGZM4AttackEntrySectionFallbackAndReject::RunTest(const FString& Paramete
 		Attack->SelectEntrySectionForTest(
 			MakeEntryContext(FName(TEXT("IG.Slash1.To.Slash2")), FName(TEXT("Slash1"))),
 			SelectedSection));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM4AttackTransitionBlendIn,
+	"MHGZ.M4.7.Attack.TransitionBlendIn.OverrideAndFallback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM4AttackTransitionBlendIn::RunTest(const FString& Parameters)
+{
+	UMHGZM4TestEntryAttackAbility* Attack =
+		NewObject<UMHGZM4TestEntryAttackAbility>(GetTransientPackage());
+	Attack->AttackMontage = MakeEntryMontage();
+	Attack->AttackMontage->BlendIn.SetBlendTime(3.0f / 60.0f);
+
+	TestEqual(TEXT("negative Combo value inherits the Montage default"),
+		Attack->ResolveBlendInTimeForTest(MakeBlendContext(-1.0f)), 3.0f / 60.0f);
+	TestEqual(TEXT("Combo edge may override Blend In to six 60fps frames"),
+		Attack->ResolveBlendInTimeForTest(MakeBlendContext(6.0f / 60.0f)), 6.0f / 60.0f);
+	TestEqual(TEXT("zero Blend In remains an explicit hard cut"),
+		Attack->ResolveBlendInTimeForTest(MakeBlendContext(0.0f)), 0.0f);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM4AttackTransitionCorrectionAngle,
+	"MHGZ.M4.7.Attack.TransitionCorrectionAngle.OverrideAndFallback",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM4AttackTransitionCorrectionAngle::RunTest(const FString& Parameters)
+{
+	UMHGZM4TestEntryAttackAbility* Attack =
+		NewObject<UMHGZM4TestEntryAttackAbility>(GetTransientPackage());
+	Attack->MaxCorrectionAngle = 30.0f;
+
+	TestEqual(TEXT("negative Combo value inherits the GA correction cap"),
+		Attack->ResolveActivationMaxCorrectionAngleForTest(MakeCorrectionContext(-1.0f)),
+		30.0f);
+	TestEqual(TEXT("Combo edge may allow an exact 180 degree rear correction"),
+		Attack->ResolveActivationMaxCorrectionAngleForTest(MakeCorrectionContext(180.0f)),
+		180.0f);
+	TestEqual(TEXT("zero Combo correction cap remains an explicit no-op"),
+		Attack->ResolveActivationMaxCorrectionAngleForTest(MakeCorrectionContext(0.0f)),
+		0.0f);
 	return true;
 }
 

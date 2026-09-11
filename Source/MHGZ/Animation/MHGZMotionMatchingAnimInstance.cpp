@@ -1898,8 +1898,11 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 {
 	check(Character);
 
-	const FString TelemetryRootDirectory = FPaths::Combine(FPaths::ProjectSavedDir(),
-		TEXT("RuntimeTelemetry"));
+	// FTraceAuxiliary resolves a relative output path against its own trace base, which is
+	// not necessarily the project directory. Resolve once here so both CSV writers and
+	// the dedicated .utrace capture use the same per-project Saved location.
+	const FString TelemetryRootDirectory = FPaths::ConvertRelativePathToFull(
+		FPaths::Combine(FPaths::ProjectSavedDir(), TEXT("RuntimeTelemetry")));
 	if (!IFileManager::Get().MakeDirectory(*TelemetryRootDirectory, true))
 	{
 		bRuntimeTelemetryFailed = true;

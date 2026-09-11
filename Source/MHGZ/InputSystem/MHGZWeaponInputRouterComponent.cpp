@@ -262,6 +262,12 @@ void UMHGZWeaponInputRouterComponent::RebuildChordCache()
 				&& !ReleaseFallbackChordByControl.Contains(Definition.TriggerControls[0]))
 			{
 				const FGameplayTag Trigger = Definition.TriggerControls[0];
+				// A release fallback is still a one-trigger chord.  In particular, RT
+				// is also a configured modifier for RT+Y / RT+B; omit it from
+				// TriggerSet and exact-modifier validation rejects the fallback's own
+				// held RT as an extraneous modifier.
+				Info.Members.Add(Trigger);
+				Info.TriggerSet.Add(Trigger);
 				ReleaseFallbackChordByControl.Add(Trigger, Chords.Num());
 				ReleaseFallbackOwnedTags.Add(Trigger);
 			}
@@ -661,6 +667,15 @@ void UMHGZWeaponInputRouterComponent::EmitChord(int32 ChordIndex, double Now)
 	if (Chord.Definition->ReleaseControlTag.IsValid())
 	{
 		RegisterRelease(Snapshot, Chord.Definition->ReleaseControlTag);
+	}
+	for (const FGameplayTag& AdditionalReleaseControl :
+		Chord.Definition->AdditionalReleaseControlTags)
+	{
+		if (AdditionalReleaseControl.IsValid()
+			&& AdditionalReleaseControl != Chord.Definition->ReleaseControlTag)
+		{
+			RegisterRelease(Snapshot, AdditionalReleaseControl);
+		}
 	}
 
 	EmitSnapshot(Snapshot);
@@ -1209,6 +1224,12 @@ FString UMHGZWeaponInputRouterComponent::GetHeldPhysicalInputTagsDebugString() c
 	}
 	Tags.Sort();
 	return FString::Join(Tags, TEXT("|"));
+}
+
+bool UMHGZWeaponInputRouterComponent::IsPhysicalInputHeld(
+	const FGameplayTag& PhysicalTag) const
+{
+	return PhysicalTag.IsValid() && HeldControls.Contains(PhysicalTag);
 }
 
 void UMHGZWeaponInputRouterComponent::RecomputeAimChildTags()

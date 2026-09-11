@@ -49,6 +49,11 @@ EDataValidationResult UMHGZWeaponComboData::IsDataValid(FDataValidationContext& 
 		Context.AddError(Error);
 		bInvalid = true;
 	};
+	if (!FMath::IsFinite(PreInputLifetime) || PreInputLifetime < 0.f)
+	{
+		AddError(LOCTEXT("InvalidPreInputLifetime",
+			"PreInputLifetime must be a finite, non-negative duration."));
+	}
 
 	for (int32 Index = 0; Index < Transitions.Num(); ++Index)
 	{
@@ -80,6 +85,21 @@ EDataValidationResult UMHGZWeaponComboData::IsDataValid(FDataValidationContext& 
 		if (Transition.bAutoTransition == Transition.InputTag.IsValid())
 		{
 			AddError(FText::Format(LOCTEXT("InvalidInputAutoPair", "Transitions[{0}] must be either an input edge with InputTag or an automatic edge without InputTag."), IndexText));
+		}
+		if (!FMath::IsFinite(Transition.MontageBlendInTime)
+			|| Transition.MontageBlendInTime < -1.0f)
+		{
+			AddError(FText::Format(LOCTEXT("InvalidMontageBlendInTime",
+				"Transitions[{0}] MontageBlendInTime must be -1 (asset default) or a non-negative duration."),
+				IndexText));
+		}
+		if (!FMath::IsFinite(Transition.MaxCorrectionAngle)
+			|| Transition.MaxCorrectionAngle < -1.0f
+			|| Transition.MaxCorrectionAngle > 180.0f)
+		{
+			AddError(FText::Format(LOCTEXT("InvalidMaxCorrectionAngle",
+				"Transitions[{0}] MaxCorrectionAngle must be -1 (GA default) or a value from 0 through 180 degrees."),
+				IndexText));
 		}
 
 		if (Transition.StatePolicy == EComboStatePolicy::Replace && Transition.TargetState.IsNone())

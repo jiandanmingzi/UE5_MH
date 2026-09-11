@@ -7,6 +7,7 @@
 #include "ActionSystem/MHGZDamageGameplayEffect.h"
 #include "ActionSystem/MHGZGameplayEffectContext.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Particles/ParticleSystemComponent.h"
 #include "GameFramework/Character.h"
 #include "Materials/MaterialInstance.h"
 #include "GameplayEffect.h"
@@ -100,6 +101,7 @@ void URes_InsectGlaive::ShutdownRuntime(EWeaponRuntimeEndReason Reason)
 	}
 	bRuntimeShuttingDown = true;
 	SetComponentTickEnabled(false);
+	ClearDanceStacks(EIGDanceClearReason::RuntimeShutdown);
 
 	if (GetWorld())
 	{
@@ -162,8 +164,9 @@ void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 	const bool bHasTrackedMark = ActiveMarkHitzone.IsValid()
 		|| ActiveMarkProjectile.IsValid() || MarkActiveTagToken.IsValid();
 	if (bHasTrackedMark
-		&& (!ActiveMarkHitzone.IsValid() || !ActiveMarkProjectile.IsValid()
-			|| !IsValid(ActiveMarkHitzone->GetOwner())))
+		&& (!ActiveMarkHitzone.IsValid()
+			|| !IsValid(ActiveMarkHitzone->GetOwner())
+			|| (bActiveMarkUsesProjectile && !ActiveMarkProjectile.IsValid())))
 	{
 		ClearKinsectMark(EIGMarkClearReason::TargetInvalid);
 	}
@@ -224,6 +227,7 @@ bool URes_InsectGlaive::OnWeaponEquipped(UInsectGlaiveKinsectData* Data,
 
 void URes_InsectGlaive::OnWeaponUnequipped()
 {
+	ClearDanceStacks(EIGDanceClearReason::Unequipped);
 	SetKinsectActiveTag(false);
 	// Kinsect.Active is Resource-exclusive. Normalize any pre-TagLedger count left
 	// by an older runtime so a weapon swap cannot carry that stale state forward.
@@ -675,19 +679,38 @@ bool URes_InsectGlaive::LaunchKinsectMark(const FWeaponAimSnapshot& AimSnapshot)
 	return true;
 }
 
+bool URes_InsectGlaive::SetKinsectMarkFromMeleeHit(const FHitResult& Hit)
+{
+	UMHGZMonsterHitzoneComponent* Hitzone =
+		Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+	return SetKinsectMarkInternal(Hitzone, Hit.ImpactPoint, nullptr);
+}
+
 bool URes_InsectGlaive::SetKinsectMark(UMHGZMonsterHitzoneComponent* Hitzone,
 	const FVector& ImpactPoint, AIGMarkProjectile* Projectile)
 {
-	if (bRuntimeShuttingDown || !Hitzone || !Projectile
-		|| !IsValid(Hitzone->GetOwner()) || Projectile->GetOwner() != GetOwner())
+	return SetKinsectMarkInternal(Hitzone, ImpactPoint, Projectile);
+}
+
+bool URes_InsectGlaive::SetKinsectMarkInternal(
+	UMHGZMonsterHitzoneComponent* Hitzone, const FVector& ImpactPoint,
+	AIGMarkProjectile* Projectile)
+{
+	if (bRuntimeShuttingDown || !CombatConfig || !GetWorld() || !Hitzone
+		|| !IsValid(Hitzone->GetOwner())
+		|| !FMath::IsFinite(ImpactPoint.X) || !FMath::IsFinite(ImpactPoint.Y)
+		|| !FMath::IsFinite(ImpactPoint.Z)
+		|| (Projectile && Projectile->GetOwner() != GetOwner()))
 	{
 		return false;
 	}
 	ClearKinsectMark(EIGMarkClearReason::Replaced);
 	ActiveMarkHitzone = Hitzone;
 	ActiveMarkProjectile = Projectile;
+	bActiveMarkUsesProjectile = Projectile != nullptr;
 	ActiveMarkLocalPoint = Hitzone->GetComponentTransform().InverseTransformPosition(ImpactPoint);
 	SetMarkActiveTag(true);
+	SpawnKinsectMarkEffect();
 
 	const uint64 ThisMarkSerial = ++MarkSerial;
 	GetWorld()->GetTimerManager().SetTimer(MarkExpiryTimer,
@@ -713,16 +736,55 @@ void URes_InsectGlaive::ClearKinsectMark(EIGMarkClearReason Reason)
 	{
 		Projectile->Destroy();
 	}
+	ClearKinsectMarkEffect();
 	ActiveMarkProjectile.Reset();
 	ActiveMarkHitzone.Reset();
 	ActiveMarkLocalPoint = FVector::ZeroVector;
+	bActiveMarkUsesProjectile = false;
 	SetMarkActiveTag(false);
+}
+
+void URes_InsectGlaive::SpawnKinsectMarkEffect()
+{
+	ClearKinsectMarkEffect();
+	UMHGZMonsterHitzoneComponent* Hitzone = ActiveMarkHitzone.Get();
+	UParticleSystem* Template = CombatConfig
+		? CombatConfig->KinsectMarkEstablishedEffect : nullptr;
+	if (!Hitzone || !Template || !IsValid(Hitzone->GetOwner()))
+	{
+		return;
+	}
+
+	UParticleSystemComponent* Effect = NewObject<UParticleSystemComponent>(
+		Hitzone->GetOwner(), TEXT("IG_MarkYellowPowder"));
+	if (!Effect)
+	{
+		return;
+	}
+	Effect->bAutoDestroy = false;
+	Effect->SetTemplate(Template);
+	Effect->RegisterComponent();
+	Effect->AttachToComponent(Hitzone, FAttachmentTransformRules::KeepWorldTransform);
+	Effect->SetWorldLocation(Hitzone->GetComponentTransform()
+		.TransformPosition(ActiveMarkLocalPoint));
+	Effect->ActivateSystem(true);
+	ActiveMarkEffect = Effect;
+}
+
+void URes_InsectGlaive::ClearKinsectMarkEffect()
+{
+	if (ActiveMarkEffect)
+	{
+		ActiveMarkEffect->DestroyComponent();
+		ActiveMarkEffect = nullptr;
+	}
 }
 
 bool URes_InsectGlaive::HasValidKinsectMark() const
 {
-	return ActiveMarkHitzone.IsValid() && ActiveMarkProjectile.IsValid()
-		&& IsValid(ActiveMarkHitzone->GetOwner());
+	return ActiveMarkHitzone.IsValid()
+		&& IsValid(ActiveMarkHitzone->GetOwner())
+		&& (!bActiveMarkUsesProjectile || ActiveMarkProjectile.IsValid());
 }
 
 bool URes_InsectGlaive::GetKinsectMarkWorldLocation(FVector& OutLocation) const
@@ -734,6 +796,51 @@ bool URes_InsectGlaive::GetKinsectMarkWorldLocation(FVector& OutLocation) const
 	OutLocation = ActiveMarkHitzone->GetComponentTransform()
 		.TransformPosition(ActiveMarkLocalPoint);
 	return true;
+}
+
+bool URes_InsectGlaive::AddDanceStack(EIGDanceSource Source)
+{
+	if (bRuntimeShuttingDown || !CombatConfig || Source == EIGDanceSource::None)
+	{
+		return false;
+	}
+
+	const int32 PreviousStacks = DanceStacks;
+	const EIGDanceSource PreviousSource = DanceSource;
+	DanceStacks = FMath::Clamp(DanceStacks + 1, 0, CombatConfig->MaxDanceStacks);
+	DanceSource = Source;
+	if (DanceStacks != PreviousStacks || DanceSource != PreviousSource)
+	{
+		OnDanceStateChanged.Broadcast(DanceStacks, DanceSource);
+	}
+	return true;
+}
+
+void URes_InsectGlaive::ClearDanceStacks(EIGDanceClearReason Reason)
+{
+	(void)Reason;
+	if (DanceStacks == 0 && DanceSource == EIGDanceSource::None)
+	{
+		return;
+	}
+
+	DanceStacks = 0;
+	DanceSource = EIGDanceSource::None;
+	if (!bRuntimeShuttingDown)
+	{
+		OnDanceStateChanged.Broadcast(DanceStacks, DanceSource);
+	}
+}
+
+float URes_InsectGlaive::GetDanceDamageMultiplier() const
+{
+	if (!CombatConfig || CombatConfig->DanceDamageMultipliers.IsEmpty())
+	{
+		return 1.0f;
+	}
+	const int32 Index = FMath::Clamp(DanceStacks, 0,
+		CombatConfig->DanceDamageMultipliers.Num() - 1);
+	return FMath::Max(0.0f, CombatConfig->DanceDamageMultipliers[Index]);
 }
 
 bool URes_InsectGlaive::AreTripleCostSpecs(

@@ -544,6 +544,14 @@ struct FWeaponAbilityActivationContext
 	UPROPERTY(BlueprintReadOnly)
 	FName TargetState;
 
+	/** Per-transition Montage Blend In override; negative means target asset default. */
+	UPROPERTY(BlueprintReadOnly)
+	float MontageBlendInTime = -1.0f;
+
+	/** Per-transition activation yaw correction cap; negative inherits the target GA default. */
+	UPROPERTY(BlueprintReadOnly)
+	float MaxCorrectionAngle = -1.0f;
+
 	UPROPERTY(BlueprintReadOnly)
 	FWeaponInputSnapshot Input;
 };

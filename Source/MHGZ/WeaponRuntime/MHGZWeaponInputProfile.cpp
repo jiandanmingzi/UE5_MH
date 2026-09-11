@@ -219,6 +219,38 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 				IndexText, FText::FromString(Chord.ReleaseControlTag.ToString())));
 		}
 
+		TSet<FGameplayTag> ReleaseControls;
+		if (Chord.ReleaseControlTag.IsValid())
+		{
+			ReleaseControls.Add(Chord.ReleaseControlTag);
+		}
+		for (const FGameplayTag& ReleaseControl : Chord.AdditionalReleaseControlTags)
+		{
+			if (!ReleaseControl.IsValid())
+			{
+				AddError(FText::Format(
+					LOCTEXT("InvalidAdditionalReleaseControl", "Chords[{0}] contains an invalid AdditionalReleaseControlTag."),
+					IndexText));
+				continue;
+			}
+			if (!TriggerSet.Contains(ReleaseControl) && !ModifierSet.Contains(ReleaseControl))
+			{
+				AddError(FText::Format(
+					LOCTEXT("AdditionalReleaseControlNotMember", "Chords[{0}] AdditionalReleaseControlTag '{1}' is not one of its TriggerControls/RequiredHeldModifiers."),
+					IndexText, FText::FromString(ReleaseControl.ToString())));
+			}
+			else if (ReleaseControls.Contains(ReleaseControl))
+			{
+				AddError(FText::Format(
+					LOCTEXT("DuplicateReleaseControl", "Chords[{0}] repeats release control '{1}'."),
+					IndexText, FText::FromString(ReleaseControl.ToString())));
+			}
+			else
+			{
+				ReleaseControls.Add(ReleaseControl);
+			}
+		}
+
 		if (Chord.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed)
 		{
 			if (Chord.TriggerControls.Num() != 1)
@@ -239,11 +271,18 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 					LOCTEXT("ReleaseFallbackReleaseControl", "Chords[{0}] OnReleaseIfUnconsumed must leave ReleaseControlTag empty."),
 					IndexText));
 			}
+			if (!Chord.AdditionalReleaseControlTags.IsEmpty())
+			{
+				AddError(FText::Format(
+					LOCTEXT("ReleaseFallbackAdditionalReleaseControls", "Chords[{0}] OnReleaseIfUnconsumed must leave AdditionalReleaseControlTags empty."),
+					IndexText));
+			}
 
 			if (Chord.TriggerControls.Num() == 1
 				&& Chord.TriggerControls[0].IsValid()
 				&& Chord.RequiredHeldModifiers.Num() == 0
-				&& !Chord.ReleaseControlTag.IsValid())
+				&& !Chord.ReleaseControlTag.IsValid()
+				&& Chord.AdditionalReleaseControlTags.IsEmpty())
 			{
 				const FGameplayTag Trigger = Chord.TriggerControls[0];
 				if (const int32* OtherIndex = ReleaseFallbackTriggerOwners.Find(Trigger))

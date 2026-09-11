@@ -6,8 +6,8 @@
 #include "MHGZE4HandoffNotifySetupCommandlet.generated.h"
 
 /**
- * Applies the approved E4.2 Root Motion Phase and Handoff notify contract to
- * the three audited Montages, then enables only their matching ability flags.
+ * Applies the approved E4.2 Root Motion Phase/Handoff contract to mobile
+ * routes and the Phase-only ownership contract to directional Dodge routes.
  */
 UCLASS()
 class MHGZ_API UMHGZE4HandoffNotifySetupCommandlet : public UCommandlet

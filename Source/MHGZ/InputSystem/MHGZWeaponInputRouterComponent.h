@@ -86,6 +86,9 @@ public:
 	/** Stable, pipe-separated physical controls currently held by the router. */
 	FString GetHeldPhysicalInputTagsDebugString() const;
 
+	/** True only while this exact logical physical control is still held. */
+	bool IsPhysicalInputHeld(const FGameplayTag& PhysicalTag) const;
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;

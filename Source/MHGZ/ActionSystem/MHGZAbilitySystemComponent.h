@@ -10,6 +10,7 @@
 
 class UGameplayAbility;
 class UGameplayEffect;
+class UAnimMontage;
 class UMHGZWeaponComboData;
 class UMHGZWeaponRuntimeHostComponent;
 class UGA_WeaponComboCoordinator;
@@ -89,6 +90,9 @@ public:
 	 */
 	void HandleResolvedInputSnapshot(const FWeaponInputSnapshot& Snapshot);
 
+	/** Attempt the non-Input.Weapon direct lane without recursively entering preinput routing. */
+	bool TryActivateDirectInput(const FWeaponInputSnapshot& Snapshot);
+
 	/** 输入释放 → 委托给当前 RuntimeHost 的 Active Action 注册表。 */
 	void HandleResolvedInputRelease(const FWeaponInputSnapshot& Snapshot);
 
@@ -105,6 +109,16 @@ public:
 	bool ConsumePendingActivationContext(
 		const FGameplayAbilitySpecHandle& Handle,
 		FWeaponAbilityActivationContext& OutContext);
+
+	/**
+	 * Local-only weapon montage playback with a per-instance Blend In duration.
+	 * It keeps the ASC's current Montage/animating Ability bookkeeping so normal
+	 * GAS Montage tasks retain their interruption and cleanup behavior.
+	 */
+	float PlayMontageWithBlendIn(UGameplayAbility* AnimatingAbility,
+		FGameplayAbilityActivationInfo ActivationInfo, UAnimMontage* Montage,
+		float PlayRate, FName StartSectionName, float StartTimeSeconds,
+		float BlendInTime);
 
 protected:
 	virtual void BeginPlay() override;

@@ -75,8 +75,8 @@ E0/E1  E2    E3    E5.1（木桩三色部位与猎虫物理）
 | M4.5 动作退出固定矩阵与 M4.1 最终验收 | M4.4、E4.2。 | 既存收刀/翻滚/拔刀/突刺在 Exit→Loop/Stop/Idle 下的固定矩阵通过，并完成 M4.1 最终 PIE。 | **已完成（2026-09-01）：PIE 与 RuntimeTelemetry 确认 Exit 起始进入、持续输入 Exit→Move、真实松杆即时一次 Stop、无输入 ActionIdle；M4.1 最终 PIE 已签收。** |
 | M4.2.1 收刀 Run/Sprint Loop 候选库重路由 | M4.5；M4.2 的 Stop 生命周期保持已签收。 | 已进入 Run/Sprint Loop 的持续输入改挡，只通过候选数据库成员变化触发一次合法搜索；目标 Loop 库不得暴露 Start/Stop；真实松杆仍回既有 FullMove 并保持一次正确 Stop。节点 Blend 配置保持基线。 | **已完成并签收（2026-09-03）：** Development Editor 编译通过；`MHGZ.PMM` 11/11（资产 5/5、查询 6/6）通过；LoopOnly commandlet `-AuditOnly` 为 2/2。PIE Telemetry `Saved/RuntimeTelemetry/20260903-211806-BP_IG_Character_C_0-53906` 已确认：`RunLoopOnly` 与 `SprintLoopOnly` 会在至多两个动画更新内双向切换，目标候选库不含 Start/Stop；Start 期间保持 FullMove；真实松杆仍只产生一次正确 Stop。用户已完成目视回归且未发现问题。**允许进入 M4.6。** |
 | M4.6 攻击 Entry Section | M4.5、M4.2.1。 | Section 在播放前选择；拆分攻击的 Root Motion Phase 与 MovementTask 所有权可验证。 | **代码完成（2026-09-04；2026-09-05 两次复验）：** `UMHGZAttackAbility` 已按 `TransitionID → SourceState → DefaultEntrySection → Montage 开头` 在播放前选择并校验入口，非法配置在 Commit/Confirm 前拒绝；Development Editor 编译通过，`MHGZ.M4` 27/27（含 `MHGZ.M4.6.Attack.EntrySection` 2/2、精确 `bRequiresDodgeAcceptWindow` 门槛与扩展后的旧序列化字段/Notify 缺失断言）通过。第二轮清理已删除 Dummy `HalfExtent`、Combo `CoreRedirects`、两个旧 Dodge Notify 类及两个 Montage 中的四个实例。DataValidation 冷启动加载 519 资产，未见本次清理导致的 Missing Property/Class 或蓝图编译错误；全项目仍有既知 G-002 `DA_TrainingDummy` Hitzone 配置错误。实际拆分招式的资产接线、Root Motion Phase/MovementTask 目视验收由已开放的 E4.3 完成。 |
-| M4.7 地面招式 / 虫印 | M4.6 完成、E4.3 的最终 Combo 壳有效。 | 地面连段、虫印、反击/舞踏入口符合动作设计。 | 未开始。 |
-| M5 空中/舞踏/终结 | M4.7 与 M4.5 最终回归完成。 | 空中位移、舞踏、落地和取消只保留一个位移所有者。 | 未开始。 |
+| M4.7 地面招式 / 虫印 | M4.6 完成、E4.3 的最终 Combo 壳有效。 | 地面连段、虫印、反击/舞踏入口符合动作设计。 | **已完成并签收（2026-09-11）：** 地面虫印、四连印斩与突进回旋斩的 GA、Montage、Combo 和精确窗口均已完成 PIE；`bCounterable` 火圈命中已验证反击消费与 `AdvancingCounter` 舞踏层入口。实际弹跳位移明确移交 M5。 |
+| M5 空中/舞踏/终结 | M4.7 与 M4.5 最终回归完成。 | 空中位移、舞踏、落地和取消只保留一个位移所有者。 | **实施中（2026-09-11）：** 先建立绑定 `ActionToken` 的唯一 MovementTask，以反击成功后的 BallisticVault 作为首个纵切。 |
 | M6 觉虫击/粉尘/UI | M5、觉虫击规则和表现接口已冻结。 | HUD 唯一所有权、Resource Widget、Cue、粉尘和觉虫击闭环。 | 未开始。 |
 | M7 集成/打包 | M0～M6 与 E0～E6 均完成。 | 全项目验证、反复 PIE、压力测试、Win64 Development 打包通过。 | 未开始。 |
 
@@ -92,8 +92,8 @@ E0/E1  E2    E3    E5.1（木桩三色部位与猎虫物理）
 | E3 Runtime/Input/Combat 数据 | M2/M3 数据类型可用。 | RuntimeDefinition、InputProfile、Combat/Combo 最终数据壳存在；旧输入/旧 Combo 引用清理。 | 已完成，后续字段由 E4 回填。 |
 | E4.1 最小动作资产 | M4.1 原生父类/Notify 已编译，E3 数据壳有效。 | 最终 GA、Montage、Notify、两条 Y 边、CoreAbilities 与 AnimGraph 接线完成；对 E4.1 资产做阶段验证。 | **已完成；M4.1.5 阶段快照 `15bbb6b`。** |
 | E4.2 动作退出资产 | M4.4 代码和数据接口已编译。 | 仅收刀 Walk、前向 Dodge MoveExit、以及 Telemetry 已证明直接交接失败的既存拔刀/突刺路径，完成无功能 ExitTransition、Handoff Notify、Root/Notify 审计、Exit PSD/Chooser 接线与索引。 | **已完成（2026-09-01）：单一完整 Exit PSD、起始 BlockTransition、原生 PreSearch 路由与即时 Exit→Stop 交接均已编译、审计并通过 M4.5 PIE。** |
-| E4.3 其余地面动作 | M4.6 代码完成且 M4.5 已最终验收。 | 批量地面招式均从正确 Section 启动并正确结束。 | **可开始（未实施）。** |
-| E5.1 木桩/基础猎虫 | M3 Collision Root 与 Sweep 已完成。 | `DA_TrainingDummy` 恰有 Head=Red、Torso=Orange、Leg=White；Body/Hitzone 碰撞与猎虫物理配置正确。 | 阻塞/待接线。 |
+| E4.3 其余地面动作 | M4.6 代码完成且 M4.5 已最终验收。 | 批量地面招式均从正确 Section 启动并正确结束。 | **已完成（2026-09-09）：** 地面招式的最终 GA、Montage、Combo 转移与入口 Section 已接线；用户已在 PIE 逐项验证全部当前招式。Dodge 的三帧入口混合段、Section/Notify 时间轴审计与 `MHGZ.M4.Dodge` 4/4 自动化也已复核通过。 |
+| E5.1 木桩/基础猎虫 | M3 Collision Root 与 Sweep 已完成。 | `DA_TrainingDummy` 恰有 Head=Red、Torso=Orange、Leg=White；Body/Hitzone 碰撞与猎虫物理配置正确。 | **已验收（2026-09-11）：** 三色木桩、水平火圈、受击与反击均已在 PIE 验证。猎虫采集精华因尚无可执行的人工验收路径，记录为 M7 前必须补齐的验收欠项。 |
 | E5.2 猎虫表现/训练场 | M5 或对应表现接口完成。 | 正式猎虫表现、训练场、可用的粉尘/虫印表现资产按所属阶段接线。 | 部分资产存在，未验收。 |
 | E6 UI/Cue | M6 接口完成。 | HUD 唯一所有者，ResourceWidget 填入 RuntimeDefinition，Cue/反馈闭环。 | 未开始。 |
 | E7 全流程验证 | M0～M6、E0～E6 完成。 | 全 Content Data Validation、完整 PIE、打包均通过。 | 未开始。 |
@@ -119,15 +119,15 @@ M4.2 的唯一退出条件仍是普通 Idle、Start、Loop、真实松杆 Stop�
 | ID | 所属阶段 | 当前事实 | 解除条件 | 阻塞范围 |
 |---|---|---|---|---|
 | G-001 | M0/M2 验证合同，影响 E4.1 | **已解除（2026-08-24）。** `IsDataValid` 已改为只拒绝“Widget 非空、Resource 为空”；Resource 非空、Widget 为 `None` 合法。新增 `MHGZ.M2.Validation.ResourceWidgetRequiresResourceComponent`，完整自动化 54/54 通过；全 Content Data Validation 已确认 `DA_WeaponRuntime_IG` 不再报错。 | 无。 | 不阻塞。 |
-| G-002 | E5.1 | `DA_TrainingDummy` 当前不满足恰好 Red/White/Orange 三个 Hitzone。 | 在 E5.1 按 Head=Red、Torso=Orange、Leg=White 配置并验证不重叠。 | M3 三色端到端、E5.1、全项目验证；**不阻塞 E4.1 的送虫/收虫功能验收。** |
+| G-002 | E5.1 | **已解除（2026-09-11）。** `DA_TrainingDummy` 已为下白/中橙/上红三个相切不重叠 Hitzone；全 Content Data Validation 565 assets 通过。木桩、火圈、受击与反击的 PIE 已验收。猎虫采集精华仍缺少可执行的人工验收路径，保留为 M7 前必须补齐的验收欠项。 | 补录猎虫命中三色 Hitzone、回手并交付相应精华的 PIE 证据。 | 不阻塞 M5；阻塞最终 M7 验收。 |
 | G-003 | M4.2 普通移动 / Stop | **已解除。** 普通 Idle/Start/Loop/Stop 固定矩阵已按当前代码与 Telemetry 签收；功能动作退出不属于本门禁。 | 无。 | 不阻塞。 |
 | G-004 | M4.5 动作退出 | **已解除（2026-09-01）。** 单一完整 Exit PSD 的起始 BlockTransition 防止跳尾；持续输入保留 Exit→Move，真实松杆立即让出 continuing pose 并进入一次正常 Stop；无输入进入 ActionIdle。PIE 与 RuntimeTelemetry 已通过。 | 无。 | 不阻塞。 |
 | G-005 | E4.1 | **已解除；** 收刀、翻滚、Draw、送虫/收虫与 AnimGraph 已在 `15bbb6b` 的 M4.1.5 阶段快照中保存。 | 无；以后若修改这些资产，按 E4.1 阶段验证重新确认。 | 不阻塞 M4.2。 |
 
 ## 7. 当前项目位置与唯一允许的下一步
 
-**当前阶段：E4.3 其余地面动作（已开放，未实施）。** M4.1/E4.1、M4.2～M4.5、M4.2.1 与 E4.2 均已签收。M4.6 的原生入口 Section 合同已于 2026-09-04 编译并自动化验证；M4.2.1 的两个 LoopOnly PSD 仍只含目标 Loop，运行时仅在已实际获选 Run/Sprint Loop 的目标挡位改变时切换候选库。旧 `GaitChangeSerial` / 无条件 Force 重搜方案仍禁止恢复。
+**当前阶段：M5 舞踏、空中位移与终结动作实施中（2026-09-11）。** M4.7 已签收：地面虫印、四连印斩、突进回旋斩、其派生与精确窗口均完成 PIE；突进回旋斩的反击窗口已经在 `bCounterable` 火圈命中中验证成功，能够消费该次 IncomingHit 并增加 `AdvancingCounter` 舞踏层。E5.1 的木桩三色 Hitzone、水平火圈、受击和反击也已验收；仅猎虫采集精华的人工验收保留为 M7 前必须补齐的欠项。
 
-当前唯一允许的下一步是 **E4.3 地面动作资产接线与阶段 PIE 验收**：为拆分攻击创建目标 Montage 的 `Entry_From_*`、`Core`、`Recovery` Section，并将最终 GA/Combo Transition 映射填入 M4.6 的字段。每项映射必须通过 Data Validation；PIE 要验证进入正确 Section、真实 Root Motion Phase 与 MovementTask 的唯一位移所有权。M4.7 与 M5 仍按各自前置门禁保持阻塞。
+M5 的第一项是建立唯一的动作位移执行层：`BoundedDirectional`、`BallisticVault` 和 `AdditiveInertia` 必须由绑定当前 `ActionToken` 的同一 MovementTask 仲裁平移、旋转、转向、碰撞和 WarpTarget 生命周期。首个纵切是把突进回旋斩的成功反击从“增加舞踏层后结束地面 GA”改为“增加一层后执行 BallisticVault、进入 Aerial”；该层通过后才接操虫斩与其余空中动作。不得在反击 GA、蓝图 Tick 或 Character 中直接写 CMC/`LaunchCharacter` 来跳过该所有权。
 
 M4.6 固定优先级为 `TransitionID → SourceState → DefaultEntrySection → Montage 开头`；`StartSection` 必须在创建 Montage Task 时传入，禁止先播放再 Jump。无效入口在 Resource Reserve、GAS Commit 和 Coordinator Confirm 前拒绝，因此不会把来源动作错误地以 Superseded 结束。若今后出现动作退出回归，回归归属仍为 E4.2/M4.5。

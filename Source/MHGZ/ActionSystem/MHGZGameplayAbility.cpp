@@ -289,6 +289,13 @@ void UMHGZGameplayAbility::ActivateAbility(
 			return;
 		}
 	}
+	else if (UGA_WeaponComboCoordinator* Coordinator =
+		MHGZASC ? MHGZASC->GetActiveComboCoordinator() : nullptr)
+	{
+		// A direct action (Dodge, Sheathe, Kinsect, etc.) is also an action
+		// boundary.  It cannot inherit a command buffered for the prior action.
+		Coordinator->OnDirectActionConfirmed();
+	}
 
 	// 8. 注册 Active Action。
 	if (Host && !Host->RegisterAction(CurrentActionToken))

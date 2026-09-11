@@ -93,6 +93,15 @@ public:
 	{
 		return SelectAttackMontageStartSection(Context, OutStartSection);
 	}
+	float ResolveBlendInTimeForTest(const FWeaponAbilityActivationContext& Context) const
+	{
+		return ResolveAttackMontageBlendInTime(Context);
+	}
+	float ResolveActivationMaxCorrectionAngleForTest(
+		const FWeaponAbilityActivationContext& Context) const
+	{
+		return ResolveActivationMaxCorrectionAngle(Context);
+	}
 
 protected:
 	virtual bool ValidateActionDependencies() const override;
@@ -216,6 +225,16 @@ private:
 	bool bHasInputForTest = false;
 	FName LastJumpedSection = NAME_None;
 	int32 FallbackExitConfigurationCount = 0;
+};
+
+/** Directional dodge test variant using the authored Phase ownership contract. */
+UCLASS()
+class UMHGZM4PhaseDodgeAbility : public UMHGZM4TestDodgeAbility
+{
+	GENERATED_BODY()
+
+public:
+	UMHGZM4PhaseDodgeAbility();
 };
 
 /** Starts through Commit, then deterministically fails the montage boundary. */

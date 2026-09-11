@@ -273,7 +273,17 @@ class UExecCalc_EntryStat : public UGameplayEffectExecutionCalculation
 
 > **DataManager 访问方式：** ExecCalc 通过 `Params.GetSourceAbilitySystemComponent()->GetWorld()->GetGameInstance()->GetSubsystem<UMHGZDataManager>()` 获取 DataManager。所有全局 DataTable/CurveTable 引用集中在 DataManager，ExecCalc 不需要硬编码资产路径。
 
-## 受击与霸体判定（玩家侧，规划；当前仅有未接通骨架）
+## 受击与霸体判定（玩家侧）
+
+当前已接通**持刀小硬直**：`Combat.Stagger.Light` 的 `HitStagger`
+GameplayEvent 会启动原生 `UMHGZHitReactionAbility`，按攻击来源相对角色的
+前/后/左/右选择四条导入序列。中、大硬直尚未有对应受击资产，事件会安全结束，
+不会错误复用小硬直。收刀态目前为受击**硬直免疫**（不播受击、不中断动作），
+并不等同于伤害免疫，生命结算仍按 Damage GE 正常进行。
+
+受击覆盖按等级仲裁，而非按事件先后：小硬直只能被中/大打断；中硬直只能被大
+打断；大硬直只能被另一个大硬直打断。当前只有小硬直有表现资产，因此中/大事件
+已经参与这套仲裁定义，但在导入对应动画前不会取消正在播放的小硬直或错误播小硬直。
 
 **原则：自定义 GameplayEffectContext 是命中载荷，ExecCalc 只输出合法 Modifier。** 攻击方把真实 HitResult、攻击实例 ID、硬直等级和命中类型写入 Context；数值用 SetByCaller/捕获属性。ExecCalc 不在执行过程中修改 Spec、添加 DynamicTag 或发送事件。
 
@@ -320,16 +330,21 @@ UMHGZAttributeSet::PostGameplayEffectExecute（GE Apply 完成后 GAS 自动调�
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 步骤 3：GA_HitReaction 自动激活（异步，播 Montage）
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-GA_HitReaction（继承 UMHGZGameplayAbility）：
+GA_HitReaction（直接继承 `UGameplayAbility`）：
   配置 AbilityTrigger → 监听 GameplayEvent(Combat.Event.HitStagger)
   InstancingPolicy = InstancedPerExecution  ← 每次事件创建新实例，支持连打
   Activate：
-    - ASC→AddLooseGameplayTag(Combat.State.Hitstun)  // 阻塞移动/攻击输入
-    - 从 EventData 读 HitResult → 冲击方向 → 选对应方向 Montage
+    - ActivationOwnedTags 添加 Combat.State.Hitstun + BlockMovement（多实例引用计数）
+    - 从 EventData 读攻击来源相对角色的方向 → 选对应方向动画序列
     - 从 EventData 读 StaggerLevel → 选轻/中/重 Montage
-    - 播放 Montage + 施加击退 Impulse（方向=HitResult normal）
-    - Montage 播完 → EndAbility → 移除 Combat.State.Hitstun
+    - 对小硬直把序列包装为运行时 Dynamic Montage；先终止 Combo/翻滚/收刀等持刀动作
+    - Montage 播完或被下一次受击打断 → EndAbility → 自动释放自身 Tag 引用
 ```
+
+`GA_HitReaction` 不继承 `UMHGZGameplayAbility`：它没有玩家输入、武器资源或
+ActionToken，不能误走武器 Action 的预留/连招确认链。它由
+`UMHGZAbilitySystemComponent` 作为必备 Core 基础设施授予；若未来在
+`CoreAbilities` 配置了其蓝图子类，则该子类替代原生默认，避免双监听。
 
 > **玩家与怪物受击分离：** 本节仅描述玩家侧受击逻辑。怪物侧另设 `UExecCalc_MonsterDamage`（按 HitzoneBoneName 查部位防御 + 硬直阈值积累 + 部位破坏判定），与玩家 ExecCalc 共享 GE Spec 传递的数据，但计算逻辑完全不同。怪物硬直由怪物 AI 系统处理，不在本文档范围。
 

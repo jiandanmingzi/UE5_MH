@@ -186,6 +186,13 @@ bool UMHGZM4TestDodgeAbility::JumpToDodgeSection(FName SectionName)
 	return SectionName == IdleExitSectionName || SectionName == MoveExitSectionName;
 }
 
+UMHGZM4PhaseDodgeAbility::UMHGZM4PhaseDodgeAbility()
+{
+	// The serialized production member retains its historical name. Its enabled
+	// value now selects Phase ownership for every direction, including Back.
+	bForwardDodgeUsesActionRootMotionPhase = true;
+}
+
 void UMHGZM4TestDodgeAbility::BlendOutForTest()
 {
 	OnMontageBlendOut();

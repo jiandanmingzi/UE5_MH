@@ -262,6 +262,77 @@ bool FMHGZM4DodgeExactAttackHandoff::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM4DodgeDirectionalPhaseSupersede,
+	"MHGZ.M4.Dodge.DirectionalPhaseSupersedesRootMotionOwner",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM4DodgeDirectionalPhaseSupersede::RunTest(const FString& Parameters)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup())
+	{
+		AddError(TEXT("M4 directional Phase dodge harness setup failed"));
+		H.Teardown();
+		return false;
+	}
+
+	FGameplayAbilitySpecHandle AttackHandle;
+	UGA_WeaponComboCoordinator* Coordinator = ConfigureTestAttack(H, AttackHandle);
+	if (!Coordinator)
+	{
+		AddError(TEXT("active coordinator missing"));
+		H.Teardown();
+		return false;
+	}
+	const FGameplayAbilitySpecHandle DodgeHandle =
+		H.GiveAbility(UMHGZM4PhaseDodgeAbility::StaticClass());
+	TestTrue(TEXT("test enters unsheathed pose"), H.Host->SetSheathed(false));
+
+	StartTestAttack(*Coordinator, 1);
+	UMHGZM4TestAttackAbility* Attack = GetActiveInstance<UMHGZM4TestAttackAbility>(
+		*H.ASC, AttackHandle);
+	TestNotNull(TEXT("root-motion source attack is active"), Attack);
+	if (Attack)
+	{
+		TestTrue(TEXT("source opens its exact DodgeAccept window"),
+			Attack->BeginDodgeAcceptWindow(FName(TEXT("M4DirectionalPhaseAccept"))));
+		TestTrue(TEXT("source owns Montage Root Motion before Dodge starts"),
+			H.Host->AcquireMontageRootMotion(Attack->GetActionToken()));
+	}
+
+	FWeaponInputSnapshot BackInput = M3::MakePosedInput(true, false);
+	BackInput.ResolvedInputTag = M3::Tag(TEXT("Input.Dodge"));
+	BackInput.SourceControlTag = BackInput.ResolvedInputTag;
+	BackInput.Direction = EDirectionalInput::Back;
+	BackInput.SequenceID = 2;
+	BackInput.Phase = EWeaponInputPhase::Started;
+	TestTrue(TEXT("Back Dodge defers owner acquisition until its Phase"),
+		H.TryActivateWithInput(DodgeHandle, BackInput));
+	TestEqual(TEXT("Back Dodge supersedes the former root-motion owner"),
+		Attack ? Attack->GetActionEndReason() : EWeaponActionEndReason::Normal,
+		EWeaponActionEndReason::Superseded);
+	TestFalse(TEXT("superseded source releases its owner before Dodge Phase"),
+		H.Host->IsMontageRootMotionOwned());
+
+	UMHGZM4PhaseDodgeAbility* Dodge = GetActiveInstance<UMHGZM4PhaseDodgeAbility>(
+		*H.ASC, DodgeHandle);
+	TestNotNull(TEXT("Back Dodge remains active until the Phase begins"), Dodge);
+	if (Dodge)
+	{
+		TestTrue(TEXT("Back Dodge Phase acquires Root Motion after supersede"),
+			Dodge->BeginActionRootMotionPhase(Dodge->GetActionToken(), true, false));
+		TestTrue(TEXT("Back Dodge is the exact Root Motion owner"),
+			H.Host->IsMontageRootMotionOwnedBy(Dodge->GetActionToken()));
+		Dodge->FinishNormallyForTest();
+	}
+	TestFalse(TEXT("directional Dodge teardown releases Root Motion ownership"),
+		H.Host->IsMontageRootMotionOwned());
+
+	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMHGZM4ComboTransitionRequiresDodgeAcceptWindow,
 	"MHGZ.M4.Combo.RequiredDodgeAcceptWindow",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -425,7 +496,7 @@ bool FMHGZM4DodgeDirectionalSelection::RunTest(const FString& Parameters)
 			DodgeDefaults->StaminaCostPolicy, EAbilityStaminaCostPolicy::Instant);
 		TestEqual(TEXT("all dodge variants share the same stamina cost"),
 			DodgeDefaults->StaminaCost.GetValueAtLevel(1.f), 25.f);
-		TestFalse(TEXT("Forward rolls keep legacy root owner until E4.2 places phase notifies"),
+		TestFalse(TEXT("Dodge defaults keep legacy root ownership until configured assets place Phase notifies"),
 			DodgeDefaults->bForwardDodgeUsesActionRootMotionPhase);
 	}
 	const FGameplayAbilitySpecHandle DodgeHandle =

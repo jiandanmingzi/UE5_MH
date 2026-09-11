@@ -1,10 +1,10 @@
 # 怪物与靶子系统
 
-> **实施状态说明（以源码与 Content 为准）：** M2 已完成木桩侧 C++ 基底：ASC 正式注册 AttributeSet、配置可生成恰好 Red/White/Orange 三个互不重叠球形 Hitzone，并可用固定 `AttackInstanceID` 向玩家 `IncomingHitResolver` 提交确定性攻击。实际 `DA_TrainingDummy` 的三部位位置、碰撞与测试攻击数值仍须在 E5 配置；周期预警/自动触发、正式怪物 AI、死亡和部位破坏仍未实现。
+> **实施状态说明（以源码与 Content 为准）：** E5.1 已将 `DA_TrainingDummy` / `BP_TrainingDummy` 接为直径 1m、高 2.25m 的三段训练柱：下白、中橙、上红，每段 0.75m；三枚 Hitzone 分别为 White/Orange/Red，中心在 root Z=-75/0/75cm、半径 37.5cm，彼此相切而不重叠。每段有对应 Point Light。白橙交界（Z=-37.5cm）另有一个直径 2m 的周期火圈，默认每 5 秒喷发、持续 1 秒、每 0.25 秒判定；所有频率、持续时间、半径、环带厚度、伤害、是否喷发、是否可反击和硬直 Tag 均在 `FDummyFireRingConfig` 以 Blueprint 可编辑字段公开。周期预警/正式怪物 AI、死亡和部位破坏仍未实现。
 
 **设计原则：** 当前木桩负责可重复验证伤害、红/白/橙提取、贯通、多部位轨迹和突进回旋斩反击。反击测试攻击是训练设施，不是怪物 AI。
 
-> **当前范围：** 木桩无 AI、不移动；可按配置周期发出一个明确预警的反击测试 HitContext。无死亡、部位破坏和正式怪物行为。
+> **当前范围：** 木桩无 AI、不移动；火圈是可重复的训练环境攻击，每个判定创建独立 `AttackInstanceID` 并提交给玩家 `IncomingHitResolver`。它默认不可反击；为专门测试可在蓝图把 `bCounterable` 打开。无死亡、部位破坏和正式怪物行为。
 
 ---
 
@@ -49,7 +49,8 @@ AMHGZMonsterBase (Character)
 | DisplayMesh | TSoftObjectPtr\<USkeletalMesh\> | 主形体（人形靶） |
 | LoopingMontage | TSoftObjectPtr\<UAnimMontage\> | 循环动画（呼吸/挑衅，留空则静止） |
 | Hitzones | TArray\<FDummyHitzoneConfig\> | 球形部位碰撞体配置 |
-| CounterTestAttack | FDummyCounterAttackConfig | Demo 可选的周期反击测试器；默认关闭 |
+| CounterTestAttack | FDummyCounterAttackConfig | 手动确定性反击测试入口；默认关闭 |
+| FireRing | FDummyFireRingConfig | 白橙交界的周期环形火焰；默认开启 |
 
 > `FallbackMesh`、`MeshScale`、`MaterialOverrides`、`PlayRate` 和多碰撞形状仍作为后续配置扩展方案保留，当前 `UMHGZDummyConfig` 没有这些字段。
 
@@ -116,25 +117,26 @@ AMHGZTrainingDummy::ApplyConfig(UMHGZDummyConfig* Config)
 
 ## 突进回旋斩反击测试器（Demo 规划）
 
-`FDummyCounterAttackConfig` 至少包含：
+`FDummyCounterAttackConfig` 保留为可手动调用的确定性入口。E5.1 的实际可视入站攻击为 `FDummyFireRingConfig`，字段如下：
 
 | 字段 | 说明 |
 |---|---|
-| bEnabled | 是否周期运行；最小攻击闭环默认 false，完整 Demo true |
+| bEnabled | 是否喷发；Blueprint 可在运行时切换，不修改共享 DataAsset |
 | InitialDelay / Interval | PIE 后首次攻击延迟和循环间隔 |
-| TelegraphDuration | 预警时长；材质闪烁/声音必须可观察 |
-| ActiveDuration | 有效命中窗口 |
-| Shape / LocalTransform | Box/Capsule 测试区域及相对木桩位置 |
+| ActiveDuration | 火圈可见与有效的持续时间 |
+| HitInterval | 有效期内的判定频率 |
+| RelativeLocation / Radius / RingHalfThickness / VerticalHalfHeight | 火圈中心、半径、环带厚度和高度；默认中心为 White/Orange 交界、半径 100cm |
+| VisualSegmentCount | 粒子火圈下方的水平发光引导环分段数；火焰本体由 `PS_TD_FireRing` 发射 |
 | Damage / StaggerTag | 未被反击时对玩家结算的 Demo 伤害与硬直 |
-| bCounterable | 是否可被突进回旋斩反击；Demo 默认 true |
+| bCounterable | 是否可被突进回旋斩反击；火圈默认 false，可为专项验证打开 |
 
-每次激活生成唯一 `AttackInstanceID`。多帧碰撞可以重复发现玩家，但都把同一 ID 提交给玩家 `UMHGZIncomingHitResolverComponent`；Resolver 是最终去重与反击消费的权威。处理顺序固定为：
+每个火圈判定生成唯一 `AttackInstanceID`。同一判定不会重复提交；不同 `HitInterval` 是独立伤害跳。Resolver 是每个入站攻击实例的最终去重与反击消费权威。处理顺序固定为：
 
 1. Resolver 先检查该 ID 是否已处理；重复提交直接返回 Duplicate。
 2. 按 Priority 调用带完整 ActionToken 所有权的反击 Token，并检查 Context 的 `bCounterable`。
 3. 成功反击时将该 ID 标记 Consumed，不结算伤害/硬直，通知回旋斩触发确定的舞踏自动转移。
 4. 未消费时由 Resolver 标记 Applied，再统一 Apply 玩家伤害和受击事件。
-5. 已处理 ID 缓存按配置 TTL/容量回收；同一 ID 的迟到 Overlap 或多帧 Sweep 不得再次结算。
+5. 已处理 ID 缓存按配置 TTL/容量回收；同一 ID 的迟到提交不得再次结算。
 
 测试器不得调用怪物决策、追踪玩家或改变朝向；它只提供固定时序、可复现的命中载荷。
 

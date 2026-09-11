@@ -36,6 +36,19 @@ public:
 	bool OpenComboWindow(const FWeaponActionToken& ActionToken, FName NotifyEventID);
 	void CloseComboWindow(const FWeaponActionToken& ActionToken, FName NotifyEventID);
 
+	/** Attack-side DodgeAccept Notify calls this after its exact gate is live. */
+	void OnDodgeAcceptWindowOpened(const FWeaponActionToken& ActionToken);
+
+	/** A non-combo Action finished Commit; its new action boundary discards preinput. */
+	void OnDirectActionConfirmed();
+
+	/**
+	 * Direct (non-Input.Weapon) actions may opt into the shared one-slot preinput
+	 * buffer after their normal activation attempt failed solely because their
+	 * action-side accept window is not open.  Dodge is the current direct user.
+	 */
+	bool TryBufferDirectInput(const FWeaponInputSnapshot& Input);
+
 	/** Exact active attack gate used by the direct/core Dodge ability. */
 	bool CanDodgeSupersedeActiveAction() const;
 	bool PrepareActiveActionForDodge(const FWeaponActionToken& DodgeActionToken);
@@ -67,6 +80,12 @@ private:
 		FWeaponOwnedTagToken TagToken;
 	};
 
+	struct FBufferedCombatInput
+	{
+		FWeaponInputSnapshot Snapshot;
+		double ExpireAt = 0.0;
+	};
+
 	UPROPERTY()
 	TObjectPtr<UMHGZWeaponComboData> ComboData;
 
@@ -77,13 +96,15 @@ private:
 	TOptional<FActiveComboTransition> ActiveTransition;
 	FWeaponOwnedTagToken ActiveTransitionTagToken;
 	TMap<FName, FComboWindowEntry> ComboWindows;
+	TOptional<FBufferedCombatInput> BufferedCombatInput;
 	FTimerHandle ComboTimeoutTimer;
 
 	void BuildIndices();
 	const FComboTransition* FindTransition(FName TransitionID) const;
-	const FComboTransition* FindBestMatch(const FWeaponInputSnapshot& Input) const;
+	const FComboTransition* FindBestMatch(const FWeaponInputSnapshot& Input,
+		bool bIgnoreAcceptWindows = false) const;
 	bool TransitionRequirementsPass(const FComboTransition& Transition,
-		const FWeaponInputSnapshot& Input) const;
+		const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows = false) const;
 	bool ExecuteTransition(const FComboTransition& Transition,
 		const FWeaponInputSnapshot& Input, const FWeaponActionToken* SourceAction = nullptr);
 	bool ExecuteStateOnlyTransition(const FComboTransition& Transition,
@@ -96,6 +117,10 @@ private:
 	void GrantActiveTransitionTags(const FComboTransition& Transition);
 	void ReleaseActiveTransitionTags();
 	void CloseWindowsFor(const FWeaponActionToken& ActionToken);
+	bool CacheCombatInput(const FWeaponInputSnapshot& Input);
+	bool HasLiveBufferedCombatInput();
+	void ClearBufferedCombatInput();
+	void TryConsumeBufferedCombatInput(bool bAllowDirectInput);
 	void ResetComboTimeout();
 	void OnComboTimeout();
 	UMHGZWeaponRuntimeHostComponent* GetRuntimeHost() const;

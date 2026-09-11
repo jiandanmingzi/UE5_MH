@@ -7,7 +7,7 @@
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "AbilitySystemGlobals.h"
-#include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
+#include "AbilityTask_MHGZPlayMontageAndWait.h"
 #include "DrawDebugHelpers.h"
 #include "GameFramework/Character.h"
 #include "MHGZCharacter.h"
@@ -363,6 +363,26 @@ bool UMHGZAttackAbility::SelectAttackMontageStartSection(
 		&& AttackMontage->IsValidSectionName(OutStartSection);
 }
 
+float UMHGZAttackAbility::ResolveAttackMontageBlendInTime(
+	const FWeaponAbilityActivationContext& Context) const
+{
+	if (!AttackMontage)
+	{
+		return 0.0f;
+	}
+	return Context.MontageBlendInTime >= 0.0f
+		? Context.MontageBlendInTime
+		: AttackMontage->BlendIn.GetBlendTime();
+}
+
+float UMHGZAttackAbility::ResolveActivationMaxCorrectionAngle(
+	const FWeaponAbilityActivationContext& Context) const
+{
+	return Context.MaxCorrectionAngle >= 0.0f
+		? Context.MaxCorrectionAngle
+		: MaxCorrectionAngle;
+}
+
 bool UMHGZAttackAbility::StartAttackMontage(ACharacter& Character,
 	UAnimMontage* Montage, FName StartSection)
 {
@@ -374,8 +394,11 @@ bool UMHGZAttackAbility::StartAttackMontage(ACharacter& Character,
 		return false;
 	}
 
-	MontageTask = UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
-		this, FName(TEXT("AttackMontage")), Montage, 1.0f, StartSection);
+	const float BlendInTime = ResolveAttackMontageBlendInTime(
+		GetWeaponActivationContext());
+	MontageTask = UAbilityTask_MHGZPlayMontageAndWait::CreatePlayMontageAndWaitProxy(
+		this, FName(TEXT("AttackMontage")), Montage, 1.0f, StartSection,
+		BlendInTime);
 	if (!MontageTask)
 	{
 		return false;
@@ -451,6 +474,14 @@ bool UMHGZAttackAbility::BeginDodgeAcceptWindow(FName NotifyEventID)
 	}
 
 	DodgeAcceptWindowTokens.Add(NotifyEventID, WindowToken);
+	if (UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(
+		GetAbilitySystemComponentFromActorInfo()))
+	{
+		if (UGA_WeaponComboCoordinator* Coordinator = ASC->GetActiveComboCoordinator())
+		{
+			Coordinator->OnDodgeAcceptWindowOpened(ActionToken);
+		}
+	}
 	return true;
 }
 
@@ -569,8 +600,9 @@ void UMHGZAttackAbility::ApplyDirectionCorrection()
 	}
 
 	// Direction is frozen during input resolution; activation never re-reads the stick.
-	ApplyDirectYawCorrection(*Character,
-		GetWeaponActivationContext().Input.WorldDirection, MaxCorrectionAngle);
+	const FWeaponAbilityActivationContext& Context = GetWeaponActivationContext();
+	ApplyDirectYawCorrection(*Character, Context.Input.WorldDirection,
+		ResolveActivationMaxCorrectionAngle(Context));
 }
 
 bool UMHGZAttackAbility::ApplyInActionDirectionCorrection(
@@ -1134,6 +1166,11 @@ void UMHGZAttackAbility::ApplyDamage(const FHitResult& Hit, int32 SegmentIndex)
 	{
 		bApplied = SourceASC->ApplyGameplayEffectSpecToTarget(
 			*Spec.Data, TargetASC).WasSuccessfullyApplied();
+	}
+	if (bApplied)
+	{
+		// 专属命中效果必须以伤害提交成功为前提；Sweep 接触本身不是命中结算。
+		HandleSuccessfulAttackDamage(Hit, SegmentIndex);
 	}
 
 	// 首次命中逻辑（成功 Apply 后）：通知协调器 + 施加 OnHitSelfEffect。

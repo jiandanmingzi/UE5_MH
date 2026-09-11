@@ -78,6 +78,23 @@ struct FComboTransition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Execution")
 	TSubclassOf<UGameplayAbility> AbilityClass;
 
+	/**
+	 * Per-transition Montage Blend In override in seconds. Negative inherits the
+	 * target Montage asset's default; zero is an intentional hard cut.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Execution",
+		meta = (ClampMin = "-1.0", ForceUnits = "s"))
+	float MontageBlendInTime = -1.0f;
+
+	/**
+	 * Per-transition activation yaw-correction cap in degrees. Negative inherits
+	 * the target attack GA's MaxCorrectionAngle; zero intentionally disables the
+	 * activation-time correction for this edge.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Execution",
+		meta = (ClampMin = "-1.0", ClampMax = "180.0", ForceUnits = "deg"))
+	float MaxCorrectionAngle = -1.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "State")
 	FName TargetState;
 
@@ -138,6 +155,13 @@ public:
 	/** 唯一安全兜底；不是动作正常结束手段。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combo", meta = (ClampMin = "0.0"))
 	float GlobalComboTimeout = 10.0f;
+
+	/**
+	 * 输入在接受窗口开启前可保留的最长时间。0 关闭预输入；缓冲始终只有一条，后输入覆盖前输入。
+	 * 物理和弦先由 Input Router 解析完成，计时从解析后的逻辑输入到达 Coordinator 时开始。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combo", meta = (ClampMin = "0.0", ForceUnits = "s"))
+	float PreInputLifetime = 0.5f;
 
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 #if WITH_EDITOR

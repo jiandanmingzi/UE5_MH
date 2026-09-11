@@ -4,8 +4,11 @@
 
 #include "MHGZComboCoordinatorAbility.h"
 #include "MHGZGameplayAbility.h"
+#include "MHGZHitReactionAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "GameplayEffect.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 
 UMHGZAbilitySystemComponent::UMHGZAbilitySystemComponent()
 {
@@ -21,6 +24,22 @@ void UMHGZAbilitySystemComponent::InitializeAbilitySystem()
 	if (bAbilitySystemInitialized)
 	{
 		return;
+	}
+
+	// HitReaction is event infrastructure rather than player input.  Ensure it
+	// exists even on old BP_PlayerState assets that serialized CoreAbilities
+	// before this core ability was introduced.  A future BP child in the array
+	// supersedes the native default instead of producing two event listeners.
+	const bool bHasConfiguredHitReaction = CoreAbilities.ContainsByPredicate(
+		[](const TSubclassOf<UGameplayAbility>& AbilityClass)
+		{
+			return AbilityClass && AbilityClass->IsChildOf(
+				UMHGZHitReactionAbility::StaticClass());
+		});
+	if (!bHasConfiguredHitReaction)
+	{
+		GiveAbility(FGameplayAbilitySpec(UMHGZHitReactionAbility::StaticClass(),
+			1, INDEX_NONE, this));
 	}
 
 	// 仅授予核心能力并 Apply 核心 GE；幂等。
@@ -138,11 +157,29 @@ void UMHGZAbilitySystemComponent::HandleResolvedInputSnapshot(const FWeaponInput
 		return;
 	}
 
+	if (!TryActivateDirectInput(Snapshot))
+	{
+		if (UGA_WeaponComboCoordinator* Coordinator = GetActiveComboCoordinator())
+		{
+			Coordinator->TryBufferDirectInput(Snapshot);
+		}
+	}
+}
+
+bool UMHGZAbilitySystemComponent::TryActivateDirectInput(
+	const FWeaponInputSnapshot& Snapshot)
+{
+	if (!Snapshot.ResolvedInputTag.IsValid() || Snapshot.ResolvedInputTag.MatchesTag(
+		FGameplayTag::RequestGameplayTag(TEXT("Input.Weapon"))))
+	{
+		return false;
+	}
+
 	// 一般输入 → 按 InputTag 精确匹配。
 	const FGameplayAbilitySpecHandle Handle = FindAbilityHandleByInputTag(Snapshot.ResolvedInputTag);
 	if (!Handle.IsValid())
 	{
-		return;
+		return false;
 	}
 
 	FWeaponAbilityActivationContext Context;
@@ -161,7 +198,9 @@ void UMHGZAbilitySystemComponent::HandleResolvedInputSnapshot(const FWeaponInput
 	if (!TryActivateAbility(Handle))
 	{
 		ConsumePendingActivationContext(Handle, Context);
+		return false;
 	}
+	return true;
 }
 
 void UMHGZAbilitySystemComponent::HandleResolvedInputRelease(const FWeaponInputSnapshot& Snapshot)
@@ -184,4 +223,47 @@ bool UMHGZAbilitySystemComponent::ConsumePendingActivationContext(
 	FWeaponAbilityActivationContext& OutContext)
 {
 	return PendingActivationContexts.RemoveAndCopyValue(Handle, OutContext);
+}
+
+float UMHGZAbilitySystemComponent::PlayMontageWithBlendIn(
+	UGameplayAbility* AnimatingAbility,
+	FGameplayAbilityActivationInfo ActivationInfo, UAnimMontage* Montage,
+	float PlayRate, FName StartSectionName, float StartTimeSeconds,
+	float BlendInTime)
+{
+	(void)ActivationInfo;
+	UAnimInstance* AnimInstance = AbilityActorInfo.IsValid()
+		? AbilityActorInfo->GetAnimInstance()
+		: nullptr;
+	if (!AnimInstance || !Montage)
+	{
+		return -1.0f;
+	}
+
+	// Start from the Montage's authored alpha curve/options, overriding only the
+	// duration for this instance. Montage_PlayWithBlendIn preserves the asset's
+	// BlendMode and BlendProfile.
+	FAlphaBlendArgs BlendIn = Montage->BlendIn;
+	BlendIn.BlendTime = FMath::Max(0.0f, BlendInTime);
+	const float Duration = AnimInstance->Montage_PlayWithBlendIn(Montage, BlendIn,
+		PlayRate, EMontagePlayReturnType::MontageLength, StartTimeSeconds, true);
+	if (Duration <= 0.0f)
+	{
+		return Duration;
+	}
+
+	LocalAnimMontageInfo.AnimMontage = Montage;
+	LocalAnimMontageInfo.AnimatingAbility = AnimatingAbility;
+	LocalAnimMontageInfo.PlayInstanceId = LocalAnimMontageInfo.PlayInstanceId < UINT8_MAX
+		? LocalAnimMontageInfo.PlayInstanceId + 1
+		: 0;
+	if (AnimatingAbility)
+	{
+		AnimatingAbility->SetCurrentMontage(Montage);
+	}
+	if (!StartSectionName.IsNone())
+	{
+		AnimInstance->Montage_JumpToSection(StartSectionName, Montage);
+	}
+	return Duration;
 }

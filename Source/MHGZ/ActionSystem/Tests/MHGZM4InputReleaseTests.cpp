@@ -106,6 +106,38 @@ bool FMHGZM4ReleaseFallbackEmitsOnceTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM4ReleaseFallbackExactTriggerModifierTest,
+	"MHGZ.M4.3.Input.ReleaseFallbackAllowsItsOwnExactTriggerModifier",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM4ReleaseFallbackExactTriggerModifierTest::RunTest(const FString& Parameters)
+{
+	const FGameplayTag RT = Tag(TEXT("Input.Modifier.RT"));
+	const FGameplayTag Y = Tag(TEXT("Input.Weapon.Y"));
+	const FGameplayTag Output = Tag(TEXT("Input.Weapon.RT"));
+	UWeaponInputProfile* Profile = NewObject<UWeaponInputProfile>();
+	Profile->ChordGracePeriod = 0.25f;
+	// RT's fallback must accept RT itself even though RT is also configured as
+	// the modifier for the higher-priority RT+Y chord.
+	AddReleaseFallback(Profile, TEXT("Input.Weapon.RT"), TEXT("Input.Modifier.RT"));
+	AddOnPressChord(Profile, TEXT("Input.Weapon.RTY"), { Y }, { RT });
+
+	UMHGZWeaponInputRouterComponent* Router = NewObject<UMHGZWeaponInputRouterComponent>();
+	Router->SetInputProfile(Profile);
+	Router->HandlePhysicalStarted(RT, 0.0);
+	Router->HandlePhysicalCompleted(RT, 0.1);
+
+	TestEqual(TEXT("exact fallback accepts its own RT trigger"),
+		Router->GetCapturedSnapshots().Num(), 1);
+	if (Router->GetCapturedSnapshots().Num() == 1)
+	{
+		TestEqual(TEXT("exact fallback resolves the standalone RT output"),
+			Router->GetCapturedSnapshots()[0].ResolvedInputTag, Output);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMHGZM4WinnerConsumesFallbackTest,
 	"MHGZ.M4.3.Input.WinnerConsumesFallback",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
@@ -325,6 +357,63 @@ bool FMHGZM4ReleaseFallbackValidationTest::RunTest(const FString& Parameters)
 		HasValidationIssueContaining(Context, TEXT("OnReleaseIfUnconsumed")));
 	TestTrue(TEXT("validation reports duplicate release trigger ownership"),
 		HasValidationIssueContaining(Context, TEXT("both declare OnReleaseIfUnconsumed")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM47ChordMultiReleaseTest,
+	"MHGZ.M4.7.Input.ChordMultiReleaseUsesOneActivationIdentity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM47ChordMultiReleaseTest::RunTest(const FString& Parameters)
+{
+	const FGameplayTag Y = Tag(TEXT("Input.Weapon.Y"));
+	const FGameplayTag B = Tag(TEXT("Input.Weapon.B"));
+	const FGameplayTag YB = Tag(TEXT("Input.Weapon.YB"));
+	for (const FGameplayTag& FirstReleased : {Y, B})
+	{
+		UWeaponInputProfile* Profile = NewObject<UWeaponInputProfile>();
+		Profile->ChordGracePeriod = 0.25f;
+		FWeaponChordDefinition& Chord = AddOnPressChord(Profile,
+			TEXT("Input.Weapon.YB"), {Y, B}, {}, TEXT("Input.Weapon.Y"));
+		Chord.AdditionalReleaseControlTags = {B};
+
+		UMHGZWeaponInputRouterComponent* Router =
+			NewObject<UMHGZWeaponInputRouterComponent>();
+		Router->SetInputProfile(Profile);
+		Router->HandlePhysicalStarted(Y, 0.0);
+		Router->HandlePhysicalStarted(B, 0.1);
+		Router->FlushExpiredInputs(0.4);
+		const TArray<FWeaponInputSnapshot>& Started = Router->GetCapturedSnapshots();
+		TestEqual(FString::Printf(TEXT("%s-release: exactly one YB Started"),
+			*FirstReleased.ToString()), Started.Num(), 1);
+		if (Started.Num() != 1)
+		{
+			continue;
+		}
+		TestTrue(TEXT("both physical controls are held before the release"),
+			Router->IsPhysicalInputHeld(Y) && Router->IsPhysicalInputHeld(B));
+		const uint32 ActivationSequenceID = Started[0].SequenceID;
+		const FGameplayTag ActivationSource = Started[0].SourceControlTag;
+
+		Router->HandlePhysicalCompleted(FirstReleased, 0.5);
+		const TArray<FWeaponInputSnapshot>& Snapshots = Router->GetCapturedSnapshots();
+		TestEqual(FString::Printf(TEXT("%s-release: exactly one matching Completed"),
+			*FirstReleased.ToString()), Snapshots.Num(), 2);
+		if (Snapshots.Num() == 2)
+		{
+			const FWeaponInputSnapshot& Release = Snapshots[1];
+			TestEqual(TEXT("multi-release keeps YB resolved identity"), Release.ResolvedInputTag, YB);
+			TestEqual(TEXT("multi-release keeps its activation source identity"),
+				Release.SourceControlTag, ActivationSource);
+			TestEqual(TEXT("multi-release keeps its activation sequence identity"),
+				Release.SequenceID, ActivationSequenceID);
+			TestEqual(TEXT("multi-release phase is Completed"),
+				Release.Phase, EWeaponInputPhase::Completed);
+		}
+		TestFalse(TEXT("the released physical control is no longer held"),
+			Router->IsPhysicalInputHeld(FirstReleased));
+	}
 	return true;
 }
 
