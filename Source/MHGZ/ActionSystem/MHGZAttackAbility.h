@@ -362,6 +362,13 @@ protected:
 	virtual FVector GetInActionCorrectionDirection() const;
 
 	/**
+	 * 强制反应转入后续 MovementTask 前停止本攻击的 Montage，但保留当前 Action
+	 * 身份与已持有的锁，直到后续任务自行结束。仅限精确拥有本 ActionToken 的派生
+	 * Ability 使用；它不发布 MM Handoff，也不允许来源攻击恢复播放。
+	 */
+	bool SuspendAttackMontageForFollowup();
+
+	/**
 	 * 每一次 Damage GE 成功提交后的扩展点。真实 HitResult 与段索引保持原样；
 	 * 派生招式可以在这里接入命中后的专属资源效果，不能在 Sweep 发现接触时提前结算。
 	 */
@@ -427,6 +434,7 @@ private:
 	/** NotifyEventID -> exact ledger token; the notify asset owns no mutable state. */
 	TMap<FName, FWeaponOwnedTagToken> DodgeAcceptWindowTokens;
 	FWeaponActionToken PendingDodgeSuperseder;
+	bool bMontageSuspendedForFollowup = false;
 
 	/** 执行指定段的一次 Socket Sweep 检测。 */
 	void PerformSweepCheck(int32 SegmentIndex);

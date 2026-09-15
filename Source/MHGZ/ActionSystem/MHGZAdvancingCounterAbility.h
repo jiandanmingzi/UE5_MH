@@ -5,7 +5,12 @@
 #include "CoreMinimal.h"
 #include "ActionSystem/MHGZIncomingHitResolverComponent.h"
 #include "MHGZInsectGlaiveAbility.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZAdvancingCounterAbility.generated.h"
+
+class UAbilityTask_MHGZWeaponMovement;
+class UAbilityTask_PlayMontageAndWait;
+class UAnimSequenceBase;
 
 /**
  * 突进回旋斩的反击层。
@@ -45,6 +50,28 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Counter")
 	int32 CounterInterceptorPriority = 100;
 
+	/**
+	 * 舞踏起跳的纯表现序列。它不提供 Root Motion；实际弹道始终由同一
+	 * MovementTask 的 BallisticVault 驱动，因此这里无需创建永久单段 Montage 资产。
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault")
+	TSoftObjectPtr<UAnimSequenceBase> DanceVaultSequence;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault")
+	FName DanceVaultMontageSlot = FName(TEXT("DefaultSlot"));
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault",
+		meta = (ClampMin = "0.01"))
+	float DanceVaultAnimationPlayRate = 1.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault",
+		meta = (ClampMin = "0.0"))
+	float DanceVaultBlendInTime = 0.0f;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault",
+		meta = (ClampMin = "0.0"))
+	float DanceVaultBlendOutTime = 0.05f;
+
 protected:
 	virtual bool ValidateActionDependencies() const override;
 
@@ -59,6 +86,12 @@ protected:
 	void OnAdvancingCounterSucceeded(const FIncomingHitContext& Context);
 
 private:
+	bool StartAdvancingCounterVault();
+	bool StartAdvancingCounterVaultVisual();
+
+	UFUNCTION()
+	void HandleAdvancingCounterVaultFinished(const FWeaponMovementResult& MovementResult);
+
 	struct FCounterWindowState
 	{
 		int64 ResolverTokenID = 0;
@@ -70,6 +103,14 @@ private:
 	void CloseAllAdvancingCounterWindows();
 
 	TMap<FName, FCounterWindowState> CounterWindows;
+	UPROPERTY()
+	TObjectPtr<UAbilityTask_MHGZWeaponMovement> AdvancingCounterVaultTask;
+
+	/** 只负责姿势；它的完成或中断绝不能抢先结束尚在空中的 Action。 */
+	UPROPERTY()
+	TObjectPtr<UAbilityTask_PlayMontageAndWait> AdvancingCounterVaultMontageTask;
 	bool bCounterSucceeded = false;
+	/** True only when the BallisticVault completed while CMC still owns an airborne body. */
+	bool bBeginFreeFallAfterEnd = false;
 	bool bIsEndingCounterAbility = false;
 };

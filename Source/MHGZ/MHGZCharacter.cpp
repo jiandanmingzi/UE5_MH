@@ -204,6 +204,10 @@ void AMHGZCharacter::PostLoad()
 void AMHGZCharacter::BeginPlay()
 {
 	Super::BeginPlay();
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->OnComponentHit.AddUniqueDynamic(this, &AMHGZCharacter::HandleCapsuleBlockingHit);
+	}
 
 	// Last runtime guard in case an inherited Blueprint construction script or
 	// an old component template changes a module after its native construction.
@@ -256,6 +260,10 @@ void AMHGZCharacter::UnPossessed()
 
 void AMHGZCharacter::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+	if (UCapsuleComponent* Capsule = GetCapsuleComponent())
+	{
+		Capsule->OnComponentHit.RemoveDynamic(this, &AMHGZCharacter::HandleCapsuleBlockingHit);
+	}
 	ClearSprintHeld();
 	Super::EndPlay(EndPlayReason);
 }
@@ -273,6 +281,46 @@ void AMHGZCharacter::PostInitializeComponents()
 UMHGZWeaponRuntimeHostComponent* AMHGZCharacter::GetWeaponRuntimeHost() const
 {
 	return FindComponentByClass<UMHGZWeaponRuntimeHostComponent>();
+}
+
+void AMHGZCharacter::GetCapsuleBlockingHitTelemetrySince(const uint64 LastObservedSerial,
+	TArray<FMHGZCapsuleBlockingHitTelemetry>& OutHits) const
+{
+	OutHits.Reset();
+	for (const FMHGZCapsuleBlockingHitTelemetry& Event : CapsuleBlockingHitTelemetry)
+	{
+		if (Event.Serial > LastObservedSerial)
+		{
+			OutHits.Add(Event);
+		}
+	}
+}
+
+void AMHGZCharacter::HandleCapsuleBlockingHit(UPrimitiveComponent* /* HitComponent */,
+	AActor* OtherActor, UPrimitiveComponent* OtherComponent, FVector /* NormalImpulse */,
+	const FHitResult& Hit)
+{
+	if (!Hit.bBlockingHit)
+	{
+		return;
+	}
+
+	FMHGZCapsuleBlockingHitTelemetry& Event = CapsuleBlockingHitTelemetry.Emplace_GetRef();
+	Event.Serial = ++CapsuleBlockingHitTelemetrySerial;
+	Event.Frame = GFrameCounter;
+	Event.WorldTimeSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	Event.OtherActor = GetNameSafe(OtherActor);
+	Event.OtherComponent = GetNameSafe(OtherComponent);
+	Event.Location = Hit.Location;
+	Event.ImpactPoint = Hit.ImpactPoint;
+	Event.ImpactNormal = Hit.ImpactNormal;
+	Event.Normal = Hit.Normal;
+
+	const int32 OverflowCount = CapsuleBlockingHitTelemetry.Num() - CapsuleBlockingHitTelemetryHistoryLimit;
+	if (OverflowCount > 0)
+	{
+		CapsuleBlockingHitTelemetry.RemoveAt(0, OverflowCount, EAllowShrinking::No);
+	}
 }
 
 void AMHGZCharacter::EquipDefaultWeaponIfConfigured()
@@ -321,7 +369,7 @@ void AMHGZCharacter::OnMovementModeChanged(
 	if (UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost())
 	{
 		RuntimeHost->SetGrounded(GetCharacterMovement()
-			&& !GetCharacterMovement()->IsFalling());
+			&& GetCharacterMovement()->IsMovingOnGround());
 	}
 }
 
@@ -344,13 +392,19 @@ void AMHGZCharacter::Tick(float DeltaTime)
 	}
 
 	UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost();
+	const bool bActionMovementOwned = RuntimeHost && RuntimeHost->IsActionMovementOwned();
+	const bool bAerialPresentationLocked = RuntimeHost
+		&& (RuntimeHost->IsAerialFalling() || RuntimeHost->IsAerialLanding());
 	const bool bBlockMovement = ShouldBlockMovement();
 	bForceMMIdle = bBlockMovement
-		|| (RuntimeHost && RuntimeHost->IsMontageRootMotionOwned());
-	if (bBlockMovement)
+		|| bAerialPresentationLocked
+		|| (RuntimeHost && RuntimeHost->IsMontageRootMotionOwned())
+		|| bActionMovementOwned;
+	if (bBlockMovement || bAerialPresentationLocked)
 	{
 		// 保留 RawMoveInput/LastMovementInputDir 给输入快照和动作入口方向，
-		// 但绝不能把锁定期间的摇杆泄露给 AnimBP 的 locomotion 分支。
+		// 但绝不能把锁定或系统自由下落期间的摇杆泄露给 AnimBP 的
+		// locomotion 分支。自由下落由 CMC 单独积分，空中也不允许摇杆转向。
 		InputMagnitude = 0.f;
 		bHasInput = false;
 		TargetCruiseSpeed = 0.f;
@@ -374,7 +428,7 @@ void AMHGZCharacter::Tick(float DeltaTime)
 	}
 
 	// 旋转（每帧，在 Trajectory 生成之前）
-	if (bHasInput)
+	if (bHasInput && !bActionMovementOwned)
 	{
 		const float TargetYaw = LastMovementInputDir.Rotation().Yaw;
 		const float CurrentYaw = GetActorRotation().Yaw;
@@ -591,10 +645,15 @@ void AMHGZCharacter::DoMove(float Right, float Forward)
 	// 3. 移动锁和 Montage 根位移所有权分离：SteeringRootMotion
 	//    允许更新速度/朝向，但 MM 仍输出零 RM，避免双重位移。
 	UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost();
+	const bool bActionMovementOwned = RuntimeHost && RuntimeHost->IsActionMovementOwned();
+	const bool bAerialPresentationLocked = RuntimeHost
+		&& (RuntimeHost->IsAerialFalling() || RuntimeHost->IsAerialLanding());
 	const bool bBlockMovement = ShouldBlockMovement();
 	bForceMMIdle = bBlockMovement
-		|| (RuntimeHost && RuntimeHost->IsMontageRootMotionOwned());
-	if (bBlockMovement)
+		|| bAerialPresentationLocked
+		|| (RuntimeHost && RuntimeHost->IsMontageRootMotionOwned())
+		|| bActionMovementOwned;
+	if (bBlockMovement || bAerialPresentationLocked)
 	{
 		InputMagnitude = 0.f;
 		bHasInput = false;

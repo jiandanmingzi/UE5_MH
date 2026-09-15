@@ -76,7 +76,7 @@ E0/E1  E2    E3    E5.1（木桩三色部位与猎虫物理）
 | M4.2.1 收刀 Run/Sprint Loop 候选库重路由 | M4.5；M4.2 的 Stop 生命周期保持已签收。 | 已进入 Run/Sprint Loop 的持续输入改挡，只通过候选数据库成员变化触发一次合法搜索；目标 Loop 库不得暴露 Start/Stop；真实松杆仍回既有 FullMove 并保持一次正确 Stop。节点 Blend 配置保持基线。 | **已完成并签收（2026-09-03）：** Development Editor 编译通过；`MHGZ.PMM` 11/11（资产 5/5、查询 6/6）通过；LoopOnly commandlet `-AuditOnly` 为 2/2。PIE Telemetry `Saved/RuntimeTelemetry/20260903-211806-BP_IG_Character_C_0-53906` 已确认：`RunLoopOnly` 与 `SprintLoopOnly` 会在至多两个动画更新内双向切换，目标候选库不含 Start/Stop；Start 期间保持 FullMove；真实松杆仍只产生一次正确 Stop。用户已完成目视回归且未发现问题。**允许进入 M4.6。** |
 | M4.6 攻击 Entry Section | M4.5、M4.2.1。 | Section 在播放前选择；拆分攻击的 Root Motion Phase 与 MovementTask 所有权可验证。 | **代码完成（2026-09-04；2026-09-05 两次复验）：** `UMHGZAttackAbility` 已按 `TransitionID → SourceState → DefaultEntrySection → Montage 开头` 在播放前选择并校验入口，非法配置在 Commit/Confirm 前拒绝；Development Editor 编译通过，`MHGZ.M4` 27/27（含 `MHGZ.M4.6.Attack.EntrySection` 2/2、精确 `bRequiresDodgeAcceptWindow` 门槛与扩展后的旧序列化字段/Notify 缺失断言）通过。第二轮清理已删除 Dummy `HalfExtent`、Combo `CoreRedirects`、两个旧 Dodge Notify 类及两个 Montage 中的四个实例。DataValidation 冷启动加载 519 资产，未见本次清理导致的 Missing Property/Class 或蓝图编译错误；全项目仍有既知 G-002 `DA_TrainingDummy` Hitzone 配置错误。实际拆分招式的资产接线、Root Motion Phase/MovementTask 目视验收由已开放的 E4.3 完成。 |
 | M4.7 地面招式 / 虫印 | M4.6 完成、E4.3 的最终 Combo 壳有效。 | 地面连段、虫印、反击/舞踏入口符合动作设计。 | **已完成并签收（2026-09-11）：** 地面虫印、四连印斩与突进回旋斩的 GA、Montage、Combo 和精确窗口均已完成 PIE；`bCounterable` 火圈命中已验证反击消费与 `AdvancingCounter` 舞踏层入口。实际弹跳位移明确移交 M5。 |
-| M5 空中/舞踏/终结 | M4.7 与 M4.5 最终回归完成。 | 空中位移、舞踏、落地和取消只保留一个位移所有者。 | **实施中（2026-09-11）：** 先建立绑定 `ActionToken` 的唯一 MovementTask，以反击成功后的 BallisticVault 作为首个纵切。 |
+| M5 空中/舞踏/终结 | M4.7 与 M4.5 最终回归完成。 | 空中位移、舞踏、落地和取消只保留一个位移所有者。 | **实施中（2026-09-12）：** `UAbilityTask_MHGZWeaponMovement` 已建立并按精确 `ActionToken` 独占 CMC RootMotion、动作旋转与唯一 WarpTarget；支持 `BoundedDirectional`、`BallisticVault`、`AdditiveInertia` 三种 Source。`MHGZ.M5.Movement.OwnershipAndCleanup` 已通过。突进回旋斩反击已接入 BallisticVault，待 PIE 验收实际弹跳与落地。 |
 | M6 觉虫击/粉尘/UI | M5、觉虫击规则和表现接口已冻结。 | HUD 唯一所有权、Resource Widget、Cue、粉尘和觉虫击闭环。 | 未开始。 |
 | M7 集成/打包 | M0～M6 与 E0～E6 均完成。 | 全项目验证、反复 PIE、压力测试、Win64 Development 打包通过。 | 未开始。 |
 
@@ -126,8 +126,8 @@ M4.2 的唯一退出条件仍是普通 Idle、Start、Loop、真实松杆 Stop�
 
 ## 7. 当前项目位置与唯一允许的下一步
 
-**当前阶段：M5 舞踏、空中位移与终结动作实施中（2026-09-11）。** M4.7 已签收：地面虫印、四连印斩、突进回旋斩、其派生与精确窗口均完成 PIE；突进回旋斩的反击窗口已经在 `bCounterable` 火圈命中中验证成功，能够消费该次 IncomingHit 并增加 `AdvancingCounter` 舞踏层。E5.1 的木桩三色 Hitzone、水平火圈、受击和反击也已验收；仅猎虫采集精华的人工验收保留为 M7 前必须补齐的欠项。
+**当前阶段：M5 舞踏、空中位移与终结动作实施中（2026-09-12）。** M4.7 已签收：地面虫印、四连印斩、突进回旋斩、其派生与精确窗口均完成 PIE；突进回旋斩的反击窗口已经在 `bCounterable` 火圈命中中验证成功，能够消费该次 IncomingHit 并增加 `AdvancingCounter` 舞踏层。E5.1 的木桩三色 Hitzone、水平火圈、受击和反击也已验收；仅猎虫采集精华的人工验收保留为 M7 前必须补齐的欠项。
 
-M5 的第一项是建立唯一的动作位移执行层：`BoundedDirectional`、`BallisticVault` 和 `AdditiveInertia` 必须由绑定当前 `ActionToken` 的同一 MovementTask 仲裁平移、旋转、转向、碰撞和 WarpTarget 生命周期。首个纵切是把突进回旋斩的成功反击从“增加舞踏层后结束地面 GA”改为“增加一层后执行 BallisticVault、进入 Aerial”；该层通过后才接操虫斩与其余空中动作。不得在反击 GA、蓝图 Tick 或 Character 中直接写 CMC/`LaunchCharacter` 来跳过该所有权。
+M5 的唯一动作位移执行层已落地：`UAbilityTask_MHGZWeaponMovement` 由绑定当前 `ActionToken` 的 RuntimeHost ownership 仲裁平移、旋转、转向、碰撞与唯一 WarpTarget 生命周期，并用 CMC RootMotionSource 实现 `BoundedDirectional`、`BallisticVault`、`AdditiveInertia`。Character 的普通 locomotion/MM 与 Montage Root Motion 都不得与它并行拥有位移或旋转。首个纵切已把突进回旋斩成功反击从“增加舞踏层后结束地面 GA”改为“停止地面 Montage、增加一层后执行 BallisticVault，并由落地统一清层”；反击成功时还会由 `AS_Unsh_WuTa` 创建仅本次存活的 in-place 动态 Montage 作为起跳表现，它不参与 Root Motion 或 Action 结束。现待 PIE 验收实际弹跳。不得在反击 GA、蓝图 Tick 或 Character 中直接写 CMC/`LaunchCharacter` 来跳过该所有权。
 
 M4.6 固定优先级为 `TransitionID → SourceState → DefaultEntrySection → Montage 开头`；`StartSection` 必须在创建 Montage Task 时传入，禁止先播放再 Jump。无效入口在 Resource Reserve、GAS Commit 和 Coordinator Confirm 前拒绝，因此不会把来源动作错误地以 Superseded 结束。若今后出现动作退出回归，回归归属仍为 E4.2/M4.5。

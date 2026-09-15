@@ -23,7 +23,23 @@ class UMHGZHitStopControllerComponent;
 class UMHGZWeaponDefinition;
 class UMHGZWeaponRuntimeHostComponent;
 class UEnhancedInputComponent;
+class UPrimitiveComponent;
 struct FInputActionValue;
+struct FHitResult;
+
+/** A bounded, read-only history of capsule blocking contacts for runtime CSV telemetry. */
+struct FMHGZCapsuleBlockingHitTelemetry
+{
+	uint64 Serial = 0;
+	uint64 Frame = 0;
+	double WorldTimeSeconds = 0.0;
+	FString OtherActor;
+	FString OtherComponent;
+	FVector Location = FVector::ZeroVector;
+	FVector ImpactPoint = FVector::ZeroVector;
+	FVector ImpactNormal = FVector::ZeroVector;
+	FVector Normal = FVector::ZeroVector;
+};
 
 /**
  * AMHGZCharacter — MHGZ 玩家角色
@@ -136,6 +152,13 @@ public:
 	FORCEINLINE UMHGZHitStopControllerComponent* GetHitStopController() const { return HitStopController; }
 	UMHGZWeaponRuntimeHostComponent* GetWeaponRuntimeHost() const;
 
+	/** Copies capsule blocking contacts newer than LastObservedSerial for runtime diagnostics. */
+	void GetCapsuleBlockingHitTelemetrySince(uint64 LastObservedSerial,
+		TArray<FMHGZCapsuleBlockingHitTelemetry>& OutHits) const;
+
+	/** Latest serial in the bounded contact history; lets a new recording ignore older contacts. */
+	uint64 GetLatestCapsuleBlockingHitTelemetrySerial() const { return CapsuleBlockingHitTelemetrySerial; }
+
 protected:
 	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
 
@@ -144,6 +167,10 @@ protected:
 	void SprintPressed(const FInputActionValue& Value);
 	void SprintReleased(const FInputActionValue& Value);
 	void EquipDefaultWeaponIfConfigured();
+
+	UFUNCTION()
+	void HandleCapsuleBlockingHit(UPrimitiveComponent* HitComponent, AActor* OtherActor,
+		UPrimitiveComponent* OtherComponent, FVector NormalImpulse, const FHitResult& Hit);
 
 public:
 	/** InputComponent 调用并保存返回的绑定句柄；Character 不拥有绑定生命周期。 */
@@ -294,4 +321,9 @@ private:
 
 	/** 本帧已处理理论速度的帧号——防止 Tick 和 DoMove 同帧重复处理 */
 	uint64 LastTheoryUpdateFrame = 0;
+
+	/** Keeps recent contacts between telemetry samples without changing collision behavior. */
+	TArray<FMHGZCapsuleBlockingHitTelemetry> CapsuleBlockingHitTelemetry;
+	uint64 CapsuleBlockingHitTelemetrySerial = 0;
+	static constexpr int32 CapsuleBlockingHitTelemetryHistoryLimit = 256;
 };

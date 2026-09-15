@@ -23,6 +23,33 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UMHGZWeaponComboData> ComboData;
 
+	/**
+	 * Returns the presentation montage used while the weapon is in CMC-owned
+	 * free fall.  The enhanced variant is weapon-defined (虫棍 uses White
+	 * Extract).  A null result means this weapon has no custom aerial pose.
+	 */
+	virtual UAnimMontage* GetAerialFallingMontage(bool bEnhancedVariant) const
+	{
+		return nullptr;
+	}
+
+	/** A CMC landing may ask the current weapon for one non-root-motion landing visual. */
+	virtual UAnimMontage* GetAerialLandingMontage() const
+	{
+		return nullptr;
+	}
+
+	/**
+	 * Lets a weapon opt into a temporary CMC physics profile for its
+	 * system-owned aerial fall.  Returning false deliberately leaves the
+	 * character's ordinary CMC gravity and falling braking untouched.
+	 */
+	virtual bool ResolveAerialFallingPhysics(bool bEnhancedVariant,
+		float& OutGravityScale, float& OutBrakingDecelerationFalling) const
+	{
+		return false;
+	}
+
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 
 #if WITH_EDITOR

@@ -10,9 +10,26 @@
 
 class ACharacter;
 class APlayerController;
+class UAnimMontage;
 class UMHGZAbilitySystemComponent;
 class UMHGZWeaponResourceComponent;
 class USkeletalMeshComponent;
+
+/** Read-only state of the system-owned aerial presentation montages for runtime telemetry. */
+struct FMHGZAerialPresentationRootMotionTelemetry
+{
+	FString FallingMontage;
+	bool bFallingMontageReferenced = false;
+	bool bFallingRootMotionDisabledByHost = false;
+	bool bFallingMontageInstanceFound = false;
+	bool bFallingInstanceRootMotionDisabled = false;
+
+	FString LandingMontage;
+	bool bLandingMontageReferenced = false;
+	bool bLandingRootMotionDisabledByHost = false;
+	bool bLandingMontageInstanceFound = false;
+	bool bLandingInstanceRootMotionDisabled = false;
+};
 
 /** 旧 Token 失效通知：M2 仅广播；M3 HUD/AimComponent 据此解绑。 */
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnWeaponRuntimeInvalidated, const FWeaponRuntimeToken&);
@@ -122,6 +139,26 @@ public:
 	FString GetMontageRootMotionOwnerDebugString() const;
 
 	// ----------------------------------------------------------------------
+	// Action Movement 单一所有者（M5）
+	// ----------------------------------------------------------------------
+	/**
+	 * 获得 CMC 动作位移的唯一执行权，并为本次 Action 分配一次性的 WarpTarget 名称。
+	 * Montage Root Motion 与动作 MovementTask 不能同时拥有 CMC 位移；调用者必须先完成
+	 * 旧 Montage 的 Root Motion 交接或停止。
+	 */
+	bool AcquireActionMovement(const FWeaponActionToken& ActionToken,
+		FName& OutWarpTargetName);
+
+	/** 仅精确拥有者可释放；同时移除该动作唯一的 MotionWarping Target。 */
+	bool ReleaseActionMovement(const FWeaponActionToken& ActionToken);
+
+	/** 当前 Runtime 是否有有效的 MovementTask 所有者。 */
+	bool IsActionMovementOwned() const;
+
+	/** 指定 Action 是否是当前 MovementTask 的唯一所有者。 */
+	bool IsActionMovementOwnedBy(const FWeaponActionToken& ActionToken) const;
+
+	// ----------------------------------------------------------------------
 	// Motion Matching Handoff (M4.4)
 	// ----------------------------------------------------------------------
 	/**
@@ -165,10 +202,27 @@ public:
 
 	bool SetSheathed(bool bInSheathed);
 
+	/**
+	 * Starts an in-place, CMC-owned free-fall visual and publishes the exact
+	 * Falling tags.  The visual survives the source action; only HandleLanded
+	 * is allowed to clear it.
+	 */
+	bool BeginAerialFalling(bool bEnhancedVariant, FGameplayTag StyleTag = FGameplayTag());
+
 	/** 清除全部空中 Cant/Falling 拥有状态并落回 Grounded。 */
 	void HandleLanded();
 
 	bool IsGrounded() const { return bGrounded; }
+
+	/** True only while the Host owns the CMC free-fall presentation/state. */
+	bool IsAerialFalling() const { return PoseTokens.AerialFalling.IsValid(); }
+
+	/** True while the system-owned landing presentation locks locomotion input. */
+	bool IsAerialLanding() const { return PoseTokens.AerialLanding.IsValid(); }
+
+	/** Samples the Host-owned falling/landing visual instances without changing their state. */
+	void GetAerialPresentationRootMotionTelemetry(
+		FMHGZAerialPresentationRootMotionTelemetry& OutTelemetry) const;
 
 	bool IsSheathed() const { return bSheathed; }
 
@@ -212,6 +266,24 @@ private:
 
 	void ReleasePoseToken(FWeaponOwnedTagToken& Token);
 
+	/** Stops only the system-owned fall montage, never an active action montage. */
+	void StopAerialFallingVisual(float BlendOutTime);
+
+	/** Stops only the system-owned landing montage and releases its pose lock. */
+	void StopAerialLandingVisual(float BlendOutTime);
+
+	/** Applies/restores the optional current-weapon CMC profile for free fall. */
+	void ApplyAerialFallingPhysics(bool bEnhancedVariant);
+	void RestoreAerialFallingPhysics();
+
+	/** Plays the configured landing presentation with root motion explicitly disabled. */
+	bool PlayAerialLandingVisual();
+
+	void HandleAerialLandingMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	/** 清理当前 MovementTask 所有权；调用者已完成其精确身份校验。 */
+	void ClearActionMovementOwner();
+
 	// ----------------------------------------------------------------------
 	// M2 装备差分生命周期
 	// ----------------------------------------------------------------------
@@ -243,6 +315,7 @@ private:
 		FWeaponOwnedTagToken GroundedOrAerial;
 		FWeaponOwnedTagToken SheathedOrUnsheathed;
 		FWeaponOwnedTagToken AerialFalling;
+		FWeaponOwnedTagToken AerialLanding;
 		FWeaponOwnedTagToken AerialCantDodge;
 		FWeaponOwnedTagToken AerialCantAttack;
 	};
@@ -265,9 +338,25 @@ private:
 	TArray<FWeaponActionToken> ActiveActions;
 	TArray<FWeaponMontageRegistration> MontageRegistrations;
 	FWeaponActionToken MontageRootMotionOwner;
+	FWeaponActionToken ActionMovementOwner;
+	FName ActionMovementWarpTargetName;
+	uint32 NextActionMovementSerial = 1;
 	FWeaponMotionMatchingHandoff PendingMotionMatchingHandoff;
 	int64 NextMotionMatchingHandoffSerial = 1;
 	FPoseTokens PoseTokens;
+
+	/** Presentation owned by BeginAerialFalling and stopped only on landing/runtime teardown. */
+	TWeakObjectPtr<UAnimMontage> ActiveAerialFallingMontage;
+	bool bAerialFallingRootMotionDisabledByHost = false;
+
+	/** Presentation owned by HandleLanded and released exactly when it ends. */
+	TWeakObjectPtr<UAnimMontage> ActiveAerialLandingMontage;
+	bool bAerialLandingRootMotionDisabledByHost = false;
+
+	/** Saved only while the current weapon opted into ResolveAerialFallingPhysics. */
+	bool bAerialFallingPhysicsOverridden = false;
+	float SavedGravityScale = 1.0f;
+	float SavedBrakingDecelerationFalling = 0.0f;
 
 	/** 资源预留透传目标（可由 SetResourceProvider 测试入口注入）。 */
 	TObjectPtr<UMHGZWeaponResourceComponent> ResourceProvider;

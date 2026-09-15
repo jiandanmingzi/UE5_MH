@@ -54,6 +54,12 @@ public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUninitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+	/**
+	 * Captures the graph-proxy Root Motion immediately after AnimGraph evaluation.
+	 * This runs before CMC consumes the generated transform, so it distinguishes
+	 * a zero graph output from a later movement-consumption failure.
+	 */
+	virtual void NativePostEvaluateAnimation() override;
 
 	/**
 	 * Called from a Motion Matching node's On Update Motion Matching State function after its
@@ -324,9 +330,13 @@ private:
 	FString RuntimeTelemetryParsedInputFilePath;
 	FString RuntimeTelemetryCharacterStateFilePath;
 	FString RuntimeTelemetryCharacterSpatialFilePath;
+	FString RuntimeTelemetryRootMotionSourcesFilePath;
+	FString RuntimeTelemetryCapsuleHitsFilePath;
 	FString RuntimeTelemetryMMQueryFilePath;
 	FString RuntimeTelemetryMMSelectionFilePath;
 	FString RuntimeTelemetryAnimationFilePath;
+	FString RuntimeTelemetryAnimGraphRootMotionFilePath;
+	FString RuntimeTelemetryMontageInstancesFilePath;
 	FString RuntimeTelemetryPoseSearchTraceFilePath;
 	FString RuntimeTelemetryPoseSearchDetailDirectory;
 	bool bRuntimeTelemetryPoseSearchTraceActive = false;
@@ -336,10 +346,15 @@ private:
 	TArray<FString> RuntimeTelemetryParsedInputPendingRows;
 	TArray<FString> RuntimeTelemetryCharacterStatePendingRows;
 	TArray<FString> RuntimeTelemetryCharacterSpatialPendingRows;
+	TArray<FString> RuntimeTelemetryRootMotionSourcesPendingRows;
+	TArray<FString> RuntimeTelemetryCapsuleHitsPendingRows;
 	TArray<FString> RuntimeTelemetryMMQueryPendingRows;
 	TArray<FString> RuntimeTelemetryMMSelectionPendingRows;
 	TArray<FString> RuntimeTelemetryAnimationPendingRows;
+	TArray<FString> RuntimeTelemetryAnimGraphRootMotionPendingRows;
+	TArray<FString> RuntimeTelemetryMontageInstancesPendingRows;
 	uint64 RuntimeTelemetryLastObservedInputEventSerial = 0;
+	uint64 RuntimeTelemetryLastObservedCapsuleHitSerial = 0;
 
 	struct FMotionMatchingSelectionEvent
 	{

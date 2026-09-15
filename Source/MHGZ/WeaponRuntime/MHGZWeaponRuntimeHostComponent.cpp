@@ -8,8 +8,11 @@
 #include "ActionSystem/MHGZGameplayAbility.h"
 #include "ActionSystem/MHGZHitStopControllerComponent.h"
 #include "ActionSystem/MHGZWeaponComboData.h"
+#include "AttributeSystem/Res_InsectGlaive.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Equipment/MHGZEquipmentDefinition.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "GameFramework/Character.h"
@@ -17,6 +20,7 @@
 #include "GameFramework/PlayerController.h"
 #include "MHGZ.h"
 #include "MHGZCharacter.h"
+#include "MotionWarpingComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeDefinition.h"
 
 UMHGZWeaponRuntimeHostComponent::UMHGZWeaponRuntimeHostComponent()
@@ -319,6 +323,10 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 		return;
 	}
 
+	RestoreAerialFallingPhysics();
+	StopAerialFallingVisual(0.0f);
+	StopAerialLandingVisual(0.0f);
+
 	// 1) 拒绝新请求：关停/重建窗口内不接受新的输入、注册与资源预留。
 	bShuttingDown = true;
 
@@ -360,18 +368,22 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 		}
 	}
 
-	// 6) Ledger ReleaseAll + 注册表清空。
+	// 6) MovementTask 的 WarpTarget 不得跨换武器、死亡或 Runtime 重建残留。
+	ClearActionMovementOwner();
+
+	// 7) Ledger ReleaseAll + 注册表清空。
 	TagLedger.ReleaseAll(CurrentToken);
 	ActiveActions.Reset();
 	MontageRegistrations.Reset();
 	MontageRootMotionOwner = FWeaponActionToken();
 	PendingMotionMatchingHandoff = FWeaponMotionMatchingHandoff();
 	NextMotionMatchingHandoffSerial = 1;
+	NextActionMovementSerial = 1;
 	PoseTokens = FPoseTokens();
 	bGrounded = true;
 	bSheathed = true;
 
-	// 7) DestroyComponent（Host 自建 Resource 的最后一步）。
+	// 8) DestroyComponent（Host 自建 Resource 的最后一步）。
 	if (OwnedResource.Get())
 	{
 		if (OwnedResource->IsRegistered())
@@ -548,6 +560,10 @@ bool UMHGZWeaponRuntimeHostComponent::UnregisterAction(const FWeaponActionToken&
 	{
 		MontageRootMotionOwner = FWeaponActionToken();
 	}
+	if (ActionMovementOwner == ActionToken)
+	{
+		ClearActionMovementOwner();
+	}
 	return ActiveActions.Remove(ActionToken) > 0;
 }
 
@@ -621,7 +637,7 @@ bool UMHGZWeaponRuntimeHostComponent::AcquireMontageRootMotion(
 	{
 		return true;
 	}
-	if (IsMontageRootMotionOwned())
+	if (IsMontageRootMotionOwned() || IsActionMovementOwned())
 	{
 		return false;
 	}
@@ -667,6 +683,71 @@ FString UMHGZWeaponRuntimeHostComponent::GetMontageRootMotionOwnerDebugString() 
 	const FString AbilityName = Ability ? Ability->GetClass()->GetName() : TEXT("InvalidAbility");
 	return FString::Printf(TEXT("%s#%u"), *AbilityName,
 		MontageRootMotionOwner.ActivationSequenceID);
+}
+
+// ----------------------------------------------------------------------
+// Action Movement 单一所有者（M5）
+// ----------------------------------------------------------------------
+
+bool UMHGZWeaponRuntimeHostComponent::AcquireActionMovement(
+	const FWeaponActionToken& ActionToken, FName& OutWarpTargetName)
+{
+	OutWarpTargetName = NAME_None;
+	if (!bInitialized || bShuttingDown || !ActionToken.IsValid()
+		|| !IsTokenCurrent(ActionToken.RuntimeToken)
+		|| !ActiveActions.Contains(ActionToken)
+		|| IsMontageRootMotionOwned())
+	{
+		return false;
+	}
+
+	if (ActionMovementOwner == ActionToken)
+	{
+		OutWarpTargetName = ActionMovementWarpTargetName;
+		return !OutWarpTargetName.IsNone();
+	}
+	if (IsActionMovementOwned())
+	{
+		return false;
+	}
+
+	const uint32 Serial = NextActionMovementSerial++;
+	if (NextActionMovementSerial == 0)
+	{
+		++NextActionMovementSerial;
+	}
+
+	ActionMovementOwner = ActionToken;
+	ActionMovementWarpTargetName = FName(*FString::Printf(
+		TEXT("MHGZ_ActionMove_%u_%u"), ActionToken.ActivationSequenceID, Serial));
+	OutWarpTargetName = ActionMovementWarpTargetName;
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::ReleaseActionMovement(
+	const FWeaponActionToken& ActionToken)
+{
+	if (!bInitialized || !IsTokenCurrent(ActionToken.RuntimeToken)
+		|| ActionMovementOwner != ActionToken)
+	{
+		return false;
+	}
+
+	ClearActionMovementOwner();
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::IsActionMovementOwned() const
+{
+	return bInitialized && !bShuttingDown && ActionMovementOwner.IsValid()
+		&& IsTokenCurrent(ActionMovementOwner.RuntimeToken)
+		&& ActiveActions.Contains(ActionMovementOwner);
+}
+
+bool UMHGZWeaponRuntimeHostComponent::IsActionMovementOwnedBy(
+	const FWeaponActionToken& ActionToken) const
+{
+	return IsActionMovementOwned() && ActionMovementOwner == ActionToken;
 }
 
 // ----------------------------------------------------------------------
@@ -801,11 +882,23 @@ bool UMHGZWeaponRuntimeHostComponent::ResolveMontage(
 
 bool UMHGZWeaponRuntimeHostComponent::SetGrounded(bool bInGrounded)
 {
+	if (bInGrounded)
+	{
+		// OnMovementModeChanged can run immediately before ACharacter::Landed.
+		// Restore physical defaults here as well, so a blocked/edge landing never
+		// carries the insect-glaive fall gravity into ordinary walking.
+		RestoreAerialFallingPhysics();
+	}
 	if (!bInitialized || bShuttingDown || bGrounded == bInGrounded)
 	{
 		return false;
 	}
 
+	if (!bInGrounded)
+	{
+		// A new take-off must not inherit the previous landing's input lock.
+		StopAerialLandingVisual(0.0f);
+	}
 	return ApplyGroundedPose(bInGrounded);
 }
 
@@ -826,6 +919,18 @@ void UMHGZWeaponRuntimeHostComponent::HandleLanded()
 		return;
 	}
 
+	// The fall visual is system-owned rather than Action-owned: a landing can
+	// happen after the launching GA has ended, so stop it before starting the
+	// real landing pose and before releasing its tag ledger entry.
+	const bool bHadSystemOwnedFreeFall = PoseTokens.AerialFalling.IsValid()
+		|| ActiveAerialFallingMontage.IsValid();
+	RestoreAerialFallingPhysics();
+	StopAerialFallingVisual(0.05f);
+	if (bHadSystemOwnedFreeFall)
+	{
+		PlayAerialLandingVisual();
+	}
+
 	// 仅释放 Host 自身持有的空中姿态 Token；禁止按 Tag 扫描其他所有者。
 	ReleasePoseToken(PoseTokens.AerialFalling);
 	ReleasePoseToken(PoseTokens.AerialCantDodge);
@@ -835,12 +940,112 @@ void UMHGZWeaponRuntimeHostComponent::HandleLanded()
 		ReleasePoseToken(PoseTokens.GroundedOrAerial);
 		ApplyGroundedPose(true);
 	}
+
+	// M5：舞踏是 Resource 的唯一真相；任何落地都从这里按原因清空，
+	// 不让单个空中 Ability 在自己的回调中直接重写层数。
+	if (URes_InsectGlaive* IGResource = Cast<URes_InsectGlaive>(ResourceProvider.Get()))
+	{
+		IGResource->ClearDanceStacks(EIGDanceClearReason::Landed);
+	}
+}
+
+bool UMHGZWeaponRuntimeHostComponent::BeginAerialFalling(const bool bEnhancedVariant,
+	FGameplayTag StyleTag)
+{
+	if (!bInitialized || bShuttingDown || bGrounded)
+	{
+		return false;
+	}
+
+	UWeaponCombatConfigBase* CombatConfig = CurrentContext.CombatConfig.Get();
+	ACharacter* Character = CurrentContext.Character.Get();
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
+	UAnimMontage* Montage = CombatConfig
+		? CombatConfig->GetAerialFallingMontage(bEnhancedVariant) : nullptr;
+	if (!AnimInstance || !Montage)
+	{
+		return false;
+	}
+
+	ApplyAerialFallingPhysics(bEnhancedVariant);
+	StopAerialFallingVisual(0.0f);
+	ReleasePoseToken(PoseTokens.AerialFalling);
+	FGameplayTagContainer FallingTags;
+	FallingTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.Falling")));
+	FallingTags.AddTag(StyleTag.IsValid() ? StyleTag
+		: FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.Falling.Default")));
+	PoseTokens.AerialFalling = AcquireTags(EWeaponTagOwnerKind::Pose,
+		FGameplayAbilitySpecHandle(), 0, TEXT("Pose.AerialFalling"), FallingTags);
+	if (!PoseTokens.AerialFalling.IsValid())
+	{
+		RestoreAerialFallingPhysics();
+		return false;
+	}
+
+	if (AnimInstance->Montage_Play(Montage, 1.0f) <= 0.0f)
+	{
+		ReleasePoseToken(PoseTokens.AerialFalling);
+		RestoreAerialFallingPhysics();
+		return false;
+	}
+	if (FAnimMontageInstance* Instance = AnimInstance->GetActiveInstanceForMontage(Montage))
+	{
+		// Free fall is solely CMC-owned, even if an imported presentation clip
+		// accidentally retains a root track.
+		Instance->PushDisableRootMotion();
+		bAerialFallingRootMotionDisabledByHost = true;
+	}
+	ActiveAerialFallingMontage = Montage;
+	return true;
+}
+
+void UMHGZWeaponRuntimeHostComponent::GetAerialPresentationRootMotionTelemetry(
+	FMHGZAerialPresentationRootMotionTelemetry& OutTelemetry) const
+{
+	OutTelemetry = FMHGZAerialPresentationRootMotionTelemetry();
+	ACharacter* Character = CurrentContext.Character.Get();
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
+
+	const auto InspectMontage = [AnimInstance](UAnimMontage* Montage, const bool bDisabledByHost,
+		FString& OutMontage, bool& bOutReferenced, bool& bOutHostDisabled,
+		bool& bOutInstanceFound, bool& bOutInstanceDisabled)
+	{
+		bOutReferenced = Montage != nullptr;
+		bOutHostDisabled = bDisabledByHost;
+		OutMontage = Montage ? Montage->GetPathName() : FString();
+		if (AnimInstance && Montage)
+		{
+			if (FAnimMontageInstance* Instance = AnimInstance->GetActiveInstanceForMontage(Montage))
+			{
+				bOutInstanceFound = true;
+				bOutInstanceDisabled = Instance->IsRootMotionDisabled();
+			}
+		}
+	};
+
+	InspectMontage(ActiveAerialFallingMontage.Get(), bAerialFallingRootMotionDisabledByHost,
+		OutTelemetry.FallingMontage, OutTelemetry.bFallingMontageReferenced,
+		OutTelemetry.bFallingRootMotionDisabledByHost,
+		OutTelemetry.bFallingMontageInstanceFound,
+		OutTelemetry.bFallingInstanceRootMotionDisabled);
+	InspectMontage(ActiveAerialLandingMontage.Get(), bAerialLandingRootMotionDisabledByHost,
+		OutTelemetry.LandingMontage, OutTelemetry.bLandingMontageReferenced,
+		OutTelemetry.bLandingRootMotionDisabledByHost,
+		OutTelemetry.bLandingMontageInstanceFound,
+		OutTelemetry.bLandingInstanceRootMotionDisabled);
 }
 
 void UMHGZWeaponRuntimeHostComponent::InitializePoseState(ACharacter* InCharacter)
 {
 	bWeaponVisualAttachmentWarningIssued = false;
 	PoseTokens = FPoseTokens();
+	ActiveAerialFallingMontage = nullptr;
+	ActiveAerialLandingMontage = nullptr;
+	bAerialFallingRootMotionDisabledByHost = false;
+	bAerialLandingRootMotionDisabledByHost = false;
+	bAerialFallingPhysicsOverridden = false;
 
 	const bool bInGrounded = InCharacter && InCharacter->GetCharacterMovement()
 		? InCharacter->GetCharacterMovement()->IsMovingOnGround()
@@ -853,6 +1058,165 @@ void UMHGZWeaponRuntimeHostComponent::InitializePoseState(ACharacter* InCharacte
 		bInSheathed = !MHGZCharacter->bUnsheathed;
 	}
 	ApplySheathedPose(bInSheathed);
+}
+
+void UMHGZWeaponRuntimeHostComponent::StopAerialFallingVisual(const float BlendOutTime)
+{
+	UAnimMontage* Montage = ActiveAerialFallingMontage.Get();
+	ACharacter* Character = CurrentContext.Character.Get();
+	if (Montage && Character && Character->GetMesh())
+	{
+		if (UAnimInstance* AnimInstance = Character->GetMesh()->GetAnimInstance())
+		{
+			if (bAerialFallingRootMotionDisabledByHost)
+			{
+				if (FAnimMontageInstance* Instance = AnimInstance->GetActiveInstanceForMontage(Montage))
+				{
+					Instance->PopDisableRootMotion();
+				}
+			}
+			AnimInstance->Montage_Stop(BlendOutTime, Montage);
+		}
+	}
+	ActiveAerialFallingMontage = nullptr;
+	bAerialFallingRootMotionDisabledByHost = false;
+}
+
+void UMHGZWeaponRuntimeHostComponent::StopAerialLandingVisual(const float BlendOutTime)
+{
+	UAnimMontage* Montage = ActiveAerialLandingMontage.Get();
+	ActiveAerialLandingMontage = nullptr;
+	if (Montage)
+	{
+		if (ACharacter* Character = CurrentContext.Character.Get())
+		{
+			if (USkeletalMeshComponent* Mesh = Character->GetMesh())
+			{
+				if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+				{
+					if (bAerialLandingRootMotionDisabledByHost)
+					{
+						if (FAnimMontageInstance* Instance = AnimInstance->GetActiveInstanceForMontage(Montage))
+						{
+							Instance->PopDisableRootMotion();
+						}
+					}
+					AnimInstance->Montage_Stop(BlendOutTime, Montage);
+				}
+			}
+		}
+	}
+	bAerialLandingRootMotionDisabledByHost = false;
+	ReleasePoseToken(PoseTokens.AerialLanding);
+}
+
+void UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingPhysics(const bool bEnhancedVariant)
+{
+	ACharacter* Character = CurrentContext.Character.Get();
+	UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
+	UWeaponCombatConfigBase* CombatConfig = CurrentContext.CombatConfig.Get();
+	if (!CMC || !CombatConfig)
+	{
+		return;
+	}
+
+	float GravityScale = 1.0f;
+	float BrakingDeceleration = 0.0f;
+	if (!CombatConfig->ResolveAerialFallingPhysics(bEnhancedVariant, GravityScale,
+		BrakingDeceleration))
+	{
+		return;
+	}
+
+	if (!bAerialFallingPhysicsOverridden)
+	{
+		SavedGravityScale = CMC->GravityScale;
+		SavedBrakingDecelerationFalling = CMC->BrakingDecelerationFalling;
+		bAerialFallingPhysicsOverridden = true;
+	}
+	CMC->GravityScale = GravityScale;
+	CMC->BrakingDecelerationFalling = BrakingDeceleration;
+}
+
+void UMHGZWeaponRuntimeHostComponent::RestoreAerialFallingPhysics()
+{
+	if (!bAerialFallingPhysicsOverridden)
+	{
+		return;
+	}
+	if (ACharacter* Character = CurrentContext.Character.Get())
+	{
+		if (UCharacterMovementComponent* CMC = Character->GetCharacterMovement())
+		{
+			CMC->GravityScale = SavedGravityScale;
+			CMC->BrakingDecelerationFalling = SavedBrakingDecelerationFalling;
+		}
+	}
+	bAerialFallingPhysicsOverridden = false;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::PlayAerialLandingVisual()
+{
+	UWeaponCombatConfigBase* CombatConfig = CurrentContext.CombatConfig.Get();
+	ACharacter* Character = CurrentContext.Character.Get();
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
+	UAnimMontage* Montage = CombatConfig ? CombatConfig->GetAerialLandingMontage() : nullptr;
+	if (!AnimInstance || !Montage)
+	{
+		return false;
+	}
+
+	StopAerialLandingVisual(0.0f);
+	PoseTokens.AerialLanding = AcquireTags(EWeaponTagOwnerKind::Pose,
+		FGameplayAbilitySpecHandle(), 0, TEXT("Pose.AerialLanding"),
+		SingleTagContainer(TEXT("Combat.State.Aerial.Landing")));
+	if (!PoseTokens.AerialLanding.IsValid()
+		|| AnimInstance->Montage_Play(Montage, 1.0f) <= 0.0f)
+	{
+		ReleasePoseToken(PoseTokens.AerialLanding);
+		return false;
+	}
+	if (FAnimMontageInstance* Instance = AnimInstance->GetActiveInstanceForMontage(Montage))
+	{
+		Instance->PushDisableRootMotion();
+		bAerialLandingRootMotionDisabledByHost = true;
+	}
+	ActiveAerialLandingMontage = Montage;
+	FOnMontageEnded MontageEndedDelegate;
+	MontageEndedDelegate.BindUObject(this,
+		&UMHGZWeaponRuntimeHostComponent::HandleAerialLandingMontageEnded);
+	AnimInstance->Montage_SetEndDelegate(MontageEndedDelegate, Montage);
+	return true;
+}
+
+void UMHGZWeaponRuntimeHostComponent::HandleAerialLandingMontageEnded(UAnimMontage* Montage,
+	bool /* bInterrupted */)
+{
+	if (ActiveAerialLandingMontage.Get() != Montage)
+	{
+		return;
+	}
+	if (bAerialLandingRootMotionDisabledByHost)
+	{
+		if (ACharacter* Character = CurrentContext.Character.Get())
+		{
+			if (USkeletalMeshComponent* Mesh = Character->GetMesh())
+			{
+				if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
+				{
+					if (FAnimMontageInstance* Instance =
+						AnimInstance->GetActiveInstanceForMontage(Montage))
+					{
+						Instance->PopDisableRootMotion();
+					}
+				}
+			}
+		}
+	}
+	ActiveAerialLandingMontage = nullptr;
+	bAerialLandingRootMotionDisabledByHost = false;
+	ReleasePoseToken(PoseTokens.AerialLanding);
 }
 
 bool UMHGZWeaponRuntimeHostComponent::ApplyGroundedPose(bool bInGrounded)
@@ -963,6 +1327,25 @@ void UMHGZWeaponRuntimeHostComponent::ReleasePoseToken(FWeaponOwnedTagToken& Tok
 		TagLedger.Release(Token);
 	}
 	Token = FWeaponOwnedTagToken();
+}
+
+void UMHGZWeaponRuntimeHostComponent::ClearActionMovementOwner()
+{
+	if (!ActionMovementWarpTargetName.IsNone())
+	{
+		if (const AMHGZCharacter* Character = Cast<AMHGZCharacter>(
+			CurrentContext.Character.Get()))
+		{
+			if (UMotionWarpingComponent* MotionWarping =
+				Character->GetMotionWarpingComponent())
+			{
+				MotionWarping->RemoveWarpTarget(ActionMovementWarpTargetName);
+			}
+		}
+	}
+
+	ActionMovementOwner = FWeaponActionToken();
+	ActionMovementWarpTargetName = NAME_None;
 }
 
 // ----------------------------------------------------------------------

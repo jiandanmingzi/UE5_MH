@@ -13,6 +13,7 @@ class ACharacter;
 class APlayerController;
 class UAbilitySystemComponent;
 class UCurveFloat;
+class UCurveVector;
 class UGameplayAbility;
 class UMHGZAbilitySystemComponent;
 class UMHGZEquipmentComponent;
@@ -118,6 +119,8 @@ enum class EWeaponMovementMode : uint8
 {
 	BoundedDirectional,
 	BallisticVault,
+	/** A recorded, collision-aware path: MoveToForce supplies planar target while a vector curve supplies the local offset. */
+	CurvedVault,
 	AdditiveInertia
 };
 
@@ -626,6 +629,14 @@ struct FWeaponMovementRequest
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<UCurveFloat> DistanceCurve;
 
+	/**
+	 * CurvedVault's local path offset, evaluated over [0, 1]. X follows
+	 * DirectionSnapshot, Y is lateral, and Z is vertical. The curve must start
+	 * and end at zero offset because MaxDistance defines the two endpoints.
+	 */
+	UPROPERTY(BlueprintReadOnly)
+	TObjectPtr<UCurveVector> PathOffsetCurve;
+
 	UPROPERTY(BlueprintReadOnly)
 	FVector InheritedVelocity = FVector::ZeroVector;
 
@@ -682,6 +693,14 @@ struct FWeaponMovementRequest
 		return BallisticMode == EBallisticParameterMode::ApexHeightAndDuration
 			? bHasApexParameters
 			: bHasExplicitVelocity;
+	}
+
+	bool HasValidCurvedVaultParameters() const
+	{
+		return Mode != EWeaponMovementMode::CurvedVault
+			|| (PathOffsetCurve != nullptr
+				&& FMath::IsFinite(Duration) && Duration > 0.f
+				&& FMath::IsFinite(MaxDistance) && MaxDistance > 0.f);
 	}
 };
 

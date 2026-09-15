@@ -107,6 +107,17 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckPositive(TEXT("DivingWyvernDistance"), DivingWyvernDistance);
 	CheckPositive(TEXT("DivingWyvernHeight"), DivingWyvernHeight);
 	CheckPositive(TEXT("DivingWyvernDuration"), DivingWyvernDuration);
+	CheckPositive(TEXT("BackVaultDuration"), BackVaultDuration);
+	CheckPositive(TEXT("BackVaultDistance"), BackVaultDistance);
+	CheckPositive(TEXT("BackVaultApexHeight"), BackVaultApexHeight);
+	CheckPositive(TEXT("WhiteBackVaultDuration"), WhiteBackVaultDuration);
+	CheckPositive(TEXT("WhiteBackVaultDistance"), WhiteBackVaultDistance);
+	CheckPositive(TEXT("WhiteBackVaultApexHeight"), WhiteBackVaultApexHeight);
+	CheckPositive(TEXT("BackVaultFreeFallHandoffProgress"), BackVaultFreeFallHandoffProgress);
+	CheckPositive(TEXT("WhiteBackVaultFreeFallHandoffProgress"), WhiteBackVaultFreeFallHandoffProgress);
+	CheckPositive(TEXT("AerialFallGravityScale"), AerialFallGravityScale);
+	CheckPositive(TEXT("WhiteAerialFallGravityScale"), WhiteAerialFallGravityScale);
+	CheckNonNegative(TEXT("AerialFallBrakingDeceleration"), AerialFallBrakingDeceleration);
 	CheckPositive(TEXT("PowderGatherRadius"), PowderGatherRadius);
 	CheckPositive(TEXT("PowderGatherDuration"), PowderGatherDuration);
 
@@ -121,6 +132,27 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckNonNegative(TEXT("DrawSendKinsectMotionValue"), DrawSendKinsectMotionValue);
 	CheckNonNegative(TEXT("AwakenedKinsectMotionValue"), AwakenedKinsectMotionValue);
 	CheckNonNegative(TEXT("DescendingThrustAirControl"), DescendingThrustAirControl);
+
+	if (BackVaultFreeFallHandoffProgress >= 1.0f)
+	{
+		AddError(LOCTEXT("InvalidBackVaultHandoff", "BackVaultFreeFallHandoffProgress must be < 1.0."));
+	}
+	if (WhiteBackVaultFreeFallHandoffProgress >= 1.0f)
+	{
+		AddError(LOCTEXT("InvalidWhiteBackVaultHandoff", "WhiteBackVaultFreeFallHandoffProgress must be < 1.0."));
+	}
+	if (AerialFallMontage == nullptr)
+	{
+		AddError(LOCTEXT("MissingAerialFallMontage", "AerialFallMontage must be assigned."));
+	}
+	if (WhiteAerialFallMontage == nullptr)
+	{
+		AddError(LOCTEXT("MissingWhiteAerialFallMontage", "WhiteAerialFallMontage must be assigned."));
+	}
+	if (AerialLandingMontage == nullptr)
+	{
+		AddError(LOCTEXT("MissingAerialLandingMontage", "AerialLandingMontage must be assigned."));
+	}
 
 	// 修正角范围
 	if (!FMath::IsFinite(AwakenedAimCorrectionAngle)

@@ -278,6 +278,7 @@ void UMHGZAttackAbility::ActivateAbility(
 	bHasHitThisActivation = false;
 	bHasActiveRootMotionTask = false;
 	bIsEndingAbility = false;
+	bMontageSuspendedForFollowup = false;
 	// 每次激活生成稳定攻击身份：一次激活内所有伤害/多跳/反馈共享同一 ID。
 	ActivationAttackInstanceID = FGuid::NewGuid();
 	// Action 已 Confirm；普通攻击在 Montage 播放前只读取一次冻结输入方向。
@@ -414,6 +415,47 @@ bool UMHGZAttackAbility::StartAttackMontage(ACharacter& Character,
 		&& RegisterMontageInstance(Character.GetMesh(), MontageInstance->GetInstanceID());
 }
 
+bool UMHGZAttackAbility::SuspendAttackMontageForFollowup()
+{
+	if (!IsActive() || bIsEndingAbility || !IsActionActivationCommitted())
+	{
+		return false;
+	}
+
+	bMontageSuspendedForFollowup = true;
+	DisableCollision();
+
+	// EndTask stops this exact ability montage and unbinds its delegates.  The
+	// callback can be synchronous, so its handler explicitly recognises the
+	// follow-up state instead of ending the still-live Action.
+	if (MontageTask)
+	{
+		MontageTask->EndTask();
+		MontageTask = nullptr;
+	}
+	else if (ActiveAttackMontage)
+	{
+		if (UAnimInstance* AnimInstance = CurrentActorInfo
+			? CurrentActorInfo->GetAnimInstance() : nullptr)
+		{
+			AnimInstance->Montage_Stop(0.0f, ActiveAttackMontage);
+		}
+	}
+	ActiveAttackMontage = nullptr;
+
+	// A stopped RootMotion Phase may send its NotifyEnd immediately or on the
+	// next animation update. Releasing the exact owner here makes the MovementTask
+	// handoff deterministic; the later NotifyEnd is a harmless stale no-op.
+	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+	{
+		if (Host->IsMontageRootMotionOwnedBy(GetActionToken()))
+		{
+			Host->ReleaseMontageRootMotion(GetActionToken());
+		}
+	}
+	return true;
+}
+
 void UMHGZAttackAbility::EndAbility(
 	const FGameplayAbilitySpecHandle Handle,
 	const FGameplayAbilityActorInfo* ActorInfo,
@@ -426,6 +468,7 @@ void UMHGZAttackAbility::EndAbility(
 		return;
 	}
 	bIsEndingAbility = true;
+	bMontageSuspendedForFollowup = false;
 	PendingDodgeSuperseder = FWeaponActionToken();
 	CloseAllDodgeAcceptWindows();
 
@@ -573,7 +616,7 @@ void UMHGZAttackAbility::CloseAllDodgeAcceptWindows()
 
 void UMHGZAttackAbility::OnMontageCompleted()
 {
-	if (IsActive() && !bIsEndingAbility)
+	if (IsActive() && !bIsEndingAbility && !bMontageSuspendedForFollowup)
 	{
 		RequestEndAction(EWeaponActionEndReason::Normal);
 	}
@@ -581,7 +624,7 @@ void UMHGZAttackAbility::OnMontageCompleted()
 
 void UMHGZAttackAbility::OnMontageInterrupted()
 {
-	if (IsActive() && !bIsEndingAbility)
+	if (IsActive() && !bIsEndingAbility && !bMontageSuspendedForFollowup)
 	{
 		if (PendingDodgeSuperseder.IsValid())
 		{

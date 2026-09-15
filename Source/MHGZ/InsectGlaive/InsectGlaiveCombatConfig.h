@@ -12,6 +12,7 @@ class UInsectGlaiveKinsectData;
 class USoundBase;
 class AIGMarkProjectile;
 class UParticleSystem;
+class UAnimMontage;
 
 /** 红灯（Red Extract）动作模式 */
 UENUM(BlueprintType)
@@ -138,6 +139,95 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Movement")
 	FVector DanceVaultLaunchVelocity = FVector::ZeroVector;
+
+	/**
+	 * 后撑杆跳由 MHR 实录轨迹重建。Jump 保留 Montage Root Motion；从
+	 * Jump_Over 的段边界起 CurvedVault 接管，随后在
+	 * FreeFallHandoffProgress 交给 CMC。重力、碰撞与接地都不再由 GA 的路径
+	 * 接管。白灯版本具有独立的距离、高度和动作时长。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
+	float BackVaultDuration = 1.733333f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
+	float BackVaultDistance = 583.87f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
+	float BackVaultApexHeight = 579.7f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
+	float WhiteBackVaultDuration = 2.233333f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
+	float WhiteBackVaultDistance = 706.05f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
+	float WhiteBackVaultApexHeight = 748.9f;
+
+	/**
+	 * The recorded path fraction reached when the action-owned CurvedVault
+	 * portion ends.  At this point CMC preserves the resulting velocity through
+	 * the real free-fall phase.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
+		meta = (ClampMin = "0.01", ClampMax = "0.99"))
+	float BackVaultFreeFallHandoffProgress = 0.8734f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
+		meta = (ClampMin = "0.01", ClampMax = "0.99"))
+	float WhiteBackVaultFreeFallHandoffProgress = 0.8734f;
+
+	/**
+	 * MHR world-transform captures of the back-vault free-fall portion.  These
+	 * scales are applied only while RuntimeHost owns Combat.State.Aerial.Falling:
+	 * normal = 2376 cm/s^2 / UE default 980; white = 2523 / 980.  The profile
+	 * is restored at landing, cancellation, weapon swap, or runtime shutdown.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Physics",
+		meta = (ClampMin = "0.01"))
+	float AerialFallGravityScale = 2.4246f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Physics",
+		meta = (ClampMin = "0.01"))
+	float WhiteAerialFallGravityScale = 2.5740f;
+
+	/** Preserve the recorded planar tangent during free fall; no CMC drag. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Physics",
+		meta = (ClampMin = "0.0"))
+	float AerialFallBrakingDeceleration = 0.0f;
+
+	/** CMC-owned free-fall visual after an ordinary rear vault.  It must be in-place. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Presentation")
+	TObjectPtr<UAnimMontage> AerialFallMontage;
+
+	/** CMC-owned free-fall visual after a White Extract launch, dance vault, or air dodge. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Presentation")
+	TObjectPtr<UAnimMontage> WhiteAerialFallMontage;
+
+	/** CMC landing visual for any free insect-glaive aerial state. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Presentation")
+	TObjectPtr<UAnimMontage> AerialLandingMontage;
+
+	virtual UAnimMontage* GetAerialFallingMontage(bool bEnhancedVariant) const override
+	{
+		return bEnhancedVariant ? WhiteAerialFallMontage : AerialFallMontage;
+	}
+
+	virtual UAnimMontage* GetAerialLandingMontage() const override
+	{
+		return AerialLandingMontage;
+	}
+
+	virtual bool ResolveAerialFallingPhysics(bool bEnhancedVariant,
+		float& OutGravityScale, float& OutBrakingDecelerationFalling) const override
+	{
+		OutGravityScale = bEnhancedVariant
+			? WhiteAerialFallGravityScale : AerialFallGravityScale;
+		OutBrakingDecelerationFalling = AerialFallBrakingDeceleration;
+		return FMath::IsFinite(OutGravityScale) && OutGravityScale > 0.0f
+			&& FMath::IsFinite(OutBrakingDecelerationFalling)
+			&& OutBrakingDecelerationFalling >= 0.0f;
+	}
 
 	/** 操虫斩最大飞行距离（cm） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Movement", meta = (ClampMin = "0.01"))

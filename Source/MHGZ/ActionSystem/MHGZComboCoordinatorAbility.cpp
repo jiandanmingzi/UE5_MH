@@ -10,6 +10,7 @@
 #include "HAL/PlatformTime.h"
 #include "TimerManager.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
+#include "MHGZ.h"
 
 namespace
 {
@@ -18,6 +19,8 @@ namespace
 		TEXT("Input.Weapon"));
 	const FGameplayTag DodgeInputTag = FGameplayTag::RequestGameplayTag(
 		TEXT("Input.Dodge"));
+	const FGameplayTag BackVaultInputTag = FGameplayTag::RequestGameplayTag(
+		TEXT("Input.Weapon.RTA"));
 	const FGameplayTag GroundedTag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Grounded"));
 	const FGameplayTag AerialTag = FGameplayTag::RequestGameplayTag(
@@ -269,8 +272,24 @@ void UGA_WeaponComboCoordinator::HandleWeaponInput(const FWeaponInputSnapshot& I
 	}
 	if (const FComboTransition* Transition = FindBestMatch(Input))
 	{
+		if (Input.ResolvedInputTag == BackVaultInputTag)
+		{
+			UE_LOG(LogMHGZ, Warning,
+				TEXT("[BackVault] Match id=%s State=%s Direction=%d Active=%s"),
+				*Transition->TransitionID.ToString(), *CurrentState.ToString(),
+				static_cast<int32>(Input.Direction),
+				ActiveTransition.IsSet() ? TEXT("true") : TEXT("false"));
+		}
 		ExecuteTransition(*Transition, Input);
 		return;
+	}
+	if (Input.ResolvedInputTag == BackVaultInputTag)
+	{
+		UE_LOG(LogMHGZ, Warning,
+			TEXT("[BackVault] No match State=%s Direction=%d Active=%s InputTags=%s"),
+			*CurrentState.ToString(), static_cast<int32>(Input.Direction),
+			ActiveTransition.IsSet() ? TEXT("true") : TEXT("false"),
+			*Input.ContextTags.ToStringSimple());
 	}
 
 	// Only cache an input which becomes valid when—and only when—the accept
@@ -334,7 +353,10 @@ bool UGA_WeaponComboCoordinator::ExecuteTransition(
 	UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(
 		GetAbilitySystemComponentFromActorInfo());
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
-	if (!ASC || !Host || !Transition.AbilityClass || PendingTransition.IsSet()) return false;
+	if (!ASC || !Host || !Transition.AbilityClass || PendingTransition.IsSet())
+	{
+		return false;
+	}
 	const UMHGZGameplayAbility* ActionCDO =
 		Cast<UMHGZGameplayAbility>(Transition.AbilityClass->GetDefaultObject());
 	if (!ActionCDO || ActionCDO->GetInstancingPolicy()
@@ -345,7 +367,10 @@ bool UGA_WeaponComboCoordinator::ExecuteTransition(
 
 	const FGameplayAbilitySpecHandle AbilityHandle =
 		ASC->FindWeaponAbilityHandle(Transition.AbilityClass);
-	if (!AbilityHandle.IsValid()) return false;
+	if (!AbilityHandle.IsValid())
+	{
+		return false;
+	}
 
 	FWeaponAbilityActivationContext Context;
 	Context.RuntimeToken = Host->GetCurrentToken();

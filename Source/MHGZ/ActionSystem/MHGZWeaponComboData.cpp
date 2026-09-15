@@ -25,10 +25,11 @@ bool HaveSameMatchCondition(const FComboTransition& A, const FComboTransition& B
 		&& A.Priority == B.Priority;
 }
 
-bool IsClearlyGroundState(const FName State)
+bool IsClearlyAerialState(const FName State)
 {
 	const FString Value = State.ToString();
-	return State == FName(TEXT("Idle")) || Value.StartsWith(TEXT("Ground")) || Value.StartsWith(TEXT("IG.Ground"));
+	return State == FName(TEXT("Aerial")) || Value.StartsWith(TEXT("Aerial"))
+		|| Value.StartsWith(TEXT("IG.Aerial"));
 }
 }
 
@@ -138,9 +139,10 @@ EDataValidationResult UMHGZWeaponComboData::IsDataValid(FDataValidationContext& 
 		}
 
 		if (Transition.LandingPolicy == EComboLandingPolicy::AbilityOwned
-			&& !Transition.bMatchAnyState && IsClearlyGroundState(Transition.SourceState))
+			&& !IsClearlyAerialState(Transition.TargetState))
 		{
-			AddError(FText::Format(LOCTEXT("GroundAbilityOwnedLanding", "Transitions[{0}] is a ground transition and cannot own landing."), IndexText));
+			AddError(FText::Format(LOCTEXT("AbilityOwnedRequiresAerialTarget",
+				"Transitions[{0}] owns landing but does not target an aerial state."), IndexText));
 		}
 
 		const FGameplayTag DodgeAcceptOpen = FGameplayTag::RequestGameplayTag(
