@@ -37,6 +37,7 @@ void UMHGZAdvancingCounterAbility::ActivateAbility(
 {
 	bCounterSucceeded = false;
 	bBeginFreeFallAfterEnd = false;
+	bPlayLandedPresentation = false;
 	bIsEndingCounterAbility = false;
 	AdvancingCounterVaultTask = nullptr;
 	AdvancingCounterVaultMontageTask = nullptr;
@@ -67,8 +68,19 @@ void UMHGZAdvancingCounterAbility::EndAbility(
 	const bool bStartFreeFall = bBeginFreeFallAfterEnd && !bWasCancelled
 		&& EndingCharacter && EndingCharacter->GetCharacterMovement()
 		&& EndingCharacter->GetCharacterMovement()->IsFalling();
+	// 触地类收尾：JumpForce 的抛物线在 f=1 回到起跳高度，所以本动作没有、
+	// 也不该有自由落体阶段（Rise 实录里舞踏是单一动作 id 覆盖升+降+触地，
+	// 动画与移动同长同终）。落地姿势直接认领，不经过 AerialFalling。
+	const bool bPlayLanding = bPlayLandedPresentation && !bWasCancelled;
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility,
 		bWasCancelled);
+	if (bPlayLanding)
+	{
+		if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+		{
+			Host->PlayAerialLandingPresentation();
+		}
+	}
 	if (bStartFreeFall)
 	{
 		if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
@@ -234,6 +246,9 @@ bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVault()
 	Request.BallisticMode = CombatConfig->DanceVaultBallisticMode;
 	Request.ApexHeight = CombatConfig->DanceVaultApexHeight;
 	Request.Duration = CombatConfig->DanceVaultDuration;
+	// ApexHeightAndDuration 模式不会从别的字段推导水平位移；不设这一项，
+	// JumpForce 的 Distance 为 0，落点会比 Rise 更贴脚下。
+	Request.MaxDistance = CombatConfig->DanceVaultDistance;
 	Request.LaunchVelocity = CombatConfig->DanceVaultLaunchVelocity;
 	Request.RotationPolicy = EActionRotationPolicy::Locked;
 	Request.CollisionPolicy = EMovementCollisionPolicy::StopOnBlockingHit;
@@ -305,6 +320,27 @@ bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVaultVisual()
 	return true;
 }
 
+UMHGZAdvancingCounterAbility::EVaultExit UMHGZAdvancingCounterAbility::ResolveVaultExit(
+	const EWeaponMovementEndReason Reason, const bool bCmcIsFalling)
+{
+	switch (Reason)
+	{
+	case EWeaponMovementEndReason::Landed:
+		// 弧线抵达地面。刻意不看 CMC 模式 —— 回调落在 ProcessLanded 内、
+		// SetPostLandedPhysics 之前，此时 IsFalling() 仍为 true，用它当判据
+		// 会把每一次触地都判成「还在空中」。
+		return EVaultExit::LandedPresentation;
+	case EWeaponMovementEndReason::Completed:
+		// 弧线在空中跑完，本体交给 CMC 继续积分。若 CMC 已经落地，落地姿势
+		// 同样归本次 Action —— 否则这次触地没有任何人认领。
+		return bCmcIsFalling ? EVaultExit::FreeFall : EVaultExit::LandedPresentation;
+	default:
+		// BlockingHit / Interrupted / Cancelled / Failed / Death / WeaponChanged /
+		// RuntimeShutdown / HitHitzone：没有抵达地面，不交接任何东西。
+		return EVaultExit::None;
+	}
+}
+
 void UMHGZAdvancingCounterAbility::HandleAdvancingCounterVaultFinished(
 	const FWeaponMovementResult& MovementResult)
 {
@@ -319,10 +355,13 @@ void UMHGZAdvancingCounterAbility::HandleAdvancingCounterVaultFinished(
 			|| MovementResult.EndReason == EWeaponMovementEndReason::Landed)
 		? EWeaponActionEndReason::Normal
 		: EWeaponActionEndReason::Interrupted;
-	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-	bBeginFreeFallAfterEnd = MovementResult.EndReason == EWeaponMovementEndReason::Completed
-		&& Character && Character->GetCharacterMovement()
-		&& Character->GetCharacterMovement()->IsFalling();
+	const ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	const UCharacterMovementComponent* Movement = Character
+		? Character->GetCharacterMovement() : nullptr;
+	const EVaultExit Exit = ResolveVaultExit(MovementResult.EndReason,
+		Movement && Movement->IsFalling());
+	bBeginFreeFallAfterEnd = Exit == EVaultExit::FreeFall;
+	bPlayLandedPresentation = Exit == EVaultExit::LandedPresentation;
 	RequestEndAction(EndReason);
 }
 

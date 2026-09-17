@@ -73,7 +73,7 @@ FString BuildRuntimeTelemetryReadme()
 		TEXT("  Input/RawInput.csv              physical stick/buttons sampled at the telemetry rate\n")
 		TEXT("  Input/ParsedInput.csv           every Router-resolved Input.* event\n")
 		TEXT("  Character/State.csv             gameplay tags, equipment state, and GAS attributes\n")
-		TEXT("  Character/Spatial.csv           capsule kinematics, Mesh-to-capsule transform, and movement targets\n")
+		TEXT("  Character/Spatial.csv           capsule kinematics, Mesh-to-capsule transform, animated root bone and posed mesh bounds, and movement targets\n")
 		TEXT("  Character/RootMotionSources.csv CMC RootMotionSource snapshots; one or more rows per frame\n")
 		TEXT("  Character/CapsuleHits.csv       capsule blocking-contact events; zero or more rows per frame\n")
 		TEXT("  MotionMatching/Query.csv        runtime MM query values and state-machine modes\n")
@@ -89,6 +89,7 @@ FString BuildRuntimeTelemetryReadme()
 		TEXT("- `Input/RawInput` is the physical controller state. `Input/ParsedInput` is the Router output after chord/context resolution; a missing parsed event does not prove the physical input was absent.\n")
 		TEXT("- `Character/State` records current Health/MaxHealth, Stamina/MaxStamina, MoveSpeedMultiplier and owned Gameplay Tags when their AttributeSet/ASC is available. Weapon-specific resources are identified by class; add explicit fields only when that resource has a stable cross-weapon contract.\n")
 		TEXT("- `Character/RootMotionSources` distinguishes active from pending sources and records their identity, timing, accumulation/finish policy and status flags. A `Group=None` row is emitted when CMC owns no source that frame. Compare this with `Spatial`'s `MeshRelativeToCapsule*` fields to separate a capsule displacement from a mesh-only visual offset.\n")
+		TEXT("- `Character/Spatial` records geometry at three separate levels, and only the last two can show a pose that displaces the visible mesh: the capsule transform (`Location*`, `Actor*`), the mesh *component* transform (`MeshRelativeToCapsule*`, constant unless the component is re-attached), and the animated skeleton itself (`RootBoneWorld*` / `RootBoneRel*` / `MeshBounds*`). `RootBoneRel*` is the root bone in component space, i.e. purely what the animation contributed; `MeshBounds*` is the posed geometry origin, so it also moves when a child bone shifts the silhouette. When a viewer reports the model sliding sideways, subtracting the capsule from `RootBoneWorld*` localises it: unchanged means the pose did it, changing means the capsule did.\n")
 		TEXT("- `Character/CapsuleHits` records every blocking hit emitted by the Character capsule, including the other actor/component and both hit normals. Absence of an event during a no-displacement interval helps distinguish collision blocking from root-motion extraction or movement-mode issues.\n")
 		TEXT("- `Animation/AnimGraphRootMotion` is captured from the AnimInstance proxy immediately after AnimGraph evaluation and before CMC consumes it. Its translation is mesh-local; `ScaledLocalTranslation*` applies the Character's current AnimRootMotionTranslationScale. It isolates a zero locomotion graph output from a later CMC-consumption failure. Montage Root Motion is queued after this proxy stage, so inspect it together with `Animation/MontageInstances`.\n")
 		TEXT("- `Animation/MontageInstances` writes every current or blending-out montage instance. `Weight`/`DesiredWeight`, per-slot graph weight and `RootMotionDisabled` expose a stale slot or a disabled blend-out that `Playback`'s single active montage field cannot show.\n")
@@ -1872,6 +1873,31 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 		: FTransform::Identity;
 	const FVector MeshRelativeLocation = MeshRelativeToCapsule.GetLocation();
 	const FRotator MeshRelativeRotation = MeshRelativeToCapsule.Rotator();
+
+	// MeshRelativeToCapsule above is the *component* transform, so it cannot show
+	// a pose that displaces the visible geometry.  Sampling the root bone in both
+	// world and component space separates "the capsule moved", "the component
+	// moved" and "the animation moved the skeleton" — the three candidates behind
+	// a reported "the model slides sideways while I am falling" symptom.
+	FVector RootBoneWorldLocation = FVector::ZeroVector;
+	FVector RootBoneRelativeLocation = FVector::ZeroVector;
+	bool bHasRootBoneSample = false;
+	if (CharacterMesh)
+	{
+		const FName RootBoneName = CharacterMesh->GetBoneName(0);
+		if (RootBoneName != NAME_None)
+		{
+			RootBoneWorldLocation = CharacterMesh->GetBoneLocation(
+				RootBoneName, EBoneSpaces::WorldSpace);
+			RootBoneRelativeLocation = CharacterMesh->GetBoneLocation(
+				RootBoneName, EBoneSpaces::ComponentSpace);
+			bHasRootBoneSample = true;
+		}
+	}
+	// Posed bounds move when *any* animated bone displaces the geometry, so they
+	// still catch a lateral shift driven by a child bone rather than the root.
+	const FBoxSphereBounds MeshBounds = CharacterMesh
+		? CharacterMesh->Bounds : FBoxSphereBounds(FVector::ZeroVector, FVector::ZeroVector, 0.0f);
 	const int32 AnimRootMotionMode = static_cast<int32>(RootMotionMode.GetValue());
 	const bool bAnimShouldExtractRootMotion = ShouldExtractRootMotion();
 	const UAbilitySystemComponent* ASC = Character->GetAbilitySystemComponent();
@@ -1933,7 +1959,7 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	RuntimeTelemetryCharacterStatePendingRows.Add(FString::Join(StateFields, TEXT(",")));
 
 	TArray<FString> SpatialFields;
-	SpatialFields.Reserve(37);
+	SpatialFields.Reserve(46);
 	SpatialFields.Append({ ToCSVDouble(WorldTimeSeconds), FrameString, ToCSVFloat(CharacterLocation.X),
 		ToCSVFloat(CharacterLocation.Y), ToCSVFloat(CharacterLocation.Z), ToCSVFloat(CharacterRotation.Pitch),
 		ToCSVFloat(CharacterRotation.Yaw), ToCSVFloat(CharacterRotation.Roll), ToCSVFloat(RawInputYaw),
@@ -1949,7 +1975,14 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 		FString::FromInt(AnimRootMotionMode), bAnimShouldExtractRootMotion ? TEXT("1") : TEXT("0"),
 		ToCSVFloat(MeshRelativeLocation.X), ToCSVFloat(MeshRelativeLocation.Y), ToCSVFloat(MeshRelativeLocation.Z),
 		ToCSVFloat(MeshRelativeRotation.Pitch), ToCSVFloat(MeshRelativeRotation.Yaw),
-		ToCSVFloat(MeshRelativeRotation.Roll) });
+		ToCSVFloat(MeshRelativeRotation.Roll),
+		bHasRootBoneSample ? TEXT("1") : TEXT("0"),
+		ToCSVFloat(RootBoneWorldLocation.X), ToCSVFloat(RootBoneWorldLocation.Y),
+		ToCSVFloat(RootBoneWorldLocation.Z),
+		ToCSVFloat(RootBoneRelativeLocation.X), ToCSVFloat(RootBoneRelativeLocation.Y),
+		ToCSVFloat(RootBoneRelativeLocation.Z),
+		ToCSVFloat(MeshBounds.Origin.X), ToCSVFloat(MeshBounds.Origin.Y),
+		ToCSVFloat(MeshBounds.Origin.Z) });
 	RuntimeTelemetryCharacterSpatialPendingRows.Add(FString::Join(SpatialFields, TEXT(",")));
 
 	const auto CaptureRootMotionSource = [this, WorldTimeSeconds, &FrameString,
@@ -2213,7 +2246,7 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	const FString RawInputHeader = TEXT("WorldTimeSeconds,Frame,RawMoveRight,RawMoveForward,RawMoveMagnitude,HasRawMovementInput,RawWorldDirectionX,RawWorldDirectionY,RawWorldDirectionZ,RawInputYaw,SprintHeld,HeldPhysicalInputTags") LINE_TERMINATOR;
 	const FString ParsedInputHeader = TEXT("WorldTimeSeconds,Frame,EventSerial,RouterTimestamp,ResolvedInputTag,SourceControlTag,HeldModifierTags,ContextTags,Phase,SequenceID,FrozenRawMoveRight,FrozenRawMoveForward,FrozenWorldDirectionX,FrozenWorldDirectionY,FrozenWorldDirectionZ,FrozenDirection") LINE_TERMINATOR;
 	const FString CharacterStateHeader = TEXT("WorldTimeSeconds,Frame,Character,HasAbilitySystem,Unsheathed,HasLocomotionInput,BlockMovement,ForceMMIdle,OwnedGameplayTags,Health,MaxHealth,Stamina,MaxStamina,MoveSpeedMultiplier,WeaponResourceClass,DownshiftConfirmActive,DownshiftConfirmRemaining") LINE_TERMINATOR;
-	const FString CharacterSpatialHeader = TEXT("WorldTimeSeconds,Frame,LocationX,LocationY,LocationZ,ActorPitch,ActorYaw,ActorRoll,RawInputYaw,ActorToRawInputYawDelta,VelocityX,VelocityY,VelocityZ,Velocity2D,AccelerationX,AccelerationY,AccelerationZ,ActualRootMotionSpeed2D,TargetCruiseSpeed,DesiredSpeed,LocomotionInputMagnitude,MovementMode,HasAnimRootMotion,HasRootMotionSources,RootMotionHasOverrideVelocity,RootMotionHasAdditiveVelocity,AnimRootMotionMode,AnimShouldExtractRootMotion,MeshRelativeToCapsuleX,MeshRelativeToCapsuleY,MeshRelativeToCapsuleZ,MeshRelativeToCapsulePitch,MeshRelativeToCapsuleYaw,MeshRelativeToCapsuleRoll") LINE_TERMINATOR;
+	const FString CharacterSpatialHeader = TEXT("WorldTimeSeconds,Frame,LocationX,LocationY,LocationZ,ActorPitch,ActorYaw,ActorRoll,RawInputYaw,ActorToRawInputYawDelta,VelocityX,VelocityY,VelocityZ,Velocity2D,AccelerationX,AccelerationY,AccelerationZ,ActualRootMotionSpeed2D,TargetCruiseSpeed,DesiredSpeed,LocomotionInputMagnitude,MovementMode,HasAnimRootMotion,HasRootMotionSources,RootMotionHasOverrideVelocity,RootMotionHasAdditiveVelocity,AnimRootMotionMode,AnimShouldExtractRootMotion,MeshRelativeToCapsuleX,MeshRelativeToCapsuleY,MeshRelativeToCapsuleZ,MeshRelativeToCapsulePitch,MeshRelativeToCapsuleYaw,MeshRelativeToCapsuleRoll,HasRootBoneSample,RootBoneWorldX,RootBoneWorldY,RootBoneWorldZ,RootBoneRelX,RootBoneRelY,RootBoneRelZ,MeshBoundsX,MeshBoundsY,MeshBoundsZ") LINE_TERMINATOR;
 	const FString RootMotionSourcesHeader = TEXT("WorldTimeSeconds,Frame,Group,SourceIndex,SourceValid,LocalID,InstanceName,SourceType,SourceDebug,Priority,AccumulateMode,StartTime,CurrentTime,PreviousTime,Duration,StatusFlags,Prepared,Finished,MarkedForRemoval,InLocalSpace,NeedsSimulatedCatchup,FinishVelocityMode,FinishVelocityX,FinishVelocityY,FinishVelocityZ,GroupHasRootMotionSources,GroupHasOverrideVelocity,GroupHasAdditiveVelocity,ActiveSourceCount,PendingSourceCount") LINE_TERMINATOR;
 	const FString CapsuleHitsHeader = TEXT("WorldTimeSeconds,Frame,EventSerial,OtherActor,OtherComponent,LocationX,LocationY,LocationZ,ImpactPointX,ImpactPointY,ImpactPointZ,ImpactNormalX,ImpactNormalY,ImpactNormalZ,NormalX,NormalY,NormalZ") LINE_TERMINATOR;
 	const FString MMQueryHeader = TEXT("WorldTimeSeconds,Frame,Unsheathed,IntentQuery,DistanceToStopQuery,StopGaitQuery,MoveGaitQuery,SheathedCandidateSet,SheathedTargetGait,LastNonZeroCruiseSpeed,StartQueryActive,StartQueryElapsed,StartQueryDuration,SheathedStopMode,LegacyStopMode,ExternalForceMMIdle,EffectiveForceMMIdle,ForceIdleReleaseHoldRemaining,StartInputSettleRemaining,HasLocomotionInput,StopRequestActive,ExitWantsMoveDatabase,ActionIdleContextActive,ActionIdleContextUnsheathed,ActionIdleContextSerial,SheathedActionExitRoute,UnsheathedActionExitRoute,SheathedActionExitSerial,UnsheathedActionExitSerial,SheathedExitSelectedTime,UnsheathedExitSelectedTime,PredictedDistance0,PredictedDistance0p2,PredictedDistance0p5,PredictedDistance0p8,PredictedDistance1p0") LINE_TERMINATOR;

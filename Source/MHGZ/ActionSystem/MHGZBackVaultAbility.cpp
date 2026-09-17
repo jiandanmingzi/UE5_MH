@@ -8,6 +8,7 @@
 #include "Animation/AnimCompositeBase.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AnimSequence.h"
 #include "Animation/AnimSequenceBase.h"
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "Curves/CurveVector.h"
@@ -51,6 +52,38 @@ UMHGZBackVaultAbility::UMHGZBackVaultAbility()
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.Weapon.RTA"));
 	// RT+A is a backwards vault, not a facing correction request.
 	MaxCorrectionAngle = 0.0f;
+
+	// Forward lead recovered from the JumpOver clip's root track, as a fraction
+	// of BackVaultDistance.  Measured from the non-white capture: the root bone
+	// reaches (along 23.34 cm, lateral 13.01 cm) by the handoff; only the along
+	// component is taken here, because the recorded path's own lateral is
+	// already the out-and-back the reference shows and its net displacement is
+	// zero.  The shape is the measured ramp -- front-loaded, flat from ~0.32.
+	// The terminal keys must stay equal: a non-zero slope here would leave the
+	// capsule's exit velocity different from the analytic handoff tangent.
+	auto AddDriftKey = [](TArray<FBackVaultClipDriftKey>& Table, const float Time,
+		const float Fraction)
+	{
+		FBackVaultClipDriftKey& Key = Table.AddDefaulted_GetRef();
+		Key.CurveTime = Time;
+		Key.ForwardFraction = Fraction;
+	};
+	constexpr float NormalLeadFraction = 23.34f / 583.87f;
+	AddDriftKey(BackVaultClipDrift, 0.00f, 0.0f);
+	AddDriftKey(BackVaultClipDrift, 0.09f, NormalLeadFraction * 0.55f);
+	AddDriftKey(BackVaultClipDrift, 0.23f, NormalLeadFraction * 0.95f);
+	AddDriftKey(BackVaultClipDrift, 0.32f, NormalLeadFraction);
+	AddDriftKey(BackVaultClipDrift, 1.00f, NormalLeadFraction);
+	// White is a different clip (3.1667 s vs 2.1667 s) and has not been measured
+	// on its own yet.  Its apex and distance are both ~1.2x the normal variant,
+	// so the same *fraction* is the best available starting point -- replace it
+	// with values baked from AS_Unsh_W_Jump_Over_Back's own root track.
+	constexpr float WhiteLeadFraction = 0.0400f;
+	AddDriftKey(WhiteBackVaultClipDrift, 0.00f, 0.0f);
+	AddDriftKey(WhiteBackVaultClipDrift, 0.09f, WhiteLeadFraction * 0.55f);
+	AddDriftKey(WhiteBackVaultClipDrift, 0.23f, WhiteLeadFraction * 0.95f);
+	AddDriftKey(WhiteBackVaultClipDrift, 0.32f, WhiteLeadFraction);
+	AddDriftKey(WhiteBackVaultClipDrift, 1.00f, WhiteLeadFraction);
 
 	BackJumpSequence = TSoftObjectPtr<UAnimSequenceBase>(FSoftObjectPath(
 		TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_Jump_Back.AS_Unsh_Jump_Back")));
@@ -167,24 +200,28 @@ void UMHGZBackVaultAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 	// JumpOver path.  If either phase is interrupted, stop this exact visual
 	// first; otherwise an already-extracted source-sequence root track can keep
 	// CMC in HasAnimRootMotion and swallow subsequent player input.
-	if (!bVisualFinished)
+	ACharacter* VisualCharacter = ActorInfo && ActorInfo->AvatarActor.IsValid()
+		? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr;
+	UAnimInstance* AnimInstance = VisualCharacter && VisualCharacter->GetMesh()
+		? VisualCharacter->GetMesh()->GetAnimInstance() : nullptr;
+	// Balance the JumpOver Push unconditionally.  Whether bVisualFinished is set
+	// by now is a race between the movement task and the montage's own length,
+	// and the losing branch would leave IsRootMotionDisabled() standing on a
+	// montage that keeps playing at weight 1 for another frame.  Popping a
+	// matching push cannot double-pop: the flag is cleared as we go.
+	if (bBackVaultVisualRootMotionDisabled && AnimInstance)
 	{
-		ACharacter* VisualCharacter = ActorInfo && ActorInfo->AvatarActor.IsValid()
-			? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr;
-		if (UAnimInstance* AnimInstance = VisualCharacter && VisualCharacter->GetMesh()
-			? VisualCharacter->GetMesh()->GetAnimInstance() : nullptr)
+		if (FAnimMontageInstance* MontageInstance =
+			AnimInstance->GetActiveInstanceForMontage(AttackMontage))
 		{
-			if (bBackVaultVisualRootMotionDisabled)
-			{
-				if (FAnimMontageInstance* MontageInstance =
-					AnimInstance->GetActiveInstanceForMontage(AttackMontage))
-				{
-					MontageInstance->PopDisableRootMotion();
-				}
-				bBackVaultVisualRootMotionDisabled = false;
-			}
-			AnimInstance->Montage_Stop(0.05f, AttackMontage);
+			MontageInstance->PopDisableRootMotion();
 		}
+		bBackVaultVisualRootMotionDisabled = false;
+	}
+	// The visual itself is only stopped when it did not finish on its own.
+	if (!bVisualFinished && AnimInstance)
+	{
+		AnimInstance->Montage_Stop(0.05f, AttackMontage);
 	}
 	if (BackVaultVisualTask)
 	{
@@ -258,6 +295,28 @@ bool UMHGZBackVaultAbility::ValidateActionDependencies() const
 			*Jump.ToSoftObjectPath().ToString(), *JumpOver.ToSoftObjectPath().ToString(),
 			Path.Num());
 		return false;
+	}
+
+	// The JumpOver clip's root track must be locked to the ref pose and NOT
+	// extracted.  Both other states are wrong, in different ways: with neither
+	// flag set its forward lead lives on in the pose, survives until the fall
+	// clip replaces it, and then snaps back in two frames (A9); with both set,
+	// anim root motion pre-empts the CurvedVault source outright and the whole
+	// analytic path dies.  Jump is the opposite case -- it owns montage root
+	// motion and no source runs during it -- so it is deliberately not checked.
+	if (const UAnimSequence* JumpOverSequence = Cast<UAnimSequence>(JumpOver.Get()))
+	{
+		const EBackVaultRootTrackPolicy Policy = ResolveRootTrackPolicy(
+			JumpOverSequence->bEnableRootMotion, JumpOverSequence->bForceRootLock);
+		if (Policy != EBackVaultRootTrackPolicy::LockedNotExtracted)
+		{
+			UE_LOG(LogMHGZ, Warning,
+				TEXT("[BackVault] Dependency rejected: JumpOver %s policy=%d, need LockedNotExtracted (EnableRootMotion=%d ForceRootLock=%d)"),
+				*JumpOver.ToSoftObjectPath().ToString(), static_cast<int32>(Policy),
+				JumpOverSequence->bEnableRootMotion ? 1 : 0,
+				JumpOverSequence->bForceRootLock ? 1 : 0);
+			return false;
+		}
 	}
 
 	const float Duration = bWhite ? CombatConfig->WhiteBackVaultDuration
@@ -547,25 +606,41 @@ bool UMHGZBackVaultAbility::StartBackVaultMovement()
 		: CombatConfig->BackVaultDistance;
 	const float ApexHeight = bUseWhiteBackVault ? CombatConfig->WhiteBackVaultApexHeight
 		: CombatConfig->BackVaultApexHeight;
-	const float HandoffProgress = bUseWhiteBackVault
-		? CombatConfig->WhiteBackVaultFreeFallHandoffProgress
-		: CombatConfig->BackVaultFreeFallHandoffProgress;
 	const TArray<FBackVaultTrajectoryKey>& Keys = bUseWhiteBackVault
 		? WhiteBackVaultTrajectory : BackVaultTrajectory;
+	const TArray<FBackVaultClipDriftKey>& DriftKeys = bUseWhiteBackVault
+		? WhiteBackVaultClipDrift : BackVaultClipDrift;
 	const float JumpDuration = bUseWhiteBackVault ? WhiteBackJumpDuration : BackJumpDuration;
-	const float StartProgress = JumpDuration / Duration;
-	const float CurveDuration = Duration - JumpDuration;
+	const float JumpOverDuration = Duration - JumpDuration;
+	// The recorded path is normalised over the whole airborne arc -- Jump,
+	// JumpOver and the descent -- so every progress here is a fraction of that.
+	// It used to be a fraction of Jump + JumpOver only, which put the Jump
+	// boundary at 0.375 instead of 0.330 and handed the Jump ~30 cm of travel
+	// that belongs to JumpOver.  The CurvedVault window keeps its own duration;
+	// the two quantities are no longer derived from one number.
+	const float ArcDuration = bUseWhiteBackVault
+		? CombatConfig->WhiteBackVaultArcDuration : CombatConfig->BackVaultArcDuration;
+	if (!FMath::IsFinite(ArcDuration) || ArcDuration <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+	const float StartProgress = JumpDuration / ArcDuration;
+	const float HandoffProgress = (JumpDuration + JumpOverDuration) / ArcDuration;
+	const float CurveDuration = JumpOverDuration;
 	if (!FMath::IsFinite(StartProgress) || StartProgress <= 0.0f
-		|| StartProgress >= HandoffProgress || !FMath::IsFinite(CurveDuration)
+		|| !FMath::IsFinite(HandoffProgress) || StartProgress >= HandoffProgress
+		|| HandoffProgress >= 1.0f || !FMath::IsFinite(CurveDuration)
 		|| CurveDuration <= KINDA_SMALL_NUMBER)
 	{
 		return false;
 	}
 
 	float CurveDistance = 0.0f;
-	ActiveTrajectoryCurve = BuildTrajectoryCurve(Keys, StartProgress, HandoffProgress,
-		Distance, ApexHeight, CurveDistance);
-	if (!ActiveTrajectoryCurve)
+	FVector HandoffVelocityLocal = FVector::ZeroVector;
+	ActiveTrajectoryCurve = BuildTrajectoryCurve(Keys, DriftKeys, StartProgress,
+		HandoffProgress, Distance, ApexHeight, CurveDuration, CurveDistance,
+		HandoffVelocityLocal);
+	if (!ActiveTrajectoryCurve || HandoffVelocityLocal.IsNearlyZero())
 	{
 		return false;
 	}
@@ -577,6 +652,7 @@ bool UMHGZBackVaultAbility::StartBackVaultMovement()
 	Request.MaxDistance = CurveDistance;
 	Request.Duration = CurveDuration;
 	Request.PathOffsetCurve = ActiveTrajectoryCurve;
+	Request.CurvedVaultHandoffVelocityLocal = HandoffVelocityLocal;
 	Request.RotationPolicy = EActionRotationPolicy::Locked;
 	Request.CollisionPolicy = EMovementCollisionPolicy::StopOnBlockingHit;
 	// Preserve the CurvedVault's tangent at the handoff.  Once the source ends,
@@ -605,15 +681,188 @@ bool UMHGZBackVaultAbility::StartBackVaultMovement()
 	return true;
 }
 
-UCurveVector* UMHGZBackVaultAbility::BuildTrajectoryCurve(
+namespace
+{
+/** Linear interpolation of the recorded local trajectory at one normalised time. */
+bool SampleTrajectoryPosition(const TArray<FBackVaultTrajectoryKey>& Keys,
+	const float Progress, FVector& OutPosition)
+{
+	for (int32 Index = 1; Index < Keys.Num(); ++Index)
+	{
+		const FBackVaultTrajectoryKey& Previous = Keys[Index - 1];
+		const FBackVaultTrajectoryKey& Next = Keys[Index];
+		if (Progress <= Next.Time)
+		{
+			const float Span = Next.Time - Previous.Time;
+			const float Alpha = Span > KINDA_SMALL_NUMBER
+				? (Progress - Previous.Time) / Span : 0.0f;
+			OutPosition = FMath::Lerp(Previous.NormalizedPosition, Next.NormalizedPosition,
+				FMath::Clamp(Alpha, 0.0f, 1.0f));
+			return true;
+		}
+	}
+	return false;
+}
+}
+
+bool UMHGZBackVaultAbility::ComputeTrajectoryTangent(
 	const TArray<FBackVaultTrajectoryKey>& Keys, const float StartProgress,
+	const float HandoffProgress, const float TotalDistance, const float ApexHeight,
+	const float CurveDuration, FVector& OutVelocityLocal)
+{
+	OutVelocityLocal = FVector::ZeroVector;
+	const float ProgressSpan = HandoffProgress - StartProgress;
+	if (Keys.Num() < 2 || TotalDistance <= 0.f || ApexHeight <= 0.f
+		|| !FMath::IsFinite(CurveDuration) || CurveDuration <= KINDA_SMALL_NUMBER
+		|| !FMath::IsFinite(ProgressSpan) || ProgressSpan <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+
+	FVector HandoffPosition;
+	if (!SampleTrajectoryPosition(Keys, HandoffProgress, HandoffPosition))
+	{
+		return false;
+	}
+
+	// Taking a backward difference over the recorded prefix keeps the sample
+	// inside the action-owned segment and yields the same vector the curve is
+	// about to hand to the CMC, so the hand-off no longer has to be read back
+	// from a live root-motion source after the fact.
+	float LastKeyBeforeHandoff = StartProgress;
+	for (const FBackVaultTrajectoryKey& Key : Keys)
+	{
+		if (Key.Time <= StartProgress)
+		{
+			continue;
+		}
+		if (Key.Time >= HandoffProgress)
+		{
+			break;
+		}
+		LastKeyBeforeHandoff = Key.Time;
+	}
+	// A prefix with no interior key has no measured shape to differentiate, so
+	// fall back to the average over the whole span.
+	const float AvailableSpan = HandoffProgress - LastKeyBeforeHandoff;
+	const float DeltaProgress = AvailableSpan > KINDA_SMALL_NUMBER
+		? FMath::Min(ProgressSpan * 0.02f, AvailableSpan * 0.5f) : ProgressSpan;
+	FVector BeforeHandoffPosition;
+	if (DeltaProgress <= KINDA_SMALL_NUMBER
+		|| !SampleTrajectoryPosition(Keys, HandoffProgress - DeltaProgress,
+			BeforeHandoffPosition))
+	{
+		return false;
+	}
+
+	const FVector PositionRatePerProgress =
+		(HandoffPosition - BeforeHandoffPosition) / DeltaProgress;
+	// The curve's normalised time spans ProgressSpan of recorded progress, and the
+	// source advances it once over CurveDuration.
+	OutVelocityLocal = FVector(
+		PositionRatePerProgress.X * TotalDistance,
+		PositionRatePerProgress.Y * TotalDistance,
+		PositionRatePerProgress.Z * ApexHeight) * (ProgressSpan / CurveDuration);
+	return !OutVelocityLocal.ContainsNaN() && !OutVelocityLocal.IsNearlyZero();
+}
+
+EBackVaultRootTrackPolicy
+UMHGZBackVaultAbility::ResolveRootTrackPolicy(
+	const bool bEnableRootMotion, const bool bForceRootLock)
+{
+	if (bForceRootLock)
+	{
+		return bEnableRootMotion
+			? EBackVaultRootTrackPolicy::Conflicting
+			: EBackVaultRootTrackPolicy::LockedNotExtracted;
+	}
+	return bEnableRootMotion
+		? EBackVaultRootTrackPolicy::Extracted
+		: EBackVaultRootTrackPolicy::Unaccounted;
+}
+
+bool UMHGZBackVaultAbility::SampleClipDriftForwardFraction(
+	const TArray<FBackVaultClipDriftKey>& DriftKeys, const float CurveTime,
+	float& OutFraction)
+{
+	OutFraction = 0.0f;
+	if (DriftKeys.Num() == 0)
+	{
+		// No drift to recover is a legitimate configuration.
+		return true;
+	}
+	if (DriftKeys.Num() < 2 || !FMath::IsFinite(CurveTime))
+	{
+		return false;
+	}
+	// A first key with a head start, or a table that does not reach the end of
+	// the window, both mean the capsule would take a discontinuity at a boundary.
+	if (!FMath::IsNearlyZero(DriftKeys[0].CurveTime)
+		|| !FMath::IsNearlyEqual(DriftKeys.Last().CurveTime, 1.0f))
+	{
+		return false;
+	}
+	// Validate the WHOLE table before sampling anything.  Interpolating in the
+	// same pass would only inspect keys up to the sample point, so a malformed
+	// tail would slip through on every frame that samples before reaching it.
+	for (int32 Index = 0; Index < DriftKeys.Num(); ++Index)
+	{
+		const FBackVaultClipDriftKey& Key = DriftKeys[Index];
+		if (!FMath::IsFinite(Key.CurveTime) || !FMath::IsFinite(Key.ForwardFraction))
+		{
+			return false;
+		}
+		if (Index == 0)
+		{
+			continue;
+		}
+		const FBackVaultClipDriftKey& Previous = DriftKeys[Index - 1];
+		if (Key.CurveTime <= Previous.CurveTime
+			|| Key.ForwardFraction < Previous.ForwardFraction)
+		{
+			return false;
+		}
+		if (Key.CurveTime >= 1.0f
+			&& !FMath::IsNearlyEqual(Key.ForwardFraction, Previous.ForwardFraction))
+		{
+			// A non-zero terminal slope would make the capsule's real exit
+			// velocity differ from the analytic tangent the free fall launches
+			// with -- the exact class of bug ComputeTrajectoryTangent exists to
+			// prevent.
+			return false;
+		}
+	}
+
+	for (int32 Index = 1; Index < DriftKeys.Num(); ++Index)
+	{
+		const FBackVaultClipDriftKey& Previous = DriftKeys[Index - 1];
+		const FBackVaultClipDriftKey& Next = DriftKeys[Index];
+		if (CurveTime <= Next.CurveTime)
+		{
+			const float Span = Next.CurveTime - Previous.CurveTime;
+			const float Alpha = Span > KINDA_SMALL_NUMBER
+				? (CurveTime - Previous.CurveTime) / Span : 0.0f;
+			OutFraction = FMath::Lerp(Previous.ForwardFraction, Next.ForwardFraction,
+				FMath::Clamp(Alpha, 0.0f, 1.0f));
+			return true;
+		}
+	}
+	return false;
+}
+
+UCurveVector* UMHGZBackVaultAbility::BuildTrajectoryCurve(
+	const TArray<FBackVaultTrajectoryKey>& Keys,
+	const TArray<FBackVaultClipDriftKey>& DriftKeys, const float StartProgress,
 	const float FreeFallHandoffProgress, const float TotalDistance,
-	const float ApexHeight, float& OutHandoffDistance) const
+	const float ApexHeight, const float CurveDuration, float& OutHandoffDistance,
+	FVector& OutHandoffVelocityLocal) const
 {
 	OutHandoffDistance = 0.0f;
+	OutHandoffVelocityLocal = FVector::ZeroVector;
 	if (Keys.Num() < 2 || TotalDistance <= 0.f || ApexHeight <= 0.f
 		|| StartProgress < 0.f || StartProgress >= FreeFallHandoffProgress
-		|| FreeFallHandoffProgress <= 0.f || FreeFallHandoffProgress >= 1.f)
+		|| FreeFallHandoffProgress <= 0.f || FreeFallHandoffProgress >= 1.f
+		|| !FMath::IsFinite(CurveDuration) || CurveDuration <= KINDA_SMALL_NUMBER)
 	{
 		return nullptr;
 	}
@@ -623,27 +872,10 @@ UCurveVector* UMHGZBackVaultAbility::BuildTrajectoryCurve(
 	{
 		return nullptr;
 	}
-	auto SamplePosition = [&Keys](const float Progress, FVector& OutPosition)
-	{
-		for (int32 Index = 1; Index < Keys.Num(); ++Index)
-		{
-			const FBackVaultTrajectoryKey& Previous = Keys[Index - 1];
-			const FBackVaultTrajectoryKey& Next = Keys[Index];
-			if (Progress <= Next.Time)
-			{
-				const float Alpha = (Progress - Previous.Time) / (Next.Time - Previous.Time);
-				OutPosition = FMath::Lerp(Previous.NormalizedPosition, Next.NormalizedPosition,
-					FMath::Clamp(Alpha, 0.0f, 1.0f));
-				return true;
-			}
-		}
-		return false;
-	};
-
 	FVector StartPosition;
 	FVector HandoffPosition;
-	if (!SamplePosition(StartProgress, StartPosition)
-		|| !SamplePosition(FreeFallHandoffProgress, HandoffPosition))
+	if (!SampleTrajectoryPosition(Keys, StartProgress, StartPosition)
+		|| !SampleTrajectoryPosition(Keys, FreeFallHandoffProgress, HandoffPosition))
 	{
 		return nullptr;
 	}
@@ -653,9 +885,30 @@ UCurveVector* UMHGZBackVaultAbility::BuildTrajectoryCurve(
 	{
 		return nullptr;
 	}
+
+	// The JumpOver clip's root track carries the rest of the forward travel in
+	// its pose.  With the sequence locked to the ref pose that lead no longer
+	// exists, so the capsule has to take the same distance here or the move
+	// lands short by exactly that amount.
+	float RecoveredFraction = 0.0f;
+	if (!SampleClipDriftForwardFraction(DriftKeys, 1.0f, RecoveredFraction))
+	{
+		return nullptr;
+	}
+	OutHandoffDistance += RecoveredFraction * TotalDistance;
+	if (OutHandoffDistance <= KINDA_SMALL_NUMBER)
+	{
+		return nullptr;
+	}
+
+	if (!ComputeTrajectoryTangent(Keys, StartProgress, FreeFallHandoffProgress,
+		TotalDistance, ApexHeight, CurveDuration, OutHandoffVelocityLocal))
+	{
+		return nullptr;
+	}
 	float PreviousTime = -1.0f;
 	auto AddTrajectoryKey = [&Curve, &PreviousTime, TotalDistance, ApexHeight,
-		&OutHandoffDistance, &StartPosition](const float NormalizedTime,
+		&OutHandoffDistance, &StartPosition, &DriftKeys](const float NormalizedTime,
 		const FVector& Position)
 	{
 		if (!FMath::IsFinite(NormalizedTime) || NormalizedTime < 0.f || NormalizedTime > 1.f
@@ -663,10 +916,17 @@ UCurveVector* UMHGZBackVaultAbility::BuildTrajectoryCurve(
 		{
 			return false;
 		}
+		float DriftFraction = 0.0f;
+		if (!SampleClipDriftForwardFraction(DriftKeys, NormalizedTime, DriftFraction))
+		{
+			return false;
+		}
 		// MoveToForce contributes NormalizedTime * endpoint X.  The curve supplies
-		// the exact sampled lateral, vertical and non-linear X remainder.
+		// the exact sampled lateral, vertical and non-linear X remainder, plus the
+		// forward distance recovered from the clip's now-locked root track.
 		const FVector RelativePosition = Position - StartPosition;
 		const float OffsetX = RelativePosition.X * TotalDistance
+			+ DriftFraction * TotalDistance
 			- NormalizedTime * OutHandoffDistance;
 		AddLinearKey(Curve->FloatCurves[0], NormalizedTime, OffsetX);
 		AddLinearKey(Curve->FloatCurves[1], NormalizedTime, RelativePosition.Y * TotalDistance);

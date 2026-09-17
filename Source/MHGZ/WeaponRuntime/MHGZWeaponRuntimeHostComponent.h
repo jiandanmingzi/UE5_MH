@@ -212,6 +212,19 @@ public:
 	/** 清除全部空中 Cant/Falling 拥有状态并落回 Grounded。 */
 	void HandleLanded();
 
+	/**
+	 * 为「以自己的弧线抵达地面、因而从未有过系统托管自由落体」的动作播放落地表现。
+	 *
+	 * 与 HandleLanded 的分工：HandleLanded 走的是「系统托管过下落 → 落地收尾」这条
+	 * 路，闸门是 AerialFalling 令牌；本函数供 BallisticVault 这类弧线自己落地的动作
+	 * 直接认领落地姿势，不要求先经过 AerialFalling。所有权仍归 Host，调用方只断言
+	 * 「这次触地值得一个落地姿势」。幂等：最终落到 PlayAerialLandingVisual，它会先
+	 * 停掉上一个落地表现。
+	 *
+	 * 刻意不检查 bGrounded —— 唯一调用点上它合法地为 false。
+	 */
+	bool PlayAerialLandingPresentation();
+
 	bool IsGrounded() const { return bGrounded; }
 
 	/** True only while the Host owns the CMC free-fall presentation/state. */

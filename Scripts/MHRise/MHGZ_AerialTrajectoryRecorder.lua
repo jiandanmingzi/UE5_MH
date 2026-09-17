@@ -3,13 +3,15 @@
 -- Read-only REFramework recorder for Monster Hunter Rise.
 -- F9 toggles a capture. F8 writes a read-only motion-state probe. F9 samples
 -- both the master hunter's world Transform and the animation state evaluated
--- on each relevant motion layer, so a single capture contains trajectory and
--- animation-frame data.
+-- on each relevant motion layer, so a single capture contains trajectory,
+-- facing and animation-frame data.  Facing is sampled from the same Transform
+-- read as the position: without it a lateral displacement cannot be separated
+-- from a heading change, and every lateral figure needs an orientation guess.
 -- It deliberately does not change player state, input, save data, motion, or
 -- time scale.
 
 local SCRIPT_NAME = "MHGZ Aerial Trajectory Recorder"
-local SCRIPT_VERSION = "1.5.0"
+local SCRIPT_VERSION = "1.6.0"
 local OUTPUT_DIRECTORY = "MHGZ_AerialTrajectoryRecorder"
 local VK_F9 = 0x78
 local VK_F8 = 0x77
@@ -30,6 +32,9 @@ local state = {
     capture_time = 0.0,
     previous_sample = nil,
     previous_phase = "unknown",
+    -- Resolved lazily on the first sample of a capture; false means "probed and
+    -- nothing worked", so the retry does not run 60 times a second.
+    rotation_accessor = nil,
     previous_f9_down = false,
     previous_f8_down = false,
     previous_clock = os.clock(),
@@ -54,6 +59,13 @@ local MOTION_KEYWORDS = {
     "layer",
     "action",
     "state",
+    -- Facing is the one trajectory dimension the CSV used to lose, so let the
+    -- F8 probe surface every rotation-shaped accessor it can find.
+    "rot",
+    "quat",
+    "yaw",
+    "facing",
+    "forward",
 }
 
 local application_type = sdk.find_type_definition("via.Application")
@@ -139,6 +151,88 @@ local function read_delta_time()
     return 1.0 / 60.0, "fixed_fallback"
 end
 
+-- Rotation is a *native* Transform accessor, so its name can never be read off
+-- the managed method table: `get_methods()` does not list native methods, and
+-- the F8 probe's MOTION_KEYWORDS filter would have dropped anything named
+-- rotation/yaw/angle in any case.  Probe the known spellings once per capture
+-- and remember the winner; when none resolves the columns stay empty instead of
+-- aborting the recording.
+local ROTATION_ACCESSORS = { "get_Rotation", "get_WorldRotation", "get_LocalRotation" }
+
+local function read_quaternion(value)
+    if value == nil then
+        return nil
+    end
+    local ok, x, y, z, w = pcall(function()
+        return value.x, value.y, value.z, value.w
+    end)
+    if not ok or type(x) ~= "number" then
+        return nil
+    end
+    return { x = x, y = y, z = z, w = w }
+end
+
+-- Local forward (+Z) rotated by the unit quaternion.  MHRise is Y-up, so the
+-- XZ pair is the facing plane.  The raw quaternion is written as well, so a
+-- wrong axis convention can be corrected offline rather than by re-recording.
+local function quaternion_forward(quaternion)
+    if quaternion == nil then
+        return nil
+    end
+    local x, y, z, w = quaternion.x, quaternion.y, quaternion.z, quaternion.w
+    return {
+        x = 2.0 * (x * z + w * y),
+        y = 2.0 * (y * z - w * x),
+        z = 1.0 - 2.0 * (x * x + y * y),
+    }
+end
+
+local atan2 = math.atan2 or math.atan
+
+local function forward_yaw_degrees(forward)
+    if forward == nil then
+        return nil
+    end
+    if forward.x == 0.0 and forward.z == 0.0 then
+        return nil
+    end
+    return math.deg(atan2(forward.x, forward.z))
+end
+
+local function read_transform_rotation(transform)
+    if state.rotation_accessor == false then
+        return nil, nil
+    end
+
+    if state.rotation_accessor == nil then
+        for _, candidate in ipairs(ROTATION_ACCESSORS) do
+            local ok, value = pcall(function()
+                return transform:call(candidate)
+            end)
+            if ok and read_quaternion(value) ~= nil then
+                state.rotation_accessor = candidate
+                break
+            end
+        end
+        if state.rotation_accessor == nil then
+            state.rotation_accessor = false
+            return nil, "no readable rotation accessor on via.Transform"
+        end
+        write_event(
+            "rotation_accessor_resolved",
+            "facing is being captured via Transform." .. state.rotation_accessor
+        )
+    end
+
+    local ok, value = pcall(function()
+        return transform:call(state.rotation_accessor)
+    end)
+    if not ok then
+        return nil, "rotation read failed via " .. tostring(state.rotation_accessor)
+    end
+    return read_quaternion(value), nil
+end
+
 local function get_master_player_position()
     local ok, result, detail = pcall(function()
         local player_manager = sdk.get_managed_singleton("snow.player.PlayerManager")
@@ -166,10 +260,20 @@ local function get_master_player_position()
             return nil, "Master player's world position is unavailable"
         end
 
+        -- Facing travels with the position sample so the two can never desync.
+        -- A rotation failure is not a position failure: it downgrades the
+        -- facing columns to empty and leaves the trajectory usable.
+        local quaternion, rotation_error = read_transform_rotation(transform)
+        local forward = quaternion_forward(quaternion)
+
         return {
             x = position.x,
             y = position.y,
             z = position.z,
+            quaternion = quaternion,
+            forward = forward,
+            yaw = forward_yaw_degrees(forward),
+            rotation_error = rotation_error,
         }, nil
     end)
 
@@ -708,12 +812,15 @@ local function start_capture()
     state.previous_clock = os.clock()
     state.previous_uptime_second = nil
     state.last_error = nil
+    state.rotation_accessor = nil
 
     local sample_header = {
         "sample_index", "capture_time_s", "delta_time_s", "time_source",
         "world_x", "world_y", "world_z",
         "velocity_x", "velocity_y", "velocity_z",
         "acceleration_x", "acceleration_y", "acceleration_z", "vertical_phase",
+        "rot_qx", "rot_qy", "rot_qz", "rot_qw",
+        "forward_x", "forward_y", "forward_z", "facing_yaw_deg",
         "motion_layer_count",
         "player_motion_old_id",
     }
@@ -776,6 +883,11 @@ local function record_sample()
         state.previous_phase = phase
     end
 
+    if position.rotation_error ~= nil and state.last_error ~= position.rotation_error then
+        state.last_error = position.rotation_error
+        write_event("facing_unavailable", position.rotation_error)
+    end
+
     state.sample_count = state.sample_count + 1
     local motion_layers, motion_error = read_runtime_motion_layers()
     if motion_error ~= nil and state.last_error ~= motion_error then
@@ -798,6 +910,14 @@ local function record_sample()
         csv_number(acceleration_y),
         csv_number(acceleration_z),
         csv_text(phase),
+        csv_number(position.quaternion and position.quaternion.x),
+        csv_number(position.quaternion and position.quaternion.y),
+        csv_number(position.quaternion and position.quaternion.z),
+        csv_number(position.quaternion and position.quaternion.w),
+        csv_number(position.forward and position.forward.x),
+        csv_number(position.forward and position.forward.y),
+        csv_number(position.forward and position.forward.z),
+        csv_number(position.yaw),
         csv_number(motion_layers.layer_count),
         csv_number(captured_motion_value(motion_layers.player_motion_old_id_ok, motion_layers.player_motion_old_id)),
     }

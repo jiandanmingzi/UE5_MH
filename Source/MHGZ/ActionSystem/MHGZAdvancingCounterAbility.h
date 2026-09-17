@@ -46,6 +46,30 @@ public:
 	/** 供调试/自动化确认本次动作最多只允许一次成功反击。 */
 	bool HasCounterSucceeded() const { return bCounterSucceeded; }
 
+	/**
+	 * BallisticVault 跑完之后，本次 Action 该交接什么。互斥且穷尽。
+	 */
+	enum class EVaultExit : uint8
+	{
+		/** 取消/被挡/失败：什么都不交接。 */
+		None,
+		/** 弧线在空中跑完，本体交给 CMC 继续积分。 */
+		FreeFall,
+		/** 弧线抵达地面，本次 Action 认领落地姿势。 */
+		LandedPresentation,
+	};
+
+	/**
+	 * 由移动结束原因判定交接去向。
+	 *
+	 * `Landed` 忽略 `bCmcIsFalling`：JumpForce 的抛物线 Z(f)=Height*(1-(2f-1)^2)
+	 * 在 f=1 精确回到起跳高度，所以弧线跑完与脚触地必然同帧；而
+	 * ProcessLanded 先广播 LandedDelegate、之后才 SetPostLandedPhysics，
+	 * 回调那一刻 CMC 仍在 MOVE_Falling。两个信号都不可作为依据，只有
+	 * EndReason 与回调落在帧内哪一步无关。
+	 */
+	static EVaultExit ResolveVaultExit(EWeaponMovementEndReason Reason, bool bCmcIsFalling);
+
 	/** Resolver 的高优先级数值；同优先级按注册顺序稳定排序。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Counter")
 	int32 CounterInterceptorPriority = 100;
@@ -112,5 +136,11 @@ private:
 	bool bCounterSucceeded = false;
 	/** True only when the BallisticVault completed while CMC still owns an airborne body. */
 	bool bBeginFreeFallAfterEnd = false;
+	/**
+	 * True only when the BallisticVault reached the ground under its own arc, so
+	 * this Action owns the landing pose even though the Host never started a
+	 * free fall.  Mutually exclusive with bBeginFreeFallAfterEnd.
+	 */
+	bool bPlayLandedPresentation = false;
 	bool bIsEndingCounterAbility = false;
 };

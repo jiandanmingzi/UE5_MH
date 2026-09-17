@@ -1155,6 +1155,15 @@ void UMHGZWeaponRuntimeHostComponent::RestoreAerialFallingPhysics()
 	bAerialFallingPhysicsOverridden = false;
 }
 
+bool UMHGZWeaponRuntimeHostComponent::PlayAerialLandingPresentation()
+{
+	if (!bInitialized || bShuttingDown)
+	{
+		return false;
+	}
+	return PlayAerialLandingVisual();
+}
+
 bool UMHGZWeaponRuntimeHostComponent::PlayAerialLandingVisual()
 {
 	UWeaponCombatConfigBase* CombatConfig = CurrentContext.CombatConfig.Get();

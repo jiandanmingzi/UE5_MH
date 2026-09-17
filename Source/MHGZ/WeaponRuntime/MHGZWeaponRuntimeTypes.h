@@ -637,6 +637,25 @@ struct FWeaponMovementRequest
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<UCurveVector> PathOffsetCurve;
 
+	/**
+	 * CurvedVault only: the analytic tangent of the authored path at the exact
+	 * hand-off point, expressed in the path's own facing frame (X forward,
+	 * Y right, Z up) and already divided by Duration, i.e. in cm/s.
+	 *
+	 * The task rotates this by the same yaw-only facing rotation the engine's
+	 * FRootMotionSource_MoveToForce::GetPathOffsetInWorldSpace applies, so the
+	 * value does not depend on the character's rotation when the task activates.
+	 *
+	 * It exists because the free-fall hand-off must not be read back from
+	 * CMC->Velocity.  MoveToForce targets a moving point and the CMC removes it
+	 * on its own movement update, so by the time the task observes completion the
+	 * velocity has already collapsed to the source's last partial-frame
+	 * remainder.  Sampling the tangent from the same recorded keys that built the
+	 * curve is frame-order independent.
+	 */
+	UPROPERTY(BlueprintReadOnly)
+	FVector CurvedVaultHandoffVelocityLocal = FVector::ZeroVector;
+
 	UPROPERTY(BlueprintReadOnly)
 	FVector InheritedVelocity = FVector::ZeroVector;
 
@@ -697,10 +716,19 @@ struct FWeaponMovementRequest
 
 	bool HasValidCurvedVaultParameters() const
 	{
-		return Mode != EWeaponMovementMode::CurvedVault
-			|| (PathOffsetCurve != nullptr
-				&& FMath::IsFinite(Duration) && Duration > 0.f
-				&& FMath::IsFinite(MaxDistance) && MaxDistance > 0.f);
+		if (Mode != EWeaponMovementMode::CurvedVault)
+		{
+			return true;
+		}
+
+		// A missing analytic tangent is not a degraded configuration: it is
+		// exactly the state that handed the capsule a collapsed velocity at the
+		// free-fall boundary.  Refuse the move instead of playing it wrong.
+		return PathOffsetCurve != nullptr
+			&& FMath::IsFinite(Duration) && Duration > 0.f
+			&& FMath::IsFinite(MaxDistance) && MaxDistance > 0.f
+			&& !CurvedVaultHandoffVelocityLocal.ContainsNaN()
+			&& !CurvedVaultHandoffVelocityLocal.IsNearlyZero();
 	}
 };
 

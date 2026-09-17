@@ -131,11 +131,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Movement")
 	EBallisticParameterMode DanceVaultBallisticMode = EBallisticParameterMode::ApexHeightAndDuration;
 
+	/** MHR 实录（动作 id 154，8 个完整段）: 升高恒为 564 cm。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Movement", meta = (ClampMin = "0.0"))
-	float DanceVaultApexHeight = 350.0f;
+	float DanceVaultApexHeight = 564.0f;
 
+	/** 与动画有效时长一致（1.6167 s），实录完整段为 1.617–1.619 s。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Movement", meta = (ClampMin = "0.0"))
-	float DanceVaultDuration = 0.6f;
+	float DanceVaultDuration = 1.6167f;
+
+	/**
+	 * 舞踏接近原地但不是原地：实录完整段水平位移 0.30–1.21 m。缺这个分量时
+	 * 落点会比 Rise 更贴脚下。ApexHeightAndDuration 模式不会自行推导它。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Movement", meta = (ClampMin = "0.0"))
+	float DanceVaultDistance = 80.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Movement")
 	FVector DanceVaultLaunchVelocity = FVector::ZeroVector;
@@ -176,6 +185,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
 		meta = (ClampMin = "0.01", ClampMax = "0.99"))
 	float WhiteBackVaultFreeFallHandoffProgress = 0.8734f;
+
+	/**
+	 * 整条空中弧的时长（Jump + JumpOver + 下坠），**只用于把实录轨迹归一化**。
+	 *
+	 * 与 BackVaultDuration 是两个语义不同的量：后者只覆盖 Jump + JumpOver，曾经
+	 * 被同时当作归一化域使用，于是 Jump 边界落在进度 0.375 而不是 0.330，把本该
+	 * 属于 JumpOver 的约 30 cm 位移划给了 Jump。
+	 *
+	 * MHR 实录（动作 id 146+147+143，24 次采样）：1.968 s / 5.82 m。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
+		meta = (ClampMin = "0.01"))
+	float BackVaultArcDuration = 1.968f;
+
+	/** 白灯没有独立的下坠段（158+159 覆盖到底）：2.14 s / 7.11 m。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
+		meta = (ClampMin = "0.01"))
+	float WhiteBackVaultArcDuration = 2.14f;
 
 	/**
 	 * MHR world-transform captures of the back-vault free-fall portion.  These

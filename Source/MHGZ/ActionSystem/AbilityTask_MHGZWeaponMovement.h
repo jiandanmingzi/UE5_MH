@@ -75,6 +75,13 @@ private:
 	FVector StartLocation = FVector::ZeroVector;
 	FVector LastLocation = FVector::ZeroVector;
 	FVector ExpectedDestination = FVector::ZeroVector;
+	/**
+	 * CurvedVault's authored world-space tangent at the free-fall hand-off.
+	 * Resolved once when the source is created so the hand-off never depends on
+	 * the frame on which the task happens to observe the source's completion.
+	 */
+	FVector ResolvedHandoffVelocity = FVector::ZeroVector;
+	bool bHasResolvedHandoffVelocity = false;
 	float ResolvedDuration = 0.0f;
 	bool bStarted = false;
 	bool bFinished = false;

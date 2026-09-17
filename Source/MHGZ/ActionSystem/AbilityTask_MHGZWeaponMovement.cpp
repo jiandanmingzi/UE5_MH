@@ -7,6 +7,7 @@
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/RootMotionSource.h"
+#include "MHGZ.h"
 #include "MHGZCharacter.h"
 #include "MotionWarpingComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
@@ -402,6 +403,29 @@ bool UAbilityTask_MHGZWeaponMovement::ApplyCurvedVaultSource()
 	Source->TargetLocation = ExpectedDestination;
 	Source->bRestrictSpeedToExpected = true;
 	Source->PathOffsetCurve = MovementRequest.PathOffsetCurve;
+
+	// Install the authored terminal tangent BEFORE the source starts running.
+	// MoveToForce targets a moving point and the CMC removes a finished source on
+	// its own movement update, so mutating FinishVelocityParams after the task
+	// notices completion is too late: the source is already gone and the CMC has
+	// already derived the hand-off velocity from the final partial-frame
+	// remainder.  Setting it here makes the natural removal carry the authored
+	// velocity and removes the frame-order dependency entirely.
+	//
+	// The engine applies PathOffsetCurve through a yaw-only facing rotation, so
+	// rotating the local tangent the same way reproduces the exact world tangent
+	// regardless of where the character faces when this runs.
+	const FRotator FacingRotation(0.0f, Direction.Rotation().Yaw, 0.0f);
+	ResolvedHandoffVelocity =
+		FacingRotation.RotateVector(MovementRequest.CurvedVaultHandoffVelocityLocal);
+	bHasResolvedHandoffVelocity = !ResolvedHandoffVelocity.ContainsNaN()
+		&& !ResolvedHandoffVelocity.IsNearlyZero();
+	if (bHasResolvedHandoffVelocity)
+	{
+		Source->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::SetVelocity;
+		Source->FinishVelocityParams.SetVelocity = ResolvedHandoffVelocity;
+	}
+
 	RootMotionSourceID = CMC->ApplyRootMotionSource(Source);
 	if (RootMotionSourceID == InvalidRootMotionSourceID)
 	{
@@ -513,19 +537,34 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 
 	const bool bCompletedCurvedVault = Reason == EWeaponMovementEndReason::Completed
 		&& MovementRequest.Mode == EWeaponMovementMode::CurvedVault;
-	const FVector CurvedVaultHandoffVelocity = Result.FinalVelocity;
+	// The authored tangent was resolved when the source was created.  Reading
+	// CMC->Velocity here instead would return the source's final partial-frame
+	// remainder, which is what silently cost the free fall two thirds of its
+	// vertical speed at every hand-off.
+	FVector CurvedVaultHandoffVelocity = Result.FinalVelocity;
 	if (bCompletedCurvedVault)
 	{
+		if (bHasResolvedHandoffVelocity)
+		{
+			CurvedVaultHandoffVelocity = ResolvedHandoffVelocity;
+		}
+		else
+		{
+			UE_LOG(LogMHGZ, Warning,
+				TEXT("[WeaponMovement] CurvedVault completed without an authored hand-off ")
+				TEXT("tangent; falling back to the collapsed CMC velocity (%s)."),
+				*Result.FinalVelocity.ToCompactString());
+		}
+
 		if (UCharacterMovementComponent* CMC = MovementComponent.Get())
 		{
 			if (TSharedPtr<FRootMotionSource> Source =
 				CMC->GetRootMotionSourceByID(RootMotionSourceID))
 			{
-				// A RootMotionSource is removed by CMC on the following movement
-				// update, after this ability task's completion callback.  A direct
-				// assignment to CMC->Velocity here is therefore overwritten by that
-				// deferred removal.  Make the source itself install its final tangent
-				// so the first physical Falling step receives the authored velocity.
+				// The source is normally already gone by now, and its natural
+				// removal applied the same value.  This only covers the case where
+				// the task observes completion while the source is still live, so
+				// the deferred removal installs the identical tangent.
 				Source->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::SetVelocity;
 				Source->FinishVelocityParams.SetVelocity = CurvedVaultHandoffVelocity;
 			}

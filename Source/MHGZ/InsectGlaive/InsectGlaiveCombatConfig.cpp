@@ -211,6 +211,7 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	DanceVaultRequest.BallisticMode = DanceVaultBallisticMode;
 	DanceVaultRequest.ApexHeight = DanceVaultApexHeight;
 	DanceVaultRequest.Duration = DanceVaultDuration;
+	DanceVaultRequest.MaxDistance = DanceVaultDistance;
 	DanceVaultRequest.LaunchVelocity = DanceVaultLaunchVelocity;
 	if (!DanceVaultRequest.HasValidBallisticParameters())
 	{
