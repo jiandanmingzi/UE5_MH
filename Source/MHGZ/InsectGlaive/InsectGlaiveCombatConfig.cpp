@@ -113,8 +113,6 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckPositive(TEXT("WhiteBackVaultDuration"), WhiteBackVaultDuration);
 	CheckPositive(TEXT("WhiteBackVaultDistance"), WhiteBackVaultDistance);
 	CheckPositive(TEXT("WhiteBackVaultApexHeight"), WhiteBackVaultApexHeight);
-	CheckPositive(TEXT("BackVaultFreeFallHandoffProgress"), BackVaultFreeFallHandoffProgress);
-	CheckPositive(TEXT("WhiteBackVaultFreeFallHandoffProgress"), WhiteBackVaultFreeFallHandoffProgress);
 	CheckPositive(TEXT("AerialFallGravityScale"), AerialFallGravityScale);
 	CheckPositive(TEXT("WhiteAerialFallGravityScale"), WhiteAerialFallGravityScale);
 	CheckNonNegative(TEXT("AerialFallBrakingDeceleration"), AerialFallBrakingDeceleration);
@@ -133,14 +131,6 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckNonNegative(TEXT("AwakenedKinsectMotionValue"), AwakenedKinsectMotionValue);
 	CheckNonNegative(TEXT("DescendingThrustAirControl"), DescendingThrustAirControl);
 
-	if (BackVaultFreeFallHandoffProgress >= 1.0f)
-	{
-		AddError(LOCTEXT("InvalidBackVaultHandoff", "BackVaultFreeFallHandoffProgress must be < 1.0."));
-	}
-	if (WhiteBackVaultFreeFallHandoffProgress >= 1.0f)
-	{
-		AddError(LOCTEXT("InvalidWhiteBackVaultHandoff", "WhiteBackVaultFreeFallHandoffProgress must be < 1.0."));
-	}
 	if (AerialFallMontage == nullptr)
 	{
 		AddError(LOCTEXT("MissingAerialFallMontage", "AerialFallMontage must be assigned."));

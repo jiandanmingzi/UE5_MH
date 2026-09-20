@@ -360,6 +360,19 @@ private:
 
 	/** Presentation owned by BeginAerialFalling and stopped only on landing/runtime teardown. */
 	TWeakObjectPtr<UAnimMontage> ActiveAerialFallingMontage;
+
+	/**
+	 * Ends a free fall that has outlived GetAerialFallMaxSeconds().  Free fall had
+	 * no lifetime management at all before this: the montage has no end delegate and
+	 * no loop counter, so an over-long fall loops it silently by exact modulo, and a
+	 * character that leaves the level keeps falling forever.  The watchdog only
+	 * restores state and logs -- it never repositions the character.
+	 */
+	void HandleAerialFallingWatchdog();
+
+	FTimerHandle AerialFallingWatchdogTimer;
+	/** Real-time seconds at which the current fall began; 0 when not falling. */
+	double AerialFallingStartedAtSeconds = 0.0;
 	bool bAerialFallingRootMotionDisabledByHost = false;
 
 	/** Presentation owned by HandleLanded and released exactly when it ends. */

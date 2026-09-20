@@ -141,15 +141,6 @@ enum class EActionRotationPolicy : uint8
 	SteerWithinCone
 };
 
-/** 位移碰撞处理策略 */
-UENUM(BlueprintType)
-enum class EMovementCollisionPolicy : uint8
-{
-	StopOnBlockingHit,
-	SlideAlongBlockingHits,
-	IgnoreBlockingHits
-};
-
 /** 位移被取消/中断时对 CMC 速度的处理策略 */
 UENUM(BlueprintType)
 enum class EMovementCancelVelocityPolicy : uint8
@@ -686,9 +677,6 @@ struct FWeaponMovementRequest
 	/** 由 RuntimeHost 按 ActionToken 生成唯一名称；结束/Superseded/取消时必须移除 */
 	UPROPERTY(BlueprintReadOnly)
 	FName WarpTargetName;
-
-	UPROPERTY(BlueprintReadOnly)
-	EMovementCollisionPolicy CollisionPolicy = EMovementCollisionPolicy::StopOnBlockingHit;
 
 	UPROPERTY(BlueprintReadOnly)
 	EMovementCancelVelocityPolicy CancelVelocityPolicy = EMovementCancelVelocityPolicy::PreserveVelocity;

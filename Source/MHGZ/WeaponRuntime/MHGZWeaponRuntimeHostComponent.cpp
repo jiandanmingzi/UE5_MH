@@ -997,7 +997,51 @@ bool UMHGZWeaponRuntimeHostComponent::BeginAerialFalling(const bool bEnhancedVar
 		bAerialFallingRootMotionDisabledByHost = true;
 	}
 	ActiveAerialFallingMontage = Montage;
+
+	// Arm the fall watchdog.  Without it a fall that never lands is indistinguishable
+	// from one about to land: the clip just wraps at weight 1.0 forever.
+	if (UWorld* World = GetWorld())
+	{
+		const float MaxSeconds = FMath::Max(0.1f, CombatConfig->GetAerialFallMaxSeconds());
+		AerialFallingStartedAtSeconds = World->GetTimeSeconds();
+		World->GetTimerManager().SetTimer(AerialFallingWatchdogTimer, this,
+			&UMHGZWeaponRuntimeHostComponent::HandleAerialFallingWatchdog,
+			MaxSeconds, false);
+	}
 	return true;
+}
+
+void UMHGZWeaponRuntimeHostComponent::HandleAerialFallingWatchdog()
+{
+	AerialFallingWatchdogTimer.Invalidate();
+	if (!PoseTokens.AerialFalling.IsValid())
+	{
+		// Ended normally; the timer was simply not the one that noticed.
+		return;
+	}
+
+	const UWorld* World = GetWorld();
+	const ACharacter* Character = CurrentContext.Character.Get();
+	const float Elapsed = World && AerialFallingStartedAtSeconds > 0.0
+		? static_cast<float>(World->GetTimeSeconds() - AerialFallingStartedAtSeconds) : -1.0f;
+	const float MaxSeconds = CurrentContext.CombatConfig
+		? CurrentContext.CombatConfig->GetAerialFallMaxSeconds() : -1.0f;
+
+	UE_LOG(LogMHGZ, Warning,
+		TEXT("[AerialFalling] Watchdog: fall exceeded %.2fs (elapsed %.2fs, Z=%.1f). Free fall had no exit; restoring physics and default movement mode. If this fires on a legitimate long fall, raise AerialFallMaxSeconds -- if it fires when the character is resting on geometry, the capsule is stuck in a floor it cannot settle on."),
+		MaxSeconds, Elapsed, Character ? Character->GetActorLocation().Z : 0.0f);
+
+	RestoreAerialFallingPhysics();
+	StopAerialFallingVisual(0.05f);
+	ReleasePoseToken(PoseTokens.AerialFalling);
+	AerialFallingStartedAtSeconds = 0.0;
+	if (ACharacter* MutableCharacter = CurrentContext.Character.Get())
+	{
+		if (UCharacterMovementComponent* CMC = MutableCharacter->GetCharacterMovement())
+		{
+			CMC->SetDefaultMovementMode();
+		}
+	}
 }
 
 void UMHGZWeaponRuntimeHostComponent::GetAerialPresentationRootMotionTelemetry(
@@ -1140,6 +1184,11 @@ void UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingPhysics(const bool bEnha
 
 void UMHGZWeaponRuntimeHostComponent::RestoreAerialFallingPhysics()
 {
+	// Every route out of the fall -- landing, teardown, and the watchdog itself --
+	// comes through here, so this is the one place the watchdog needs disarming.
+	AerialFallingWatchdogTimer.Invalidate();
+	AerialFallingStartedAtSeconds = 0.0;
+
 	if (!bAerialFallingPhysicsOverridden)
 	{
 		return;

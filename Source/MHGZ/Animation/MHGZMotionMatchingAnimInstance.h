@@ -355,6 +355,19 @@ private:
 	TArray<FString> RuntimeTelemetryMontageInstancesPendingRows;
 	uint64 RuntimeTelemetryLastObservedInputEventSerial = 0;
 	uint64 RuntimeTelemetryLastObservedCapsuleHitSerial = 0;
+	/**
+	 * Previous frame's CMC velocity, used to derive the Spatial row's acceleration.
+	 *
+	 * `UCharacterMovementComponent::Acceleration` is only ever written from player
+	 * input (ControlledCharacterMove -> ScaleInputAcceleration(ConsumeInputVector)),
+	 * and this project drives the character entirely through root motion sources --
+	 * AddMovementInput/AddInputVector/ConsumeInputVector have zero call sites.  That
+	 * makes GetCurrentAcceleration() identically zero for this character, not racy:
+	 * rows in Walking with Velocity2D up to 339 cm/s still log zero.  Differencing
+	 * the velocity the telemetry already trusts is the only reading that moves.
+	 */
+	FVector RuntimeTelemetryPrevVelocity = FVector::ZeroVector;
+	bool bRuntimeTelemetryHasPrevVelocity = false;
 
 	struct FMotionMatchingSelectionEvent
 	{

@@ -64,6 +64,23 @@ private:
 	void FinishMovement(EWeaponMovementEndReason Reason, const FHitResult* BlockingHit = nullptr);
 	void ReleaseMovementOwnership();
 	void RemoveRootMotionSource();
+
+	/**
+	 * 兜底：如果胶囊还停在 MOVE_Flying 里，把它交还给 CMC。
+	 *
+	 * 弧正常结束时，是 `UAnimNotify_IG_AerialHandoff` 在最早可操作帧把它切到
+	 * MOVE_Falling —— 但那条路可能没走到：蒙太奇没挂通知、蒙太奇在释放点之前
+	 * 被取消、或 Action 被抢先结束。MOVE_Flying 没有重力，胶囊会**悬停**，
+	 * 而这是任务唯一能兜住的地方（`HandleXxxVaultFinished` 在 `!IsActive()` 时
+	 * 早退，`EndAbility` 可能在 `OnDestroy` 之后）。
+	 *
+	 * 用 `SetDefaultMovementMode()` 而不是写死 MOVE_Falling：它会重查地面，
+	 * 站在地上就回到 Walking、悬空才进 Falling。
+	 *
+	 * @param bOutWasFlying  调用前是否确实处于 MOVE_Flying（即释放是否由本次触发）
+	 * @return 调用后胶囊是否站在可行走地面上
+	 */
+	bool EnsureVaultFlightReleased(bool& bOutWasFlying);
 	void ApplyFinishVelocityPolicy();
 
 	FWeaponMovementRequest MovementRequest;

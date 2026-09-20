@@ -167,12 +167,25 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Back Vault|Animation", meta = (ForceUnits = "s"))
 	float BackJumpOverDuration = 1.092f;
 
-	/** Natural effective durations of the White Extract Jmp and Jump_Over source sequences. */
+	/**
+	 * Natural effective durations of the White Extract Jmp and Jump_Over source
+	 * sequences, consumed only by BuildBackVaultMontage().
+	 *
+	 * That builder is the FALLBACK: PrepareAttackMontage prefers an assigned
+	 * montage asset, and AM_IG_HouChengGanTiao_W is assigned, so these two values
+	 * do not affect what actually plays.  They are kept consistent with
+	 * WhiteBackVaultDuration anyway so both paths describe the same motion.
+	 *
+	 * The Jump_Over value is deliberately the **flight time** of that leg
+	 * (MHR id 159, ~1.487 s), not the clip's own length (1.5833 s).  The pose is
+	 * meant to outlive the flight and be cut by the landing, exactly as in Rise
+	 * -- see WhiteBackVaultDuration for the measurement behind that choice.
+	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Back Vault|Animation", meta = (ForceUnits = "s"))
 	float WhiteBackJumpDuration = 0.650f;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Back Vault|Animation", meta = (ForceUnits = "s"))
-	float WhiteBackJumpOverDuration = 1.467f;
+	float WhiteBackJumpOverDuration = 1.487f;
 
 	/** Directly sampled from the no-white MHR capture; not an assumed parabola. */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Back Vault|Recorded Path")
@@ -262,6 +275,12 @@ private:
 	bool bMovementFinished = false;
 	/** Set only after an unobstructed action phase has released movement while still airborne. */
 	bool bBeginFreeFallAfterEnd = false;
+	/**
+	 * True only when the arc reached the ground under its own path, so this Action
+	 * owns the landing pose even though the Host never started a free fall.
+	 * Mutually exclusive with bBeginFreeFallAfterEnd.
+	 */
+	bool bPlayLandedPresentation = false;
 	/** True from the first Jump frame until CurvedVault hands the action to Falling, or cleanup restores it. */
 	bool bBackVaultInitialFlightOwned = false;
 	/** Movement state to restore if the GA ends before its intentional Falling hand-off. */

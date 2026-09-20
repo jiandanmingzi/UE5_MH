@@ -50,6 +50,19 @@ public:
 		return false;
 	}
 
+	/**
+	 * Longest a single system-owned free fall may last before the Host's watchdog
+	 * ends it.  Free fall had no lifetime management at all: the visual montage has
+	 * no end delegate, no loop counter and no timeout, so a long fall silently loops
+	 * it forever (measured: a 0.85 s clip wrapping by exact modulo at weight 1.0),
+	 * and a character that leaves the level simply keeps falling (measured: still
+	 * descending at Z = -1939 cm when the capture ended, tag still held).
+	 *
+	 * The watchdog only restores physics, releases the pose tags and returns the CMC
+	 * to its default mode, and logs; it never repositions anything.
+	 */
+	virtual float GetAerialFallMaxSeconds() const { return 4.0f; }
+
 	virtual FPrimaryAssetId GetPrimaryAssetId() const override;
 
 #if WITH_EDITOR

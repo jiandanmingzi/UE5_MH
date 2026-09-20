@@ -175,6 +175,7 @@ void UAbilityTask_MHGZWeaponMovement::TickTask(const float DeltaTime)
 
 	const TSharedPtr<FRootMotionSource> Source =
 		CMC->GetRootMotionSourceByID(RootMotionSourceID);
+
 	if (!Source.IsValid() || Source->Status.HasFlag(ERootMotionSourceStatusFlags::Finished))
 	{
 		FinishMovement(EWeaponMovementEndReason::Completed);
@@ -209,14 +210,57 @@ void UAbilityTask_MHGZWeaponMovement::OnDestroy(const bool AbilityIsEnding)
 		// explicit velocity policy before their RootMotionSource is removed.
 		ApplyFinishVelocityPolicy();
 	}
+	// 这条路上没有 FinishMovement，所以兜底要单独走一次：取消掉的舞踏若停在
+	// MOVE_Flying，没有重力会把它带下来。MovementMode == MOVE_Flying 的判断让它
+	// 天然幂等 —— FinishMovement 已经释放过时这里是 no-op。
+	{
+		bool bWasFlying = false;
+		EnsureVaultFlightReleased(bWasFlying);
+	}
 	RemoveRootMotionSource();
 	ReleaseMovementOwnership();
 	Super::OnDestroy(AbilityIsEnding);
 }
 
+bool UAbilityTask_MHGZWeaponMovement::EnsureVaultFlightReleased(bool& bOutWasFlying)
+{
+	bOutWasFlying = false;
+	UCharacterMovementComponent* CMC = MovementComponent.Get();
+	if (!CMC)
+	{
+		return false;
+	}
+	if (CMC->MovementMode == MOVE_Flying)
+	{
+		bOutWasFlying = true;
+		// 重查地面：站在可行走面上回到 Walking，悬空才进 Falling。
+		// 不写死 MOVE_Falling —— 取消掉的弧可能停在任意高度，也可能压根没离地。
+		CMC->SetDefaultMovementMode();
+	}
+	// 直接问地面，不拿模式当代理指标 —— 这个项目已经在这上面栽过两次。
+	//
+	// SetDefaultMovementMode 只在 `MOVE_Walking && GetMovementBase() == NULL` 时才回退
+	// 到 Falling（CharacterMovementComponent.cpp:1308-1312）。也就是说：只要胶囊身上
+	// 还挂着**旧的 MovementBase**，它就会停在 Walking，于是 IsMovingOnGround() 对一个
+	// 悬空胶囊读作 true —— 而本函数的返回值决定 FinishMovement 把 `Completed` 翻成
+	// `Landed`（⇒ 认领落地姿势、不给自由落体），一次误判就能让悬空的弧尾错认触地。
+	//
+	// `CurrentFloor` 正是 SetMovementMode 内部那次 FindFloor 留下的结果，
+	// `IsWalkableFloor()` = `bBlockingHit && bWalkableFloor`，问它才是问对了问题。
+	return CMC->IsMovingOnGround() && CMC->CurrentFloor.IsWalkableFloor();
+}
+
 void UAbilityTask_MHGZWeaponMovement::HandleLanded(const FHitResult& Hit)
 {
-	if (!bStarted || bFinished || MovementRequest.Mode != EWeaponMovementMode::BallisticVault)
+	// 两类 vault 都认。这是「弧走完时胶囊在半空吗？」这个问题的**直接**回答 ——
+	// CMC 说它落地了，那就是落地了。此前只有 BallisticVault 收，于是后撑杆跳
+	// 的触地被丢掉，只能靠 BackVaultResidualFallSeconds 这个几何代理指标去猜。
+	//
+	// CurvedVault 在弧中段仍由源驱动；此时若发生触地，说明 authored 的路径提前
+	// 够到了地面，如实上报 Landed 比让它继续跑更接近事实。
+	if (!bStarted || bFinished
+		|| (MovementRequest.Mode != EWeaponMovementMode::BallisticVault
+			&& MovementRequest.Mode != EWeaponMovementMode::CurvedVault))
 	{
 		return;
 	}
@@ -228,21 +272,25 @@ void UAbilityTask_MHGZWeaponMovement::HandleCapsuleHit(UPrimitiveComponent* HitC
 	AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse,
 	const FHitResult& Hit)
 {
-	if (!bStarted || bFinished || !Hit.bBlockingHit
-		|| MovementRequest.CollisionPolicy != EMovementCollisionPolicy::StopOnBlockingHit)
-	{
-		return;
-	}
-
-	// Ground contact has a dedicated Landed result for a ballistic vault.
-	if ((MovementRequest.Mode == EWeaponMovementMode::BallisticVault
-		|| MovementRequest.Mode == EWeaponMovementMode::CurvedVault)
-		&& Hit.ImpactNormal.Z > 0.5f)
-	{
-		return;
-	}
-
-	FinishMovement(EWeaponMovementEndReason::BlockingHit, &Hit);
+	// Deliberately does nothing.  Sliding along whatever the capsule meets is the
+	// CMC's job, not this task's, and it already does it for every source mode:
+	// PhysFlying and PhysFalling both run
+	//     SafeMoveUpdatedComponent(...) -> HandleImpact(...) -> SlideAlongSurface(...)
+	// on any blocking hit, and no FRootMotionSource moves the component itself --
+	// JumpForce/MoveToForce only compute a Force and hand it to the CMC.
+	//
+	// This used to FinishMovement(BlockingHit) here, which pre-empted that slide by
+	// removing the source.  The body was then left with whatever velocity it had at
+	// the instant of the hit (CancelVelocityPolicy::PreserveVelocity makes
+	// ApplyFinishVelocityPolicy a no-op, and the engine only rewrites Velocity for
+	// ClampVelocity/SetVelocity), in a MovementMode nothing restored, with
+	// ResolveVaultExit returning None -- so it flew on unowned.  Measured: a dance
+	// vault that grazed the training dummy 1-3 frames after launch kept ~1309 cm/s
+	// of climb and topped out at 971 cm instead of the configured 564.
+	//
+	// Ground contact still ends a BallisticVault, via the Landed delegate
+	// (HandleLanded) rather than here.
+	(void)HitComponent; (void)OtherActor; (void)OtherComp; (void)NormalImpulse; (void)Hit;
 }
 
 bool UAbilityTask_MHGZWeaponMovement::ValidateRequest() const
@@ -373,7 +421,20 @@ bool UAbilityTask_MHGZWeaponMovement::ApplyBallisticVaultSource()
 		return false;
 	}
 
-	CMC->SetMovementMode(MOVE_Falling);
+	// Flying，不是 Falling。
+	//
+	// PhysFlying 不跑重力、不 FindFloor、不 ProcessLanded，override 源活跃时它的
+	// CalcVelocity 也被跳过（所以 MaxFlySpeed 不会钳住这条弧）。这正是后撑杆跳
+	// 一直在用的手法 —— ApplyCurvedVaultSource 的 Flying 是为了让 authored 的
+	// 落地蹲姿不被读成落地；舞踏此前用 Falling，代价是实测到的一次误判：
+	// 起飞前胶囊已在 Falling，于是这次 SetMovementMode 成了 no-op，CMC 立刻找到
+	// 脚下地面，ProcessLanded → LandedDelegate → 动作 3 帧后被 Landed 收尾，
+	// 源算出的 force（1373.75，完全正确）根本没进 Velocity。
+	//
+	// 胶囊由 UAnimNotify_IG_AerialHandoff 在最早可操作帧交给 CMC；
+	// 没走到那一步的由 EnsureVaultFlightReleased() 兜底。
+	CMC->SetMovementMode(MOVE_Flying);
+
 	return true;
 }
 
@@ -513,7 +574,25 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 	}
 	bFinished = true;
 
-	Result.EndReason = Reason;
+	// 弧尾仍在 MOVE_Flying 时，是**任务**在替 CMC 决定这次收尾算哪种 ——
+	// 因为没有通知把胶囊交还给 CMC（蒙太奇没挂通知，或蒙太奇在最早可操作帧
+	// 之前就被取消了）。此时唯一可靠的问法是让 CMC 重查地面，而不是猜模式。
+	//
+	// 若胶囊早已离开 Flying（通知切过），那条路上 CMC 自己的 LandedDelegate 才是
+	// 事实来源，这里不去二次猜测 —— 那会重新引入「用代理指标覆盖直接观测」的老毛病。
+	EWeaponMovementEndReason EffectiveReason = Reason;
+	if (Reason == EWeaponMovementEndReason::Completed)
+	{
+		bool bWasFlying = false;
+		const bool bGrounded = EnsureVaultFlightReleased(bWasFlying);
+		if (bWasFlying && bGrounded)
+		{
+			// 弧跑完了、胶囊站在可行走地面上 ⇒ 这就是一次触地，如实上报。
+			EffectiveReason = EWeaponMovementEndReason::Landed;
+		}
+	}
+
+	Result.EndReason = EffectiveReason;
 	Result.TravelledDistance = FVector::Dist2D(StartLocation,
 		Character.IsValid() ? Character->GetActorLocation() : LastLocation);
 	if (UCharacterMovementComponent* CMC = MovementComponent.Get())
@@ -535,6 +614,9 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 		}
 	}
 
+	// 用**原始** Reason 而不是 EffectiveReason：这里的语义是「录下来的那条路径
+	// 跑到了它的终点」，与胶囊最后站在哪里无关 —— 白灯后撑杆跳的路径终点就在
+	// 地面上，它仍然需要把 authored 的弧尾切线装上去，否则落地的最后几帧会脱节。
 	const bool bCompletedCurvedVault = Reason == EWeaponMovementEndReason::Completed
 		&& MovementRequest.Mode == EWeaponMovementMode::CurvedVault;
 	// The authored tangent was resolved when the source was created.  Reading
@@ -573,18 +655,15 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 	RemoveRootMotionSource();
 	if (bCompletedCurvedVault)
 	{
-		// The source has reached the recorded hand-off point.  From this exact
-		// frame onward gravity and collision, rather than the source curve, own
-		// the capsule.  Do this before notifying the owning GA so it can start
-		// the fall presentation without an ownership gap.
+		// 模式不在这里切了 —— 归 UAnimNotify_IG_AerialHandoff 所有，兜底走
+		// EnsureVaultFlightReleased()（已在函数开头调用）。这里要做的只是把
+		// authored 的弧尾切线装上。
+		//
+		// RemoveRootMotionSource 不保证源的天然 FinishVelocity 在本回调之前装上。
+		// 所以把 CurvedVault 仍拥有胶囊时采样到的精确终末切线抄上去，否则自由落体
+		// 的第一帧会丢掉大部分水平与垂直速度，表现为可见的 Jump_Over → Fall 顿挫。
 		if (UCharacterMovementComponent* CMC = MovementComponent.Get())
 		{
-			CMC->SetMovementMode(MOVE_Falling);
-			// RemoveRootMotionSource does not guarantee that a source's natural
-			// FinishVelocity is installed before this task's callback.  Copy the
-			// exact final tangent sampled while CurvedVault still owned the capsule;
-			// otherwise the first Fall frame loses most of its horizontal and vertical
-			// velocity, producing a visible Jump_Over -> Fall hitch.
 			CMC->Velocity = CurvedVaultHandoffVelocity;
 			Result.FinalVelocity = CurvedVaultHandoffVelocity;
 		}

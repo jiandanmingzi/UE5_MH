@@ -12,6 +12,7 @@
 #include "MHGZCharacter.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
+#include "MHGZ.h"
 
 namespace
 {
@@ -27,6 +28,10 @@ UMHGZAdvancingCounterAbility::UMHGZAdvancingCounterAbility()
 {
 	DanceVaultSequence = TSoftObjectPtr<UAnimSequenceBase>(FSoftObjectPath(
 		TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_WuTa.AS_Unsh_WuTa")));
+	// Authored by UMHGZWuTaMontageSetupCommandlet, which bakes DanceVaultDuration
+	// into the segment's AnimPlayRate.  A CDO-level override replaces it.
+	DanceVaultMontage = TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_WuTa.AM_IG_WuTa")));
 }
 
 void UMHGZAdvancingCounterAbility::ActivateAbility(
@@ -57,6 +62,8 @@ void UMHGZAdvancingCounterAbility::EndAbility(
 	}
 	bIsEndingCounterAbility = true;
 	CloseAllAdvancingCounterWindows();
+	// Combat.State.Aerial.Actionable 不在这里释放：基类 EndAbility 的
+	// CloseAerialHandoff() 负责（本函数末尾会走 Super::EndAbility）。
 	if (AdvancingCounterVaultMontageTask)
 	{
 		AdvancingCounterVaultMontageTask->EndTask();
@@ -99,7 +106,26 @@ bool UMHGZAdvancingCounterAbility::ValidateActionDependencies() const
 	}
 
 	const AActor* Avatar = GetAvatarActorFromActorInfo();
-	return Avatar && Avatar->FindComponentByClass<UMHGZIncomingHitResolverComponent>();
+	if (!Avatar || !Avatar->FindComponentByClass<UMHGZIncomingHitResolverComponent>())
+	{
+		return false;
+	}
+
+	// A montage assigned but missing on disk must not silently fall through to the
+	// runtime montage: that path has different timing semantics (it cannot retime
+	// the clip), so the substitution would be invisible until the pose desynced.
+	if (!DanceVaultMontage.IsNull())
+	{
+		const UAnimMontage* Montage = DanceVaultMontage.LoadSynchronous();
+		if (!Montage || !Montage->GetSkeleton())
+		{
+			UE_LOG(LogMHGZ, Warning,
+				TEXT("[AdvancingCounter] DanceVaultMontage %s is missing or has no skeleton; refusing activation"),
+				*DanceVaultMontage.ToSoftObjectPath().ToString());
+			return false;
+		}
+	}
+	return true;
 }
 
 bool UMHGZAdvancingCounterAbility::BeginAdvancingCounterWindow(
@@ -251,8 +277,8 @@ bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVault()
 	Request.MaxDistance = CombatConfig->DanceVaultDistance;
 	Request.LaunchVelocity = CombatConfig->DanceVaultLaunchVelocity;
 	Request.RotationPolicy = EActionRotationPolicy::Locked;
-	Request.CollisionPolicy = EMovementCollisionPolicy::StopOnBlockingHit;
 	Request.CancelVelocityPolicy = EMovementCancelVelocityPolicy::PreserveVelocity;
+
 	if (!Request.HasValidBallisticParameters())
 	{
 		return false;
@@ -285,29 +311,39 @@ bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVault()
 
 bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVaultVisual()
 {
-	if (!IsActive() || bIsEndingCounterAbility || AdvancingCounterVaultMontageTask
-		|| DanceVaultSequence.IsNull())
+	if (!IsActive() || bIsEndingCounterAbility || AdvancingCounterVaultMontageTask)
 	{
 		return false;
 	}
 
-	UAnimSequenceBase* Sequence = DanceVaultSequence.LoadSynchronous();
-	if (!Sequence)
+	// Prefer the authored asset.  The runtime fallback is kept because it needs no
+	// asset to exist, but it cannot retime the clip (see DanceVaultMontage), so a
+	// missing asset is the only case where DanceVaultAnimationPlayRate applies.
+	UAnimMontage* Montage = DanceVaultMontage.LoadSynchronous();
+	if (!Montage)
+	{
+		if (DanceVaultSequence.IsNull())
+		{
+			return false;
+		}
+		UAnimSequenceBase* Sequence = DanceVaultSequence.LoadSynchronous();
+		if (!Sequence)
+		{
+			return false;
+		}
+		Montage = UAnimMontage::CreateSlotAnimationAsDynamicMontage(
+			Sequence, DanceVaultMontageSlot, DanceVaultBlendInTime, DanceVaultBlendOutTime,
+			DanceVaultAnimationPlayRate, 1);
+	}
+	if (!Montage)
 	{
 		return false;
 	}
-
-	UAnimMontage* DynamicMontage = UAnimMontage::CreateSlotAnimationAsDynamicMontage(
-		Sequence, DanceVaultMontageSlot, DanceVaultBlendInTime, DanceVaultBlendOutTime,
-		DanceVaultAnimationPlayRate, 1);
-	if (!DynamicMontage)
-	{
-		return false;
-	}
+	DetectAerialHandoffNotify(Montage);
 
 	AdvancingCounterVaultMontageTask =
 		UAbilityTask_PlayMontageAndWait::CreatePlayMontageAndWaitProxy(
-			this, TEXT("AdvancingCounterVaultVisual"), DynamicMontage, 1.0f,
+			this, TEXT("AdvancingCounterVaultVisual"), Montage, 1.0f,
 			NAME_None, true, 1.0f, 0.0f, true);
 	if (!AdvancingCounterVaultMontageTask)
 	{
@@ -317,28 +353,31 @@ bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVaultVisual()
 	// Intentionally no completion delegates: a presentation-only sequence must
 	// not end the live Action while BallisticVault is still airborne.
 	AdvancingCounterVaultMontageTask->ReadyForActivation();
-	return true;
-}
 
-UMHGZAdvancingCounterAbility::EVaultExit UMHGZAdvancingCounterAbility::ResolveVaultExit(
-	const EWeaponMovementEndReason Reason, const bool bCmcIsFalling)
-{
-	switch (Reason)
+	// Register the instance with the Host, exactly as every other montage-playing
+	// ability does (MHGZBackVaultAbility.cpp:412, MHGZAttackAbility.cpp:415,
+	// MHGZDodgeAbility.cpp:262, ...).  MHGZ::AnimNotify::ResolveAction finds the
+	// active ActionToken through Host->ResolveMontage(Mesh, MontageInstanceID), so
+	// without this the dance vault's montage can never resolve a notify: the
+	// notifies fire, find no token, and silently do nothing.
+	//
+	// Measured before this line existed: the aerial-action window's tag appeared
+	// for every back vault and for none of the nine dance vaults, which made the
+	// landing gate read "window never opened" and divert every dance-vault
+	// touchdown into a one-frame free fall.
+	ACharacter* VisualCharacter = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	UAnimInstance* AnimInstance = VisualCharacter && VisualCharacter->GetMesh()
+		? VisualCharacter->GetMesh()->GetAnimInstance() : nullptr;
+	FAnimMontageInstance* MontageInstance = AnimInstance
+		? AnimInstance->GetActiveInstanceForMontage(Montage) : nullptr;
+	if (!MontageInstance || !AnimInstance
+		|| !RegisterMontageInstance(VisualCharacter->GetMesh(), MontageInstance->GetInstanceID()))
 	{
-	case EWeaponMovementEndReason::Landed:
-		// 弧线抵达地面。刻意不看 CMC 模式 —— 回调落在 ProcessLanded 内、
-		// SetPostLandedPhysics 之前，此时 IsFalling() 仍为 true，用它当判据
-		// 会把每一次触地都判成「还在空中」。
-		return EVaultExit::LandedPresentation;
-	case EWeaponMovementEndReason::Completed:
-		// 弧线在空中跑完，本体交给 CMC 继续积分。若 CMC 已经落地，落地姿势
-		// 同样归本次 Action —— 否则这次触地没有任何人认领。
-		return bCmcIsFalling ? EVaultExit::FreeFall : EVaultExit::LandedPresentation;
-	default:
-		// BlockingHit / Interrupted / Cancelled / Failed / Death / WeaponChanged /
-		// RuntimeShutdown / HitHitzone：没有抵达地面，不交接任何东西。
-		return EVaultExit::None;
+		AdvancingCounterVaultMontageTask->EndTask();
+		AdvancingCounterVaultMontageTask = nullptr;
+		return false;
 	}
+	return true;
 }
 
 void UMHGZAdvancingCounterAbility::HandleAdvancingCounterVaultFinished(
@@ -358,8 +397,13 @@ void UMHGZAdvancingCounterAbility::HandleAdvancingCounterVaultFinished(
 	const ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	const UCharacterMovementComponent* Movement = Character
 		? Character->GetCharacterMovement() : nullptr;
-	const EVaultExit Exit = ResolveVaultExit(MovementResult.EndReason,
-		Movement && Movement->IsFalling());
+	// 只吃结束原因 —— 见 UMHGZInsectGlaiveAbility::ResolveVaultExit 的注释。
+	// 这里原来还有一道「挂了窗口但没到过窗口就把落地翻成自由落体」的闸门，
+	// 它是在用「动作到没到最早可操作帧」去代理「胶囊在半空吗」这个问题。
+	// 现在弧全程由 MOVE_Flying 独占，触地只可能发生在通知交出胶囊之后，
+	// 所以那次误判（木桩圆顶上离地 200 cm 就认领落地）在构造上不可能再发生，
+	// 闸门连同它的两个查询一起消失。
+	const EVaultExit Exit = ResolveVaultExit(MovementResult.EndReason);
 	bBeginFreeFallAfterEnd = Exit == EVaultExit::FreeFall;
 	bPlayLandedPresentation = Exit == EVaultExit::LandedPresentation;
 	RequestEndAction(EndReason);

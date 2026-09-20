@@ -54,13 +54,9 @@ UMHGZBackVaultAbility::UMHGZBackVaultAbility()
 	MaxCorrectionAngle = 0.0f;
 
 	// Forward lead recovered from the JumpOver clip's root track, as a fraction
-	// of BackVaultDistance.  Measured from the non-white capture: the root bone
-	// reaches (along 23.34 cm, lateral 13.01 cm) by the handoff; only the along
-	// component is taken here, because the recorded path's own lateral is
-	// already the out-and-back the reference shows and its net displacement is
-	// zero.  The shape is the measured ramp -- front-loaded, flat from ~0.32.
-	// The terminal keys must stay equal: a non-zero slope here would leave the
-	// capsule's exit velocity different from the analytic handoff tangent.
+	// of BackVaultDistance.  Terminal keys must stay equal: a non-zero slope
+	// here would leave the capsule's exit velocity different from the analytic
+	// handoff tangent the free fall is launched with.
 	auto AddDriftKey = [](TArray<FBackVaultClipDriftKey>& Table, const float Time,
 		const float Fraction)
 	{
@@ -68,7 +64,13 @@ UMHGZBackVaultAbility::UMHGZBackVaultAbility()
 		Key.CurveTime = Time;
 		Key.ForwardFraction = Fraction;
 	};
-	constexpr float NormalLeadFraction = 23.34f / 583.87f;
+	// MEASURED, 2026-09-17: with the root track locked the recorded path alone
+	// already delivers the reference's forward travel -- PIE shows the JumpOver
+	// window ending 23 cm long, which is exactly the lead this table used to add.
+	// The premise that locking would remove real forward travel was wrong, so the
+	// recovery is zero.  The mechanism is kept because the white clip is still
+	// unmeasured and may genuinely need it.
+	constexpr float NormalLeadFraction = 0.0f;
 	AddDriftKey(BackVaultClipDrift, 0.00f, 0.0f);
 	AddDriftKey(BackVaultClipDrift, 0.09f, NormalLeadFraction * 0.55f);
 	AddDriftKey(BackVaultClipDrift, 0.23f, NormalLeadFraction * 0.95f);
@@ -78,7 +80,7 @@ UMHGZBackVaultAbility::UMHGZBackVaultAbility()
 	// on its own yet.  Its apex and distance are both ~1.2x the normal variant,
 	// so the same *fraction* is the best available starting point -- replace it
 	// with values baked from AS_Unsh_W_Jump_Over_Back's own root track.
-	constexpr float WhiteLeadFraction = 0.0400f;
+	constexpr float WhiteLeadFraction = 0.0f;
 	AddDriftKey(WhiteBackVaultClipDrift, 0.00f, 0.0f);
 	AddDriftKey(WhiteBackVaultClipDrift, 0.09f, WhiteLeadFraction * 0.55f);
 	AddDriftKey(WhiteBackVaultClipDrift, 0.23f, WhiteLeadFraction * 0.95f);
@@ -161,6 +163,7 @@ void UMHGZBackVaultAbility::ActivateAbility(const FGameplayAbilitySpecHandle Han
 	bVisualFinished = false;
 	bMovementFinished = false;
 	bBeginFreeFallAfterEnd = false;
+	bPlayLandedPresentation = false;
 	bBackVaultInitialFlightOwned = false;
 	PreBackVaultMovementMode = 0;
 	PreBackVaultCustomMovementMode = 0;
@@ -191,6 +194,8 @@ void UMHGZBackVaultAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 		return;
 	}
 	bIsEndingBackVault = true;
+	// Combat.State.Aerial.Actionable 不在这里释放：基类 EndAbility 的
+	// CloseAerialHandoff() 负责（本函数末尾会走 Super::EndAbility）。
 	if (JumpOverHandoffTask)
 	{
 		JumpOverHandoffTask->EndTask();
@@ -235,7 +240,18 @@ void UMHGZBackVaultAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 	const bool bStartFreeFall = bBeginFreeFallAfterEnd && !bWasCancelled
 		&& EndingCharacter && EndingCharacter->GetCharacterMovement()
 		&& EndingCharacter->GetCharacterMovement()->IsFalling();
+	// 触地类收尾：弧线自己够到地面，本次 Action 直接认领落地姿势，不经过
+	// AerialFalling。白灯就是这一类 —— 它的 HandoffProgress 恒为 1.0，从未有过
+	// 自由落体窗口。与 bStartFreeFall 互斥。
+	const bool bPlayLanding = bPlayLandedPresentation && !bWasCancelled;
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+	if (bPlayLanding)
+	{
+		if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+		{
+			Host->PlayAerialLandingPresentation();
+		}
+	}
 	// CurvedVault has already switched to Falling on its normal completion.  Any
 	// other exit can happen before CurvedVault exists, or while its source is
 	// being torn down; in both cases this GA must return the CMC to a valid
@@ -342,14 +358,23 @@ bool UMHGZBackVaultAbility::PrepareAttackMontage()
 	if (bUseWhiteBackVault && WhiteAttackMontage)
 	{
 		AttackMontage = WhiteAttackMontage;
-		return true;
 	}
-	if (!bUseWhiteBackVault && AttackMontage)
+	else if (!bUseWhiteBackVault && AttackMontage)
 	{
-		return true;
+		// Already assigned; nothing to build.
+	}
+	else if (!BuildBackVaultMontage())
+	{
+		return false;
 	}
 
-	return BuildBackVaultMontage();
+	// Whether this action has an earliest-actionable frame at all is a property of
+	// the montage, so it is read once here rather than inferred at the handoff.
+	// 注意 BuildBackVaultMontage() 建出来的是 RF_Transient 的运行时蒙太奇，上面
+	// 不可能挂点通知 —— 那条兜底路径下 authored 恒为 false，弧走完后由任务的
+	// EnsureVaultFlightReleased() 接管（并会告警）。
+	DetectAerialHandoffNotify(AttackMontage);
+	return true;
 }
 
 bool UMHGZBackVaultAbility::StartAttackMontage(ACharacter& Character,
@@ -439,7 +464,11 @@ void UMHGZBackVaultAbility::RestoreBackVaultInitialFlight(ACharacter& Character)
 	}
 
 	const EMovementMode PreviousMode = static_cast<EMovementMode>(PreBackVaultMovementMode);
-	if (PreviousMode == MOVE_Walking || PreviousMode == MOVE_NavWalking)
+	// MOVE_Flying 也在这一支：弧现在整段跑在 Flying 里，所以上一场动作异常结束时
+	// 保存下来的「之前模式」完全可能本身就是 Flying。照原样恢复等于把这个错误状态
+	// 一路重申下去，而 Flying 没有重力 —— 胶囊会悬停。
+	if (PreviousMode == MOVE_Walking || PreviousMode == MOVE_NavWalking
+		|| PreviousMode == MOVE_Flying)
 	{
 		// Re-checking the floor avoids incorrectly pinning an interrupted vault to
 		// Walking when its capsule is already above the ground.
@@ -627,9 +656,19 @@ bool UMHGZBackVaultAbility::StartBackVaultMovement()
 	const float StartProgress = JumpDuration / ArcDuration;
 	const float HandoffProgress = (JumpDuration + JumpOverDuration) / ArcDuration;
 	const float CurveDuration = JumpOverDuration;
+	// The recorded arc is normalised over the whole airborne chain, so whatever the
+	// action-owned window does not cover is exactly the free fall that follows it.
+	// White is 1.0 here and therefore has none; non-white leaves 0.2347 s, which is
+	// MHR id 143's measured 0.234 s.
+	//
+	// 这个残余量**曾经**存进 BackVaultResidualFallSeconds 并喂给 exit 判据。现在判据
+	// 只吃结束原因（见 ResolveVaultExit），字段已删 —— 一个写进去没人读的量正是本项目
+	// 删掉 BackVaultFreeFallHandoffProgress 的同一类东西。
 	if (!FMath::IsFinite(StartProgress) || StartProgress <= 0.0f
 		|| !FMath::IsFinite(HandoffProgress) || StartProgress >= HandoffProgress
-		|| HandoffProgress >= 1.0f || !FMath::IsFinite(CurveDuration)
+		// HandoffProgress == 1.0 is legal: the white variant has no separate
+		// descent segment, so its whole arc is the CurvedVault window.
+		|| HandoffProgress > 1.0f || !FMath::IsFinite(CurveDuration)
 		|| CurveDuration <= KINDA_SMALL_NUMBER)
 	{
 		return false;
@@ -654,7 +693,6 @@ bool UMHGZBackVaultAbility::StartBackVaultMovement()
 	Request.PathOffsetCurve = ActiveTrajectoryCurve;
 	Request.CurvedVaultHandoffVelocityLocal = HandoffVelocityLocal;
 	Request.RotationPolicy = EActionRotationPolicy::Locked;
-	Request.CollisionPolicy = EMovementCollisionPolicy::StopOnBlockingHit;
 	// Preserve the CurvedVault's tangent at the handoff.  Once the source ends,
 	// CMC alone integrates gravity and collision for the free-fall phase.
 	Request.CancelVelocityPolicy = EMovementCancelVelocityPolicy::PreserveVelocity;
@@ -861,7 +899,7 @@ UCurveVector* UMHGZBackVaultAbility::BuildTrajectoryCurve(
 	OutHandoffVelocityLocal = FVector::ZeroVector;
 	if (Keys.Num() < 2 || TotalDistance <= 0.f || ApexHeight <= 0.f
 		|| StartProgress < 0.f || StartProgress >= FreeFallHandoffProgress
-		|| FreeFallHandoffProgress <= 0.f || FreeFallHandoffProgress >= 1.f
+		|| FreeFallHandoffProgress <= 0.f || FreeFallHandoffProgress > 1.f
 		|| !FMath::IsFinite(CurveDuration) || CurveDuration <= KINDA_SMALL_NUMBER)
 	{
 		return nullptr;
@@ -994,21 +1032,28 @@ void UMHGZBackVaultAbility::HandleBackVaultMovementFinished(
 	{
 		return;
 	}
-	if (MovementResult.EndReason != EWeaponMovementEndReason::Completed)
+	// 只吃结束原因 —— 见 UMHGZInsectGlaiveAbility::ResolveVaultExit 的注释。
+	//
+	// 这里原来传的是 `bHasResidualAir && IsFalling()`，两个 conjunct 都是在回避
+	// 同一个错误：旧 FinishMovement 会在广播前无条件切 MOVE_Falling，于是每一次
+	// CurvedVault 结束时 IsFalling() 都为真，白灯（残余恰好为 0）也会被误判成
+	// 有空中段。改由任务如实上报 Landed / Completed 之后，这两个代理指标连同
+	// 承载它们的 BackVaultResidualFallSeconds / AerialFallMinResidualSeconds 一起删除。
+	const EVaultExit Exit = ResolveVaultExit(MovementResult.EndReason);
+	if (Exit == EVaultExit::None)
 	{
 		RequestEndAction(EWeaponActionEndReason::Interrupted);
 		return;
 	}
 	bMovementFinished = true;
-	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-	bBeginFreeFallAfterEnd = Character && Character->GetCharacterMovement()
-		&& Character->GetCharacterMovement()->IsFalling();
-	// CurvedVault has just switched CMC from Flying to Falling.  End on this
-	// deterministic hand-off, not on the visual montage's natural completion:
-	// the visual instance intentionally holds its terminal pose until EndAbility
-	// starts the system-owned falling montage.
-	RequestEndAction(bBeginFreeFallAfterEnd
-		? EWeaponActionEndReason::Normal : EWeaponActionEndReason::Interrupted);
+	// 白灯的弧长恰好等于它的 CurvedVault 窗口（HandoffProgress == 1.0），所以它在
+	// 源完成那一帧就够到地面、从不产生自由落体段。任务把这种收尾如实报成 Landed，
+	// 于是落地姿势归本次 Action —— 而不是靠 CMC 恰好在 Falling 里待一帧。
+	bBeginFreeFallAfterEnd = Exit == EVaultExit::FreeFall;
+	bPlayLandedPresentation = Exit == EVaultExit::LandedPresentation;
+	// CurvedVault 已经交棒（或已触地）。在这个确定性的交棒点上结束，而不是等视觉
+	// 蒙太奇自然播完 —— 视觉实例刻意保持终末姿势，直到 EndAbility 起下一个表现。
+	RequestEndAction(EWeaponActionEndReason::Normal);
 }
 
 void UMHGZBackVaultAbility::TryFinishBackVault()

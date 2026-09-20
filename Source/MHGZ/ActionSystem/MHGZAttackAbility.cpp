@@ -425,6 +425,36 @@ bool UMHGZAttackAbility::SuspendAttackMontageForFollowup()
 	bMontageSuspendedForFollowup = true;
 	DisableCollision();
 
+	// 出招蒙太奇只是被「挂起」，不是被抹掉 —— 下面 EndTask 会用蒙太奇自己的
+	// BlendOut 让它淡出一段。而在这段淡出窗口里它**仍然是 RootMotionMontageInstance**：
+	// Montage_PlayInternal 只在「新蒙太奇自己带根运动」时才去 Stop 上一个根运动实例
+	// （AnimInstance.cpp:2412-2426），而舞踏的 AM_IG_WuTa 是纯表现蒙太奇、没有根运动，
+	// 那条分支根本不进。于是 AM_IG_TuJinHuiXuan 在整个淡出期间一直提取根运动，把
+	// CMC->RootMotionParams.bHasRootMotion 点亮；ApplyRootMotionToVelocity 随即走
+	// CharacterMovementComponent.cpp:4410 的动画分支并提前 return，把后续动作新加的
+	// RootMotionSource 整段盖掉。实测后果：舞踏起跳后冻结整整一个混入时长
+	// （0.15 s，22/22 次），源算出的力全程正确却进不了 Velocity，顶点不再是 564。
+	//
+	// 显式打断它的提取即可：实例一旦 IsRootMotionDisabled()，AnimInstance.cpp:1952 的
+	// bExtractRootMotion 就为假。只停提取、不影响混合，所以下面的淡出观感不变。
+	// 不需要配对 Pop —— 本项目没有任何恢复被挂起的出招蒙太奇的路径
+	// （bMontageSuspendedForFollowup 只被设置与清除，全项目无 Resume/Restore），
+	// 该实例只会淡出至销毁，每次重播拿到的是新实例。
+	if (ActiveAttackMontage)
+	{
+		if (UAnimInstance* AnimInstance = CurrentActorInfo
+			? CurrentActorInfo->GetAnimInstance() : nullptr)
+		{
+			FAnimMontageInstance* Outgoing =
+				AnimInstance->GetActiveInstanceForMontage(ActiveAttackMontage);
+
+			if (Outgoing)
+			{
+				Outgoing->PushDisableRootMotion();
+			}
+		}
+	}
+
 	// EndTask stops this exact ability montage and unbinds its delegates.  The
 	// callback can be synchronous, so its handler explicitly recognises the
 	// follow-up state instead of ending the still-live Action.

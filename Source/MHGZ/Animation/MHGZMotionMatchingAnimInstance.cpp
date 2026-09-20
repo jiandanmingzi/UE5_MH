@@ -1933,8 +1933,15 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	const FVector CharacterLocation = Character->GetActorLocation();
 	const FRotator CharacterRotation = Character->GetActorRotation();
 	const FVector CharacterVelocity = MovementComponent ? MovementComponent->Velocity : FVector::ZeroVector;
-	const FVector CharacterAcceleration = MovementComponent
-		? MovementComponent->GetCurrentAcceleration() : FVector::ZeroVector;
+	// Derived, not read: CMC->Acceleration is fed only by ConsumeInputVector, which
+	// this root-motion-driven character never calls, so GetCurrentAcceleration()
+	// reports zero on every frame regardless of how fast the capsule is moving.
+	// The first sample of a session has nothing to difference against and reports
+	// zero; every later sample is (v - v_prev) / dt.
+	const FVector CharacterAcceleration = bRuntimeTelemetryHasPrevVelocity
+		? (CharacterVelocity - RuntimeTelemetryPrevVelocity)
+			/ FMath::Max(DeltaSeconds, UE_KINDA_SMALL_NUMBER)
+		: FVector::ZeroVector;
 
 	TArray<FString> RawInputFields;
 	RawInputFields.Reserve(14);
@@ -1984,6 +1991,11 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 		ToCSVFloat(MeshBounds.Origin.X), ToCSVFloat(MeshBounds.Origin.Y),
 		ToCSVFloat(MeshBounds.Origin.Z) });
 	RuntimeTelemetryCharacterSpatialPendingRows.Add(FString::Join(SpatialFields, TEXT(",")));
+
+	// Cache the exact velocity just written, in the same block, so the value
+	// differenced next frame is the one that was logged -- not a later re-read.
+	RuntimeTelemetryPrevVelocity = CharacterVelocity;
+	bRuntimeTelemetryHasPrevVelocity = true;
 
 	const auto CaptureRootMotionSource = [this, WorldTimeSeconds, &FrameString,
 		bCharacterHasRootMotionSources, bRootMotionHasOverrideVelocity, bRootMotionHasAdditiveVelocity,
@@ -2390,6 +2402,10 @@ void UMHGZMotionMatchingAnimInstance::StopRuntimeTelemetry()
 	RuntimeTelemetryPoseSearchTopN = 0;
 	RuntimeTelemetryLastObservedInputEventSerial = 0;
 	RuntimeTelemetryLastObservedCapsuleHitSerial = 0;
+	// Drop the acceleration difference cache with the session it belongs to, so a
+	// restart cannot produce one spike against the previous run's last velocity.
+	RuntimeTelemetryPrevVelocity = FVector::ZeroVector;
+	bRuntimeTelemetryHasPrevVelocity = false;
 }
 
 void UMHGZMotionMatchingAnimInstance::FlushRuntimeTelemetry()

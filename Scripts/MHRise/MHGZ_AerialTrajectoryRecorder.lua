@@ -2,16 +2,19 @@
 --
 -- Read-only REFramework recorder for Monster Hunter Rise.
 -- F9 toggles a capture. F8 writes a read-only motion-state probe. F9 samples
--- both the master hunter's world Transform and the animation state evaluated
--- on each relevant motion layer, so a single capture contains trajectory,
--- facing and animation-frame data.  Facing is sampled from the same Transform
--- read as the position: without it a lateral displacement cannot be separated
--- from a heading change, and every lateral figure needs an orientation guess.
+-- the master hunter's world Transform, the primary camera's world Transform and
+-- the animation state evaluated on each relevant motion layer, so a single
+-- capture contains trajectory, facing, camera and animation-frame data.
+-- Facing is sampled from the same Transform read as the position: without it a
+-- lateral displacement cannot be separated from a heading change, and every
+-- lateral figure needs an orientation guess.  The camera is sampled alongside
+-- it because the *input* mapping ("is this move's back the hunter's back or the
+-- camera's back?") cannot be recovered from the hunter's facing alone.
 -- It deliberately does not change player state, input, save data, motion, or
 -- time scale.
 
 local SCRIPT_NAME = "MHGZ Aerial Trajectory Recorder"
-local SCRIPT_VERSION = "1.6.0"
+local SCRIPT_VERSION = "1.7.1"
 local OUTPUT_DIRECTORY = "MHGZ_AerialTrajectoryRecorder"
 local VK_F9 = 0x78
 local VK_F8 = 0x77
@@ -35,6 +38,13 @@ local state = {
     -- Resolved lazily on the first sample of a capture; false means "probed and
     -- nothing worked", so the retry does not run 60 times a second.
     rotation_accessor = nil,
+    -- Camera.  Kept separate from the player path above: it is a different
+    -- GameObject and the camera object itself is *not* cached (see
+    -- resolve_primary_camera), so only the accessor name and the log bookkeeping
+    -- live here.  "No camera right now" is transient, never fatal.
+    camera_rotation_accessor = nil,
+    camera_resolved_logged = false,
+    camera_logged_error = nil,
     previous_f9_down = false,
     previous_f8_down = false,
     previous_clock = os.clock(),
@@ -199,6 +209,24 @@ local function forward_yaw_degrees(forward)
     return math.deg(atan2(forward.x, forward.z))
 end
 
+-- `math.asin` is guarded the same way `math.atan2` is above.  Y-up, so pitch is
+-- the elevation of `forward` above the XZ plane.
+local asin = math.asin
+
+local function forward_pitch_degrees(forward)
+    if forward == nil or asin == nil then
+        return nil
+    end
+
+    local vertical = forward.y
+    if vertical > 1.0 then
+        vertical = 1.0
+    elseif vertical < -1.0 then
+        vertical = -1.0
+    end
+    return math.deg(asin(vertical))
+end
+
 local function read_transform_rotation(transform)
     if state.rotation_accessor == false then
         return nil, nil
@@ -359,6 +387,173 @@ local function safe_call_no_arguments(object, method_name)
         return object:call(method_name)
     end)
     return ok, value
+end
+
+-- The camera is a `via.Camera` component on the camera's own GameObject, so its
+-- orientation is two hops away through that GameObject's Transform -- the same
+-- two hops the player path already uses.  `sdk.get_primary_camera()` is
+-- REFramework's own resolver for it (internally via.SceneManager -> get_MainView
+-- -> get_PrimaryCamera), so there is no reason to re-walk that chain in Lua.
+--
+-- A failure is *not* a capture failure: the columns go empty and the capture
+-- keeps running, exactly like the facing columns.  Unlike the player's
+-- `rotation_accessor` it is retried rather than latched, because the primary
+-- camera really is absent while the scene loads.
+local CAMERA_METHOD_KEYWORDS = {
+    "rotation", "position", "transform", "matrix", "gameobject", "joint", "parent", "fov",
+}
+
+-- On failure, name the methods the object actually has.  TDB method names cannot
+-- be enumerated offline, so this turns `camera_unavailable` from a dead end into
+-- a list of spellings to try -- without spending another recording run.
+local function camera_method_hint(object)
+    local type_definition = safe_object_type(object)
+    if type_definition == nil then
+        return "<no type>"
+    end
+
+    local names = {}
+    local ok_methods, methods = pcall(function()
+        return type_definition:get_methods()
+    end)
+    if ok_methods and methods ~= nil then
+        for _, method in ipairs(methods) do
+            local method_name = tostring(method:get_name())
+            local lower_name = string.lower(method_name)
+            for _, keyword in ipairs(CAMERA_METHOD_KEYWORDS) do
+                if string.find(lower_name, keyword, 1, true) ~= nil then
+                    names[#names + 1] = method_name
+                    break
+                end
+            end
+            if #names >= 24 then
+                break
+            end
+        end
+    end
+
+    if #names == 0 then
+        return "<no method matched " .. table.concat(CAMERA_METHOD_KEYWORDS, "/") .. ">"
+    end
+    return table.concat(names, " ")
+end
+
+local function resolve_primary_camera()
+    -- Deliberately re-fetched every sample instead of cached: the recorder spans
+    -- scene loads, and holding a managed camera reference across one risks a
+    -- dangling pointer.  The lookup is three TDB calls -- negligible against the
+    -- per-sample motion-layer reads that already happen.
+    local ok, camera = pcall(sdk.get_primary_camera)
+
+    if not ok then
+        return nil, "sdk.get_primary_camera() raised: " .. tostring(camera)
+    end
+    if camera == nil then
+        return nil, "sdk.get_primary_camera() returned nil"
+    end
+
+    if not state.camera_resolved_logged then
+        state.camera_resolved_logged = true
+        -- Name the type once per capture: it is the evidence for *which* camera
+        -- the rest of the columns came from (a demo/photo-mode camera would say
+        -- so, and its Transform is not the one we want).
+        local _, type_name = safe_object_type(camera)
+        write_event(
+            "camera_accessor_resolved",
+            "primary camera is " .. tostring(type_name) .. " via sdk.get_primary_camera"
+        )
+    end
+
+    return camera, nil
+end
+
+local function read_camera_rotation(transform)
+    if state.camera_rotation_accessor == false then
+        return nil, nil
+    end
+
+    if state.camera_rotation_accessor == nil then
+        for _, candidate in ipairs(ROTATION_ACCESSORS) do
+            local ok, value = pcall(function()
+                return transform:call(candidate)
+            end)
+            if ok and read_quaternion(value) ~= nil then
+                state.camera_rotation_accessor = candidate
+                break
+            end
+        end
+        if state.camera_rotation_accessor == nil then
+            state.camera_rotation_accessor = false
+            return nil, "no readable rotation accessor on the camera Transform"
+        end
+    end
+
+    local ok, value = pcall(function()
+        return transform:call(state.camera_rotation_accessor)
+    end)
+    if not ok then
+        return nil, "camera rotation read failed via " .. tostring(state.camera_rotation_accessor)
+    end
+    return read_quaternion(value), nil
+end
+
+-- The camera looks down its own local **-Z**, unlike the hunter, whose forward
+-- is local +Z.  Measured on a real capture (20260919_005435), not assumed:
+-- rotating local -Z against the geometric truth -- the camera->hunter vector,
+-- the camera sitting ~7 m behind and above the player -- gives a median error of
+-- 0.76 deg with 99.8% of samples inside 5 deg, while local +Z is 179 deg off,
+-- i.e. exactly reversed.  Only the derived columns are affected; `cam_q*` stays
+-- the raw quaternion, so even a 1.7.0 capture can be corrected offline.
+local function camera_forward(quaternion)
+    local forward = quaternion_forward(quaternion)
+    if forward == nil then
+        return nil
+    end
+    return { x = -forward.x, y = -forward.y, z = -forward.z }
+end
+
+local function read_primary_camera()
+    local camera, camera_error = resolve_primary_camera()
+    if camera == nil then
+        return nil, camera_error
+    end
+
+    local ok, result, detail = pcall(function()
+        local camera_game_object = camera:call("get_GameObject")
+        if camera_game_object == nil then
+            return nil, "primary camera has no GameObject | " .. camera_method_hint(camera)
+        end
+
+        local transform = camera_game_object:call("get_Transform")
+        if transform == nil then
+            return nil, "primary camera's GameObject has no Transform | "
+                .. camera_method_hint(camera_game_object)
+        end
+
+        local position = transform:call("get_Position")
+        if position == nil then
+            return nil, "camera Transform has no Position | " .. camera_method_hint(transform)
+        end
+
+        local quaternion, rotation_error = read_camera_rotation(transform)
+        local forward = camera_forward(quaternion)
+
+        return {
+            x = position.x,
+            y = position.y,
+            z = position.z,
+            quaternion = quaternion,
+            forward = forward,
+            yaw = forward_yaw_degrees(forward),
+            pitch = forward_pitch_degrees(forward),
+            rotation_error = rotation_error,
+        }, nil
+    end)
+
+    if not ok then
+        return nil, "camera read raised: " .. tostring(result)
+    end
+    return result, detail
 end
 
 local function safe_call_layer_method(object, method_name, layer_index)
@@ -813,6 +1008,9 @@ local function start_capture()
     state.previous_uptime_second = nil
     state.last_error = nil
     state.rotation_accessor = nil
+    state.camera_rotation_accessor = nil
+    state.camera_resolved_logged = false
+    state.camera_logged_error = nil
 
     local sample_header = {
         "sample_index", "capture_time_s", "delta_time_s", "time_source",
@@ -821,6 +1019,10 @@ local function start_capture()
         "acceleration_x", "acceleration_y", "acceleration_z", "vertical_phase",
         "rot_qx", "rot_qy", "rot_qz", "rot_qw",
         "forward_x", "forward_y", "forward_z", "facing_yaw_deg",
+        "cam_x", "cam_y", "cam_z",
+        "cam_qx", "cam_qy", "cam_qz", "cam_qw",
+        "cam_forward_x", "cam_forward_y", "cam_forward_z",
+        "cam_yaw_deg", "cam_pitch_deg",
         "motion_layer_count",
         "player_motion_old_id",
     }
@@ -836,7 +1038,7 @@ local function start_capture()
     end
     samples_file:write(table.concat(sample_header, ",") .. "\n")
     events_file:write("event_index,capture_time_s,event,vertical_phase,details\n")
-    write_event("capture_started", "F9; raw world Transform capture")
+    write_event("capture_started", "F9; raw hunter + primary camera world Transform capture")
     report_status("Capture started: " .. samples_path)
     show_toast("[REC] TRAJECTORY CAPTURE STARTED", 2.5, 0xFF00FFFF)
 end
@@ -888,6 +1090,19 @@ local function record_sample()
         write_event("facing_unavailable", position.rotation_error)
     end
 
+    -- Same contract as facing: a camera failure empties its columns and is
+    -- logged once per distinct reason, never interrupting the capture.
+    local camera, camera_error = read_primary_camera()
+    if camera ~= nil then
+        if camera.rotation_error ~= nil and state.last_error ~= camera.rotation_error then
+            state.last_error = camera.rotation_error
+            write_event("camera_facing_unavailable", camera.rotation_error)
+        end
+    elseif camera_error ~= nil and state.camera_logged_error ~= camera_error then
+        state.camera_logged_error = camera_error
+        write_event("camera_unavailable", camera_error)
+    end
+
     state.sample_count = state.sample_count + 1
     local motion_layers, motion_error = read_runtime_motion_layers()
     if motion_error ~= nil and state.last_error ~= motion_error then
@@ -918,6 +1133,18 @@ local function record_sample()
         csv_number(position.forward and position.forward.y),
         csv_number(position.forward and position.forward.z),
         csv_number(position.yaw),
+        csv_number(camera and camera.x),
+        csv_number(camera and camera.y),
+        csv_number(camera and camera.z),
+        csv_number(camera and camera.quaternion and camera.quaternion.x),
+        csv_number(camera and camera.quaternion and camera.quaternion.y),
+        csv_number(camera and camera.quaternion and camera.quaternion.z),
+        csv_number(camera and camera.quaternion and camera.quaternion.w),
+        csv_number(camera and camera.forward and camera.forward.x),
+        csv_number(camera and camera.forward and camera.forward.y),
+        csv_number(camera and camera.forward and camera.forward.z),
+        csv_number(camera and camera.yaw),
+        csv_number(camera and camera.pitch),
         csv_number(motion_layers.layer_count),
         csv_number(captured_motion_value(motion_layers.player_motion_old_id_ok, motion_layers.player_motion_old_id)),
     }
@@ -1008,7 +1235,8 @@ re.on_draw_ui(function()
 
     imgui.text("Output: reframework/data/" .. OUTPUT_DIRECTORY)
     imgui.text("Samples: " .. tostring(state.sample_count))
-    imgui.text("F9 rows include layer state plus the highest-weight action node and PlayerMotionControl ID.")
+    imgui.text("F9 rows include layer state, the highest-weight action node, PlayerMotionControl ID,")
+    imgui.text("and the primary camera's world Transform (cam_* columns).")
     imgui.text("F8 remains an optional verbose state probe for diagnostics.")
     if state.last_probe_path ~= nil then
         imgui.text("Last probe: " .. state.last_probe_path)

@@ -151,9 +151,12 @@ public:
 
 	/**
 	 * 后撑杆跳由 MHR 实录轨迹重建。Jump 保留 Montage Root Motion；从
-	 * Jump_Over 的段边界起 CurvedVault 接管，随后在
-	 * FreeFallHandoffProgress 交给 CMC。重力、碰撞与接地都不再由 GA 的路径
-	 * 接管。白灯版本具有独立的距离、高度和动作时长。
+	 * Jump_Over 的段边界起 CurvedVault 接管，走完整条弧后交给 CMC。
+	 * 重力、碰撞与接地都不再由 GA 的路径接管。白灯版本具有独立的距离、高度
+	 * 和动作时长。
+	 *
+	 * 交棒点在哪儿**不是配置**：它由 `(JumpDuration + JumpOverDuration) /
+	 * ArcDuration` 在运行时算出，残余自由落体时长即 `(1 − 它) × ArcDuration`。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
 	float BackVaultDuration = 1.733333f;
@@ -164,8 +167,24 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
 	float BackVaultApexHeight = 579.7f;
 
+	/**
+	 * 白灯版本的**飞行时长**，不是 clip 长度。
+	 *
+	 * 曾用 2.233333（= 0.650 + 1.5833，即两条 clip 的自然长度之和）。那是被
+	 * HandoffProgress <= 1.0 的守卫逼出来的值，不是 MHR 说的值：MHR 的 159 虽然
+	 * 有约 1.596 s 的自然长度（2/34 次真的跑满并停在离地 537-553 cm 的半空，随后
+	 * 交给下坠 id 157），但众数只有 1.486 s —— **它是被触地砍断的**。
+	 *
+	 * 用 clip 长度当窗口，等于把 110 ms 本该不存在的飞行补了出来，实录路径因此被
+	 * 拉伸 4.7%：实测白灯时长 +3.4%、水平位移 +2.1%，且 JumpOver 段单独 +4.7%。
+	 * 改用飞行时长后动画会被落地自然砍断 —— 那正是 MHR 的行为。
+	 *
+	 * MHR 实录（动作 id 158+159，6 份录制 median）：0.652 + 1.487 = 2.139 s / 7.08 m。
+	 * 这里取 0.650 + 1.487 = 2.137，与 WhiteBackJumpDuration（蒙太奇 Jump 段）
+	 * 相加后 CurvedVault 窗口正好 1.487。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
-	float WhiteBackVaultDuration = 2.233333f;
+	float WhiteBackVaultDuration = 2.137f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
 	float WhiteBackVaultDistance = 706.05f;
@@ -174,17 +193,18 @@ public:
 	float WhiteBackVaultApexHeight = 748.9f;
 
 	/**
-	 * The recorded path fraction reached when the action-owned CurvedVault
-	 * portion ends.  At this point CMC preserves the resulting velocity through
-	 * the real free-fall phase.
+	 * 曾用于「动作自有的 CurvedVault 走到哪里交棒给自由落体」的两个字段，
+	 * **已删除**：UMHGZBackVaultAbility 从不读它们，实际值由弧长算出
+	 * （`HandoffProgress = (JumpDuration + JumpOverDuration) / ArcDuration`）。
+	 *
+	 * 它们不只是没用的死配置，而是**会撒谎的死配置**：IsDataValid 校验它们
+	 * （还带一条「必须 < 1.0」的报错），文件里写 0.8734，而运行时白灯的实际值
+	 * 是 **1.0**。于是校验可能报错却毫无影响，也可能不报错而让人以为
+	 * "白灯也有自由落体段"。
+	 *
+	 * 现在这个量叫 `BackVaultResidualFallSeconds`，是 UMHGZBackVaultAbility 里的
+	 * 运行时派生值，不再由配置声明。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
-		meta = (ClampMin = "0.01", ClampMax = "0.99"))
-	float BackVaultFreeFallHandoffProgress = 0.8734f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
-		meta = (ClampMin = "0.01", ClampMax = "0.99"))
-	float WhiteBackVaultFreeFallHandoffProgress = 0.8734f;
 
 	/**
 	 * 整条空中弧的时长（Jump + JumpOver + 下坠），**只用于把实录轨迹归一化**。
@@ -199,10 +219,18 @@ public:
 		meta = (ClampMin = "0.01"))
 	float BackVaultArcDuration = 1.968f;
 
-	/** 白灯没有独立的下坠段（158+159 覆盖到底）：2.14 s / 7.11 m。 */
+	/**
+	 * 白灯**没有独立的下坠段**（Rise 的 159 一直覆盖到落地），所以整条弧就是
+	 * Jump + JumpOver，等于 WhiteBackVaultDuration —— HandoffProgress 因此为 1.0，
+	 * 这是合法的「无自由落体窗口」配置，不要当成错误拒掉。
+	 *
+	 * 与 WhiteBackVaultDuration 一样取**飞行时长** 2.137 而非 clip 长度 2.2333。
+	 * 两者相等时 HandoffProgress 恰好为 1.0，守卫天然通过，不需要再为过守卫凑数
+	 * ——当初把它从 2.14 抬到 2.2333 正是那种凑数，代价是 4.7% 的路径拉伸。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
 		meta = (ClampMin = "0.01"))
-	float WhiteBackVaultArcDuration = 2.14f;
+	float WhiteBackVaultArcDuration = 2.137f;
 
 	/**
 	 * MHR world-transform captures of the back-vault free-fall portion.  These
@@ -222,6 +250,22 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Physics",
 		meta = (ClampMin = "0.0"))
 	float AerialFallBrakingDeceleration = 0.0f;
+
+	/**
+	 * 一次系统托管下落的最长时长；超过就由看门狗收尾并告警。
+	 *
+	 * 坠落此前**完全没有生命周期管理**：视觉蒙太奇没有结束委托、没有循环计数、
+	 * 没有超时、没有出口。实测两种后果 —— 一次录制里坠落片在 0.85 s 处按模回绕
+	 * （`Position 0.8499 → 0.0249`，权重恒 1.0，姿势硬切），而那次录制结束时角色
+	 * 已降到 **Z = −1939 cm 仍在下降**、tag 仍挂 `Aerial.Falling.IG_BackVault`；
+	 * 另一次角色在木桩圆顶上以 `MovementMode 3` 悬停 **3.2 秒**无任何接管。
+	 *
+	 * 取 4.0 s 而不是贴着实测值：合法的长坠落实测有 1.25 s，阈值必须留足余量，
+	 * 看门狗是兜底而不是常规出口。它只做「恢复物理 + 释放 tag + 强制回到默认移动
+	 * 模式 + 告警」，不做任何位移修正。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial", meta = (ClampMin = "0.1"))
+	float AerialFallMaxSeconds = 4.0f;
 
 	/** CMC-owned free-fall visual after an ordinary rear vault.  It must be in-place. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Presentation")
@@ -254,6 +298,11 @@ public:
 		return FMath::IsFinite(OutGravityScale) && OutGravityScale > 0.0f
 			&& FMath::IsFinite(OutBrakingDecelerationFalling)
 			&& OutBrakingDecelerationFalling >= 0.0f;
+	}
+
+	virtual float GetAerialFallMaxSeconds() const override
+	{
+		return AerialFallMaxSeconds;
 	}
 
 	/** 操虫斩最大飞行距离（cm） */

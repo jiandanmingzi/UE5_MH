@@ -209,10 +209,16 @@ bool FMHGZM5CurvedVaultRequestValidationTest::RunTest(const FString& Parameters)
 	return true;
 }
 
-// The dance vault is a JumpForce arc whose parabola returns to the launch height
-// exactly at f = 1, so it always touches down on the frame the source completes.
-// The old classifier accepted only `Completed`, which made every touchdown fall
-// through to "no hand-off at all" -- no free fall, no landing. This pins the fix.
+// The arc classifier now takes **one** argument.  It used to take a second
+// `bCmcIsFalling`, and the back vault ANDed in a third signal of its own
+// (`BackVaultResidualFallSeconds > 0`).  All of them were proxies for a single
+// question -- "was the capsule in the air when the arc ended?" -- and all of them
+// were wrong, because `ProcessLanded` broadcasts LandedDelegate before
+// `SetPostLandedPhysics` (so IsFalling() is still true inside the callback) and
+// the old FinishMovement forced MOVE_Falling before broadcasting (so IsFalling()
+// was true after *every* CurvedVault).  The task now answers that question
+// directly, from the CMC's own landing notification, and reports `Landed` or
+// `Completed`.  This pins the one-argument contract and its totality.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMHGZM5DanceTouchdownClaimsLandingTest,
 	"MHGZ.M5.Vault.DanceTouchdownClaimsLandingWithoutFreeFall",
@@ -220,33 +226,36 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FMHGZM5DanceTouchdownClaimsLandingTest::RunTest(const FString& Parameters)
 {
-	using EVaultExit = UMHGZAdvancingCounterAbility::EVaultExit;
-	auto Exit = [](EWeaponMovementEndReason Reason, bool bFalling)
+	using EVaultExit = UMHGZInsectGlaiveAbility::EVaultExit;
+	auto Exit = [](EWeaponMovementEndReason Reason)
 	{
-		return UMHGZAdvancingCounterAbility::ResolveVaultExit(Reason, bFalling);
+		return UMHGZInsectGlaiveAbility::ResolveVaultExit(Reason);
 	};
 
-	// The regression itself: a touchdown must claim the landing pose, and the
-	// answer must not depend on the CMC mode -- Landed is broadcast from inside
-	// ProcessLanded, before SetPostLandedPhysics flips it out of MOVE_Falling.
-	TestEqual(TEXT("Landed while still in MOVE_Falling claims the landing pose"),
-		Exit(EWeaponMovementEndReason::Landed, true), EVaultExit::LandedPresentation);
-	TestEqual(TEXT("Landed after the CMC already grounded claims the landing pose"),
-		Exit(EWeaponMovementEndReason::Landed, false), EVaultExit::LandedPresentation);
+	// A touchdown claims the landing pose.  Nothing about the CMC's mode may enter
+	// this decision -- that is what the removed second argument kept getting wrong.
+	TestEqual(TEXT("Landed claims the landing pose"),
+		Exit(EWeaponMovementEndReason::Landed), EVaultExit::LandedPresentation);
 
-	// A touchdown is never silently dropped, whichever way the arc reported it.
-	TestNotEqual(TEXT("Completed while grounded is not dropped"),
-		Exit(EWeaponMovementEndReason::Completed, false), EVaultExit::None);
+	// The arc ran out in the air: the body goes to the CMC.  This is the branch the
+	// dance vault reaches when it completes without ever touching down, and the
+	// branch the back vault's non-white variant reaches with ~0.235 s of fall left.
+	TestEqual(TEXT("Completed hands off to free fall"),
+		Exit(EWeaponMovementEndReason::Completed), EVaultExit::FreeFall);
 
-	// The airborne completion branch must survive this change untouched: it is
-	// the shape the back vault relies on.
-	TestEqual(TEXT("Completed while airborne still hands off to free fall"),
-		Exit(EWeaponMovementEndReason::Completed, true), EVaultExit::FreeFall);
+	// BlockingHit is NOT a "nothing happened" reason.  A capsule that met something
+	// mid-air used to leave the body unowned: the task removed its source, so the
+	// capsule kept whatever velocity it had at the instant of the hit, in a
+	// MovementMode nothing restored, with no presentation armed.  That is how a
+	// dance vault that grazed the training dummy 1-3 frames after launch topped out
+	// at 971 cm against a configured 564.  It hands over like Completed.
+	TestEqual(TEXT("BlockingHit hands off to free fall"),
+		Exit(EWeaponMovementEndReason::BlockingHit), EVaultExit::FreeFall);
 
-	// Everything that never reached the ground must hand over nothing.
-	const EWeaponMovementEndReason NeverGrounded[] = {
+	// The reasons that mean this action is being torn down must hand over nothing --
+	// there is no body left for them to hand over.
+	const EWeaponMovementEndReason TeardownReasons[] = {
 		EWeaponMovementEndReason::HitHitzone,
-		EWeaponMovementEndReason::BlockingHit,
 		EWeaponMovementEndReason::Interrupted,
 		EWeaponMovementEndReason::Cancelled,
 		EWeaponMovementEndReason::Death,
@@ -254,16 +263,13 @@ bool FMHGZM5DanceTouchdownClaimsLandingTest::RunTest(const FString& Parameters)
 		EWeaponMovementEndReason::RuntimeShutdown,
 		EWeaponMovementEndReason::Failed,
 	};
-	for (const EWeaponMovementEndReason Reason : NeverGrounded)
+	for (const EWeaponMovementEndReason Reason : TeardownReasons)
 	{
-		TestEqual(TEXT("a move that never reached the ground hands over nothing"),
-			Exit(Reason, true), EVaultExit::None);
-		TestEqual(TEXT("a move that never reached the ground hands over nothing"),
-			Exit(Reason, false), EVaultExit::None);
+		TestEqual(TEXT("a teardown reason hands over nothing"),
+			Exit(Reason), EVaultExit::None);
 	}
 
-	// Totality: every reason crossed with both CMC modes resolves to exactly one
-	// of the three declared outcomes.
+	// Totality: every declared reason resolves to exactly one of the three outcomes.
 	const EWeaponMovementEndReason AllReasons[] = {
 		EWeaponMovementEndReason::Completed,
 		EWeaponMovementEndReason::HitHitzone,
@@ -278,14 +284,11 @@ bool FMHGZM5DanceTouchdownClaimsLandingTest::RunTest(const FString& Parameters)
 	};
 	for (const EWeaponMovementEndReason Reason : AllReasons)
 	{
-		for (const bool bFalling : { false, true })
-		{
-			const EVaultExit Result = Exit(Reason, bFalling);
-			const bool bKnown = Result == EVaultExit::None
-				|| Result == EVaultExit::FreeFall
-				|| Result == EVaultExit::LandedPresentation;
-			TestTrue(TEXT("every end reason resolves to a declared outcome"), bKnown);
-		}
+		const EVaultExit Result = Exit(Reason);
+		const bool bKnown = Result == EVaultExit::None
+			|| Result == EVaultExit::FreeFall
+			|| Result == EVaultExit::LandedPresentation;
+		TestTrue(TEXT("every end reason resolves to a declared outcome"), bKnown);
 	}
 	return true;
 }
