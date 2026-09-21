@@ -33,7 +33,13 @@ import os
 import unreal
 
 SEQ_DIR = "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported"
-TARGETS = ["AS_Unsh_Jump_Over_Back", "AS_Unsh_W_Jump_Over_Back"]
+# 前两条是 A9 当时修的（后撑杆跳专用弧段）。后两条是 2026-09-20 加的 ——
+# 前/左/右撑杆跳**共用** AS_Unsh_Jump_Over(142) / AS_Unsh_W_Jump_Over(156)，
+# 而它们从没被处理过；`UMHGZBackVaultAbility::ValidateActionDependencies` 要求的
+# 是 `LockedNotExtracted`，不满足会被**直接拒绝激活**（不出招，不是跑歪）。
+# 实测这两个资产在 Content/ 里**零引用**，所以直接改不影响别处。
+TARGETS = ["AS_Unsh_Jump_Over_Back", "AS_Unsh_W_Jump_Over_Back",
+           "AS_Unsh_Jump_Over", "AS_Unsh_W_Jump_Over"]
 OUT = os.path.join(unreal.Paths.project_saved_dir(), "_a9_rootlock.json")
 
 result = {}

@@ -8,7 +8,7 @@
 
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
 #include "ActionSystem/MHGZAdvancingCounterAbility.h"
-#include "ActionSystem/MHGZBackVaultAbility.h"
+#include "ActionSystem/MHGZPoleVaultAbility.h"
 #include "ActionSystem/MHGZDodgeAbility.h"
 #include "Curves/CurveVector.h"
 #include "Engine/World.h"
@@ -128,10 +128,10 @@ bool FMHGZM5CurvedVaultHandoffTest::RunTest(const FString& Parameters)
 	constexpr float ApexHeight = 500.0f;
 	constexpr float CurveDuration = 2.0f;
 
-	TArray<FBackVaultTrajectoryKey> Keys;
+	TArray<FVaultTrajectoryKey> Keys;
 	for (const float Progress : { 0.0f, 0.2f, 0.5f, 0.8f, 1.0f })
 	{
-		FBackVaultTrajectoryKey Key;
+		FVaultTrajectoryKey Key;
 		Key.Time = Progress;
 		// Forward 1 and down 1 per unit of recorded progress.
 		Key.NormalizedPosition = FVector(Progress, 0.0f, -Progress);
@@ -140,7 +140,7 @@ bool FMHGZM5CurvedVaultHandoffTest::RunTest(const FString& Parameters)
 
 	FVector Velocity;
 	TestTrue(TEXT("linear recording yields a tangent"),
-		UMHGZBackVaultAbility::ComputeTrajectoryTangent(Keys, StartProgress,
+		UMHGZPoleVaultAbility::ComputeTrajectoryTangent(Keys, StartProgress,
 			HandoffProgress, TotalDistance, ApexHeight, CurveDuration, Velocity));
 
 	// The curve's normalised time spans ProgressSpan of recorded progress and the
@@ -161,16 +161,16 @@ bool FMHGZM5CurvedVaultHandoffTest::RunTest(const FString& Parameters)
 	// Degenerate inputs must refuse rather than hand the CMC a silent zero.
 	FVector Rejected;
 	TestFalse(TEXT("empty recording is rejected"),
-		UMHGZBackVaultAbility::ComputeTrajectoryTangent(TArray<FBackVaultTrajectoryKey>(),
+		UMHGZPoleVaultAbility::ComputeTrajectoryTangent(TArray<FVaultTrajectoryKey>(),
 			StartProgress, HandoffProgress, TotalDistance, ApexHeight, CurveDuration, Rejected));
 	TestFalse(TEXT("zero travel distance is rejected"),
-		UMHGZBackVaultAbility::ComputeTrajectoryTangent(Keys, StartProgress,
+		UMHGZPoleVaultAbility::ComputeTrajectoryTangent(Keys, StartProgress,
 			HandoffProgress, 0.0f, ApexHeight, CurveDuration, Rejected));
 	TestFalse(TEXT("zero duration is rejected"),
-		UMHGZBackVaultAbility::ComputeTrajectoryTangent(Keys, StartProgress,
+		UMHGZPoleVaultAbility::ComputeTrajectoryTangent(Keys, StartProgress,
 			HandoffProgress, TotalDistance, ApexHeight, 0.0f, Rejected));
 	TestFalse(TEXT("an inverted progress range is rejected"),
-		UMHGZBackVaultAbility::ComputeTrajectoryTangent(Keys, HandoffProgress,
+		UMHGZPoleVaultAbility::ComputeTrajectoryTangent(Keys, HandoffProgress,
 			StartProgress, TotalDistance, ApexHeight, CurveDuration, Rejected));
 
 	return true;
@@ -361,10 +361,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FMHGZM5BackVaultRootTrackPolicyTest::RunTest(const FString& Parameters)
 {
-	using EPolicy = EBackVaultRootTrackPolicy;
+	using EPolicy = EVaultRootTrackPolicy;
 	auto Policy = [](bool bEnableRootMotion, bool bForceRootLock)
 	{
-		return UMHGZBackVaultAbility::ResolveRootTrackPolicy(bEnableRootMotion, bForceRootLock);
+		return UMHGZPoleVaultAbility::ResolveRootTrackPolicy(bEnableRootMotion, bForceRootLock);
 	};
 
 	TestEqual(TEXT("locked and not extracted is the JumpOver policy"),
@@ -411,10 +411,10 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FMHGZM5BackVaultClipDriftRampTest::RunTest(const FString& Parameters)
 {
-	using FKey = FBackVaultClipDriftKey;
+	using FKey = FVaultClipDriftKey;
 	auto Sample = [](const TArray<FKey>& Table, float Time, float& Out)
 	{
-		return UMHGZBackVaultAbility::SampleClipDriftForwardFraction(Table, Time, Out);
+		return UMHGZPoleVaultAbility::SampleClipDriftForwardFraction(Table, Time, Out);
 	};
 	auto Make = [](std::initializer_list<FKey> Keys)
 	{
@@ -466,6 +466,66 @@ bool FMHGZM5BackVaultClipDriftRampTest::RunTest(const FString& Parameters)
 			0.5f, Fraction));
 	TestFalse(TEXT("a NaN sample time is rejected"), Sample(Good,
 		std::numeric_limits<float>::quiet_NaN(), Fraction));
+	return true;
+}
+
+// ── 方向基准的**手性**。────────────────────────────────────────────────────
+//
+// `FVaultProfile::ChordYawDegrees` 存在 **MHR / 文档的约定**里：正角指向猎人的**左**。
+// 而 UE 的 `FRotator(0, Yaw, 0).Vector()` 在正 Yaw 时指向**右**。两者相反，所以消费方
+// 必须**减**（见 `ComputeDirectionSnapshot` 的长注释）。
+//
+// 这个符号**曾经写反过一次**，症状是左右撑杆跳互换；而后撑杆跳（弦向恰好 180，取负
+// 等于不取负）与向前撑杆跳（|弦向| = 0.56°）**都完全看不出来**。所以这里不按「某个
+// 数值符号」断言，而按**语义**断言：「正的弦向把方向放到角色的哪一侧」。
+//
+// 顺带把契约写清楚：`dot(Result, LeftVector) == sin(ChordYawDegrees)`。
+// 它同时覆盖了四个方向的实测弦向，任何一个方向被写反都会失败。
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM5VaultDirectionSnapshotTest,
+	"MHGZ.M5.Vault.DirectionSnapshotHandedness",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM5VaultDirectionSnapshotTest::RunTest(const FString& Parameters)
+{
+	// 面朝 +X，于是 UE 里「左」= -Y、「右」= +Y，正负可以直接读出来。
+	const FVector Facing = FVector::ForwardVector;
+	const float FacingYaw = Facing.Rotation().Yaw;
+	const FVector LeftOfFacing = FRotator(0.0f, FacingYaw - 90.0f, 0.0f).Vector();
+
+	auto Side = [&LeftOfFacing](const float ChordDegrees)
+	{
+		const FVector Snapshot = UMHGZPoleVaultAbility::ComputeDirectionSnapshot(
+			FVector::ForwardVector, ChordDegrees);
+		return FVector::DotProduct(Snapshot, LeftOfFacing);
+	};
+
+	// 唯一的契约：正弦向 = 角色的左侧。
+	//
+	// 断言用 `TestTrue` 而不是 `TestEqual`：后者的重载在「FString + float + float +
+	// float」这一组上有歧义（`const TCHAR*` 与 `const FString&` 两条都可行）。
+	for (const float Chord : { -170.0f, -84.21f, -45.0f, 0.0f, 0.56f, 45.0f, 86.06f, 170.0f })
+	{
+		const float Expected = FMath::Sin(FMath::DegreesToRadians(Chord));
+		const float Actual = Side(Chord);
+		TestTrue(FString::Printf(TEXT("sin(chord=%.2f) 的侧向分量：期望 %.6f 实为 %.6f"),
+			Chord, Expected, Actual), FMath::IsNearlyEqual(Actual, Expected, 1.0e-4f));
+	}
+
+	// 四个方向的实测弦向，逐个钉住**哪一侧**（这才是用户看得见的那件事）。
+	TestTrue(TEXT("向前（+0.56°）应偏左"), Side(0.56f) > 0.0f);
+	TestTrue(TEXT("向左（+86.06°）应强烈偏左"), Side(86.06f) > 0.99f);
+	TestTrue(TEXT("向右（−84.21°）应强烈偏右"), Side(-84.21f) < -0.99f);
+
+	// 后撑杆跳是 180：正后方，**没有侧向分量** —— 这正是它掩盖这个 bug 的原因。
+	{
+		const FVector Snapshot = UMHGZPoleVaultAbility::ComputeDirectionSnapshot(
+			FVector::ForwardVector, 180.0f);
+		TestTrue(TEXT("向后（180°）应几乎正后方"),
+			FVector::DotProduct(Snapshot, Facing) < -0.9999f);
+		TestTrue(TEXT("向后（180°）不应有侧向分量"), FMath::Abs(Side(180.0f)) < 1.0e-4f);
+	}
+
 	return true;
 }
 

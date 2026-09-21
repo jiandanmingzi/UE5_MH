@@ -12,6 +12,7 @@
 **输出**：
   - `Saved/_mhr_curves/<状态>_<方向>.csv` —— 逐帧归一化轨迹（曲线源，**不入库**）
   - `docs/reference/撑杆跳曲线.md` —— 各变体真值 + 可直接抄进蓝图的关键帧表
+  - `Source/MHGZ/Generated/MHGZVaultCurveTables.h` —— 喂给 C++ 的 `constexpr` 曲线表
 
 【口径】
 - 真值源：`C:/apps/steam/.../MHGZ_AerialTrajectoryRecorder/`。**该目录不入库。**
@@ -19,23 +20,34 @@
   判定（起手段 `155` 或弧段 `156` ⇒ 有白灯）。所以以后补录撑杆跳不用改脚本。
 - 向上轴是 **Y**；位置**米**、速度 m/s ⇒ 本脚本 ×100 出厘米。
 - 采样率 **119.8 Hz**，帧数 = 样本数 − 1。
-- **朝向分解**：`X` 沿起跳那一刻的 `forward_x/forward_z`（水平面），`Y` 取侧向，`Z` 取世界 Y 相对段首的抬升。
-  空中段的朝向是锁死的（实测段内转动 0.0000°），所以用段首朝向分解不需要插值。
+- **行进分解**：`X` 沿**离地前缀的首→末水平位移方向**（不是起跳朝向！见 `normalize` 的
+  docstring：左/右撑杆跳时朝向与行进差 ±84~90°，按朝向分解会把整个行程塞进侧向），
+  `Y` 取行进方向的垂直分量，`Z` 取世界 Y 相对段首的抬升。
 - 归一化：`X_norm = 前向进度 / 落地时的前向总进度`，
   `Y_norm = 侧移 / 同一个总进度`，`Z_norm = 抬升 / 弧最高点`，
   `Time = 该帧时刻 / 离地前缀总时长`。这与 `FBackVaultTrajectoryKey` 的注释一致
   （"X = travel progress, Y = lateral offset divided by total travel distance,
   Z = height divided by measured apex height"）。
 
+【落地校验】`|h_last| ≤ MAX_LANDING_CM` 才接受一次试次。`h_last` 是链尾相对链首的
+**世界抬升**，即**落地处与起跳处的地形高差**。绝大多数时候 ≈ 0（平地起落），但有一类
+试次是**从崖边跳下去**的：链里多出一段下坠（`143`/`157`），链尾比链首低 1~10 m，
+于是「归一化轨迹」根本不是撑杆跳的形状而是一条被拉长的坠崖线。这类必须剔除，否则
+文档自称「末值 ±23 cm」而生成的 CSV 写着 −263 cm（两者互相矛盾）。不校验就静默取中位，
+正好会选中它。
+
 用法：
-    python Scripts/MHRise/build_vault_curves.py            # 写曲线 + 文档
+    python Scripts/MHRise/build_vault_curves.py            # 写曲线 + 文档 + C++ 表
     python Scripts/MHRise/build_vault_curves.py --print     # 只看，不写文件
+    python Scripts/MHRise/build_vault_curves.py --check     # 只重算，与盘上逐字节比对
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import io
 import math
 import statistics
 import sys
@@ -49,6 +61,8 @@ RECORDER_DIR = Path(
 PROJECT = Path(__file__).resolve().parents[2]
 OUT_MD = PROJECT / "docs" / "reference" / "撑杆跳曲线.md"
 OUT_CSV = PROJECT / "Saved" / "_mhr_curves"
+# 放 `Generated/`；**不要**用 `.generated.h` 后缀，那是 UHT 的保留约定。
+OUT_CPP = PROJECT / "Source" / "MHGZ" / "Generated" / "MHGZVaultCurveTables.h"
 
 SAMPLE_HZ = 119.8
 MIN_SAMPLES = 12
@@ -67,7 +81,49 @@ GROUND_ID = "148"
 WHITE_LAMP_TAKEOFF = "155"
 WHITE_LAMP_ARC = "156"
 
-KEY_COUNT = 25  # 文档里给的关键帧数（曲线源 CSV 仍是逐帧）
+KEY_COUNT = 25  # 文档与 C++ 表给的关键帧数（曲线源 CSV 仍是逐帧）
+
+# 落地校验阈值（cm）：链尾相对链首的世界抬升。见模块 docstring 的【落地校验】。
+MAX_LANDING_CM = 30.0
+
+# 曲线局部 +Y 与 CSV `y_lateral` 之间的换算符号。
+#
+# **−1**，即 `Y_curve = −y_lateral`。两条独立的依据：
+#
+# 1. `normalize()` 的侧向轴是 `(px, pz) = (tz, −tx)`（行进方向逆时针 90°），
+#    而 MHR 是 Y 朝上的**右手系**。判据是它自己的数据：`angle_of` 用
+#    `atan2(x, z)`，「向左」的实测行进是 `朝向 + 86.06°`；`atan2(x, z)` 增大
+#    即朝 `+X`，所以 **+X 是猎人的左手侧**，`(px, pz)` 指向**左侧**，
+#    即 `y_lateral > 0` 表示向**左**偏。
+# 2. 消费方 `PathOffsetCurve` 由**纯 yaw 旋转**落到世界
+#    （`AbilityTask_MHGZWeaponMovement.cpp`：`FRotator(0, Direction.Rotation().Yaw, 0)`
+#    那句注释「the engine applies PathOffsetCurve through a yaw-only facing rotation」）。
+#    UE 的 yaw 旋转把曲线局部 `+Y` 映到基准方向的**右**侧。
+#
+# 左 ≠ 右 ⇒ 必须取负。（早先「取反 ⇒ 左右镜像」的说法是针对 `ChordYawDeg` 的，
+# 那条确实错了；它**不能**外推到 Y 通道 —— Y 的判据是上面这两条，与朝向符号无关。）
+#
+# ⚠ 这一条**唯一**只能靠 PIE 最终确认（验证第 11 条）：若左右互换，把这个 1 改成 −1。
+CURVE_Y_SIGN = -1
+
+# 漂移表的键形状：沿用后撑杆跳今天的 5 键（`MHGZBackVaultAbility.cpp` 构造里的
+# `AddDriftKey` 调用）。**值全零** —— 锁根轨道后实测路径已经走满，回收量为 0。
+#
+# ⚠ 那条「回收量为 0」的结论**只在后撑杆跳上实测过**。前/左/右用的是另外两条 clip，
+# 必须走一遍同样的实测确认（计划验证第 14 条），否则会出现**静默短跳**：
+# 位移少一截，但没有任何报错。
+DRIFT_TIMES = (0.00, 0.09, 0.23, 0.32, 1.00)
+DRIFT_FRACTIONS = (0.0, 0.0, 0.0, 0.0, 0.0)
+
+# 变体 → C++ 里的标识符前缀。顺序即头文件里的顺序。
+CPP_NAMES = {
+    ("无白灯", "向前"): "Forward_NoWhite",
+    ("无白灯", "向左"): "Left_NoWhite",
+    ("无白灯", "向右"): "Right_NoWhite",
+    ("有白灯", "向前"): "Forward_White",
+    ("有白灯", "向左"): "Left_White",
+    ("有白灯", "向右"): "Right_White",
+}
 
 
 @dataclass
@@ -79,10 +135,26 @@ class Trial:
     rows: list
     frames: int
     takeoff_rows: list  # 只有起手段自己的采样，用来单独量起手段的方向
+    fall_frames: int = 0  # 链尾那一段下坠占多少帧（没有下坠段时为 0）
 
     @property
     def seconds(self) -> float:
+        """**整条离地前缀**的时长 —— 归一化域。"""
         return self.frames / SAMPLE_HZ
+
+    @property
+    def vault_seconds(self) -> float:
+        """`Jump + JumpOver` 的时长，**不含下坠段** —— 即 CurvedVault 窗口。
+
+        这个量与 `seconds` 是**两个语义不同的量**，混用会重演配置里记的那次事故：
+        拿它当归一化域会让 Jump 边界从 0.330 漂到 0.375，把本该属于 JumpOver 的
+        ~30 cm 位移划给 Jump。
+
+        口径由后撑杆跳的既有配置反推确认：`ArcDuration 1.968 − 下坠残差 0.2347
+        = 1.7333`，与 `BackVaultDuration` **四位小数吻合**；白灯那一组没有独立
+        下坠段，两个量相等（2.137 / 2.137），本表算出来的白灯三组同样是零残差。
+        """
+        return (self.frames - self.fall_frames) / SAMPLE_HZ
 
 
 def ident(row: dict) -> str:
@@ -117,9 +189,12 @@ def load_trials(path: Path) -> list[Trial]:
         chain = [key]
         merged = list(chunk)
         cursor = index + 1
+        fall_frames = 0
         while cursor < len(runs) and runs[cursor][0] in (ARC_IDS | FALL_IDS):
             chain.append(runs[cursor][0])
             merged += runs[cursor][1]
+            if runs[cursor][0] in FALL_IDS:
+                fall_frames += len(runs[cursor][1])
             cursor += 1
         # 只有**接着落地段**的那些才算一次完整的撑杆跳 —— 中途接空中回避/别的招式
         # 的那几次弧被砍断了，形状不是完整弧。
@@ -130,7 +205,7 @@ def load_trials(path: Path) -> list[Trial]:
         trials.append(
             Trial(tag="有白灯" if white else "无白灯", direction=TAKEOFF[key], prev_id=key,
                   chain=tuple(chain), rows=merged, frames=len(merged) - 1,
-                  takeoff_rows=list(chunk))
+                  takeoff_rows=list(chunk), fall_frames=fall_frames)
         )
     return trials
 
@@ -322,14 +397,43 @@ def normalize(trial: Trial) -> dict:
         "takeoff_offset_deg": angle_of(trial.takeoff_rows, True),
         "takeoff_cm": takeoff_cm,
         "seconds": trial.seconds,
+        "vault_seconds": trial.vault_seconds,
         "n": len(samples),
     }
 
 
-def pick_representative(trials: list[Trial]) -> Trial:
+def landing_of(curve: dict) -> float:
+    """链尾相对链首的世界抬升（cm）—— 即**落地处与起跳处的地形高差**。
+
+    平地起落时 ≈ 0；从崖边跳下去的那几次会到 −1 ~ −10 m（见模块 docstring）。
+    """
+    return curve["samples"][-1]["h"]
+
+
+def admit(trials: list[Trial]) -> tuple[list[tuple[Trial, dict]], list[tuple[Trial, dict]]]:
+    """把试次按**落地校验**分成（可用, 剔除）两组，两边都保留以便如实报告。
+
+    `normalize()` 对每个试次都要跑一遍（而不是只跑中位那条）—— 单次约 240 帧，
+    全库几十次，代价可忽略；换来的是「剔除是显式的、可复核的」。
+    """
+    ok: list[tuple[Trial, dict]] = []
+    bad: list[tuple[Trial, dict]] = []
+    for trial in trials:
+        curve = normalize(trial)
+        if not curve:
+            continue
+        (ok if abs(landing_of(curve)) <= MAX_LANDING_CM else bad).append((trial, curve))
+    return ok, bad
+
+
+def pick_representative(admitted: list[tuple[Trial, dict]]) -> tuple[Trial, dict]:
     """取**时长中位**的那一次：既不用最长（可能含异常），也不用最短（可能被砍断）。
-    录制本身高度可重复（最高点 580.1–587 cm），所以取一条忠实的样本比做平均更少编造。"""
-    ordered = sorted(trials, key=lambda t: t.frames)
+    录制本身高度可重复（最高点 580.1–587 cm），所以取一条忠实的样本比做平均更少编造。
+
+    ⚠ 这里取的是**通过落地校验之后**的中位，不是全体的中位 —— `有白灯·向左`
+    全体中位正好是那条坠崖试次（末值 −263 cm）。
+    """
+    ordered = sorted(admitted, key=lambda pair: pair[0].frames)
     return ordered[len(ordered) // 2]
 
 
@@ -512,10 +616,245 @@ def render_dodge_section(cancels: list[dict], dodges: list[dict], census: dict) 
     return out
 
 
+def assert_keys(name: str, keys: list) -> None:
+    """生成器自己的断言 —— 这些是消费方的硬要求。
+
+    `BuildTrajectoryCurve` 会拒绝不满足它们的表。与其让它到 PIE 里才炸（那时
+    表现是「不出招」或「路径歪掉」，很难追回生成器），不如在这里就炸。
+
+    判据：
+      1. 首键时间 = 0、末键时间 = 1、中间**严格**递增（RichCurve 允许同刻键，
+         但那会静默丢掉一个，所以要查严格）；
+      2. 末键 Y / Z 归零（见末点归零的注释）；
+      3. 全部分量有限。
+    """
+    problems: list[str] = []
+    if keys[0][0] != 0.0:
+        problems.append(f"首键时间 {keys[0][0]} ≠ 0")
+    if keys[-1][0] != 1.0:
+        problems.append(f"末键时间 {keys[-1][0]} ≠ 1")
+    for a, b in zip(keys, keys[1:]):
+        if not b[0] > a[0]:
+            problems.append(f"时间非严格递增：{a[0]} → {b[0]}")
+    if keys[-1][2] != 0.0 or keys[-1][3] != 0.0:
+        problems.append(f"末键 Y/Z 未归零：{keys[-1][2]}, {keys[-1][3]}")
+    for key in keys:
+        if not all(math.isfinite(v) for v in key):
+            problems.append(f"出现非有限值：{key}")
+    if problems:
+        raise SystemExit(f"❌ {name} 的关键帧表不合法（消费方会拒收）：\n  · "
+                         + "\n  · ".join(problems))
+
+
+def _lit(value: float, digits: int) -> str:
+    """格式化成 C++ 的 `float` 字面量，**先四舍五入再消负零**。
+
+    只写 `value + 0.0` 不够：`-1e-9` 不是负零，加上 0.0 还是 `-1e-9`，
+    格式化出来仍是 `-0.000000f`。取负之后这种「极小值的符号被翻出来」的情形
+    很常见（`CURVE_Y_SIGN = -1` 时尤其），所以在四舍五入**之后**再折。
+    """
+    rounded = round(value, digits)
+    return f"{rounded + 0.0:.{digits}f}f"
+
+
+def c6(value: float) -> str:
+    """归一化域（0~1）与秒数用这个：6 位足够，且与 CSV 的格式一致。"""
+    return _lit(value, 6)
+
+
+def c2(value: float) -> str:
+    """厘米与角度用这个：`c6` 会写出 `584.324429f` 这种没有意义的精度。"""
+    return _lit(value, 2)
+
+
+def render_cpp(results: dict, order: list, csv_sha: dict) -> str:
+    """渲染 `Source/MHGZ/Generated/MHGZVaultCurveTables.h`。
+
+    **确定性**是硬要求：`--check` 靠逐字节比对，所以这里不能出现时间戳、
+    路径里的临时目录、或任何依赖运行环境的量。**故意不写生成时间** ——
+    否则每次重跑都是「有差异」，`--check` 就废了。可追溯性由 sha256 承担。
+    """
+    out = [
+        "// Copyright MHGZ Project. All Rights Reserved.",
+        "//",
+        "// ================== 生成物，请勿手改 ==================",
+        "//",
+        "// 由 `Scripts/MHRise/build_vault_curves.py` 从 MHR 实机录制生成。",
+        "// 改数请改生成器，或改原始录制后重跑生成器。校验：`--check`。",
+        "//",
+        "// 本文件**不含生成时间** —— 那会让每次重跑都「有差异」，`--check` 就废了。",
+        "// 可追溯性由每组的 CSV sha256 承担。",
+        "//",
+        "// 【为什么是 POD 而不是 FVaultTrajectoryKey】",
+        "// 后者是 USTRUCT：反射与构造让它无法 constexpr，只能运行时逐个灌值。",
+        "// 这里的 POD 镜像让曲线**在编译期就是常量**。转换在配对的",
+        "// `MHGZVaultCurveTables.cpp`（**手写**）里做，不在本文件里。",
+        "//",
+        "// 【后撑杆跳不在这里】UMHGZBackVaultAbility 的两张表仍是手抄常量，",
+        "// 本次迁移有意不动它们（计划第 2 步）。所以本表只覆盖 前/左/右 × 无/有白灯。",
+        "//",
+        "// 【弦向的符号约定 —— 踩过】`ChordYawDeg` 是「**朝左为正**」（MHR / 文档约定），",
+        "// 而 UE 的 `FRotator(0, Yaw, 0).Vector()` 正 Yaw 朝**右**。两个约定正方向相反，",
+        "// 所以消费方**必须取负**。判据见 `docs/reference/撑杆跳曲线.md` 的方向基准一节，",
+        "// 用法见 `UMHGZPoleVaultAbility::StartBackVaultMovement` 里 `DirectionSnapshot` 那段。",
+        "// 后撑杆跳的弦向恰好 180（取负等于不取负）、向前只有 0.56°，所以写反了只会在",
+        "// 左右两个方向上暴露。",
+        "//",
+        "// 【落地校验】每组只接受 `|链尾抬升| <= 30 cm` 的试次 —— 链尾抬升是",
+        "// 「落地处与起跳处的地形高差」。被剔除的是**从崖边跳下去**的那几次",
+        "// （链里多一段下坠，末值低 1~10 m），它们的归一化轨迹根本不是撑杆跳的形状。",
+        "// 每组实际用了哪一次、剔了几次，见下面各组自己的注释。",
+        "//",
+        "// ================= 各组实际所用的试次 =================",
+        "//",
+    ]
+    for key in order:
+        curve = results[key]
+        name = CPP_NAMES[key]
+        chords = curve["chords"]
+        out.append(
+            f"// {name:<16} `{curve['trial'].prev_id}` / {curve['trial'].frames} 帧 / "
+            f"弧 {curve['seconds']:.3f} s（窗口 {curve['vault_seconds']:.3f} s）/ "
+            f"总长 {curve['total_cm']:.2f} cm / "
+            f"顶点 {curve['apex_cm']:.2f} cm / 弦向 {statistics.median(chords):+.2f}° / "
+            f"链尾 {landing_of(curve):+.2f} cm")
+        out.append(
+            f"// {'':<16} 可用 {len(curve['admitted'])}/{len(curve['trials'])} 次"
+            f"（剔除 {curve['rejected']} 次坠崖）  CSV sha256 {csv_sha[key][:16]}…")
+    out += [
+        "//",
+        f"// 曲线局部 +Y 与 CSV y_lateral 的换算符号：Y_curve = "
+        f"{'-' if CURVE_Y_SIGN < 0 else '+'}y_lateral（见生成器里的 CURVE_Y_SIGN 注释）。",
+        "//",
+        "",
+        "#pragma once",
+        "",
+        "#include \"CoreMinimal.h\"",
+        "",
+        "namespace MHGZ::VaultCurves",
+        "{",
+        "/**",
+        " * One point from a recorded vault trajectory.",
+        " *",
+        " * X = travel progress, Y = lateral offset divided by total travel distance,",
+        " * Z = height divided by measured apex height.  Mirrors FVaultTrajectoryKey.",
+        " */",
+        "struct FKeyPOD",
+        "{",
+        "\tfloat Time;",
+        "\tfloat X;",
+        "\tfloat Y;",
+        "\tfloat Z;",
+        "};",
+        "",
+        "/**",
+        " * Forward travel recovered from a JumpOver clip's own root track, as a",
+        " * fraction of the profile's Distance.  Mirrors FVaultClipDriftKey.",
+        " *",
+        " * All values are currently zero: with the root track locked",
+        " * (bForceRootLock = True) the recorded path alone already delivers the",
+        " * reference travel, so there is nothing to recover.  The mechanism is kept",
+        " * because that was measured on the *back* vault only -- see verification",
+        " * item 14, which re-measures it for these clips.",
+        " */",
+        "struct FDriftPOD",
+        "{",
+        "\tfloat CurveTime;",
+        "\tfloat ForwardFraction;",
+        "};",
+        "",
+        "/** Per-variant scalars.  Trial is for traceability only, never for logic. */",
+        "struct FMeta",
+        "{",
+        "\t/** Length of the whole airborne prefix, in seconds -- the normalization domain. */",
+        "\tfloat ArcDuration;",
+        "\t/**",
+        "\t * Length of Jump + JumpOver only, in seconds -- the CurvedVault window.  Never",
+        "\t * use it as the normalization domain: that puts the Jump boundary at the wrong",
+        "\t * progress and hands the Jump ~30 cm of travel that belongs to JumpOver.",
+        "\t *",
+        "\t * Equal to ArcDuration for the white variants, which have no separate descent",
+        "\t * segment; the non-white shortfall is the measured fall clip.",
+        "\t */",
+        "\tfloat VaultDuration;",
+        "\t/** Total travel distance in cm. */",
+        "\tfloat Distance;",
+        "\t/** Measured apex height in cm. */",
+        "\tfloat Apex;",
+        "\t/**",
+        "\t * Whole-chain chord direction minus takeoff facing, in degrees.  This is the",
+        "\t * value DirectionSnapshot is built from.  Not an integer +-90: an integer",
+        "\t * approximation would tilt the world path by several degrees and push the",
+        "\t * curve's final lateral offset from 0 to ~30 cm.",
+        "\t */",
+        "\tfloat ChordYawDeg;",
+        "\t/** Source trial, \"<takeoff id>/<frames>f\".  Traceability only. */",
+        "\tconst TCHAR* Trial;",
+        "};",
+        "",
+    ]
+    for key in order:
+        curve = results[key]
+        name = CPP_NAMES[key]
+        direction = f"{key[0]} · {key[1]}"
+        out += [
+            f"// ── {direction} " + "─" * max(1, 46 - len(direction) * 2),
+        ]
+        # `inline` 不是装饰：命名空间作用域的裸 `constexpr` 是**内部链接**，
+        # 每个包含它的 TU 都会各存一份曲线数据。C++17 的内联变量只留一份。
+        out.append(f"inline constexpr FKeyPOD {name}[] = {{")
+        keys = []
+        for index in range(KEY_COUNT):
+            t = index / (KEY_COUNT - 1)
+            sample = sample_at(curve["samples"], t)
+            y = CURVE_Y_SIGN * sample["y"]
+            z = sample["z"]
+            # 末点 Y/Z 强制归零：链尾的侧向恒为零是弦向分解的性质，而 Z 末值是
+            # 落地处与起跳处的**地形高差**、根本不是弧的一部分（见文档第四节）。
+            # 不归零的话曲线会以 3 cm 的假高度收尾，交棒切线也跟着歪。
+            if index == KEY_COUNT - 1:
+                y = 0.0
+                z = 0.0
+            keys.append((round(t, 6), round(sample["x"], 6), round(y, 6), round(z, 6)))
+            out.append(f"\t{{ {c6(t)}, {c6(sample['x'])}, {c6(y)}, {c6(z)} }},")
+        assert_keys(name, keys)
+        out += [
+            "};",
+            f"inline constexpr int32 {name}_Count = {KEY_COUNT};",
+            "",
+            f"inline constexpr FDriftPOD {name}_Drift[] = {{",
+        ]
+        for drift_time, fraction in zip(DRIFT_TIMES, DRIFT_FRACTIONS):
+            out.append(f"\t{{ {c6(drift_time)}, {c6(fraction)} }},")
+        out += [
+            "};",
+            f"inline constexpr int32 {name}_Drift_Count = {len(DRIFT_TIMES)};",
+            "",
+            f"inline constexpr FMeta {name}_Meta = {{ {c6(curve['seconds'])}, "
+            f"{c6(curve['vault_seconds'])}, "
+            f"{c2(curve['total_cm'])}, {c2(curve['apex_cm'])}, "
+            f"{c2(statistics.median(curve['chords']))}, "
+            f"TEXT(\"{curve['trial'].prev_id}/{curve['trial'].frames}f\") }};",
+            "",
+        ]
+    out += [
+        "// Deliberately no enum here: the ability dispatches on (EDirectionalInput,",
+        "// bWhite), and an extra parallel enum would be a third naming of the same",
+        "// two axes.  Lookup is by pair.",
+        "} // namespace MHGZ::VaultCurves",
+        "",
+    ]
+    return "\n".join(out)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--print", dest="write", action="store_false", help="只看，不写文件")
+    parser.add_argument("--check", action="store_true",
+                        help="只重算，与盘上的曲线源和 C++ 表逐字节比对；不写文件")
     args = parser.parse_args()
+    if args.check:
+        args.write = False
 
     if not RECORDER_DIR.is_dir():
         print(f"找不到录制目录：{RECORDER_DIR}", file=sys.stderr)
@@ -555,39 +894,51 @@ def main() -> int:
 
     results: dict[tuple[str, str], dict] = {}
     for key, trials in by_variant.items():
-        representative = pick_representative(trials)
-        curve = normalize(representative)
-        if not curve:
-            continue
+        admitted, rejected = admit(trials)
+        if not admitted:
+            print(f"❌ {key[0]}·{key[1]}：{len(rejected)} 次试次**全部**没过落地校验"
+                  f"（|链尾抬升| > {MAX_LANDING_CM:.0f} cm）。没有可用样本 —— "
+                  f"这里**不静默换一条**，请补录平地起落的撑杆跳。", file=sys.stderr)
+            return 1
+        representative, curve = pick_representative(admitted)
         curve["trial"] = representative
         curve["trials"] = trials
+        curve["admitted"] = [t for t, _ in admitted]
+        curve["landings"] = [landing_of(c) for _, c in admitted]
+        curve["rejected"] = len(rejected)
+        # 弦向基准取**可用**试次的中位：坠崖那几次的弦向与平地的不是一回事。
+        chords = [c for c in (angle_of(t.rows, True) for t, _ in admitted) if c is not None]
+        curve["chords"] = chords or [curve["chord_offset_deg"] or 0.0]
         results[key] = curve
 
     if not results:
         print("没有可用的撑杆跳试验", file=sys.stderr)
         return 1
+    unmapped = [k for k in results if k not in CPP_NAMES]
+    if unmapped:
+        print(f"❌ 出现了 CPP_NAMES 里没有的变体：{unmapped}。生成器需要更新"
+              f"（要么补名字，要么它本不该被 `TAKEOFF` 扫进来）。", file=sys.stderr)
+        return 1
 
-    order = [("无白灯", "向前"), ("无白灯", "向左"), ("无白灯", "向右"),
-             ("有白灯", "向前"), ("有白灯", "向左"), ("有白灯", "向右")]
-    order = [k for k in order if k in results] + [k for k in results if k not in order]
+    order = [k for k in CPP_NAMES if k in results] + [k for k in results if k not in CPP_NAMES]
 
-    if args.write:
-        OUT_CSV.mkdir(parents=True, exist_ok=True)
+    # 先在内存里生成，再落盘 —— `--check` 要拿同一份文本逐字节比对，
+    # 头文件里的 sha256 也必须描述**真正写下去的那份字节**。
+    csv_text: dict[tuple[str, str], str] = {}
     for key in order:
         curve = results[key]
-        if not args.write:
-            continue
-        path = OUT_CSV / f"{key[0]}_{key[1]}.csv"
-        with path.open("w", newline="", encoding="utf-8") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(["t_norm", "x_progress", "y_lateral", "z_height",
-                             "u_cm", "v_cm", "h_cm"])
-            for sample in curve["samples"]:
-                writer.writerow([
-                    f"{sample['t']:.6f}", f"{sample['x']:.6f}",
-                    f"{sample['y']:.6f}", f"{sample['z']:.6f}",
-                    f"{sample['u']:.2f}", f"{sample['v']:.2f}", f"{sample['h']:.2f}",
-                ])
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)  # 默认 lineterminator="\r\n"，与既有文件一致
+        writer.writerow(["t_norm", "x_progress", "y_lateral", "z_height",
+                         "u_cm", "v_cm", "h_cm"])
+        for sample in curve["samples"]:
+            writer.writerow([
+                f"{sample['t']:.6f}", f"{sample['x']:.6f}",
+                f"{sample['y']:.6f}", f"{sample['z']:.6f}",
+                f"{sample['u']:.2f}", f"{sample['v']:.2f}", f"{sample['h']:.2f}",
+            ])
+        csv_text[key] = buffer.getvalue()
+    csv_sha = {k: hashlib.sha256(v.encode("utf-8")).hexdigest() for k, v in csv_text.items()}
 
     lines = [
         "# 撑杆跳曲线真值（生成物，勿手改）",
@@ -608,23 +959,24 @@ def main() -> int:
         "",
         "## 一、链结构与真值",
         "",
-        "| 状态 | 方向 | 离地链 | 次数 | 起手段 | **行进总长 cm** | 总时长 s | **弧最高点 cm** | 侧向摆动 cm | **起跳朝向↔行进** |",
-        "|---|---|---|---:|---|---:|---|---:|---:|---:|",
+        "| 状态 | 方向 | 离地链 | 可用/总次数 | 起手段 | **行进总长 cm** | 总时长 s | **弧最高点 cm** | 侧向摆动 cm | **整条链弦向−朝向** | 链尾抬升 cm |",
+        "|---|---|---|---:|---|---:|---|---:|---:|---:|---:|",
     ]
     for key in order:
         curve = results[key]
-        trials = curve["trials"]
+        admitted = curve["admitted"]
         takeoff = curve["trial"].prev_id
-        chains = Counter("→".join(t.chain) for t in trials).most_common(1)[0][0]
-        durations = sorted(t.seconds for t in trials)
-        offset = curve["chord_offset_deg"]
-        offset_text = f"**{offset:+.1f}°**" if offset is not None else "—"
-        flag = " ⚠样本少" if len(trials) < 8 else ""
+        chains = Counter("→".join(t.chain) for t in admitted).most_common(1)[0][0]
+        durations = sorted(t.seconds for t in admitted)
+        lands = sorted(curve["landings"])
+        offset = statistics.median(curve["chords"])
+        flag = " ⚠可用样本少" if len(admitted) < 8 else ""
         lines.append(
-            f"| {key[0]} | {key[1]} | `{chains}` | {len(trials)}{flag} | `{takeoff}` | "
-            f"**{curve['total_cm']:.0f}** | "
+            f"| {key[0]} | {key[1]} | `{chains}` | {len(admitted)}/{len(curve['trials'])}{flag}"
+            f" | `{takeoff}` | **{curve['total_cm']:.0f}** | "
             f"{durations[0]:.3f}–{durations[-1]:.3f}（中位 {statistics.median(durations):.3f}） | "
-            f"**{curve['apex_cm']:.0f}** | {curve['lateral_cm']:.1f} | {offset_text} |"
+            f"**{curve['apex_cm']:.0f}** | {curve['lateral_cm']:.1f} | **{offset:+.2f}°** | "
+            f"{lands[0]:+.1f} ~ {lands[-1]:+.1f} |"
         )
 
     lines += [
@@ -657,12 +1009,34 @@ def main() -> int:
         "  换成 ±90° 之类的整数会让 Y 末值变成 ~30 cm（几度夹角 × 6 m 行程），直接违反消费方",
         "  「起止偏移为零」。所以 `DirectionSnapshot` 取的就是下表这一列。",
         "",
+        "> ⚠ **下表的角度是「朝左为正」**（MHR 约定），而 **UE 的 `FRotator(0, Yaw, 0)` 正 Yaw 朝右**。",
+        "> 两个约定的正方向**相反**，所以消费方**必须取负**：",
+        "> `DirectionSnapshot = FRotator(0, FacingYaw - ChordYawDegrees, 0).Vector()`。",
+        ">",
+        "> 判据（用录制现算，不靠推理）：在 Y 朝上的右手系里，`(f × t)_y = f_z·t_x − f_x·t_z > 0`",
+        "> ⇔ 行进在朝向的左侧；实测「向左」+0.998、「向右」−0.995，与招式命名吻合。而本脚本",
+        "> 归一化用的侧向轴 `(p_x, p_z) = (t_z, −t_x)` 正是那个左手侧，所以 `y_lateral > 0` 是向左偏。",
+        ">",
+        "> ⚠ **取负的原因只有一个：本表「朝左为正」，而 UE 的 yaw「朝右为正」。**",
+        ">",
+        "> **不要把它说成「两个坐标系手性不同」** —— 骨骼局部轴与本表**就是同一个约定**。",
+        "> 标定锚点不依赖招式命名：后撑杆跳的 Jump 段由该 clip 的蒙太奇根运动驱动，PIE 已确认",
+        "> 它把猎人送**后**，而 `AS_Unsh_Jump_Back` 的根骨局部净位移是 (−13.2, −156.1) cm",
+        "> ⇒ 局部 `+Y` = 角色的前；于是 `AS_Unsh_Jump_Left` 的 (+171.6, +16.3) 是「沿角色的左",
+        "> 走 172.4 cm」（MHR 实测 173 吻合）⇒ 局部 `+X` = 角色的左。局部 atan2 因此朝左为正，",
+        "> 与本表逐向**同号同量级**。**同号是真的一致**，不是「两侧相反的迹象」——",
+        "> 把原因说错，下一个人就会顺着那个错理由把负号翻回去。",
+        ">",
+        "> 这个错只会在左右两向上暴露：后撑杆跳的弦向恰好是 180（取负等于不取负）、向前只有 0.56°。",
+        "> 它已经写错过一次（PIE 实测左右互换），消费侧的修复与断言见",
+        "> `UMHGZPoleVaultAbility::ComputeDirectionSnapshot` 与 `MHGZ.M5.Vault.DirectionSnapshotHandedness`。",
+        "",
         "| 起手段 | 状态 | 起手段自身方向−朝向 | 起手段位移 | **整条链弦向−朝向** | n |",
         "|---|---|---|---:|---:|---:|",
     ]
     for key in order:
         curve = results[key]
-        trials = curve["trials"]
+        trials = curve["admitted"]
         takeoff = curve["trial"].prev_id
         takeoffs = [t for t in (angle_of(t.takeoff_rows, True) for t in trials) if t is not None]
         chords = [t for t in (angle_of(t.rows, True) for t in trials) if t is not None]
@@ -692,7 +1066,8 @@ def main() -> int:
         "",
         "| 要什么 | 从哪取 |",
         "|---|---|",
-        "| 总时长（移动窗口 / `Duration`） | 第一节「总时长 s」的中位 |",
+        "| **归一化域**（曲线的 `Time` 分母） | 第一节「总时长 s」的中位 —— **整条离地前缀含下坠** |",
+        "| **移动窗口**（`CurvedVault` 的 `Duration`） | 第五节各组标题里的「窗口」= 总时长 − 下坠段，**不含下坠** |",
         "| 总位移（`MaxDistance` / `TotalDistance`） | 第一节「行进总长 cm」 |",
         "| 弧最高点（归一化用 / 校验） | 第一节「弧最高点 cm」 |",
         "| 方向基准（`DirectionSnapshot`） | 第一节末尾「方向基准」表里的**整条链弦向−朝向** |",
@@ -709,18 +1084,54 @@ def main() -> int:
         "按该结构自己的注释：**X = 行程进度、Y = 侧移 ÷ 总行程、Z = 抬升 ÷ 实测最高点**。",
         "本脚本输出的就是这三列，外加绝对量（`u_cm`/`v_cm`/`h_cm`）便于核对。",
         "",
-        "- **朝向分解**：X 沿**起跳那一刻**的 `forward_x/forward_z`（水平面），Y 取侧向，Z 取世界 Y 的抬升。",
-        "  空中段的朝向是锁死的（实测段内转动 **0.0000°**），所以用段首朝向分解不需要插值。",
+        "- **行进分解**（**不是**按起跳朝向）：X 沿**离地前缀的首→末水平位移方向**，Y 取其垂直分量，",
+        "  Z 取世界 Y 的抬升。左/右撑杆跳时朝向与行进差 ±84~90°（见第一节），按朝向分解会把",
+        "  6 m 的行程塞进侧向。",
+        "- **CSV 的 `y_lateral` 以「行进方向的左侧」为正**（`normalize()` 的侧向轴取的是",
+        "  `(px, pz) = (tz, −tx)`，而实测「向左」的行进是「朝向 **+86.06°**」、`atan2(x, z)` 增大即朝",
+        "  `+X` ⇒ `+X` 是左手侧）。**曲线空间的 +Y 是基准方向的右侧**（消费方是纯 yaw 旋转，",
+        "  UE 的 yaw 把曲线局部 +Y 映到右侧）。两者相反，所以 C++ 表里 `Y = −y_lateral`。",
+        "  **CSV 仍是原始测量值的符号**，只有第五节和 C++ 表是曲线空间。",
         "- **归一化基准**：`total_cm` = **落地那一刻的前向总进度**（上表的「总前向」），",
         "  `apex_cm` = 整段弧的最高点。`Time = 该帧时刻 ÷ 离地前缀总时长`。",
         "- **取哪一次**：时长**中位**的那一次（不用最长、不用最短）。录制高度可重复 ——",
         "  最高点 580.1–587 cm、时长 1.9–2.0 s —— 所以取一条忠实的样本比做平均更少编造。",
         "- **落地为零**：链的终点是落地段 `148` 的起点，即**触地那一刻**，所以 Z 末值应 ≈ 0。",
-        "  实测末值是 **−0.031 ~ +0.016**（±23 cm）—— 那是落地处与起跳处的**地形高度差**，",
-        "  不是弧的一部分，喂曲线时按 0 处理。",
+        "  末值非零时它等于**落地处与起跳处的地形高差**，不是弧的一部分，喂曲线时按 0 处理。",
+        "  这里有条**落地校验**：`|链尾抬升| ≤ 30 cm` 的试次才被接受（见下面一节）。",
+        "  没有它的话，`有白灯·向左` 会选中一条末值 **−263 cm** 的试次 —— 那是**从崖边",
+        "  跳下去**的，链里多一段下坠。旧版文档写「实测末值 ±23 cm」而生成的 CSV 写着",
+        "  −0.347，两者互相矛盾；现在文档的这句话是**被强制保证**的，不是观察来的。",
         "- **弧顶在 t ≈ 0.64，不是 0.5**：因为起手段的前 ~55% **还在地面**（招式表已记：",
         "  `146` 向后起跳「前 55% 仍在地面」），所以整条「离地前缀」里真正在空中的时间只占后段，",
         "  弹道顶点自然被推到 0.64 附近。前段 X 也因此很慢（`无白灯向前` 在 t=0.04 才走了 16.7 cm）。",
+        "",
+        "### 落地校验：为什么必须剔掉一部分试次",
+        "",
+        "链尾抬升 `h_last` 是**落地处与起跳处的地形高差**。平地上起落时它 ≈ 0，但录制里",
+        f"**约三分之一**的试次不是平地的：猎人是**从崖边跳下去**的，链里多出一段下坠",
+        "（`143`/`157`），链尾比链首低 1~10 m。这类试次的「归一化轨迹」不是撑杆跳的形状，",
+        "而是一条被拉长的坠崖线 —— 拿它当曲线，等于把 6 m 的弧拉成 7 m 还多送一个下落。",
+        "",
+        f"所以每组只接受 `|h_last| ≤ {MAX_LANDING_CM:.0f} cm` 的试次，**在通过校验的集合里**再取时长中位。",
+        "没有这个校验时，`有白灯·向左` 的全体中位正好落在一条 `h_last = −263 cm` 的坠崖试次上，",
+        "于是它成了那一组的曲线 —— 这就是「文档自称末值 ±23 cm、生成的 CSV 却写着 −0.347」的来源。",
+        "",
+        "被剔除的次数是**逐组显式报告**的（第一节的「可用/总次数」列、C++ 表头、以及本脚本 stdout），",
+        "不静默丢弃；某组一次都没通过时脚本**直接报错退出**，不会换一条凑数。",
+        "",
+        "| 变体 | 可用/总 | 被剔除 |",
+        "|---|---:|---:|",
+    ]
+    for key in order:
+        curve = results[key]
+        lines.append(f"| {key[0]} · {key[1]} | {len(curve['admitted'])}/{len(curve['trials'])} "
+                     f"| {curve['rejected']} |")
+    lines += [
+        "",
+        "> ⚠ `有白灯·向左` 只剩 **2** 次可用，是六组里最薄的。它的两次数值彼此一致",
+        "> （595.3 / 593.2 cm，顶点 749.5 / 755.6 cm），所以曲线可信；但若以后要调这一组，",
+        "> **先补录平地起落的数据**，别在 n=2 上做统计。",
         "",
         "**⚠ 消费方约束**（`FWeaponMovementRequest::PathOffsetCurve`）：X 沿 `DirectionSnapshot`、",
         "**起止偏移都为零**。本表给的是**归一化轨迹**，不是最终的 offset 曲线 ——",
@@ -730,32 +1141,73 @@ def main() -> int:
         "## 五、可直接抄进蓝图的关键帧",
         "",
         f"每隔 `1/{KEY_COUNT - 1}` 归一化时间取一个点（曲线源 CSV 是逐帧的，这里只是便于手抄）。",
+        "**本节的 Y 与括号里的「侧向 cm」已经是曲线空间**（= 第四节的 `−y_lateral`），",
+        "与 `Source/MHGZ/Generated/MHGZVaultCurveTables.h` 逐位相同；CSV 列仍是原始符号。",
         "",
     ]
     for key in order:
         curve = results[key]
         lines += [
             f"### {key[0]} · {key[1]}（`{curve['trial'].prev_id}` → … 共 {curve['n']} 帧 / "
-            f"{curve['seconds']:.3f} s）",
+            f"弧 {curve['seconds']:.3f} s / **窗口 {curve['vault_seconds']:.3f} s**）",
             "",
-            "| Time | X | Y | Z |  ← 绝对：(前向 cm, 侧移 cm, 抬升 cm)",
+            "| Time | X | Y | Z |  ← 绝对：(前向 cm, **侧向 cm**, 抬升 cm)",
             "|---:|---:|---:|---:|---|",
         ]
         for index in range(KEY_COUNT):
             t = index / (KEY_COUNT - 1)
             sample = sample_at(curve["samples"], t)
             lines.append(
-                f"| {t:.4f} | {sample['x']:.5f} | {sample['y']:.5f} | {sample['z']:.5f} "
-                f"| ({sample['u']:.1f}, {sample['v']:.1f}, {sample['h']:.1f}) |"
+                f"| {t:.4f} | {sample['x']:.5f} | {CURVE_Y_SIGN * sample['y']:.5f} "
+                f"| {sample['z']:.5f} "
+                f"| ({sample['u']:.1f}, {CURVE_Y_SIGN * sample['v']:.1f}, {sample['h']:.1f}) |"
             )
         lines.append("")
 
     text = "\n".join(lines)
+    cpp = render_cpp(results, order, csv_sha)
+
+    if args.check:
+        problems = []
+        for key in order:
+            path = OUT_CSV / f"{key[0]}_{key[1]}.csv"
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                actual = handle.read() if path.exists() else None
+            if actual != csv_text[key]:
+                problems.append(f"  · {(OUT_CSV / f'{key[0]}_{key[1]}.csv').relative_to(PROJECT)}"
+                                + ("（缺失）" if actual is None else " 与重算结果不一致"))
+        for path, expected in ((OUT_CPP, cpp), (OUT_MD, text)):
+            if path.exists():
+                with path.open("r", encoding="utf-8") as handle:
+                    # 文本模式读：通用换行把 CRLF 归一化，所以这里比的是内容不是行尾。
+                    actual = handle.read()
+            else:
+                actual = None
+            if actual != expected:
+                problems.append(f"  · {path.relative_to(PROJECT)}"
+                                + ("（缺失）" if actual is None else " 与重算结果不一致"))
+        if problems:
+            print("❌ 盘上产物与重算结果不一致：", file=sys.stderr)
+            print("\n".join(problems), file=sys.stderr)
+            print("   跑 `python Scripts/MHRise/build_vault_curves.py` 重新生成。", file=sys.stderr)
+            return 1
+        print(f"✅ 一致：{len(order)} 个曲线源 + {OUT_CPP.name} + {OUT_MD.name}")
+        return 0
+
     if args.write:
+        OUT_CSV.mkdir(parents=True, exist_ok=True)
+        for key in order:
+            with (OUT_CSV / f"{key[0]}_{key[1]}.csv").open(
+                    "w", encoding="utf-8", newline="") as handle:
+                handle.write(csv_text[key])
+        OUT_CPP.parent.mkdir(parents=True, exist_ok=True)
+        with OUT_CPP.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(cpp)
         OUT_MD.parent.mkdir(parents=True, exist_ok=True)
         OUT_MD.write_text(text, encoding="utf-8")
         print(f"写入 {OUT_MD}")
         print(f"写入 {len(order)} 个曲线源 → {OUT_CSV}")
+        print(f"写入 {OUT_CPP.relative_to(PROJECT)}")
     else:
         print(text)
     return 0

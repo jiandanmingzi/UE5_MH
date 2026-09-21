@@ -15,7 +15,7 @@
 namespace UE::MHGZ::WuTaMontage
 {
 const TCHAR* SequencePath =
-	TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_WuTa.AS_Unsh_WuTa");
+	TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_TuJinHuiXuanWuTa.AS_Unsh_TuJinHuiXuanWuTa");
 const TCHAR* MontageDirectory = TEXT("/Game/Weapons/InsectGlaive/Anims/Montage");
 const TCHAR* MontageName = TEXT("AM_IG_WuTa");
 const TCHAR* SlotName = TEXT("DefaultSlot");
@@ -25,7 +25,7 @@ constexpr float BlendInTime = 0.0f;
 constexpr float BlendOutTime = 0.05f;
 
 /**
- * Same contract as UMHGZBackVaultAbility's RequiredSegmentPlayRate: the segment
+ * Same contract as UMHGZPoleVaultAbility's RequiredSegmentPlayRate: the segment
  * rate that makes `DesiredDuration` seconds of wall clock consume the whole clip.
  */
 float RequiredSegmentPlayRate(UAnimSequenceBase& Sequence, const float DesiredDuration)

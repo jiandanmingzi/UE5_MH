@@ -26,6 +26,7 @@ A7  the live values of every DanceVault* field, and whether this DataAsset
 from __future__ import annotations
 
 import json
+import math
 import os
 import traceback
 
@@ -47,7 +48,7 @@ AERIAL_MONTAGES = ["AM_IG_HouChengGanTiao", "AM_IG_HouChengGanTiao_W",
 
 SEQ_DIR = "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported"
 ROOT_TRACK_SEQUENCES = ["AS_Unsh_Fall", "AS_Unsh_Fall_Loop", "AS_Unsh_Fall_W_Jump",
-                        "AS_Unsh_WuTa", "AS_Unsh_Fall_Higher", "AS_Unsh_Fall_Junp",
+                        "AS_Unsh_TuJinHuiXuanWuTa", "AS_Unsh_Fall_Higher", "AS_Unsh_Fall_Junp",
                         # The back-vault montage is rebuilt at runtime from these
                         # four, so their extraction settings -- not the montage's --
                         # decide whether the Jump segment lifts the capsule at all.
@@ -55,7 +56,14 @@ ROOT_TRACK_SEQUENCES = ["AS_Unsh_Fall", "AS_Unsh_Fall_Loop", "AS_Unsh_Fall_W_Jum
                         # property name is serialised for every sequence regardless
                         # of value (AS_Unsh_Fall contains it and is False).
                         "AS_Unsh_Jump_Back", "AS_Unsh_Jump_Over_Back",
-                        "AS_Unsh_W_Jump_Back", "AS_Unsh_W_Jump_Over_Back"]
+                        "AS_Unsh_W_Jump_Back", "AS_Unsh_W_Jump_Over_Back",
+                        # 前/左/右撑杆跳要复用的六条（2026-09-20）。这四条**起手段**
+                        # 必须 `enable_root_motion = True` —— Jump 段就是靠它们自己的
+                        # 蒙太奇 root motion 驱动的，而 ValidateActionDependencies 对
+                        # Jump 是故意不校验的（注释写着 Jump "owns montage root motion"）。
+                        # 两条**弧段**则相反，必须锁根轨道（LockedNotExtracted）。
+                        "AS_Unsh_Jump_Forward", "AS_Unsh_Jump_Left", "AS_Unsh_Jump_Right",
+                        "AS_Unsh_Jump_Over", "AS_Unsh_W_Jump_Forward", "AS_Unsh_W_Jump_Over"]
 
 REPORT = {"sections": {}, "notes": []}
 
@@ -211,31 +219,92 @@ def probe_sequence_root(seq_name):
     seq = load(path)
     if seq is None:
         return {"error": "not found"}
+    force_lock = prop(seq, "force_root_lock")
+    enable_rm = prop(seq, "enable_root_motion")
     entry = {
         "play_length": float(seq.get_play_length()),
         # A non-1.0 rate scale shortens the *effective* duration, which is why a
         # 3.233 s sequence can become a 1.617 s dynamic montage.
         "rate_scale": prop(seq, "rate_scale"),
-        "enable_root_motion": prop(seq, "enable_root_motion"),
+        "enable_root_motion": enable_rm,
+        "force_root_lock": force_lock,
         "root_motion_root_lock": str(prop(seq, "root_motion_root_lock")),
+        # `UMHGZBackVaultAbility::ValidateActionDependencies` 判的就是这个 policy：
+        # JumpOver clip 必须是 LockedNotExtracted（= ForceRootLock 且未提取）。
+        # 直接报出来，省得下次还要手推 ResolveRootTrackPolicy。
+        "root_track_policy": (
+            "Conflicting" if (force_lock and enable_rm)
+            else "LockedNotExtracted" if force_lock
+            else "Extracted" if enable_rm
+            else "Unaccounted"),
     }
 
-    # UAnimSequence exposes its data model under several names across versions.
-    model = None
-    for accessor in ("data_model", "get_data_model"):
+    # --- 根轨道读数：**必须用 `get_bone_pose_for_time`** ---
+    # ⚠ 三条踩过的坑，别再走回头路：
+    #  ① 原先走 `seq.data_model`，实测**恒为 None**（5.6 的绑定里要用
+    #     `seq.data_model_interface`），于是下面整段从没跑过。
+    #  ② `AnimationBlueprintLibrary.GetRawTrack*` 那族从 5.2 起**已废弃且是空实现**
+    #     （头文件里函数体就是 `{}`），不能用。
+    #  ③ **`extract_root_track_transform` 会骗人** —— 它对 AS_Unsh_Jump_Forward/Back
+    #     给出正确值，却对 AS_Unsh_Jump_Left/Right 恒返回 0，于是把「向左/向右起跳
+    #     没有 root 位移」这个假结论喂给了我。同一次运行里用 `get_bone_pose_for_time`
+    #     复测，四条起手段的相对误差是 −0.8% / −0.4% / +0.3% / −1.2%（对 MHR 实测
+    #     161/173/220/303 cm）—— 它才是可信的那个。
+    # `get_bone_pose_for_time` 虽然标了废弃，但 .cpp 里是**真实现**，且不需要组件。
+    lib = getattr(unreal, "AnimationLibrary", None)
+    if lib is not None:
         try:
-            candidate = getattr(seq, accessor)
-            model = candidate() if callable(candidate) else candidate
-        except Exception:  # noqa: BLE001
-            model = None
-        if model is not None:
-            entry["data_model_accessor"] = accessor
-            break
+            play_length = float(seq.get_play_length())
+            samples = {}
+            for label, t in (("t0", 0.0), ("t1", max(play_length - 1e-4, 0.0))):
+                pose = lib.get_bone_pose_for_time(
+                    seq, unreal.Name("root"), t, False)
+                try:
+                    yaw = round(math.degrees(pose.rotation.rotator().yaw), 3)
+                except Exception:  # noqa: BLE001
+                    yaw = None
+                samples[label] = (pose.translation.x, pose.translation.y,
+                                  pose.translation.z, yaw)
+            (x0, y0, z0, yaw0), (x1, y1, z1, yaw1) = samples["t0"], samples["t1"]
+            entry["root_transform"] = {
+                "t0": [round(x0, 3), round(y0, 3), round(z0, 3), yaw0],
+                "t1": [round(x1, 3), round(y1, 3), round(z1, 3), yaw1],
+                "net_x_cm": round(x1 - x0, 3),
+                "net_y_cm": round(y1 - y0, 3),
+                "net_z_cm": round(z1 - z0, 3),
+                "net_planar_cm": round(math.hypot(x1 - x0, y1 - y0), 3),
+                # 走向 = 根骨局部 `atan2(x, y)`，**朝左为正**。
+                #
+                # ⚠ **这句话的作用域仅限于「它与 撑杆跳曲线.md 的那一列怎么比」**
+                # （141 +6.44 vs +6.5、144 +84.59 vs +84.8、145 −78.93 vs −79.3、
+                # 155 +3.32 vs +3.3，同号且两位小数级吻合 ⇒ 两者**是同一个约定**，
+                # 相互比对时不要取反）。**它不是「UE 侧也不用取负」的授权** ——
+                # 这个字段本身没有任何 UE 消费方（只写进 m5_assets.json）。
+                #
+                # 标定锚点（不依赖招式命名）：后撑杆跳的 Jump 段 PIE 已确认送**后**，
+                # 而 `AS_Unsh_Jump_Back` 的局部净位移是 (−13.2, −156.1) ⇒ 局部 `+Y` =
+                # 角色的前；`AS_Unsh_Jump_Left` 的 (+171.6, +16.3) 沿角色的**左**走
+                # 172.4 cm（MHR 实测 173 吻合）⇒ 局部 `+X` = 角色的左。所以这里的
+                # 「朝左为正」是**测出来的**，与文档列一致是真的一致。
+                #
+                # UE 侧要取负的原因在别处且只有一条：UE 的 yaw「朝右为正」。
+                # 见 `UMHGZPoleVaultAbility::ComputeDirectionSnapshot`。
+                "heading_deg": round(math.degrees(math.atan2(x1 - x0, y1 - y0)), 2),
+                "yaw_span_deg": (None if yaw0 is None or yaw1 is None
+                                 else round(yaw1 - yaw0, 3)),
+            }
+        except Exception as exc:  # noqa: BLE001
+            entry["root_transform"] = {"error": "{}: {}".format(type(exc).__name__, exc)}
+    else:
+        entry["root_transform"] = {"error": "unreal.AnimationLibrary 不存在"}
+
+    model = prop(seq, "data_model_interface")
     if model is None:
-        entry["data_model"] = None
+        entry["data_model_interface"] = None
         entry["sequence_api"] = sorted(
             n for n in dir(seq) if not n.startswith("_"))[:80]
         return entry
+    entry["data_model_accessor"] = "data_model_interface"
 
     entry["num_frames"] = prop(model, "number_of_frames")
     entry["data_model_api"] = sorted(
@@ -257,7 +326,8 @@ def probe_sequence_root(seq_name):
     if root_name is None:
         return entry
     try:
-        track = model.get_bone_track(root_name)
+        # `get_bone_track` 在这个绑定里不存在，叫 `get_bone_track_by_name`。
+        track = model.get_bone_track_by_name(root_name)
         positions = track.get_editor_property("pos_keys") if track else None
         if positions is None:
             entry["root_positions"] = {"error": "pos_keys not readable"}
@@ -266,15 +336,43 @@ def probe_sequence_root(seq_name):
                   for p in positions]
         entry["root_position_key_count"] = len(values)
         if values:
+            first, last = values[0], values[-1]
             entry["root_positions"] = {
                 "x": {"min": min(v[1] for v in values), "max": max(v[1] for v in values)},
                 "y": {"min": min(v[2] for v in values), "max": max(v[2] for v in values)},
                 "z": {"min": min(v[3] for v in values), "max": max(v[3] for v in values)},
-                "first": values[0], "last": values[-1],
+                "first": first, "last": last,
                 "max_abs_xy": max(max(abs(v[1]), abs(v[2])) for v in values),
+            }
+            # 根轨道的**净位移**。骨骼轨道单位就是 cm，可以直接和 MHR 侧的实测
+            # 起手段位移（161 / 173 / 220 / 303 cm，见 撑杆跳曲线.md §一）对账 ——
+            # 文件名对不代表内容对，这一条抓的是「导错 clip / 错行导入」。
+            dx, dy, dz = last[1] - first[1], last[2] - first[2], last[3] - first[3]
+            entry["root_net_displacement_cm"] = {
+                "x": round(dx, 3), "y": round(dy, 3), "z": round(dz, 3),
+                "planar": round(math.hypot(dx, dy), 3),
             }
     except Exception as exc:  # noqa: BLE001
         entry["root_positions"] = {"error": str(exc)}
+
+    # 根轨道的**旋转**。若 root 带 yaw，Jump 段的蒙太奇 root motion 会让角色转向，
+    # 那么按「起跳朝向 + 弦向角」算的 DirectionSnapshot 基准就全错。
+    try:
+        track = model.get_bone_track_by_name(root_name)
+        rotations = track.get_editor_property("rot_keys") if track else None
+        if rotations:
+            yaws = [math.degrees(math.atan2(
+                2.0 * (float(q.w) * float(q.z) + float(q.x) * float(q.y)),
+                1.0 - 2.0 * (float(q.y) ** 2 + float(q.z) ** 2))) for q in rotations]
+            base = yaws[0]
+            worst = max(abs(((y - base + 180.0) % 360.0) - 180.0) for y in yaws)
+            entry["root_rotation_key_count"] = len(yaws)
+            entry["root_rotation_yaw_deg"] = {
+                "first": round(base, 3), "last": round(yaws[-1], 3),
+                "max_deviation_from_first": round(worst, 3),
+            }
+    except Exception as exc:  # noqa: BLE001
+        entry["root_rotation_yaw_deg"] = {"error": str(exc)}
     return entry
 
 
@@ -328,16 +426,53 @@ def probe_combo():
         value = prop(asset, field, "<absent>")
         if value != "<absent>":
             try:
-                out[field] = [describe_row(r) for r in value]
+                out[field] = [describe_row(r, COMBO_FIELDS) for r in value]
             except Exception as exc:  # noqa: BLE001
                 out[field] = {"error": str(exc)}
     return out
 
 
-def describe_row(row):
-    fields = ["source_state", "target_state", "transition_id", "activation_ability",
-              "landing_policy", "auto_transition", "required_tags", "blocked_tags"]
-    return {f: repr(prop(row, f, "<absent>"))[:160] for f in fields}
+# `FComboTransition` 的**全部**字段（逐字对照 MHGZWeaponComboData.h）。
+#
+# 加这一份是因为照抄一条连招边时必须**逐字段**复制：漏掉 direction / priority /
+# bMatchAnyState / blocked_source_states / bRequiresDodgeAcceptWindow 里的任何一个，
+# 新边都会以看不出差别的方式匹配错（比如少了 blocked_source_states，any-state 边
+# 就会在它本该让开的来源状态里也生效，抢掉方向边）。
+COMBO_FIELDS = [
+    "transition_id", "source_state", "b_match_any_state", "blocked_source_states",
+    "input_tag", "direction", "execution_policy", "ability_class",
+    "montage_blend_in_time", "max_correction_angle", "target_state", "state_policy",
+    "landing_policy", "required_tags", "blocked_tags", "stamina_required",
+    # ⚠ 布尔字段的 Python 名**去掉了前导 b**：`bMatchAnyState` → `match_any_state`。
+    # 写成 `b_match_any_state` 会静默得到 `<absent>`，看着像「这条边没这个字段」。
+    "match_any_state", "requires_combo_window", "requires_dodge_accept_window",
+    "grant_timing", "granted_tags", "auto_transition", "priority",
+]
+
+INPUT_FIELDS = ["source_state", "target_state", "transition_id", "activation_ability",
+                "landing_policy", "auto_transition", "required_tags", "blocked_tags"]
+
+
+def describe_row(row, fields=None):
+    """列出字段值。`fields` 默认给输入档用；连招边传 `COMBO_FIELDS`。
+
+    只列**存在**的字段名，其余不动 —— 共用一份 descriptor 时把 combo 的 22 个字段
+    全打给输入档，会得到一屏 `<absent>`，把真正的差异淹掉。
+    """
+    names = fields or INPUT_FIELDS
+    out = {}
+    for name in names:
+        value = prop(row, name, "<absent>")
+        if value == "<absent>":
+            continue
+        if isinstance(value, (list, tuple)):
+            # `repr()` 只会给一个 Array 对象，看不出内容；逐项 repr 才有用。
+            out[name] = ["{}".format(v) for v in value]
+        elif isinstance(value, (bool, int, float, str)):
+            out[name] = value
+        else:
+            out[name] = repr(value)[:200]
+    return out
 
 
 def probe_input_profile():

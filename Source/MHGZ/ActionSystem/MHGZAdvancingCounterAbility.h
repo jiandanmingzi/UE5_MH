@@ -51,8 +51,12 @@ public:
 	int32 CounterInterceptorPriority = 100;
 
 	/**
-	 * 舞踏起跳的纯表现序列。它不提供 Root Motion；实际弹道始终由同一
-	 * MovementTask 的 BallisticVault 驱动，因此这里无需创建永久单段 Montage 资产。
+	 * 舞踏起跳的纯表现序列（in-place，不提供 Root Motion）。实际弹道始终由同一
+	 * MovementTask 的 BallisticVault 驱动。
+	 *
+	 * 这是 **DanceVaultMontage 加载失败时的回退**，不是主路径 —— 见下方
+	 * DanceVaultMontage 的说明。（本注释曾写「无需创建永久单段 Montage 资产」，
+	 * 那是 UMHGZWuTaMontageSetupCommandlet 引入之前的结论，已过时。）
 	 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault")
 	TSoftObjectPtr<UAnimSequenceBase> DanceVaultSequence;

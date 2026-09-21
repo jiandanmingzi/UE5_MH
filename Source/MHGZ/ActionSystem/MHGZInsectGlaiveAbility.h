@@ -27,7 +27,7 @@ public:
 	 * BallisticVault / CurvedVault 跑完之后，本次 Action 该交接什么。互斥且穷尽。
 	 *
 	 * 两个使用者 —— 舞踏（UMHGZAdvancingCounterAbility）与后撑杆跳
-	 * （UMHGZBackVaultAbility）—— 的弧线形状不同，但「够到地面就认领落地、
+	 * （UMHGZPoleVaultAbility）—— 的弧线形状不同，但「够到地面就认领落地、
 	 * 还在空中就交给 CMC 自由落体」这条判据是同一个，所以放在基类。
 	 */
 	enum class EVaultExit : uint8

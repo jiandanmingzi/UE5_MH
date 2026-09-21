@@ -13,20 +13,23 @@
 
 链形状（实测，见文档第一、七节）：
 
-     193 绝虫击起手 → 195 绝虫击丢虫   地面蓄力 + 瞄准，合计 333 帧（2.78 s）
-      → 199 绝虫击突进结束             恒 44 帧（0.367 s），方向 = 准心，垂直匀减 ~1200 cm/s²
-          ├→ 206 猎虫滑翔命中 → 77/79  未命中，飞满全程后落地
-          └→ 189 操虫穿刺命中进入舞踏  猎虫撞上，199 提前结束（← 与操虫斩的汇合点）
+    （id 后的名字以 `docs/reference/虫棍招式表.md` 为准，本文件只写 id、不抄名字 ——
+     抄一份就会在招式表改名后悄悄过期，实测踩过。具体名字看生成物。）
 
-    186 空中操虫斩        悬停瞄准段，**恒 86 帧、位移恒 0**（可转向，最大实测 +61.7°）
-      → 187 操虫斩前冲动作  两段式：帧 1–10「发射相」匀速直线 → 帧 11+ 「滑行相」速度掉到 ~1/4
-          ├→ 188 操虫斩未击中 → 182 铁虫丝跳跃落地        （未命中分支）
-          └→ 189 操虫穿刺命中进入舞踏                     （命中分支）
-                ├→ 200 绝虫击突进命中（**恒 46 帧**，位移恒 69.4/+46.0/83.3 cm，方位 = 段首朝向 **+180.00°**）
-                │    → 201 强化操虫穿刺 → 203 强化操虫穿刺落地攻击 → 落地
-                ├→ 137 空中回避（最早第 90 帧）
-                ├→ 186 空中操虫斩（回悬停，最早第 90 帧）
-                └→ 157 下坠 → 148 落地
+     193 → 195          地面蓄力 + 瞄准，合计 333 帧（2.78 s）
+      → 199             恒 44 帧（0.367 s），方向 = 准心，垂直匀减 ~1200 cm/s²
+          ├→ 206 → 77/79   未命中，飞满全程后落地
+          └→ 189           猎虫撞上，199 提前结束（← 与操虫斩的汇合点）
+
+    186                悬停瞄准段，**恒 86 帧、位移恒 0**（可转向，最大实测 +61.7°）
+      → 187             两段式：帧 1–10「发射相」匀速直线 → 帧 11+ 「滑行相」速度掉到 ~1/4
+          ├→ 188 → 182     （未命中分支）
+          └→ 189           （命中分支）
+                ├→ 200（**恒 46 帧**，位移恒 69.4/+46.0/83.3 cm，方位 = 段首朝向 **+180.00°**）
+                │    → 201 → 203 → 落地
+                ├→ 137（最早第 90 帧）
+                ├→ 186（回悬停，最早第 90 帧）
+                └→ 157 → 148
 
 【口径（每一条都踩过，别改）】
 - 真值源 `C:/apps/steam/.../MHGZ_AerialTrajectoryRecorder/`，**该目录不入库**。扫全部实录，
@@ -55,6 +58,7 @@ import csv
 import math
 import statistics
 import sys
+import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -70,13 +74,15 @@ MIN_SAMPLES = 12
 # 发射相长度：帧 1..10 是逐帧位完全相同的匀速直线（实测）。滑行相从帧 11 起。
 EMIT_FRAMES = 10
 
-HOVER = "186"      # 空中操虫斩（悬停瞄准）
-DASH = "187"       # 操虫斩前冲动作
-MISS = "188"       # 操虫斩未击中
-HIT = "189"        # 操虫穿刺命中进入舞踏
-WYVERN = "200"     # 绝虫击突进命中
-PIERCE = "201"     # 强化操虫穿刺
-LAND_ATK = "203"   # 强化操虫穿刺落地攻击
+# 名字一律不写在这里 —— 招式表是唯一权威，写第二份必然过期（实测踩过）。
+# 要名字用 `name_of(ID)` 或 `id_label(ID)`。
+HOVER = "186"      # 空中悬停瞄准段
+DASH = "187"       # 前冲动作（两段式）
+MISS = "188"       # 操虫斩未命中分支
+HIT = "189"        # 操虫斩/觉虫击 命中后共用的舞踏
+WYVERN = "200"     # 操虫穿刺起手
+PIERCE = "201"     # 操虫穿刺过程
+LAND_ATK = "203"   # 操虫穿刺落地攻击
 DODGE = "137"      # 空中回避
 FALL_W = "157"     # 起跳下坠（白灯）
 LAND = "148"       # 起跳落地
@@ -84,10 +90,10 @@ GROUND_FALL = "182"  # 铁虫丝跳跃落地
 
 # 觉虫击（绝虫击）链 —— **与操虫斩共用 `189` 这个汇合点**（第七、八节）。
 # `193`→`195`→（`196` 瞬态）→`199`→ 命中则 `206`，若猎虫撞上目标则 `199` 提前结束进 `189`。
-STRIKE_WINDUP = "193"   # 绝虫击起手（恒 139 帧）
-STRIKE_THROW = "195"    # 绝虫击丢虫（恒 194 帧）
-STRIKE_DASH = "199"     # 绝虫击突进结束（恒 44 帧 = 定速直线）
-STRIKE_HIT = "206"      # 猎虫滑翔命中（命中后的坠落段）
+STRIKE_WINDUP = "193"   # 起手（恒 139 帧）
+STRIKE_THROW = "195"    # 丢虫（恒 194 帧）
+STRIKE_DASH = "199"     # 突进飞行（恒 44 帧 = 定速直线）
+STRIKE_HIT = "206"      # 未命中后的坠落段（`199` 飞满全程才进这里）
 
 # 「没按 RT」的判据（**觉虫击不能用 `velocity_y` 判**，它不按 RT 时也有非零仰角）：
 # 没按 RT 时右摇杆能把镜头扫一整圈而猎人朝向冻住 → 用**相机横摆的累计行程**。
@@ -100,13 +106,15 @@ STRIKE_SLOW = 3000.0
 # 白灯变体的起跳 id —— 本工程里**唯一**能指示白灯的遥测证据（见 7.4）。
 WHITE_LAMP_IDS = {"155", "156", "158", "159"}
 
+# 只在 import 不到 `build_truth_table`（单独拷出去跑）时用。**平时不生效** ——
+# 正常路径下 `name_of()` 会去读招式表。这里的条目也请以招式表为准。
 KNOWN = {
-    HOVER: "空中操虫斩（悬停瞄准）", DASH: "操虫斩前冲动作", MISS: "操虫斩未击中",
-    HIT: "操虫穿刺命中进入舞踏", WYVERN: "绝虫击突进命中", PIERCE: "强化操虫穿刺",
-    LAND_ATK: "强化操虫穿刺落地攻击", DODGE: "空中回避", FALL_W: "起跳下坠",
-    LAND: "起跳落地", GROUND_FALL: "铁虫丝跳跃落地",
+    HOVER: "空中操虫斩", DASH: "操虫斩前冲动作", MISS: "操虫斩结束",
+    HIT: "操虫斩/觉虫击命中进入舞踏", WYVERN: "强化操虫穿刺", PIERCE: "强化操虫穿刺过程",
+    LAND_ATK: "强化操虫穿刺落地攻击", DODGE: "空中回避", FALL_W: "起跳下坠（白灯）",
+    LAND: "起跳落地", GROUND_FALL: "铁虫丝跳跃/操虫斩落地",
     STRIKE_WINDUP: "绝虫击起手", STRIKE_THROW: "绝虫击丢虫",
-    STRIKE_DASH: "绝虫击突进结束", STRIKE_HIT: "猎虫滑翔命中",
+    STRIKE_DASH: "绝虫击突进飞行", STRIKE_HIT: "猎虫滑翔命中以及觉虫击未命中的下坠段",
 }
 
 # 招式名的第二来源与「受击/失控排除集」都从 build_truth_table 借 —— **不要在这里另抄一份**，
@@ -124,6 +132,36 @@ except Exception:  # pragma: no cover - 单独拷出去跑时的兜底
         return KNOWN.get(key, "（未核对）")
 
     CONTROL_LOSS: set[str] = set()
+
+
+def disp_width(text: str) -> int:
+    """终端显示宽度：东亚全角算 2 列，其余算 1。
+
+    给下面的链路图对齐用 —— `str.ljust` 数的是码点，中英混排会窄一半、图会散。
+    """
+    return sum(2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in text)
+
+
+def aligned(rows: list[tuple[str, str]], gap: int = 3) -> list[str]:
+    """把 `(左边, 注释)` 渲染成 `左边   ← 注释`，**按显示宽度对齐**。
+
+    链路图里左边名字长短不一（`189 操虫斩/觉虫击命中进入舞踏` vs `182 …落地`），
+    `str.ljust` 数码点会让中文行窄一半、箭头参差；这里按真实列宽补空格。
+    注释为空的条目原样输出，不留尾随空格。
+    """
+    width = max((disp_width(left) for left, note in rows if note), default=0)
+    return [left if not note
+            else left + " " * (width - disp_width(left) + gap) + "← " + note
+            for left, note in rows]
+
+
+def id_label(key: str, width: int = 0) -> str:
+    """`<id> <招式表名>` —— 名字**每次现查招式表**，招式表改名后图自动跟上。
+
+    传 `width` 时按显示宽度右侧补空格，用于链路图的竖线对齐。
+    """
+    text = f"{key} {name_of(key)}"
+    return text + " " * max(0, width - disp_width(text))
 
 # 定长判据与真值表**必须一致**：帧数按 6 帧分箱、最大箱占比 ≥30% 才算「定长」。
 MODE_BIN_FRAMES = 6
@@ -555,15 +593,16 @@ def render_strike(by_id: dict, trans: dict, strikes: list[dict], lamp_marks: dic
         "## 七、觉虫击（绝虫击）链：`193` → `195` → `199` → `206`",
         "",
         "> **这条链与操虫斩没有任何公共 id，但两者汇合于 `189`** —— 猎虫撞上目标那一刻，",
-        "> 无论你是从空中操虫斩（`187`）还是从觉虫击突进（`199`）进来，都会切到 `189` 舞踏。",
+        f"> 无论你是从 `{DASH}` 还是从 `{STRIKE_DASH}` 进来，都会切到 `{HIT}`。",
         "> 两条入口的形态**不同**，见第八节。",
         "",
         "```",
-        "193 绝虫击起手（恒 139 帧 / 1.160 s，猎人几乎静止）",
-        "  → 195 绝虫击丢虫（恒 194 帧 / 1.619 s，猎人缓慢挪动，**准心在这段里锁定**）",
-        "      → 199 绝虫击突进结束（恒 44 帧 / 0.367 s，方向由准心决定，见 7.2 / 7.3）",
-        "          ├→ 206 猎虫滑翔命中 → 77 持刀起步 / 79 持刀落地（更高）   ← 未命中，飞满全程",
-        "          └→ 189 操虫穿刺命中进入舞踏                              ← 猎虫撞上，`199` 提前结束",
+        f"{id_label(STRIKE_WINDUP)}（恒 139 帧 / 1.160 s，猎人几乎静止）",
+        f"  → {id_label(STRIKE_THROW)}（恒 194 帧 / 1.619 s，猎人缓慢挪动，**准心在这段里锁定**）",
+        f"      → {id_label(STRIKE_DASH)}（恒 44 帧 / 0.367 s，方向由准心决定，见 7.2 / 7.3）",
+        f"          ├→ {id_label(STRIKE_HIT)} → 77 {name_of('77')} / 79 {name_of('79')}"
+        "   ← 未命中，飞满全程",
+        f"          └→ {id_label(HIT)}   ← 猎虫撞上，`{STRIKE_DASH}` 提前结束",
         "```",
         "",
         "| 段 | n | 帧数 | 段内平均速率 | 段内平均水平速率 | 关键常数 |",
@@ -818,16 +857,26 @@ def render_strike(by_id: dict, trans: dict, strikes: list[dict], lamp_marks: dic
         "- **原理限制**：若白灯只影响**伤害 / 动作值**，本项目遥测（不记录 HP、肉质、hitbox）",
         "  **从原理上看不见** —— 这一点只能靠游戏内伤害数据闭合。",
         "",
-        "## 八、三招链路：觉虫击 / 操虫斩 / 强化猎虫穿刺",
+        f"## 八、三招链路：觉虫击 / 操虫斩 / {name_of(WYVERN)}",
         "",
-        "三者的 id 完全不重叠，**接口只有 `189`**（猎虫命中进入舞踏）：",
+        f"三者的 id 完全不重叠，**接口只有 `{HIT}`**（三条链唯一共用的那一段）：",
         "",
         "```",
-        "觉虫击  193 → 195 → 199 ──┐",
-        "                          ├→ 189 舞踏 ─→ 200 → 201 → 203 → 落地",
-        "操虫斩  186 → 187 ────────┘            （强化猎虫穿刺）",
-        "                 ├→ 188 未击中 → 182 铁虫丝跳跃落地",
-        "                 └→ 189（`187` 命中直接进，不经 `188`）",
+        f"觉虫击  {id_label(STRIKE_WINDUP)} → {id_label(STRIKE_THROW)} → {id_label(STRIKE_DASH)}",
+        *aligned([
+            (f"          ├→ {id_label(HIT)}", f"命中（猎虫撞上，{STRIKE_DASH} 提前结束）"),
+            (f"          └→ {id_label(STRIKE_HIT)} → 77 / 79", "未命中，飞满全程"),
+        ]),
+        "",
+        f"操虫斩  {id_label(HOVER)} → {id_label(DASH)}",
+        *aligned([
+            (f"          ├→ {id_label(HIT)}", "命中"),
+            (f"          ├→ {id_label(MISS)} → {id_label(GROUND_FALL)}", "未击中"),
+            (f"          └→ {id_label(GROUND_FALL)}", "直接落地"),
+        ]),
+        "",
+        f"{name_of(WYVERN)}只由 `{HIT}` 进入（28/28）：",
+        f"  {id_label(WYVERN)} → {id_label(PIERCE)} → {id_label(LAND_ATK)} → 落地",
         "```",
         "",
         "**`189` 有三个入口**，形态各不相同（本节唯一需要注意的接口细节）：",
@@ -835,16 +884,17 @@ def render_strike(by_id: dict, trans: dict, strikes: list[dict], lamp_marks: dic
         "| 入口 | n | 帧数 | 抬升峰值 cm | 水平位移 cm | 段首高度 cm |",
         "|---|---:|---|---|---:|---|",
     ]
-    for prev, label in ((STRIKE_DASH, f"`{STRIKE_DASH}` 觉虫击突进（**命中**）"),
-                        (DASH, f"`{DASH}` 操虫斩前冲（**命中**）"),
-                        (MISS, f"`{MISS}` 操虫斩未击中 → `189`（**迟到的命中**）")):
+    # 循环变量原名 `label`，会遮蔽上面新加的 id_label() —— 已改名。
+    for prev, row_label in ((STRIKE_DASH, f"`{STRIKE_DASH}` {name_of(STRIKE_DASH)}（**命中**）"),
+                            (DASH, f"`{DASH}` {name_of(DASH)}（**命中**）"),
+                            (MISS, f"`{MISS}` {name_of(MISS)} → `{HIT}`（**迟到的命中**）")):
         items = [s for s in by_id.get(HIT, []) if s["prev"] == prev]
         if not items:
             continue
         peaks = sorted({round(s["y_max"] - s["y0"], 1) for s in items if s["y0"] is not None})
         pdesc = (f"**恒 {peaks[0]}**" if len(peaks) == 1
                  else f"{len(peaks)} 个取值（{peaks[0]}–{peaks[-1]}）")
-        out.append(f"| {label} | {len(items)} | {rng([s['frames'] for s in items], 0)} | {pdesc} | "
+        out.append(f"| {row_label} | {len(items)} | {rng([s['frames'] for s in items], 0)} | {pdesc} | "
                    f"{median([s['h'] for s in items], 0)} cm | {median([s['y0'] for s in items], 0)} cm |")
     out += [
         "",
@@ -855,7 +905,7 @@ def render_strike(by_id: dict, trans: dict, strikes: list[dict], lamp_marks: dic
         "> —— 也就是**过半是「187 只闪了一下」的退化段**。把它们与「真打了一发前冲」的混在一个 86 里，",
         "> 会把「入口形态」讲糊；要精确建模得先按前驱 `187` 的长度分层。",
         "",
-        "> `200`（绝虫击突进命中）/ `201` / `203` 的真值见第一节表 —— 它们**只由 `189` 进入**，",
+        f"> `{WYVERN}` / `{PIERCE}` / `{LAND_ATK}` 的真值见第一节表 —— 它们**只由 `{HIT}` 进入**，",
         "> 与你是用哪一招触发命中无关。",
         "",
     ]
@@ -883,17 +933,25 @@ def render(by_id: dict, trans: dict, extra: dict) -> tuple[str, list[tuple[str, 
         "## 一、链结构与逐段真值",
         "",
         "```",
-        "186 空中操虫斩（悬停瞄准，恒 86 帧、位移恒 0、可转向）",
-        "  → 187 操虫斩前冲动作（两段式，见第三节）",
-        "      ├→ 188 操虫斩未击中 → 182 铁虫丝跳跃落地        ← 未命中",
-        "      └→ 189 操虫穿刺命中进入舞踏                     ← 命中 ←┐",
-        "            ├→ 200 绝虫击突进命中 → 201 强化操虫穿刺 → 203 强化操虫穿刺落地攻击",
-        "            ├→ 137 空中回避（最早第 90 帧）                       │",
-        "            ├→ 186 空中操虫斩（回悬停，最早第 90 帧）             │",
-        "            └→ 157 下坠 → 148 落地                              │",
-        "                                                               │",
-        "193 绝虫击起手 → 195 绝虫击丢虫 → 199 绝虫击突进结束 ────────────┘",
-        "                                    └→ 206 猎虫滑翔命中 → 77 / 79（未命中，见第七节）",
+        f"{id_label(HOVER)}（悬停瞄准，恒 86 帧、位移恒 0、可转向）",
+        f"  → {id_label(DASH)}（两段式，见第三节）",
+        *aligned([
+            (f"      ├→ {id_label(HIT)}", "命中"),
+            (f"      ├→ {id_label(MISS)} → {id_label(GROUND_FALL)}", "未命中"),
+            (f"      └→ {id_label(GROUND_FALL)}", "直接落地"),
+        ]),
+        "",
+        f"{id_label(STRIKE_WINDUP)} → {id_label(STRIKE_THROW)} → {id_label(STRIKE_DASH)}",
+        *aligned([
+            (f"      ├→ {id_label(HIT)}", f"猎虫撞上，{STRIKE_DASH} 提前结束"),
+            (f"      └→ {id_label(STRIKE_HIT)} → 77 / 79", "未命中，飞满全程（见第七节）"),
+        ]),
+        "",
+        f"**两条链在 {HIT} 汇合。** {HIT} 的后继：",
+        f"      ├→ {id_label(WYVERN)} → {id_label(PIERCE)} → {id_label(LAND_ATK)}",
+        f"      ├→ {id_label(DODGE)}（最早第 90 帧）",
+        f"      ├→ {id_label(HOVER)}（回悬停，最早第 90 帧）",
+        f"      └→ {id_label(FALL_W)} → {id_label(LAND)}",
         "```",
         "",
         "| id | 招式 | n | 帧数 | 水平位移 cm | 垂直位移 cm | 三维 cm | 高度 首→末 cm |",
@@ -951,7 +1009,7 @@ def render(by_id: dict, trans: dict, extra: dict) -> tuple[str, list[tuple[str, 
               "| **觉虫击**各段时长/突进速率/路径 | 第一节表 + **第七节** |",
               "| **觉虫击**的方向口径（不按 RT 怎么判） | **7.2** |",
               "| 觉虫击突进的逐帧曲线 | **第七节**（曲线源 `Saved/_mhr_curves/觉虫击_199.csv`） |",
-              "| 觉虫击/操虫斩/强化猎虫穿刺怎么衔接 | **第八节** |",
+              f"| 觉虫击/操虫斩/{name_of(WYVERN)}怎么衔接 | **第八节** |",
               ""]
     return "\n".join(lines), [(DASH, dashes)]
 
@@ -1148,7 +1206,8 @@ def main() -> int:
         "| 链 | n | 水平速度比（中位） | 说明 | 判定 |",
         "|---|---:|---|---|---|",
     ]
-    for a, b, note in ((DODGE, FALL_W, "回避 → 下坠"), (DASH, MISS, "突进 → 未击中")):
+    for a, b, note in ((DODGE, FALL_W, "回避 → 下坠"),
+                       (DASH, MISS, f"突进 → {name_of(MISS)}")):
         pairs = []
         items = by_id.get(a, [])
         for s in by_id.get(b, []):

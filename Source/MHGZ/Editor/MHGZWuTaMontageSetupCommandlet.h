@@ -6,7 +6,7 @@
 #include "MHGZWuTaMontageSetupCommandlet.generated.h"
 
 /**
- * 由 AS_Unsh_WuTa 生成常驻的 AM_IG_WuTa 单段蒙太奇。
+ * 由 AS_Unsh_TuJinHuiXuanWuTa 生成常驻的 AM_IG_WuTa 单段蒙太奇。
  *
  * 存在的理由不是"混合"（交叉淡化由 UAnimInstance 按 slot 的 stop-group 完成，
  * 与资产类型无关），而是**速率**：UE 5.6 的

@@ -30,10 +30,19 @@ struct FMontageHandoffRoute
 {
 	const TCHAR* Label;
 	const TCHAR* MontagePath;
-	/** 最早可操作帧（秒）。 */
+	/** 最早可操作帧，**在本条蒙太奇自己的时间轴上**（秒）。 */
 	float HandoffTime;
 	const TCHAR* Provenance;
 };
+
+/**
+ * 起手段那一半的长度（秒）。撑杆跳拆成双蒙太奇之后，全部实测墙都从「整条链的
+ * 绝对时间」变成「弧段蒙太奇自己的时间」—— 减掉这个数即可。
+ *
+ * 与 `UMHGZPoleVaultAbility` 各 profile 的 `JumpDuration`（四向八条全是 0.650）
+ * 和烘焙命令列的 `JUMP_DURATION_FALLBACK` 是同一个数。
+ */
+constexpr float VaultTakeoffDuration = 0.650f;
 
 static const FMontageHandoffRoute Routes[] =
 {
@@ -43,17 +52,68 @@ static const FMontageHandoffRoute Routes[] =
 		0.316f,
 		TEXT("measured: MHR id 160->154->137; 154 cancelled into 137 at min 0.316 s over 13 trials (mode 0.316, 6/13)")
 	},
+	// ── 撑杆跳八条：通知挂在**弧段蒙太奇**（`_Over`）上，时间是弧段局部时间 ────
+	//
+	// 整条链的墙都是**帧号**：起跳 78 帧 + 弧段 16 帧 = 离地链第 94 帧，
+	// 而整条链的绝对蒙太奇时间 = 0.650 + 16/119.8 = 0.7836 ⇒ 项目里一直写作 0.783。
+	// 拆成两条蒙太奇之后，弧段那条的**零点是原来的 0.650**，所以墙上移
+	// `0.783 − 0.650 = 0.133`。后撑杆跳白灯同理：`0.775 − 0.650 = 0.125`。
+	//
+	// ⚠ 起手段那一半（`AM_IG_*ChengGanTiao`，**不带** `_Over`）**不能**挂这条通知：
+	// 它只有 0.650 s 长，而通知在 0.783 s 触发，永远等不到 —— 可
+	// `bAerialHandoffAuthored` 却是真，那条变体的最早可操作帧就没了。
+	// 清掉它的是烘焙命令列（见那里的 docstring），所以顺序是**先烘再写通知**；
+	// 本命令列末尾还有一条只读断言，把顺序搞反的情形喊出来。
 	{
 		TEXT("BackVault"),
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_HouChengGanTiao.AM_IG_HouChengGanTiao"),
-		0.783f,
-		TEXT("measured: MHR id 146->147->137; 146 fixed at 0.651 s, 147 cancelled into 137 at min 0.133 s (lone low outlier; 0.250 next, 3x) => 0.650+0.133")
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_HouChengGanTiao_Over.AM_IG_HouChengGanTiao_Over"),
+		0.783f - VaultTakeoffDuration,
+		TEXT("measured: MHR id 146->147->137; 146 fixed at 0.651 s, 147 cancelled into 137 at min 0.133 s (lone low outlier; 0.250 next, 3x) => chain 0.783; arc montage starts at 0.650 => 0.133")
 	},
 	{
 		TEXT("BackVaultWhite"),
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_HouChengGanTiao_W.AM_IG_HouChengGanTiao_W"),
-		0.775f,
-		TEXT("measured: MHR id 158->159->137; 158 fixed at 0.650 s, 159 cancelled into 137 at min 0.125 s over 18 trials (mode 0.125, 5x) => 0.650+0.125")
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_HouChengGanTiao_W_Over.AM_IG_HouChengGanTiao_W_Over"),
+		0.775f - VaultTakeoffDuration,
+		TEXT("measured: MHR id 158->159->137; 158 fixed at 0.650 s, 159 cancelled into 137 at min 0.125 s over 18 trials (mode 0.125, 5x) => chain 0.775; arc montage starts at 0.650 => 0.125")
+	},
+	// 前 / 左 / 右 × 无 / 有白灯：**同一个 0.133**，因为三向共用同一条弧段
+	// （无白灯 142 / 白灯 156），六组的墙落在同一帧。白灯·向右那组观测里出现过
+	// 更晚的一档（95 帧），但文档说 95 只是**上界**，取它会把可操作帧推后一帧。
+	{
+		TEXT("ForwardVault"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_QianChengGanTiao_Over.AM_IG_QianChengGanTiao_Over"),
+		0.783f - VaultTakeoffDuration,
+		TEXT("measured: MHR id 141->142->137; earliest cancel chain frame 94 = jump 78 + arc 16, 0.650 + 16/119.8 = 0.7836 => chain 0.783; arc montage starts at 0.650 => 0.133")
+	},
+	{
+		TEXT("ForwardVaultWhite"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_QianChengGanTiao_W_Over.AM_IG_QianChengGanTiao_W_Over"),
+		0.783f - VaultTakeoffDuration,
+		TEXT("measured: MHR id 155->156->137; earliest cancel chain frame 94 = jump 78 + arc 16, 0.650 + 16/119.8 = 0.7836 => chain 0.783; arc montage starts at 0.650 => 0.133")
+	},
+	{
+		TEXT("LeftVault"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_ZuoChengGanTiao_Over.AM_IG_ZuoChengGanTiao_Over"),
+		0.783f - VaultTakeoffDuration,
+		TEXT("measured: MHR id 144->142->137; earliest cancel chain frame 94 = jump 78 + arc 16, 0.650 + 16/119.8 = 0.7836 => chain 0.783; arc montage starts at 0.650 => 0.133")
+	},
+	{
+		TEXT("LeftVaultWhite"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_ZuoChengGanTiao_W_Over.AM_IG_ZuoChengGanTiao_W_Over"),
+		0.783f - VaultTakeoffDuration,
+		TEXT("measured: MHR id 144->156->137 (white reuses the normal takeoff clip); earliest cancel chain frame 94, 0.650 + 16/119.8 = 0.7836 => chain 0.783; arc montage starts at 0.650 => 0.133")
+	},
+	{
+		TEXT("RightVault"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_YouChengGanTiao_Over.AM_IG_YouChengGanTiao_Over"),
+		0.783f - VaultTakeoffDuration,
+		TEXT("measured: MHR id 145->142->137; earliest cancel chain frame 94 = jump 78 + arc 16, 0.650 + 16/119.8 = 0.7836 => chain 0.783; arc montage starts at 0.650 => 0.133")
+	},
+	{
+		TEXT("RightVaultWhite"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_YouChengGanTiao_W_Over.AM_IG_YouChengGanTiao_W_Over"),
+		0.783f - VaultTakeoffDuration,
+		TEXT("measured: MHR id 145->156->137; earliest cancel chain frame 94. The 95-frame mode is an upper bound, not the wall, so it is deliberately not used. chain 0.783; arc montage starts at 0.650 => 0.133")
 	},
 };
 
@@ -192,8 +252,66 @@ int32 UMHGZAerialHandoffSetupCommandlet::Main(const FString& Params)
 			bSaved ? TEXT("true") : TEXT("false")));
 	}
 
-	const FString Report = FString::Printf(TEXT("{\n  \"routes\": [\n%s\n  ]\n}\n"),
-		*FString::Join(Rows, TEXT(",\n")));
+	// ── 顺序断言：起手段那一半**不能**挂着这条通知 ────────────────────────────
+	//
+	// 通知随拆分泌到了弧段蒙太奇上；而起手段只有 0.650 s 长、墙却在 0.783 s
+	// （整条链的绝对时间），它永远等不到 —— 可「这条蒙太奇有没有点通知」的判据
+	// 仍然为真，于是那条变体的最早可操作帧<b>消失</b>，且只在 PIE 里表现为
+	// 「能出招但没有可取消窗口」，很难归因。
+	//
+	// 清掉它的是**烘焙命令列**（烘起手段时会把 `Notifies` 清空，见那里的 docstring），
+	// 所以顺序必须是「先烘再写通知」。这里**只读检查、不修** —— 由本命令列代劳会
+	// 把「烘焙根本没重跑」这件事盖住，而那正是要喊出来的。
+	auto HasHandoffNotify = [](const UAnimMontage& Montage)
+	{
+		for (const FAnimNotifyEvent& Notify : Montage.Notifies)
+		{
+			if (Notify.Notify && Notify.Notify->IsA(UAnimNotify_IG_AerialHandoff::StaticClass()))
+			{
+				return true;
+			}
+		}
+		return false;
+	};
+
+	TArray<FString> Ordering;
+	for (const FMontageHandoffRoute& Route : Routes)
+	{
+		// `_Over` 只出现在资产名里（包名与对象名各一次），整串去掉即可得到起手段路径。
+		const FString ArcPath(Route.MontagePath);
+		if (!ArcPath.Contains(TEXT("ChengGanTiao_Over")))
+		{
+			continue;  // 舞踏不是撑杆跳，没有「另一半」
+		}
+		const FString TakeoffPath = ArcPath.Replace(TEXT("_Over"), TEXT(""));
+		const UAnimMontage* Takeoff = LoadObject<UAnimMontage>(nullptr, *TakeoffPath);
+		if (!Takeoff)
+		{
+			Ordering.Add(FString::Printf(
+				TEXT("  {\"label\": \"%s\", \"takeoff\": \"%s\", \"found\": false, \"stale_notify\": false}"),
+				*JsonEscape(Route.Label), *JsonEscape(TakeoffPath)));
+			continue;
+		}
+		const bool bStale = HasHandoffNotify(*Takeoff);
+		Ordering.Add(FString::Printf(
+			TEXT("  {\"label\": \"%s\", \"takeoff\": \"%s\", \"found\": true, \"stale_notify\": %s}"),
+			*JsonEscape(Route.Label), *JsonEscape(TakeoffPath),
+			bStale ? TEXT("true") : TEXT("false")));
+		if (bStale)
+		{
+			bAllOk = false;
+			UE_LOG(LogTemp, Error,
+				TEXT("[AerialHandoff] %s 的起手段 %s 上还挂着 IGAerialHandoff 点通知 —— ")
+				TEXT("蒙太奇拆成两半之后它落在 0.783 s，而起手段只有 0.650 s 长。")
+				TEXT("先重跑 MHGZPoleVaultMontageSetup（它会清掉起手段的 Notifies）再来写通知。"),
+				Route.Label, *TakeoffPath);
+		}
+	}
+
+	const FString Report = FString::Printf(
+		TEXT("{\n  \"routes\": [\n%s\n  ],\n  \"takeoff_ordering\": [\n%s\n  ]\n}\n"),
+		*FString::Join(Rows, TEXT(",\n")),
+		*FString::Join(Ordering, TEXT(",\n")));
 	FFileHelper::SaveStringToFile(Report,
 		*(FPaths::ProjectSavedDir() / TEXT("_aerial_handoff.json")),
 		FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);

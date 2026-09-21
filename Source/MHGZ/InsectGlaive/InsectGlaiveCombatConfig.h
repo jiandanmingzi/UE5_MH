@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Misc/DataValidation.h"
 #include "WeaponRuntime/MHGZWeaponCombatConfig.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "InsectGlaiveCombatConfig.generated.h"
 
 class UGameplayEffect;
@@ -25,6 +26,58 @@ enum class EIGRedExtractMode : uint8
 };
 
 /**
+ * 一个撑杆跳变体的可调标量：**方向 × 灯态**。
+ *
+ * 「一个变体一条」而不是「两个灯态各一片平铺字段」：四个方向的字段名本来就该一样，
+ * 平铺会得到八套同构字段，而它们之间的差异**只有收成一条一条才校验得了**
+ * （`ArcDuration >= VaultDuration`、非白灯的残余自由落体必须落在实测 0.18~0.30 s 内）。
+ *
+ * 曲线、弦向、clip 路径**不在这里** —— 那些在 GA 的 `FVaultProfile` 上。
+ * 这里只放「动作数值」，因为它是这张资产的面相：改一个数就能调手感，
+ * 而曲线要重跑 `Scripts/MHRise/build_vault_curves.py`。
+ */
+USTRUCT(BlueprintType)
+struct FVaultTuning
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Vault")
+	EDirectionalInput Direction = EDirectionalInput::None;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Vault")
+	bool bWhite = false;
+
+	/**
+	 * **移动窗口** = `Jump + JumpOver`，即 CurvedVault 源的 `Duration`，**不含下坠段**。
+	 *
+	 * 与 `ArcDuration` 是两个语义不同的量，混用会出事：拿弧时长当窗口等于把
+	 * 本该不存在的飞行补出来，实录路径被拉伸（白灯那次实测 +4.7%）。交棒点
+	 * 由 `(JumpDuration + JumpOverDuration) / ArcDuration` 算出，所以窗口一变，
+	 * 交棒进度与残余自由落体一起变。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Vault", meta = (ClampMin = "0.01"))
+	float VaultDuration = 0.0f;
+
+	/**
+	 * **整条离地前缀**的时长（含下坠段），**只用于把实录轨迹归一化**。
+	 *
+	 * 用错这个量会把 Jump 边界从 0.330 挪到 0.375，把本该属于 JumpOver 的约 30 cm
+	 * 位移划给 Jump —— 这正是它当初被从 `VaultDuration` 里拆出来的原因。
+	 *
+	 * 白灯**没有独立的下坠段**（一直覆盖到落地），所以两值相等、`HandoffProgress`
+	 * 恰为 1.0，那是合法的「无自由落体窗口」，不是配置错误。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Vault", meta = (ClampMin = "0.01"))
+	float ArcDuration = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Vault", meta = (ClampMin = "0.01"))
+	float Distance = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Vault", meta = (ClampMin = "0.01"))
+	float ApexHeight = 0.0f;
+};
+
+/**
  * UInsectGlaiveCombatConfig —— 同一把虫棍动作规则与可调数值的唯一入口。
  * 由 DA_WeaponRuntime_IG 经 UWeaponRuntimeDefinition 引用；
  * 方向/组合键阈值不属于本资产，由通用 UWeaponInputProfile 提供。
@@ -35,6 +88,12 @@ class MHGZ_API UInsectGlaiveCombatConfig : public UWeaponCombatConfigBase
 	GENERATED_BODY()
 
 public:
+	/**
+	 * 灌撑杆跳的默认值。前 / 左 / 右六条直接读生成表，不手抄；
+	 * 后撑杆跳两条是本文件的手写常量 —— 见 .cpp 里的理由。
+	 */
+	UInsectGlaiveCombatConfig();
+
 	/** 红灯动作模式；RuntimeHost 的 ActiveRedExtractMode 初始化自该默认值 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Red Extract")
 	EIGRedExtractMode RedExtractMode = EIGRedExtractMode::ClassicMovesetGate;
@@ -150,87 +209,27 @@ public:
 	FVector DanceVaultLaunchVelocity = FVector::ZeroVector;
 
 	/**
-	 * 后撑杆跳由 MHR 实录轨迹重建。Jump 保留 Montage Root Motion；从
-	 * Jump_Over 的段边界起 CurvedVault 接管，走完整条弧后交给 CMC。
-	 * 重力、碰撞与接地都不再由 GA 的路径接管。白灯版本具有独立的距离、高度
-	 * 和动作时长。
+	 * 撑杆跳（四个方向 × 两种灯态）的**动作数值**，一个变体一条。
 	 *
-	 * 交棒点在哪儿**不是配置**：它由 `(JumpDuration + JumpOverDuration) /
-	 * ArcDuration` 在运行时算出，残余自由落体时长即 `(1 − 它) × ArcDuration`。
+	 * 后撑杆跳两条就是迁移前的那四个字段，值逐字未变；前 / 左 / 右六条由
+	 * `Scripts/MHRise/build_vault_curves.py` 从 MHR 实机录制算出（构造里灌默认值）。
+	 *
+	 * 由 MHR 实录轨迹重建。Jump 段保留 Montage Root Motion；从 Jump_Over 的段边界起
+	 * CurvedVault 接管，走完整条弧后交给 CMC。重力、碰撞与接地都不再由 GA 的路径接管。
+	 *
+	 * 交棒点在哪儿**不是配置**：它由 `(JumpDuration + JumpOverDuration) / ArcDuration`
+	 * 在运行时算出，残余自由落体时长即 `(1 − 它) × ArcDuration`。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
-	float BackVaultDuration = 1.733333f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
-	float BackVaultDistance = 583.87f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
-	float BackVaultApexHeight = 579.7f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Vault|Movement")
+	TArray<FVaultTuning> VaultTunings;
 
 	/**
-	 * 白灯版本的**飞行时长**，不是 clip 长度。
+	 * 按 (方向, 灯态) 取一条。
 	 *
-	 * 曾用 2.233333（= 0.650 + 1.5833，即两条 clip 的自然长度之和）。那是被
-	 * HandoffProgress <= 1.0 的守卫逼出来的值，不是 MHR 说的值：MHR 的 159 虽然
-	 * 有约 1.596 s 的自然长度（2/34 次真的跑满并停在离地 537-553 cm 的半空，随后
-	 * 交给下坠 id 157），但众数只有 1.486 s —— **它是被触地砍断的**。
-	 *
-	 * 用 clip 长度当窗口，等于把 110 ms 本该不存在的飞行补了出来，实录路径因此被
-	 * 拉伸 4.7%：实测白灯时长 +3.4%、水平位移 +2.1%，且 JumpOver 段单独 +4.7%。
-	 * 改用飞行时长后动画会被落地自然砍断 —— 那正是 MHR 的行为。
-	 *
-	 * MHR 实录（动作 id 158+159，6 份录制 median）：0.652 + 1.487 = 2.139 s / 7.08 m。
-	 * 这里取 0.650 + 1.487 = 2.137，与 WhiteBackJumpDuration（蒙太奇 Jump 段）
-	 * 相加后 CurvedVault 窗口正好 1.487。
+	 * **没有就返回空**，调用方一律显式拒绝（拒激活）——不回退到某个方向的默认值。
+	 * 回退会让「少配了一个方向」表现成「跳出去但用的是别人的数值」，没有任何报错。
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
-	float WhiteBackVaultDuration = 2.137f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
-	float WhiteBackVaultDistance = 706.05f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement", meta = (ClampMin = "0.01"))
-	float WhiteBackVaultApexHeight = 748.9f;
-
-	/**
-	 * 曾用于「动作自有的 CurvedVault 走到哪里交棒给自由落体」的两个字段，
-	 * **已删除**：UMHGZBackVaultAbility 从不读它们，实际值由弧长算出
-	 * （`HandoffProgress = (JumpDuration + JumpOverDuration) / ArcDuration`）。
-	 *
-	 * 它们不只是没用的死配置，而是**会撒谎的死配置**：IsDataValid 校验它们
-	 * （还带一条「必须 < 1.0」的报错），文件里写 0.8734，而运行时白灯的实际值
-	 * 是 **1.0**。于是校验可能报错却毫无影响，也可能不报错而让人以为
-	 * "白灯也有自由落体段"。
-	 *
-	 * 现在这个量叫 `BackVaultResidualFallSeconds`，是 UMHGZBackVaultAbility 里的
-	 * 运行时派生值，不再由配置声明。
-	 */
-
-	/**
-	 * 整条空中弧的时长（Jump + JumpOver + 下坠），**只用于把实录轨迹归一化**。
-	 *
-	 * 与 BackVaultDuration 是两个语义不同的量：后者只覆盖 Jump + JumpOver，曾经
-	 * 被同时当作归一化域使用，于是 Jump 边界落在进度 0.375 而不是 0.330，把本该
-	 * 属于 JumpOver 的约 30 cm 位移划给了 Jump。
-	 *
-	 * MHR 实录（动作 id 146+147+143，24 次采样）：1.968 s / 5.82 m。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
-		meta = (ClampMin = "0.01"))
-	float BackVaultArcDuration = 1.968f;
-
-	/**
-	 * 白灯**没有独立的下坠段**（Rise 的 159 一直覆盖到落地），所以整条弧就是
-	 * Jump + JumpOver，等于 WhiteBackVaultDuration —— HandoffProgress 因此为 1.0，
-	 * 这是合法的「无自由落体窗口」配置，不要当成错误拒掉。
-	 *
-	 * 与 WhiteBackVaultDuration 一样取**飞行时长** 2.137 而非 clip 长度 2.2333。
-	 * 两者相等时 HandoffProgress 恰好为 1.0，守卫天然通过，不需要再为过守卫凑数
-	 * ——当初把它从 2.14 抬到 2.2333 正是那种凑数，代价是 4.7% 的路径拉伸。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Back Vault|Movement",
-		meta = (ClampMin = "0.01"))
-	float WhiteBackVaultArcDuration = 2.137f;
+	const FVaultTuning* FindVaultTuning(EDirectionalInput Direction, bool bWhite) const;
 
 	/**
 	 * MHR world-transform captures of the back-vault free-fall portion.  These

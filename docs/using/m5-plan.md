@@ -4,7 +4,15 @@
 
 项目是 UE 5.6 + GAS 的原创虫棍单机 Demo，走 M0～M7 / E0～E7 的里程碑门禁。每个阶段必须同时有代码、资产接线、PIE 与遥测证据才算签核。
 
-**当前真实位置：M4.7 已签核，M5 实施中。接缝部分（原阶段 A）已全部收敛，一项都没签核。**
+**当前真实位置：M4.7 已签核，M5 实施中。接缝部分（原阶段 A）已实现并离线验证，一项都没签核。**
+
+> **2026-09-21 更新。** 接缝做了两件事，都已完成并验收：①**拆成双蒙太奇 + 交叉淡入**（见 §2.3）；
+> ②把 `VaultSeamBlendTime` 从推断值改成**实测拐点 0.1334 s**（见 §5 第 6 条）。**距离与顶点
+> 与拆分前逐组同值 ⇒ 零回归。**
+>
+> **但「空中顿一下」没修完，而且不在接缝上** —— 起手段阶段一条根运动源都没有。这是现在
+> 第一优先的未修项，见 **§6.3**。另外三条**待你裁决/待 PIE**的（顶点距离既有偏差、最早
+> 可操作帧晚一帧、空摇杆兜底与打断路径未验证）见 §6 新增行与 §7。
 
 用户以 Monster Hunter Rise 实机录制为**唯一真值源**（`C:/apps/steam/.../reframework/data/MHGZ_AerialTrajectoryRecorder`）。
 
@@ -30,8 +38,11 @@
 | 2026-09-17（A7+B2） | ＋`MHGZAdvancingCounterAbility.h`、`MHGZWeaponRuntimeHostComponent.h/.cpp`、`MHGZM5MovementTests.cpp` | 93 / 92 / 1 | 5/5 | 同一个 |
 | 2026-09-17（白灯常量+基类+遥测+舞踏资产） | ＋`MHGZBackVaultAbility.*`、`MHGZInsectGlaiveAbility.*`、`MHGZMotionMatchingAnimInstance.*`、`MHGZWuTaMontageSetupCommandlet.*` | 95 / 94 / 1 | 5/5 | 同一个 |
 | 2026-09-18（架构重做＋出招蒙太奇禁根运动） | ＋`AnimNotify_IG_AerialHandoff.*`、`MHGZAttackAbility.*`、`AbilityTask_MHGZWeaponMovement.*`、`MHGZM5AerialHandoffTests.cpp`、`MHGZAerialHandoffSetupCommandlet.*` | **98 / 97 / 1** | 6/6 | 同一个 |
+| 2026-09-21（接缝拆双蒙太奇 + `VaultSeamBlendTime` 0.1334 + 空气墙） | ＋`MHGZPoleVaultMontageSetupCommandlet.*`、`MHGZPoleVaultAbility.*`、`MHGZAerialHandoffSetupCommandlet.*`、16 条蒙太奇资产、`L_DemoArena.umap` | **未跑全量** | **11/11** | — |
 
-**六次都是同一个失败项，逐项未变** —— `MHGZ.PMM.Assets.PoseSearchControlNotifies`，无武装 locomotion 序列把 Notify 挂在 `PoseSearchBlock` / `PoseSearchCostBias` 轨上。**是既存资产问题，与 M5 无关；全量套件在任何改动之前就不是绿的**，所以 `milestone-gates.md` 里的 54/54 是过期数字。
+**2026-09-15 到 09-18 的五次都是同一个失败项，逐项未变** —— `MHGZ.PMM.Assets.PoseSearchControlNotifies`，无武装 locomotion 序列把 Notify 挂在 `PoseSearchBlock` / `PoseSearchCostBias` 轨上。**是既存资产问题，与 M5 无关；全量套件在任何改动之前就不是绿的**，所以 `milestone-gates.md` 里的 54/54 是过期数字。
+
+**2026-09-21 那一行只跑了 `MHGZ.M5`（11/11）**，全量未重跑 —— 所以「同一个失败项还在不在」这一行没有新证据，**签核（§10）时必须重跑全量**。
 
 **`DA_IG_Combat` 从头到尾没被修改过**（`git hash-object` 始终等于 HEAD blob）。所有配置值走的都是 `InsectGlaiveCombatConfig.h` 的**类默认值**。
 
@@ -69,6 +80,12 @@ UnrealEditor-Cmd.exe <绝对路径>/MHGZ.uproject -unattended -nop4 -nosplash -N
 | **架构重做** | 反击舞踏完全无法起跳 | 见 §2.1 | 2026-09-18 PIE，22/22 |
 | **出招蒙太奇抢根运动** | 舞踏起跳冻结一整个混入时长 | 见 §2.2 | 2026-09-18 PIE，34/34 |
 | **舞踏蒙太奇登记缺口** | 舞踏的蒙太奇从来无法使用任何 notify | `StartAdvancingCounterVaultVisual` 用引擎原生 `UAbilityTask_PlayMontageAndWait`，**从未调 `RegisterMontageInstance`** —— 而项目里每个需要 notify 的能力都调（`MHGZBackVaultAbility.cpp:412`、`MHGZAttackAbility.cpp:415`、`MHGZDodgeAbility.cpp:262`、`MHGZInsectGlaiveKinsectAbilities.cpp:206/351/550`、`MHGZSheatheAbility.cpp:239`）。后果是 `MHGZ::AnimNotify::ResolveAction` 解析不出 ActionToken。实测坐实：窗口 tag 在后撑杆跳 9/9 出现、在舞踏 9/9 全无。已照 `MHGZBackVaultAbility.cpp:410-414` 补上 | 已修 |
+| **接缝硬切** | 白灯左/右 Jump→JumpOver 姿势突跳 | 见 §2.3 | 2026-09-21，**遥测 29/29 逐值验证** |
+
+> ⚠ **行号过期标记（2026-09-21）**：上表 A1/A4a/A5/A7/A8/A9 与「舞踏蒙太奇登记缺口」引用的
+> `MHGZBackVaultAbility.cpp` **行号已失效** —— 撑杆跳改成「基类 + 四向薄子类」之后，机制整体
+> 上移到了 `MHGZPoleVaultAbility.cpp`。**结论、实测数字、教训全部仍然有效，只有行号要重新定位**。
+> 往后的引用请用 `MHGZPoleVaultAbility.*`（`UMHGZBackVaultAbility` 现在只剩构造 + profile）。
 
 ### 2.1 架构重做：Flying → 点通知 → Falling（2026-09-18，**已 PIE 验证**）
 
@@ -153,12 +170,52 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 
 **一个曾经误导过的读数（值得记住）**：`CMC->HasAnimRootMotion()` 读的是 `CMC->RootMotionParams.bHasRootMotion`（`CharacterMovementComponent.h:2771-2776`），引擎注释明写 **"Not valid outside of the scope of that function"** —— 从能力任务 tick 里读它**永远是 0**，不构成证据。同一帧里 `IsPlayingRootMotion()`=1 与 `HasAnimRootMotion()`=0 **并不矛盾**，它们读的不是同一个东西。
 
+### 2.3 接缝硬切 → 拆成双蒙太奇 + 交叉淡入（2026-09-21，**遥测已逐值验证**）
+
+**症状**：白灯左/右跳从 Jump 到 JumpOver「有点瞬移」。
+
+**根因**：蒙太奇同一条 AnimTrack 上的段与段**永远硬切** —— `FAnimTrack::GetAnimationPose`（`AnimCompositeBase.cpp:535`）用 `GetSegmentAtTime` 只取**一个**段，`ValidateSegmentTimes` 又把 `StartPos` 重新首尾相接，**连手工做重叠窗口都不可能**。而白灯左/右**没有专用起手段**（原作白灯一族只有 `155/156/157/158/159`），复用为弧段 `142` 授权的 `144`/`145` —— 所以只有这一对落差特别大。
+
+**修法**：八条资产全部拆成**两条单段单节蒙太奇**（起手段沿用原名，弧段新建 `_Over` 后缀），接缝靠「播弧段时把起手段交叉淡出」糊掉 —— **不需要任何新机制**，`UAnimInstance::Montage_PlayInternal`（`AnimInstance.cpp:2394-2398`）在 `bStopAllMontages` 为真时调 `StopAllMontagesByGroupName(Group, BlendInSettings)`，**入场蒙太奇的 blend-in 设置同时把旧蒙太奇按同样时长淡出**。
+
+**`VaultSeamBlendTime = 0.1334 s` 是扫出来的，不是拍的** —— `probe_vault_seam_blend.py`（倒姿势网格）+ `Saved/_mhr_scratch/analyze_vault_seam_blend.py`（离线判据，改判据不用重开编辑器）。判据是**逐帧局部**的 `r(k) = 淡入第 k 帧增量 / 纯弧段第 k 帧增量`。拐点在 0.1334 s，**30/40/60/120 fps 下都是同一点**：
+
+| B (s) | 弹跳 max r | 代价 min r | 总偏差（max abs） | 拖拽 deg·s |
+|---|---:|---:|---:|---:|
+| 硬切 | 2.24 | — | 1.24 | — |
+| 0.10 | 1.98 | 0.40 | 0.98 | 0.9 |
+| **0.1334** | **1.58** | 0.30 | **0.70** | 1.2 |
+| 0.2668 | 1.88（**回升**） | 0.15 | 0.88 | 2.5 |
+
+**⚠ 订正一个测量口径。** 本任务早期写下的「白灯右 4.28×」是拿**1/30 剪辑秒**当「正常一帧」的落差当分母，而剪辑是被段速率压缩播的、弧段在接缝那一帧本来就跑得很快（实测 4.64°/帧 @40fps）。**换成逐帧局部基线后硬切最差是 2.24×** —— 旧口径把「前」放大了约 1.9 倍。**绝对落差（13.55°/14.40°）没问题，错的只是分母。**
+
+**⚠ 再长就变差**：0.20/0.2668 的弹跳回升到 1.7~1.9。原因是引擎的旋转合成是 **nlerp 不是 slerp**（`AccumulateWithShortestRotation`，`TransformVectorized.h:1061-1072`），α≈0.5 处角速度不均匀，淡入越长中点越容易落进弧段的快速段。
+
+**过程中的两个坑**（都已修，值得记住）：
+
+1. **阻断性的**：`StopAllMontagesByGroupName` 传的是 `bInterrupt = true`（`AnimInstance.cpp:3280`），而 `UAbilityTask_PlayMontageAndWait::OnMontageBlendingOut` 在 `bInterrupted` 时直接广播 `OnInterrupted`（`:42-44`）⇒ 照最初写法**每一次撑杆跳都会在 0.650 s 终止**。修法是在接缝那一帧摘掉起手段任务的中断回调（不能干脆不绑 —— 起手段阶段的真中断仍必须结束动作）。
+2. **Back-white 的时长陷阱**：弧段时长若按「窗口 − 起手段」推，白灯后撑杆跳的弧段姿势会从 1.5833 被压到 1.487（−6.1%），而那个「姿势刻意比窗口长、让落地砍断」正是 PIE 验证过的行为。新增 `FVaultProfile::JumpOverDuration` 把**姿势长度**与**移动窗口**分成两个量。
+
+**验收（`Saved/RuntimeTelemetry/20260921-2044*`，29 次撑杆跳）**：
+
+| 判据 | 实测 |
+|---|---|
+| 重叠帧数 / Σw | 5 帧 / **恒 1.0000** |
+| α 序列 vs 引擎递推 | 误差 ≤ 0.013，**包括末帧那一跳** |
+| 起手段位置 / `IsPlaying` | 冻结在 **0.6499** / 0 |
+| 淡出期 `RootMotionDisabled` | 恒 1 |
+| 弧段 `MontageHasRootMotion` | 恒 0 |
+| 距离 / 顶点 vs 拆分前 | **逐组同值** |
+| `MHGZ.M5` | **11/11** |
+
+复跑入口：`probe_vault_seam_pose.py`（硬切基线）+ `probe_vault_seam_blend.py`（姿势网格）+ 离线分析器。
+
 ## 3. 已改判 / 已关闭（**前提被否定，不需要修**）
 
 | 项 | 原症状 | 结论 |
 |---|---|---|
 | **A3** | 交棒姿势跳变 | **被数据否定**（f6096 是干净的 0.5/0.5 交叉淡入） |
-| **A4b** | 落地期无动作门禁 | **前提被否定**：`Aerial.CantAttack`/`CantDodge` 的 DevComment 是「空中攻击**已用**」「空中回避**已用**」—— 它们是**动作预算标记**，不是「落地期间锁输入」。且全部录制里 **119 次独立落地，0 次被动作打断**。改判为代码整洁项 |
+| **A4b** | 落地期无动作门禁 | **前提被否定**：`Aerial.CantAttack`/`CantDodge` 的 DevComment 是「空中攻击**已用**」「空中回避**已用**」—— 它们是**动作预算标记**，不是「落地期间锁输入」。且全部录制里 **119 次独立落地，0 次被动作打断**。改判为代码整洁项。详见**附录 A.2**（同一结论的逐条版，此处不重复展开） |
 | **A2** | 边界墙钟与动画段脱钩 | 实测源起于 montage time **0.6758~0.7249**，而 `BackJumpDuration = 0.650`，偏差 **1~3 帧**、未造成症状。**只加校验不重构**（激活时与 `GetSectionEndTime` 对表）→ 降级为收口项，见 §6 |
 
 **要克制的一条**：A3 这类"代码看着不对但数据说没事"的项，**不要顺手修**。对话前段正是栽在这个模式上 —— 把代码结构推断当成已验证事实，并据此排错优先级。
@@ -171,9 +228,9 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 | **阶段 C 后撑杆跳设计文档补录** | 已完成 |
 | **遥测** | `Saved/RuntimeTelemetry/` 下的成套 CSV 覆盖 montage / RootMotionSource / MovementMode / 骨骼三个几何层次，2026-09-17 又补上加速度 |
 | **唯一位移执行层** | `UAbilityTask_MHGZWeaponMovement`（四种 `EWeaponMovementMode`：`BoundedDirectional` / `BallisticVault` / `CurvedVault` / `AdditiveInertia`）。已接线：`BallisticVault`（突进回旋斩反击）、`CurvedVault`（后撑杆跳）。**其余两种是按合同预置的基础设施，不是死代码** —— 正好对应未开工的操虫斩与强化跳跃斩/急袭突刺 |
-| **后撑杆跳 / 舞踏 实现** | `UMHGZBackVaultAbility` + `AM_IG_HouChengGanTiao(_W)`、`AM_IG_WuTa`。**后撑杆跳曾是无主实现**（F3），设计文档补录后才纳入 M5 |
+| **撑杆跳 / 舞踏 实现** | **2026-09-21 起撑杆跳是四向的**：机制全在基类 `UMHGZPoleVaultAbility`（`Abstract`），四个方向各一个薄子类（`Back`/`Forward`/`Left`/`Right`）只负责灌自己的 `FVaultProfile`；`UMHGZBackVaultAbility` **退化成薄子类**。资产：四向 × 两灯态 × 两半 = **16 条蒙太奇**（起手段沿用 `AM_IG_*ChengGanTiao{,_W}`，弧段 `_Over` 后缀）。舞踏仍是 `UMHGZAdvancingCounterAbility` + `AM_IG_WuTa`。**后撑杆跳曾是无主实现**（F3），设计文档补录后才纳入 M5 |
 | **Rise 真值管线（2026-09-18 新增）** | `docs/reference/`（真值表 + 招式表 + 口径）+ `Scripts/MHRise/build_truth_table.py`（生成器）。逐帧轨迹写到 `Saved/_mhr_frames/`（不入库）。详见 §3 |
-| **命令列** | `MHGZAerialHandoffSetupCommandlet`（写点通知，报告 `Saved/_aerial_handoff.json`，三条 `validated: true`）、`MHGZWuTaMontageSetupCommandlet`。<br>**⚠ 别"顺手清理" `MHGZAerialHandoffSetupCommandlet.cpp:26` 的 `RetiredStateClassName = TEXT("AnimNotifyState_IG_AerialWindow")`** —— 旧类删掉之后，清理仍然靠**类名字符串**匹配（而不是 `Cast`），这行正是"幂等重跑仍能清掉旧通知"的实现方式，删了它旧蒙太奇就再也清不干净 |
+| **命令列** | `MHGZAerialHandoffSetupCommandlet`（写点通知，报告 `Saved/_aerial_handoff.json`，**9 条 `validated: true`**）、`MHGZWuTaMontageSetupCommandlet`、**`MHGZPoleVaultMontageSetupCommandlet`**（2026-09-21 新增，烘 16 条单段单节蒙太奇，报告 `Saved/_pole_vault_montage.json`）。<br>**⚠ 2026-09-21 拆双蒙太奇之后，点通知从起手段搬到了弧段**：前/左/右与后 0.783 → **0.133**，白灯后 0.775 → **0.125**（都是减 `JumpDuration = 0.650`）。报告里另有 `takeoff_ordering[*]` 断言「起手段那半边不许带点通知」——**通知要是留在只有 0.650 s 长的起手段上就永远触发不了**，而"有没有通知"的判据却会为真。<br>**⚠ 别"顺手清理" `MHGZAerialHandoffSetupCommandlet.cpp:26` 的 `RetiredStateClassName = TEXT("AnimNotifyState_IG_AerialWindow")`** —— 旧类删掉之后，清理仍然靠**类名字符串**匹配（而不是 `Cast`），这行正是"幂等重跑仍能清掉旧通知"的实现方式，删了它旧蒙太奇就再也清不干净 |
 | **怪物碰撞：不可站立** | `MonsterBody` 早就在用（`AMHGZMonsterBase` 构造函数）；「不可站立」不是碰撞预设能表达的 —— `FWalkableSlopeOverride` 是**组件属性**，`FCollisionProfileName` 里没有它，所以对胶囊写 `WalkableSlope_Unwalkable` |
 
 > **订正一条我自己的错误结论。** 我曾据一次 grep 说「`MonsterBody` 在全树 `Source/` 零命中、只在蓝图里指派」。
@@ -187,6 +244,9 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 3. **空中下落/落地表现归 M5**，随招式一起验。
 4. **旋转维度不验证。** 用户按设计确认「锁死不转向绝对正确还原游戏设计的」，`RotationPolicy::Locked` 是**事实**而非假设。**M5 不产出朝向数据、不重录 Rise。**（11 份录制已带朝向列，实测整条链 yaw 变化恰好 0.0°，反过来佐证了这条。）
 5. **不统一两个模式的积分器**（2026-09-18 定）。实测差异在真实弧上测不出；统一需要换源码版引擎。
+6. **接缝用交叉淡入，`VaultSeamBlendTime = 0.1334 s`**（2026-09-21 定）。拐点由扫描给出，30/40/60/120 fps 下一致（见 §2.3）。**这是一个权衡不是最优点**：它把接缝跳跃从 2.24× 压到 1.58×，代价是弧段开头那一帧只跑到应有速度的 0.30 倍（短暂迟滞）。**若 PIE 目视觉得「起手发沉」比「接缝一跳」更难受，就往小调**（0.10 时是 1.98× / 0.40 倍）。
+7. **不做逐变体的淡入时长**。硬切落差本来就小于一帧正常运动量的组合（白灯前/后，1.09/0.85）在淡入后升到 1.24 —— 是负收益，但 1.24 远低于最差的 1.58，不值得为它多一个常量。
+8. **竞技场空气墙加高到 30 m**（2026-09-21）。四面墙原本 300 cm，而撑杆跳顶点 558~749 cm。只改 Z，内侧面与 X/Y 跨度不动（推墙会改可玩面积）。撑杆跳位移走 `SafeMoveUpdatedComponent → HandleImpact → SlideAlongSurface`（`AbilityTask_MHGZWeaponMovement.cpp:270-294`），**会撞墙**，所以加高即够。
 
 ---
 
@@ -201,7 +261,12 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 | **A4c `AbilityOwned` 落地策略空实现** | 急袭突刺与降龙都要用 | **阶段 D 的硬前置**，随那两招一起做 |
 | **F1 舞踏倍率断开** | `URes_InsectGlaive::GetDanceDamageMultiplier()`（`Res_InsectGlaive.cpp:835`）**全树零调用方**；`MHGZDamageExecCalc.cpp:86-87` 读 `Damage.DanceMultiplier`，但 `MakeDamageSpec`（`MHGZAttackAbility.cpp:1282-1295`）只写 `MotionValue` 与 `BaseStagger`，全树无写入点。`MaxDanceStacks` 类默认 `0`，`AddDanceStack` 被 clamp 到 0。→ **层数能加、能观测，但不影响任何伤害**；M5 退出条件「倍率封顶且按段快照」当前不可验证 | 阶段 B 的三步：**B1[代码]** `MakeDamageSpec` 里写 `Damage.DanceMultiplier = Resource->GetDanceDamageMultiplier()`，**每个 AttackSegment 创建 Spec 时快照**；**B2[编辑器]** 设 `MaxDanceStacks > 0` 与 `DanceDamageMultipliers[]`（`Num == MaxDanceStacks + 1` 且 `[0] == 1.0f`）；**B3[决策]** `MHGZDamageExecCalc.cpp:107` 的 `FMath::Max(1.0f, DanceMultiplier)` 兜底会让 <1.0 的倍率被静默忽略，确定是否只允许 ≥1.0 |
 | **「落到木桩上动不了」(wu13)** | 木桩圆顶的法线 Z 是 **0.715–0.756**，刚好高于 UE 的可行走坡度阈值（cos 44.765° ≈ 0.71），于是 `PhysFalling` 认定它可站立、CMC 自己落地、`HandleLanded` 报 `Landed`，而胶囊在那么小的曲面上无法稳定接触，陷入每 ~0.5 s 一次的穿透极限环，`MovementMode` 一直是 Falling。**这是关卡碰撞几何形状的问题**（圆顶通过了坡度测试却撑不住胶囊），不是纯逻辑缺陷 | 修法二选一：改木桩的碰撞（坡面覆盖 / 不可行走），或加"声称有地面但连续 N 帧无法稳定接触"的出口。**看门狗（4.0 s）也晚于那 3.2 s，不是它。**<br>**我曾写"窗口闸门直接修掉它"—— 那是错的**：假落地发生在 montage 时间 ~1.449 s，远在 0.317 s 窗口之后，闸门会放行 |
-| **A2 / 阶段 E 墙钟** | `AM_IG_HouChengGanTiao` 的 `Jump → JumpOver` 边界仍是 `UAbilityTask_WaitDelay` **墙钟定时器**（`MHGZBackVaultAbility.cpp:534-548`），而资产里两段已 `NextSection` 链接。**常驻资产的收益目前没兑现** | 收口项，见 §8 |
+| **起手段阶段没有任何根运动源**（**用户主诉「空中顿一下」的真正位置**） | 接缝**之前**那 3~5 帧里水平速度从 13.7 cm/帧衰减到 0.68 cm/帧，个别帧正好 0.00。29 次撑杆跳里 26 次至少一帧 < 2 cm。**位置在接缝之前，所以交叉淡入改不了它** | **机制只查了一半**，见 §6.3。`VaultHandoffLeadSeconds` 是原计划为这件事留的旋钮，但 1 帧填不上 3~5 帧的坑、5 帧又会让动画甩在轨迹后面同样多 —— **先查清再动** |
+| **顶点/距离相对 Rise 的既有偏差**（**不是本次回归**） | 距离 `有白灯·向左` **−7.3%**；顶点 `有白灯·向前` **−5.6%**、`无白灯·向左` **−5.3%**、`有白灯·向左` −4.7%、两个「向右」−3.7%。计划判据是 ±4% | 拆分前后**逐组中位数完全相同**（`Saved/_mhr_scratch/apex_old_vs_new.py` 对拆分前两份录制跑同一判据）⇒ 与接缝工作无关。`有白灯·向左` 的 Rise 真值只有 **2 次可用试次**，偏差更可能在参照那一侧。**接受 / 补录 / 调表，待裁决** |
+| **最早可操作帧晚约一帧** | 设计 0.783（链上），实测 `Combat.State.Aerial.Actionable` 出现在链上 **0.825**（弧段局部 0.175）。差 0.042 s ≈ 1.7 帧 | 可能只是 notify 要等下一个 tick 才反映的固有量化。**未确认是否算问题** |
+| **三条 PIE 路径从未走到过** | ①空摇杆 RT+A → 前推的兜底边；②撑杆跳**中途被打断**；③**落地打断**。后两条会走 `EndAbility` 里「先停弧段再停起手段」那条清理，该路径只过了编译与单测 | 需要用户跑；`EndAbility` 的清理顺序是拆双蒙太奇时新写的 |
+| **空气墙** | `L_DemoArena` 四面墙原本只有 **300 cm** 高，而撑杆跳顶点 558~749 cm ⇒ 一跳就越过去（用户「老是掉下去」） | **已修**：四面墙 `scale.z 3 → 30`（Z ∈ [0, 3000]），内侧面与 X/Y 跨度未动，`git diff` 只有 `L_DemoArena.umap`。**但未在 PIE 里真的跳一次撞上去验证** |
+| **A2 / 阶段 E 墙钟** | 交棒仍由 `UAbilityTask_WaitDelay(JumpDuration)` **墙钟**驱动（现 `MHGZPoleVaultAbility::ScheduleJumpOverMovementHandoff`，`:795`，`WaitDelay` 在 `:826`），不是由蒙太奇段边界驱动。**2026-09-21 拆成两条蒙太奇之后，蒙太奇里已经没有 `Jump → JumpOver` 边界了**，所以这条只剩「交棒调度仍是墙钟」这一半 | 收口项，见 §9 |
 
 ### 6.1 A6 的修法
 
@@ -226,6 +291,40 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 
 **已排除**：碰撞（整段飞行只有落地那一次胶囊命中，法线 Z=1）；采样假象（那段 0.1 s 内 Z 实降 −100.9 cm，而 `VZ` 积分预测 −118.2 cm）；模式切换（两版逐帧数值相同，旧版 `MovementMode` 到末帧才由 5 变 3、新版早在 0.80 就变 3）。
 
+### 6.3 起手段阶段的「空中顿一下」（2026-09-21，**机制只查了一半**）
+
+**位置**：接缝**之前**的 3~5 帧。水平位移（cm/帧，接缝为第 0 帧）：
+
+```
+-8     -6     -5     -4     -3     -2     -1      0     +1     +2     +3
+13.7   5.4    3.2    1.6    1.4    0.7    1.8    1.8    5.6    9.3    9.3
+```
+
+29 次里 **26 次**至少一帧 < 2 cm；±8..+6 窗口里 **41/435 帧 < 1 cm**。
+
+**已经坐实的**：
+
+- `Character/RootMotionSources.csv` 在接缝前那 **10 帧一条源都没有**（`SourceType=Invalid`）。CurvedVault 源（`InstanceName=MHGZ_ActionMove_4_1`，`Duration=1.1029`）**在接缝那一帧才被创建**。
+- 起手段**整段**水平位移 **252.7 cm**，而该剪辑（`AS_Unsh_Jump_Right`）实测根净位移是 **220.59 cm** —— **多出 32 cm**。位移是有的，只是**分布极陡**（19 cm/帧 → 0.68 cm/帧）。
+- 同期 `AnimShouldExtractRootMotion=1`、`AnimRootMotionMode=2`（RootMotionFromEverything），但 `HasAnimRootMotion=0` **整段不变**；起手段蒙太奇自身 `MontageHasRootMotion=1` 且接缝前**未被禁用**。
+- `BeginBackVaultInitialFlight`（`MHGZPoleVaultAbility.cpp:652`）**只切 `MOVE_Flying`，不赋速度**。
+
+**还没查清的（动它之前必须先查）**：
+
+1. 多出来的 32 cm 从哪来？若根运动是唯一驱动，应当恰好 220.59。
+2. 为什么 CMC 级根运动整段是 0（`AnimShouldExtractRootMotion` 明说该提取）。
+3. 速度为什么会衰减到近零 —— `MOVE_Flying` 的 `BrakingDecelerationFlying` 在 UE 默认是 **0**，项目也没设，所以「刹车」这个解释目前**不成立**。
+
+> ⚠ `CMC->HasAnimRootMotion()` 出了 `PerformMovement` **恒为 0**（见 §2.2 与附录 A.1 第 11 条）—— 用它当「根运动没在起作用」的证据是**无效的**，上面第 2 条要用别的手段查。
+
+**旋钮不要盲动**：`VaultHandoffLeadSeconds`（现 0）把 `WaitDelay` 的时长减掉它，让源提前起。
+提前 1 帧填不上 3~5 帧的坑；提前 5 帧（0.125 s）虽然能把衰减段盖住，但**动画会甩在轨迹后面同样多** —— 那是把「顿一下」换成「姿势与位移错位」，不是修好。**先查清机制。**
+
+复跑：`Saved/_mhr_scratch/check_vault_live_v2.py`（接缝+胶囊）、`apex_old_vs_new.py`（顶点/距离对照）。
+
+> ⚠ **遥测单位**：`Character/Spatial.csv` 的 `Location*` 是**厘米**、`Velocity*` 是 **cm/s**。
+> 再乘 100 会得到「726 m/s 竖直速度、飞到 656 m 高」这种荒唐读数（本节初稿踩过）。
+
 ## 7. 待外部输入
 
 | 项 | 卡在哪 |
@@ -234,6 +333,9 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 | **`CantAttack` / `CantDodge` 预算接线** | 这两个 tag 的语义是「空中动作**已用**」——**由招式消费时 acquire**，不是窗口一开就 acquire。空中招式归阶段 D，现在 acquire 反而会把语义写错 |
 | **空中受击表现** | 起跳后不允许收刀（设计如此）；被空中命中时播的是**地面**受击动画。`UMHGZHitReactionAbility` 目前只有 `Combat.Stagger.Light` 一条表现路径（`:162-166`）。**尚未制作** |
 | **反击触发延迟** | 反击链内**没有任何计时器或段边界**（`HandleIncomingHit` 到 `ApplyBallisticVaultSource` 同一帧同步）。延迟来自训练桩火环 `HitInterval = 0.25 s`（`MHGZDummyConfig.h:121`）才采样一次命中 —— **是测试夹具问题，不是战斗逻辑问题** |
+| **顶点/距离既有偏差怎么处置**（2026-09-21 新增） | 三组超计划的 ±4%（距离 `有白灯·向左` −7.3%；顶点 `有白灯·向前` −5.6% / `无白灯·向左` −5.3%）。**拆分前后逐组同值 ⇒ 不是接缝工作引入的。** 接受 / 补录 Rise 白灯左 / 调表，三选一，**要用户定**。见 §6 |
+| **三条 PIE 路径需要用户跑**（2026-09-21 新增） | ①**空摇杆 RT+A → 前推**的兜底边；②撑杆跳**中途被打断**；③**落地打断**。后两条会走 `EndAbility` 里「先停弧段再停起手段」这条清理 —— 拆双蒙太奇时新写的，实跑里一次都没触发过。另外空气墙的实际拦截（跳一次撞上去）也一并看。见 §6 |
+| **接缝的观感**（2026-09-21 新增） | 遥测里**没有逐骨姿势**，所以「淡入之后还顿不顿」只有用户的眼睛能判。数字面：硬切 2.24× → 0.1334 s 后 1.58×。见 §2.3、§5 第 6 条 |
 
 > 上表后三项的实测证据见 `docs/using/空中动作已知问题.md`。
 
@@ -257,13 +359,14 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 - 补 `EIGDanceClearReason`（`AttributeSystem/Res_InsectGlaive.h:38-47`，现有枚举 `Landed / Hit / Sheathed / Unequipped / DescendingThrust / DivingWyvern / RuntimeShutdown`）的 `Hit` / `Sheathed` / `DescendingThrust` / `DivingWyvern` 调用点；该枚举**缺 `Death`**。
 - AnimBP 读取 `Combat.State.Aerial.Falling.*` / `.Landing` 选 pose。
 - 修 F5 的文档过时点：`demo-implementation-plan.md:496` 与 `actions.md:338` 写 `UAbilityTask_MHGZMovement`，实为 `UAbilityTask_MHGZWeaponMovement`；`actions.md:351` 的 `EMovementCollisionPolicy` 词汇与代码不符（该类已删）；`milestone-gates.md:117` 的 54/54 与 `:77` 的 M4 27/27 是过期数字。
-- `AM_IG_HouChengGanTiao` 的 `Jump → JumpOver` 墙钟定时器（见 §6）。
+- **交棒仍是墙钟**：`UAbilityTask_WaitDelay(JumpDuration)`（`MHGZPoleVaultAbility.cpp:795/:826`）。拆成两条蒙太奇之后蒙太奇里已无段边界，所以只剩这半条（见 §6）。
+- **舞踏回退蒙太奇（可选整洁项，2026-09-21 复核后判定「不必做」）**：`StartAdvancingCounterVaultVisual`（`MHGZAdvancingCounterAbility.cpp:342`）在 `DanceVaultMontage` 加载失败时走 `UAnimMontage::CreateSlotAnimationAsDynamicMontage`，而该函数在 UE 5.6 **声明了 `InPlayRate` 却从不引用**，所以回退路径**无法改速率**、姿势会与 `DanceVaultDuration` 脱钩。后撑杆跳已示范正确写法（`NewObject<UAnimMontage>(this, NAME_None, RF_Transient)` + 手工填 `FAnimSegment`，`MHGZPoleVaultAbility.cpp:746`）。**结论：不照抄。** ①这条回退只在资产丢失时才会走，而 `/Game/Weapons/InsectGlaive` 已在 `DirectoriesToAlwaysCook`（`Config/DefaultGame.ini:42`），录制里一次都没走过；②头文件注释（`MHGZAdvancingCounterAbility.h:66-84`）已经把「这条路不能改速率」写明并引了引擎行号，陷阱已被文档堵住；③照抄等于把一份手工建蒙太奇的代码复制成第二份。**真要做，该做的是删掉回退、让缺资产变成硬报错**（连只喂它的 `DanceVaultSequence` / `DanceVaultAnimationPlayRate` 一起删）。
 - **自动化空缺**：`MHGZ.M5.Movement.OwnershipAndCleanup` 从未实例化过 Task 本体。
 
 ## 10. 阶段 F — M5 签核
 
 Development Editor 全量编译（新增反射字段**不得用 Live Coding 验证**）→ 命名自动化套件带硬计数 → commandlet 资产审计带计数 → DataValidation 冷启动资产数 → `Saved/RuntimeTelemetry/<timestamp>` 录制 → **用户 PIE 目视确认** → 文档状态行回写。
-**必须重新计数 `MHGZ.M4` / `MHGZ.M5`，不得复用过期数字**（当前基线 **98 / 97 通过 / 1 失败**）。
+**必须重新计数 `MHGZ.M4` / `MHGZ.M5`，不得复用过期数字** —— 全量最近一次是 **2026-09-18（98 / 97 通过 / 1 失败）**；**2026-09-21 只重跑过 `MHGZ.M5`（11/11），全量没跑**，所以签核时必须重跑。
 
 ---
 
@@ -274,6 +377,9 @@ Development Editor 全量编译（新增反射字段**不得用 Live Coding 验�
 > **2026-09-18**：逐段/逐招式的原始真值已迁到 **`docs/reference/真值表.md`**（由 `Scripts/MHRise/build_truth_table.py` 从 22 份可用录制生成），完整口径见 `docs/reference/README.md`。**本节只留「配置对照」这张验收表与几条判据性的结论。**
 
 ### 数据约定
+
+> **权威版在 `docs/reference/README.md`**（192 行，含生成器口径与完整字段说明），本节只是摘要。
+> **冲突时以那边为准** —— 两份抄同一件事迟早会漂移，改口径请改那边并回来同步这里。
 
 - `get_master_player_position` 读 `get_Transform → get_Position` 的**原始世界坐标**，逐渲染帧。
 - `velocity_*` **不是游戏里的值**，是 Lua 用位置后向差分算的 —— 与位置自洽，可以用。

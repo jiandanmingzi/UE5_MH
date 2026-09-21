@@ -20,9 +20,19 @@
  *    造出第二个真相源。
  *
  * 实测位置（MHR 实录，取被玩家取消的段的最短时长）：
- *  - AM_IG_WuTa                0.316 s（舞踏，弧长 1.6167）
- *  - AM_IG_HouChengGanTiao     0.783 s（后撑杆跳，弧长 1.7333）
- *  - AM_IG_HouChengGanTiao_W   0.775 s（白灯后撑杆跳，弧长 2.137）
+ *  - AM_IG_WuTa                   0.316 s（舞踏，**单条**蒙太奇，弧长 1.6167）
+ *  - AM_IG_HouChengGanTiao_Over   0.133 s（后撑杆跳）
+ *  - AM_IG_HouChengGanTiao_W_Over 0.125 s（白灯后撑杆跳）
+ *  - AM_IG_*ChengGanTiao{,_W}_Over 0.133 s（前 / 左 / 右 × 无 / 有白灯）
+ *
+ * ⚠ **撑杆跳的墙在整条链上是 0.783 s**（起跳 78 帧 + 弧段 16 帧 = 第 94 帧，
+ * `0.650 + 16/119.8`），但通知挂在**弧段那条蒙太奇**上，那条有自己的零点，所以要
+ * 减去起手段的 0.650 s。上面列的是**写进资产的那个值**，不是链上的值。
+ *
+ * ⚠ 起手段那一半（`AM_IG_*ChengGanTiao`，不带 `_Over`）**不能**挂这条通知：它只有
+ * 0.650 s 长，永远触发不了，而「这条蒙太奇有没有点通知」的判据却会为真 —— 那条
+ * 变体的最早可操作帧就此消失。清掉它的是 `MHGZPoleVaultMontageSetupCommandlet`。
+ *
  * 由 UMHGZAerialHandoffSetupCommandlet 写入。
  */
 UCLASS(meta = (DisplayName = "IG Aerial Handoff"))

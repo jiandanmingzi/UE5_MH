@@ -26,8 +26,16 @@ const FGameplayTag& AdvancingCounterOpenTag()
 
 UMHGZAdvancingCounterAbility::UMHGZAdvancingCounterAbility()
 {
+	// This CDO-level soft reference is why the Content Browser rename dialog warns
+	// "Source code, config INI, and text files may need Find/Replace":
+	// FAssetRenameManager::FindCDOReferences walks every CDO's soft references and
+	// refuses the rename (OKCancel defaulting to Cancel) when it finds one.  The
+	// cooker never sees a CDO's soft paths either, so this asset only reaches a
+	// cooked build through DirectoriesToAlwaysCook in DefaultGame.ini -- renaming
+	// the asset without updating this string silently drops the montage and makes
+	// StartAdvancingCounterVaultVisual() return false with no log.
 	DanceVaultSequence = TSoftObjectPtr<UAnimSequenceBase>(FSoftObjectPath(
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_WuTa.AS_Unsh_WuTa")));
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_TuJinHuiXuanWuTa.AS_Unsh_TuJinHuiXuanWuTa")));
 	// Authored by UMHGZWuTaMontageSetupCommandlet, which bakes DanceVaultDuration
 	// into the segment's AnimPlayRate.  A CDO-level override replaces it.
 	DanceVaultMontage = TSoftObjectPtr<UAnimMontage>(FSoftObjectPath(
@@ -302,7 +310,7 @@ bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVault()
 		return false;
 	}
 
-	// AS_Unsh_WuTa is intentionally in-place.  Its visual playback may end
+	// AS_Unsh_TuJinHuiXuanWuTa is intentionally in-place.  Its visual playback may end
 	// before or after the editable ballistic duration, but never owns CMC
 	// movement or this Action's completion; the vault task/landing does.
 	StartAdvancingCounterVaultVisual();
@@ -355,7 +363,7 @@ bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVaultVisual()
 	AdvancingCounterVaultMontageTask->ReadyForActivation();
 
 	// Register the instance with the Host, exactly as every other montage-playing
-	// ability does (MHGZBackVaultAbility.cpp:412, MHGZAttackAbility.cpp:415,
+	// ability does (UMHGZPoleVaultAbility::BeginBackVaultInitialFlight, MHGZAttackAbility.cpp:415,
 	// MHGZDodgeAbility.cpp:262, ...).  MHGZ::AnimNotify::ResolveAction finds the
 	// active ActionToken through Host->ResolveMontage(Mesh, MontageInstanceID), so
 	// without this the dance vault's montage can never resolve a notify: the
