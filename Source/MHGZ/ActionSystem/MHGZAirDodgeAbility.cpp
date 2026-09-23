@@ -530,6 +530,12 @@ void UMHGZAirDodgeAbility::HandleAirDodgeVisualCompletedForTest()
 	HandleAirDodgeVisualCompleted();
 }
 
+UAbilityTask_MHGZPlayMontageAndWait*
+UMHGZAirDodgeAbility::GetAirDodgeVisualTaskForTest() const
+{
+	return AirDodgeVisualTask.Get();
+}
+
 void UMHGZAirDodgeAbility::HandleAirDodgeVisualInterrupted()
 {
 	AirDodgeVisualTask = nullptr;

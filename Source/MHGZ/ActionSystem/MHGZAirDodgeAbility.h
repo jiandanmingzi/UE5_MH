@@ -132,6 +132,20 @@ public:
 	void HandleAirDodgeTailLandedForTest() { HandleAirDodgeTailLanded(FHitResult()); }
 	void HandleAirDodgeVisualCompletedForTest();
 
+	/**
+	 * 自动化专用：取视觉任务裸指针，用来钉住两条曾经各自失效过的不变量 ——
+	 * ① 任务确实登记了 tick（`IsTickingTask()` + ticking 列表，少了它 `ReportCompletionAtMontageEnd`
+	 * 永远不上报 ⇒ 终末姿势保持到触地、下坠段姿势冻结）；② 蒙太奇实例保持终末姿势
+	 * （`bEnableAutoBlendOut == false`，从 `AnimInstance->GetActiveInstanceForMontage` 读）。
+	 *
+	 * 返回非 const：第 ①/④ 条钉子里要用 `DriveTickForTest` 手动驱动一次 tick（测试世界不 tick）。
+	 * 除那次驱动外只做只读断言。
+	 */
+	UAbilityTask_MHGZPlayMontageAndWait* GetAirDodgeVisualTaskForTest() const;
+
+	/** 自动化专用：视觉完成旗标（第 ④ 条钉子要断言 `OnCompleted` 真的走到了这里）。 */
+	bool GetAirDodgeVisualFinishedForTest() const { return bAirDodgeVisualFinished; }
+
 protected:
 
 private:

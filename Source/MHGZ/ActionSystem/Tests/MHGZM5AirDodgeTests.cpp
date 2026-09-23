@@ -25,6 +25,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameplayTasksComponent.h"
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "MHGZPlayerState.h"
@@ -1065,6 +1066,115 @@ bool FMHGZM5AirDodgeHandoffWindowTest::RunTest(const FString& Parameters)
 	// 退化输入：空蒙太奇不得被判成「永远没播完」而把动作卡住。
 	TestTrue(TEXT("a zero-length montage counts as reached"),
 		Task::HasMontageReachedEnd(0.0f, 0.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM5AirDodgeVisualTeardownPinsTest,
+	"MHGZ.M5.Aerial.AirDodgeVisualTaskTicksAndHoldsTerminalPose",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// 收尾设计的四条不变量，各自**曾经独立失效过**，所以分开钉（2026-09-23）：
+//
+//  ① 视觉任务必须处于「会 tick」的状态，且必须是**登记之前**就置真的。引擎只在激活那一刻
+//     登记 tick（`GameplayTasksComponent.cpp:86`，`bTickingTask` 默认 false），之后再置 true
+//     是静默无效 ⇒ `TickTask` 成死代码 ⇒ `ReportCompletionAtMontageEnd()` 永不上报 ⇒
+//     `bAirDodgeVisualFinished` 恒假 ⇒ 收尾一直等到触地 ⇒ 下坠段姿势冻结在终末姿势
+//     （录 `20260923-225916`：9 帧 `RootBoneRelZ` 恒 −101.00、胶囊却下落 361 cm）。
+//     ⚠ 只看 `IsTickingTask()` 挡不住「挪到 ReadyForActivation 之后」这种改法（那个位是粘性的、
+//     且移除时也不清），所以这里直接查**任务在不在 ticking 列表里**（登记与否的真凭据）。
+//  ② 蒙太奇实例必须保持终末姿势（`bEnableAutoBlendOut == false`）—— 否则收尾那一帧实例已被
+//     引擎终止，`EndAbility` 的 `Montage_Stop(0.05f)` 成空操作，缝上会掉一帧「无蒙太奇」。
+//     实例位是从**资产**拷来的（`AnimMontage.cpp:1506`），所以同时断言资产仍是 true ——
+//     两半合起来才证明「是这行 C++ 关的」，只有实例那一半的话，资产改一下就能替掉代码而不红。
+//  ③ 判据的**前提**是资产事实：`HasMontageReachedEnd` 拿 `GetPlayLength()` 当终点，而引擎在末尾
+//     夹的是**当前段的末端**。单段蒙太奇时两者相等；重切成多段／非连续段后位置就永远够不到长度
+//     ⇒ 判据永假 ⇒ 动作卡住（比原来的视觉缺陷更严重）。钉段数，让「前提失效」红出来。
+//     （不钉「末段末端 == 长度」：单段蒙太奇下 `GetSectionStartAndEndTime` 内部就是取
+//      `GetPlayLength()`，那是恒真断言、只会造成覆盖率的错觉。）
+//  ④ 机制端到端：把位置推到长度、手动驱动一次 `TickTask`，断言 `OnCompleted` 真的走到
+//     `bAirDodgeVisualFinished`。harness 的世界不 tick（整个文件没有 World->Tick），
+//     所以这里手动驱动 —— 这段链路正是「死了两轮」的那一段，此前零覆盖。
+bool FMHGZM5AirDodgeVisualTeardownPinsTest::RunTest(const FString& Parameters)
+{
+	FAirDodgeHarness H;
+	if (!TestTrue(TEXT("harness built"), H.Build()))
+	{
+		H.Teardown();
+		return false;
+	}
+	UInsectGlaiveCombatConfig* Config = LoadObject<UInsectGlaiveCombatConfig>(
+		nullptr, TEXT("/Game/Weapons/InsectGlaive/Data/DA_IG_Combat.DA_IG_Combat"));
+	if (!TestNotNull(TEXT("production combat config loads"), Config))
+	{
+		H.Teardown();
+		return false;
+	}
+	// 有战斗配置才会走到 StartAttackMontage 的最后两行（没有会在重力 profile 处提前收尾）。
+	H.Host->SetCombatConfigForTest(Config);
+
+	TObjectPtr<UAnimMontage> SavedMontage;
+	UMHGZAirDodgeAbility* Action = ActivateRealAirDodge(H, SavedMontage);
+	if (!TestNotNull(TEXT("production AirDodge ability is active (also fails if SKM_Demo_Body is missing)"), Action))
+	{
+		H.Teardown();
+		return false;
+	}
+
+	// ① 任务会 tick，且**已经登记进 ticking 列表**（只看旗标挡不住「置得太晚」那种改法）。
+	UAbilityTask_MHGZPlayMontageAndWait* Task = Action->GetAirDodgeVisualTaskForTest();
+	if (TestNotNull(TEXT("the visual task is live right after activation"), Task))
+	{
+		TestTrue(TEXT("the visual task must have bTickingTask set (TickTask is dead code otherwise)"),
+			Task->IsTickingTask());
+		const UGameplayTasksComponent* Tasks = Task->GetGameplayTasksComponent();
+		bool bRegistered = false;
+		if (Tasks)
+		{
+			for (auto It = Tasks->GetTickingTaskIterator(); It; ++It)
+			{
+				if (*It == Task)
+				{
+					bRegistered = true;
+					break;
+				}
+			}
+		}
+		TestTrue(TEXT("the task must be registered in the ticking list (set bTickingTask BEFORE ReadyForActivation)"),
+			bRegistered);
+	}
+
+	// ② 实例保持终末姿势，且这一位是**本行 C++** 关的（资产仍为 true ⇒ 不是资产替的）。
+	UAnimInstance* Anim = H.Character && H.Character->GetMesh()
+		? H.Character->GetMesh()->GetAnimInstance() : nullptr;
+	FAnimMontageInstance* Instance = Anim ? Anim->GetActiveInstanceForMontage(SavedMontage) : nullptr;
+	if (TestNotNull(TEXT("the dodge montage instance is live"), Instance))
+	{
+		TestFalse(TEXT("the dodge montage must keep its terminal pose (bEnableAutoBlendOut == false)"),
+			Instance->bEnableAutoBlendOut);
+		if (SavedMontage)
+		{
+			TestTrue(TEXT("the asset still ships with auto-blend-out ON (so the flip is the C++ line's)"),
+				SavedMontage->bEnableAutoBlendOut);
+		}
+	}
+
+	// ③ 判据的前提：单段蒙太奇（末段末端即整个长度）。
+	if (SavedMontage)
+	{
+		TestEqual(TEXT("the air dodge montage is a single section (the detector's premise)"),
+			SavedMontage->CompositeSections.Num(), 1);
+	}
+
+	// ④ 机制：播到长度 ⇒ 手动 tick 一次 ⇒ OnCompleted 走到能力里。
+	if (Task && Anim && SavedMontage)
+	{
+		Anim->Montage_SetPosition(SavedMontage, SavedMontage->GetPlayLength());
+		Task->DriveTickForTest(0.033f);
+		TestTrue(TEXT("reaching the montage length reports completion through to the ability"),
+			Action->GetAirDodgeVisualFinishedForTest());
+	}
+	H.Teardown();
 	return true;
 }
 
