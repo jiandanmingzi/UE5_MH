@@ -638,7 +638,19 @@ void UMHGZAirDodgeAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 			{
 				DodgeFallMontage = CombatConfig->GetAerialDodgeFallMontage();
 			}
-			Host->BeginAerialFalling(false, AirDodgeFallingTag(), DodgeFallMontage);
+			// ⚠ 返回值必须查：`BeginAerialFalling` 有四个 `return false` 出口
+			// （未初始化/ShuttingDown/⚠**Grounded**、AnimInstance 或 Montage 空、
+			// AcquireTags(Pose.AerialFalling) 失败、Montage_Play 失败），而这条是本招下坠
+			// **唯一**的表现来源 —— 失败就等于「下坠段没有动画」，且此前**一个字都不打**，
+			// 正是 2026-09-23 那轮让用户与我都以为「冻结」还没修好的那种静默。
+			// 收尾点从触地提前到蒙太奇长度之后，这条分支才第一次真正会跑（见缺口 §6.5.1）。
+			if (!Host->BeginAerialFalling(false, AirDodgeFallingTag(), DodgeFallMontage))
+			{
+				UE_LOG(LogMHGZ, Warning,
+					TEXT("[AirDodge] 下坠表现未起播（BeginAerialFalling 返回 false）：")
+					TEXT("本招下坠段会没有动画。Host 未初始化/ShuttingDown/Grounded、")
+					TEXT("AnimInstance 空、Pose.AerialFalling 被占、或 Montage_Play 失败。"));
+			}
 			RecordAirDodgeMovementPhase(EndingCharacter, TEXT("AirDodge.EndAbility.PostBeginFall"));
 		}
 	}
@@ -646,7 +658,12 @@ void UMHGZAirDodgeAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 	{
 		if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
 		{
-			Host->PlayAerialLandingPresentation();
+			// 同上：落地表现起不来时也要留下线索（同型的静默）。
+			if (!Host->PlayAerialLandingPresentation())
+			{
+				UE_LOG(LogMHGZ, Warning,
+					TEXT("[AirDodge] 落地表现未起播（PlayAerialLandingPresentation 返回 false）。"));
+			}
 			RecordAirDodgeMovementPhase(EndingCharacter, TEXT("AirDodge.EndAbility.PostLanding"));
 		}
 	}
