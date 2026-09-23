@@ -113,11 +113,11 @@ public:
 	virtual void UpdateCharacterStateBeforeMovement(float DeltaSeconds) override;
 	virtual void StartNewPhysics(float deltaTime, int32 Iterations) override;
 	/**
-	 * Brackets the animation tick that feeds RootMotionParams (PerformMovement:2824) and applies the
-	 * narrow P0-1 gate: a *negligible* accumulated root delta is not root motion, so the flag is
-	 * cleared and the CMC's own velocity is left alone by ConstrainAnimRootMotionVelocity.
-	 * Measured separation (2026-09-23): airborne feeds are <=0.0072 cm/frame noise; every legitimate
-	 * feed is >=1 cm/frame and grounded (montage/locomotion players at full root-motion weight).
+	 * Brackets the animation tick that feeds RootMotionParams (PerformMovement:2824) and records what
+	 * the animation side fed in (P1-3 step 1).
+	 *
+	 * ⚠ 这里曾经还挂一条 P0-1 的窄门控（`|Δroot| < ε` 就 `RootMotionParams.Clear()`），**已于
+	 * 2026-09-23 22:50 按用户要求连同两个 CVar 一并删除** —— 现在本函数只记录、不改行为。
 	 */
 	virtual void TickCharacterPose(float DeltaTime) override;
 	/** Records every vote, including the ones taken from PerformMovement itself. */
@@ -139,6 +139,16 @@ public:
 	{
 		return CurrentRootMotion.RootMotionSources.Num();
 	}
+
+	/**
+	 * 自动化专用（只读）：上一次落地重设的载荷与已应用次数 —— 「Landed 回调写值」在帧外的可核对副本。
+	 *
+	 * P1-1 要求把「`Landed` 回调写值 / 同帧 CMC 后值 / 下一帧值」三个采样点分开断言，而回调那一次
+	 * 直接写发生在 `PerformMovement` 内（帧外读不到），所以在这里留一份副本。
+	 */
+	float GetLastAppliedLandingSpeedForTest() const { return LastAppliedLandingSpeed; }
+	FVector GetLastAppliedLandingDirectionForTest() const { return LastAppliedLandingDirection; }
+	int32 GetLandingSpeedResetApplyCountForTest() const { return LandingSpeedResetApplyCount; }
 
 private:
 	static bool IsAerialMovementTelemetryEnabled();
@@ -171,6 +181,14 @@ private:
 	bool bHasPendingLandingSpeedReset = false;
 	float PendingLandingHorizontalSpeed = 0.0f;
 	FVector PendingLandingPlanarDirection = FVector::ZeroVector;
+	/**
+	 * 「Landed 回调写值」的可核对副本 + 应用次数（自动化专用，见 .cpp 的 ApplyPendingLandingSpeedReset）。
+	 * 存在的理由：回调那一次直接写 `Velocity.XY` 发生在 `PerformMovement` 内，帧外读不到；
+	 * 而 P1-1 要求把「回调写值 / 同帧 CMC 后值 / 下一帧值」三个采样点分开断言。
+	 */
+	float LastAppliedLandingSpeed = 0.0f;
+	FVector LastAppliedLandingDirection = FVector::ZeroVector;
+	int32 LandingSpeedResetApplyCount = 0;
 	bool bSawBlockingImpactDuringMovement = false;
 	FName LastImpactActorName = NAME_None;
 	FName LastImpactComponentName = NAME_None;

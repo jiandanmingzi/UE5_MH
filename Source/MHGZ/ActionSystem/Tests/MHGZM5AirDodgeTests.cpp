@@ -21,11 +21,13 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Animation/AnimSequence.h"
+#include "Components/BoxComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameplayTasksComponent.h"
+#include "HAL/IConsoleManager.h"
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "MHGZPlayerState.h"
@@ -1066,6 +1068,235 @@ bool FMHGZM5AirDodgeHandoffWindowTest::RunTest(const FString& Parameters)
 	// 退化输入：空蒙太奇不得被判成「永远没播完」而把动作卡住。
 	TestTrue(TEXT("a zero-length montage counts as reached"),
 		Task::HasMontageReachedEnd(0.0f, 0.0f));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM5LandingRealTouchdownTest,
+	"MHGZ.M5.Aerial.LandingRealTouchdownTwoEntrySpeeds",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// P1-1 的**真实触地**验收（此前只有「手设速度 + 直接调表现入口」的函数内形态）：
+// 让胶囊在真的地板几何上落到 MOVE_Walking，走完
+// CMC::ProcessLanded → AMHGZCharacter::Landed → Host::HandleLanded → PlayAerialLandingVisual
+// 这条生产链，并按三个**数据独立**的采样点断言。
+//
+// **采样相位（§D，2026-09-24）**：真值 148 首帧 = 落地动作第一帧，对应项目里**落地帧帧末**的值
+// （`CMC.LandingSpeedReset.Applied` / `CMC.PerformMovement.Post`）。本测试用 CMC 的帧边界样本把它做成判据：
+// 落地帧 Pre = 入场速度、落地帧 Post = 337、下一帧 Pre = 337。
+// ⚠ 这里**不**背书 CSV 口径：`Spatial.csv` 由 `NativeUpdateAnimation` 写出，而它在项目中由 `PerformMovement`
+// 内部在 `TickCharacterPose` 处驱动（`CharacterMovementComponent.cpp:2824`）⇒ 它记的是**本帧位移积分前**的
+// 速度（不是「本帧 PerformMovement 之前」；两者多数帧相同，但有帧内写速的例外），且落地帧那行的**下一帧**
+// 可能被到期 RMS 源的 FinishVelocity 冲掉（真实游戏里 2/14，见方案文档 P1-4）——判「重设有没有发生」要读
+// `MovementPhases.csv` 的 `CMC.LandingSpeedReset.Queued/Applied`。
+//
+// ⚠ 曾经写成「三个采样点各断言」，但其中「下一帧值」与「同帧后值」读的是同一个 Velocity、中间没有任何
+// 写入（harness 世界不 tick）⇒ 那只是同一次写入的两次读法。现在三点分别来自帧边界样本 Pre / Post /
+// 计数器，互不重复。
+bool FMHGZM5LandingRealTouchdownTest::RunTest(const FString& Parameters)
+{
+	UInsectGlaiveCombatConfig* Config = LoadObject<UInsectGlaiveCombatConfig>(
+		nullptr, TEXT("/Game/Weapons/InsectGlaive/Data/DA_IG_Combat.DA_IG_Combat"));
+	if (!TestNotNull(TEXT("production combat config loads"), Config))
+	{
+		return false;
+	}
+	UAnimMontage* FallMontage = Config->GetAerialDodgeFallMontage();
+	if (!TestNotNull(TEXT("the fall montage resolves (157)"), FallMontage))
+	{
+		return false;
+	}
+	// 期望值取自配置，而不是把 337 再抄一遍（否则实现里的兜底常量会让断言变成常量对常量）。
+	const float Expected = Config->GetAerialLandingHorizontalSpeed();
+	TestTrue(TEXT("the production config authors the landing speed as 337"),
+		FMath::Abs(Expected - 337.0f) <= 0.5f);
+
+	// 帧边界样本只在遥测开着时记录。开的是 CMC 自己的采样缓冲，与 CSV 写手无关
+	// （测试世界的 AnimInstance 是基础 UAnimInstance，不会起那个写手），所以不会落盘。
+	IConsoleVariable* TelemetryCVar = IConsoleManager::Get().FindConsoleVariable(
+		TEXT("mhgz.Telemetry.Enable"));
+	if (!TestNotNull(TEXT("the telemetry switch exists"), TelemetryCVar))
+	{
+		return false;
+	}
+	struct FScopedTelemetry
+	{
+		IConsoleVariable* CVar = nullptr;
+		~FScopedTelemetry() { if (CVar) { CVar->Set(TEXT("0"), ECVF_SetByCode); } }
+	} TelemetryGuard{ TelemetryCVar };
+	TelemetryCVar->Set(TEXT("1"), ECVF_SetByCode);
+
+	const float EntrySpeeds[] = { 900.0f, 300.0f };
+	const FVector Directions[] = { FVector(1.0f, 0.0f, 0.0f), FVector(-0.7071f, -0.7071f, 0.0f) };
+	constexpr float Tolerance = 6.0f;   // 真值允差 337±6
+	constexpr float Step = 0.02f;
+
+	// 造一具「有地板 / 无地板」的台架。无地板那份是**负控**：没有它，「这条绿来自那块地板」
+	// 就只是注释里的话，而不是测试自己证明的事实。
+	auto BuildLandingSetup = [&](bool bWithFloor, FAirDodgeHarness& OutHarness,
+		UMHGZInstrumentedCharacterMovementComponent*& OutCMC, TObjectPtr<AActor>& OutFloor) -> bool
+	{
+		if (!OutHarness.Build())
+		{
+			return false;
+		}
+		OutHarness.Host->SetCombatConfigForTest(Config);
+		USkeletalMeshComponent* Mesh = OutHarness.Character->GetMesh();
+		OutCMC = Cast<UMHGZInstrumentedCharacterMovementComponent>(
+			OutHarness.Character->GetCharacterMovement());
+		if (!OutCMC || !Mesh)
+		{
+			return false;
+		}
+		AActor* Floor = OutHarness.World->SpawnActor<AActor>(AActor::StaticClass(),
+			FVector(0.0f, 0.0f, -60.0f), FRotator::ZeroRotator);
+		UBoxComponent* FloorBox = NewObject<UBoxComponent>(Floor);
+		Floor->SetRootComponent(FloorBox);
+		FloorBox->SetBoxExtent(FVector(4000.0f, 4000.0f, 50.0f));
+		FloorBox->SetCollisionEnabled(bWithFloor
+			? ECollisionEnabled::QueryAndPhysics : ECollisionEnabled::NoCollision);
+		FloorBox->SetCollisionObjectType(ECC_WorldStatic);
+		FloorBox->SetCollisionResponseToAllChannels(ECR_Block);
+		FloorBox->RegisterComponent();
+		Floor->SetActorLocation(FVector(0.0f, 0.0f, -60.0f));   // 顶面在 Z = −10
+		OutFloor = Floor;
+
+		Mesh->SetSkeletalMesh(LoadObject<USkeletalMesh>(nullptr,
+			TEXT("/Game/Characters/Demo/Meshes/Body/SKM_Demo_Body.SKM_Demo_Body")));
+		Mesh->SetAnimInstanceClass(UAnimInstance::StaticClass());
+		OutHarness.Character->SetActorLocation(FVector(0.0f, 0.0f,
+			OutHarness.Character->GetDefaultHalfHeight() + 6.0f));
+		OutCMC->SetMovementMode(MOVE_Falling);
+		OutHarness.Host->SetGrounded(false);
+		return OutHarness.Host->BeginAerialFalling(false,
+			AirDodgeTag(TEXT("Combat.State.Aerial.Falling.IG_AirDodge")), FallMontage);
+	};
+
+	// ── 负控：没有地板就永远不落地 ───────────────────────────────────────────
+	{
+		FAirDodgeHarness Bare;
+		UMHGZInstrumentedCharacterMovementComponent* BareCMC = nullptr;
+		TObjectPtr<AActor> BareFloor;
+		if (TestTrue(TEXT("negative-control harness builds"),
+			BuildLandingSetup(false, Bare, BareCMC, BareFloor)))
+		{
+			BareCMC->Velocity = FVector(900.0f, 0.0f, -400.0f);
+			int32 BareSteps = 0;
+			for (; BareSteps < 60; ++BareSteps)
+			{
+				BareCMC->PerformMovement(Step);
+				if (BareCMC->MovementMode == MOVE_Walking || BareCMC->MovementMode == MOVE_NavWalking)
+				{
+					break;
+				}
+			}
+			TestTrue(TEXT("without the floor the capsule never lands (so the green below comes from it)"),
+				BareSteps == 60);
+			TestEqual(TEXT("and no landing reset was applied"),
+				BareCMC->GetLandingSpeedResetApplyCountForTest(), 0);
+			Bare.Teardown();
+		}
+	}
+
+	for (int32 Index = 0; Index < 2; ++Index)
+	{
+		FAirDodgeHarness H;
+		UMHGZInstrumentedCharacterMovementComponent* CMC = nullptr;
+		TObjectPtr<AActor> Floor;
+		const FString Label = FString::Printf(TEXT("[entry %.0f] "), EntrySpeeds[Index]);
+		if (!TestTrue(*(Label + TEXT("harness builds with the floor")),
+			BuildLandingSetup(true, H, CMC, Floor)))
+		{
+			H.Teardown();
+			continue;
+		}
+
+		const FVector Entry = Directions[Index] * EntrySpeeds[Index] + FVector(0.0f, 0.0f, -400.0f);
+		const float IncomingPlanar = Entry.Size2D();
+		const FVector EntryDirection = Entry.GetSafeNormal2D();
+		CMC->Velocity = Entry;
+
+		const uint64 SerialBeforeLanding = CMC->GetLatestAerialMovementSampleSerial();
+		int32 LandingStep = INDEX_NONE;
+		for (int32 Iteration = 0; Iteration < 60; ++Iteration)
+		{
+			CMC->PerformMovement(Step);
+			if (CMC->MovementMode == MOVE_Walking || CMC->MovementMode == MOVE_NavWalking)
+			{
+				LandingStep = Iteration;
+				break;
+			}
+		}
+		if (!TestTrue(*(Label + TEXT("the capsule really landed")), LandingStep != INDEX_NONE))
+		{
+			H.Teardown();
+			continue;
+		}
+		// 地板身份 + 几何：落在**那块**合成地板上，且真的是下落撞上去的（不是初始就在地面判定内）。
+		TestTrue(*(Label + TEXT("it landed on the synthetic floor actor")),
+			CMC->CurrentFloor.HitResult.GetActor() == Floor.Get());
+		TestTrue(*(Label + TEXT("it fell before landing (not spawned inside the floor)")), LandingStep >= 1);
+		TestTrue(*(Label + TEXT("the impact point sits on the floor top")),
+			FMath::Abs(CMC->CurrentFloor.HitResult.ImpactPoint.Z + 10.0f) <= 2.0f);
+
+		// ① 回调载荷：回调那次写、队列、帧末应用都是同一个载荷 —— 值 = 配置值、方向 = 入场方向。
+		//    方向这条对斜向那档有信息量：走「近零速取角色朝向」的回退会写成 +X，dot 只有 0.707 ⇒ 红。
+		TestTrue(*(Label + TEXT("the landing payload is the authored speed")),
+			FMath::Abs(CMC->GetLastAppliedLandingSpeedForTest() - Expected) <= 1.0f);
+		TestTrue(*(Label + TEXT("the payload kept the incoming direction (not the facing fallback)")),
+			FVector::DotProduct(CMC->GetLastAppliedLandingDirectionForTest(), EntryDirection) > 0.99f);
+		TestEqual(*(Label + TEXT("the reset is applied exactly once for this landing")),
+			CMC->GetLandingSpeedResetApplyCountForTest(), 1);
+
+		// ② 帧边界样本：再走一帧，然后读「落地帧 Pre / 落地帧 Post / 下一帧 Pre」三个点。
+		CMC->PerformMovement(Step);
+		TArray<FMHGZAerialMovementPhaseSample> Samples;
+		CMC->GetAerialMovementSamplesSince(SerialBeforeLanding, Samples);
+		TArray<float> PreSpeeds;
+		TArray<float> PostSpeeds;
+		for (const FMHGZAerialMovementPhaseSample& Sample : Samples)
+		{
+			const float Planar = FVector2D(Sample.Velocity.X, Sample.Velocity.Y).Size();
+			if (Sample.Phase == FName(TEXT("CMC.PerformMovement.Pre"))) { PreSpeeds.Add(Planar); }
+			else if (Sample.Phase == FName(TEXT("CMC.PerformMovement.Post"))) { PostSpeeds.Add(Planar); }
+		}
+		// 采样点按**落地帧**取（胶囊要先掉几帧才触地，所以 [0] 不是落地帧）。
+		if (TestTrue(*(Label + FString::Printf(
+				TEXT("frame-boundary samples cover the landing frame (landing step %d)"), LandingStep)),
+			PreSpeeds.IsValidIndex(LandingStep + 1) && PostSpeeds.IsValidIndex(LandingStep)))
+		{
+			TestTrue(*(Label + FString::Printf(
+				TEXT("landing frame ENTERS at the incoming speed (%.1f vs %.1f) - this is the Spatial.csv sample"),
+				PreSpeeds[LandingStep], IncomingPlanar)),
+				FMath::Abs(PreSpeeds[LandingStep] - IncomingPlanar) <= Tolerance);
+			TestTrue(*(Label + FString::Printf(
+				TEXT("landing frame LEAVES at 337+-6 (got %.1f) - the reset beats same-frame walking braking"),
+				PostSpeeds[LandingStep])),
+				FMath::Abs(PostSpeeds[LandingStep] - Expected) <= Tolerance);
+			TestTrue(*(Label + FString::Printf(
+				TEXT("the next frame ENTERS at 337+-6 (got %.1f) - the defined sampling phase"),
+				PreSpeeds[LandingStep + 1])),
+				FMath::Abs(PreSpeeds[LandingStep + 1] - Expected) <= Tolerance);
+		}
+
+		// ③ 不每帧锁速：多跑的那一帧之后重设次数仍为 1，且速度已被 Walking 制动显著削掉。
+		//    上界必须留余量 —— 曾经的 `AfterWalking < 337 + 1e-4` 恰好被「每帧写 337」满足。
+		TestEqual(*(Label + TEXT("no further reset was applied on the following frame")),
+			CMC->GetLandingSpeedResetApplyCountForTest(), 1);
+		const float AfterWalking = FVector2D(CMC->Velocity.X, CMC->Velocity.Y).Size();
+		TestTrue(*(Label + FString::Printf(
+			TEXT("walking braking takes over (%.1f, must decay below 337-20)"), AfterWalking)),
+			AfterWalking < Expected - 20.0f);
+		// 这一条世界没有 Controller ⇒ 落地后的走路更新会把速度直接清零（不是游戏里的摩擦衰减曲线），
+		// 所以「衰减到多少」在这里没有判据价值 —— 真正抓「每帧锁速」的是上面那个 count：
+		// 锁速实现（不清 pending 或每帧重新 queue）会让它在下一帧变成 2。
+		// 游戏里那条衰减曲线由 PIE 遥测覆盖（`337 → 250 量级` 逐帧下降，且不触发 AerialMovementDiscontinuity）。
+		TestTrue(*(Label + FString::Printf(
+			TEXT("the reset never exceeds the authored speed afterwards (%.1f)"), AfterWalking)),
+			AfterWalking <= Expected + KINDA_SMALL_NUMBER);
+
+		H.Teardown();
+	}
 	return true;
 }
 

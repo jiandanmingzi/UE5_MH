@@ -215,7 +215,7 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 | 淡出期 `RootMotionDisabled` | 恒 1 |
 | 弧段 `MontageHasRootMotion` | 恒 0 |
 | 距离 / 顶点 vs 拆分前 | **逐组同值** |
-| `MHGZ.M5` | **11/11**（当时）→ **27/27**（2026-09-23/24） |
+| `MHGZ.M5` | **11/11**（当时）→ **28/28**（2026-09-23/24） |
 
 复跑入口：`probe_vault_seam_pose.py`（硬切基线）+ `probe_vault_seam_blend.py`（姿势网格）+ 离线分析器。
 
@@ -389,8 +389,8 @@ tag 已定义（`DefaultGameplayTags.ini:64`），但冻结工作列表没有它
    「不转向」与「一按就瞬转」—— 我照它设计错过一次，详见附录 A 新增的方法论条。
 
 **离线验收**：`Saved/_mhr_scratch/verify_air_dodge_end_to_end.py` 只读盘上资产，**26/26 通过**；
-`MHGZ.M5` **27/27**（2026-09-23/24；空中一组：路由四态 / 请求形状 / CantDodge 预算 / tag 已声明 /
-激活闸门不读激活上下文 / **闸门 latch 开合** / **让位** / **尾段落地** / **预算 commit 即消费** / **收尾判据纯函数**（`MontageEndCompletionWindow`）/ **收尾任务会 tick 且实例保持终态姿势**（`AirDodgeVisualTaskTicksAndHoldsTerminalPose`）。⚠ 原列的「**预输入策略**」已随预输入退役删除 —— 锁定期按下直接作废。
+`MHGZ.M5` **28/28**（2026-09-23/24；空中一组：路由四态 / 请求形状 / CantDodge 预算 / tag 已声明 /
+激活闸门不读激活上下文 / **闸门 latch 开合** / **让位** / **尾段落地** / **预算 commit 即消费** / **收尾判据纯函数**（`MontageEndCompletionWindow`）/ **收尾任务会 tick 且实例保持终态姿势**（`AirDodgeVisualTaskTicksAndHoldsTerminalPose`）/ **落地真触地两档入速**（`LandingRealTouchdownTwoEntrySpeeds`）。⚠ 原列的「**预输入策略**」已随预输入退役删除 —— 锁定期按下直接作废。
 
 #### PIE 第 2 轮三缺陷与修复（2026-09-22，行为表在此）
 
@@ -513,7 +513,7 @@ tag 已定义（`DefaultGameplayTags.ini:64`），但冻结工作列表没有它
 ## 10. 阶段 F — M5 签核
 
 Development Editor 全量编译（新增反射字段**不得用 Live Coding 验证**）→ 命名自动化套件带硬计数 → commandlet 资产审计带计数 → DataValidation 冷启动资产数 → `Saved/RuntimeTelemetry/<timestamp>` 录制 → **用户 PIE 目视确认** → 文档状态行回写。
-**必须重新计数 `MHGZ.M4` / `MHGZ.M5`，不得复用过期数字** —— 全量最近一次是 **2026-09-18（98 / 97 通过 / 1 失败）**；**2026-09-21 只重跑过 `MHGZ.M5`（11/11）；2026-09-23/24 又重跑过 `MHGZ.M5`（27/27）**，全量仍未跑，所以签核时必须重跑。
+**必须重新计数 `MHGZ.M4` / `MHGZ.M5`，不得复用过期数字** —— 全量最近一次是 **2026-09-18（98 / 97 通过 / 1 失败）**；**2026-09-21 只重跑过 `MHGZ.M5`（11/11）；2026-09-23/24 又重跑过 `MHGZ.M5`（28/28）**，全量仍未跑，所以签核时必须重跑。
 
 ---
 

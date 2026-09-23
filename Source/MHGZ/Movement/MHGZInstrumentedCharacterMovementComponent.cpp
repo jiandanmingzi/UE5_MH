@@ -431,6 +431,11 @@ void UMHGZInstrumentedCharacterMovementComponent::ApplyPendingLandingSpeedReset(
 	Velocity.X = PlanarVelocity.X;
 	Velocity.Y = PlanarVelocity.Y;
 	bHasPendingLandingSpeedReset = false;
+	// 帧外可核对的副本（自动化用）：原始那次写发生在 PerformMovement 内，测试只能这样区分
+	// 「回调写值 / 同帧 CMC 后值 / 下一帧值」三个采样点（P1-1）。
+	LastAppliedLandingSpeed = PendingLandingHorizontalSpeed;
+	LastAppliedLandingDirection = PendingLandingPlanarDirection;
+	++LandingSpeedResetApplyCount;
 	RecordAerialMovementEvent(TEXT("CMC.LandingSpeedReset.Applied"));
 }
 
