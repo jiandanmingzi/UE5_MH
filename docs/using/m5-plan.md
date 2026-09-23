@@ -215,7 +215,7 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 | 淡出期 `RootMotionDisabled` | 恒 1 |
 | 弧段 `MontageHasRootMotion` | 恒 0 |
 | 距离 / 顶点 vs 拆分前 | **逐组同值** |
-| `MHGZ.M5` | **11/11** |
+| `MHGZ.M5` | **11/11**（当时）→ **27/27**（2026-09-23/24） |
 
 复跑入口：`probe_vault_seam_pose.py`（硬切基线）+ `probe_vault_seam_blend.py`（姿势网格）+ 离线分析器。
 
@@ -281,7 +281,7 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 | **最早可操作帧晚约一帧** | 设计 0.783（链上），实测 `Combat.State.Aerial.Actionable` 出现在链上 **0.825**（弧段局部 0.175）。差 0.042 s ≈ 1.7 帧 | 可能只是 notify 要等下一个 tick 才反映的固有量化。**未确认是否算问题** |
 | **三条 PIE 路径从未走到过** | ①空摇杆 RT+A → 前推的兜底边；②撑杆跳**中途被打断**；③**落地打断**。后两条会走 `EndAbility` 里「先停弧段再停起手段」那条清理，该路径只过了编译与单测 | 需要用户跑；`EndAbility` 的清理顺序是拆双蒙太奇时新写的 |
 | **空气墙** | `L_DemoArena` 四面墙原本只有 **300 cm** 高，而撑杆跳顶点 558~749 cm ⇒ 一跳就越过去（用户「老是掉下去」） | **已修**：四面墙 `scale.z 3 → 30`（Z ∈ [0, 3000]），内侧面与 X/Y 跨度未动，`git diff` 只有 `L_DemoArena.umap`。**但未在 PIE 里真的跳一次撞上去验证** |
-| **空中回避的 PIE 验收**（2026-09-22） | **第 1 轮失败**（13:07）：A 键按不出来 —— `CanActivateAbility` 读了尚未消费的激活上下文（附录 A.1 第 17 条，已修）。**第 2 轮失败**（14:12，58 次按压、6 次成功）：三缺陷 —— ①可操作帧设计零消费方（`Combat.State.Aerial.Actionable` 无人读，闸不住任何输入）②舞踏按空回**无位移**（位移所有权互斥静默拒绝 ⇒ 能力自杀；31 个 burst 闪断实例的终点 4/4 精确对齐舞踏 1.6167 s）③**自打断**（`MarkAerialDodgeUsed` 排在位移启动后 ⇒ 失败不记预算 ⇒ 无 CantDodge 自锁 ⇒ 无限重按）；附带「源到期后 0.08 s 内落地两头落空」（录 id=96）。四修复已落地（让位 Superseded、预算 commit 即消费、尾段落地 Landed 接棒、失败停蒙太奇）。**第 3 轮失败**：撑杆跳的最早可操作帧没生效 —— 定义校准（锁空回+攻击；位置 = `IG_AerialHandoff` 通知）后，锁改 tag 形态（`InputLocked` 领于起播、放于 handoff/中止）。**未等 PIE 又经两问机制再校准**（第 20-22 条）：闸门翻转为 **Falling 正判据** —— 裸 `Combat.State.Aerial.Falling` 领于 handoff/离地无 Action/中止滞空、放于新动作起播；空回 `ActivationRequiredTags=[Falling]`、撑杆跳 10 行 `RequiredTags=[Grounded]`（10/10 回读）；`InputLocked` 退役。**第 4 轮 PIE + 遥测比对通过**（录制 `20260922-224312`，43 次出弹道）：空回 22 跑满试次七项标量全进真值允差（v0z 1178.9/g −2368.6/净位移 1066.5,−265.8/顶点 293.4/整条 R² 0.9999）；回归双钉贴线（后撑杆跳 567.6 vs 567.5、舞踏 563.9 vs 564.1）；撑杆跳纯弹道 7 组全落已知偏差带。比对中揪出**看门狗假报警**（`FTimerHandle::Invalidate` 不撤定时器 + 裸 tag 过旧守卫 ⇒ `SetDefaultMovementMode` 拆动作，已修：`ClearTimer` + 守卫改表现会话）与**比对工具三坑**（第 23 条） | **PIE 第 4 轮过，待一次提交** |
+| **空中回避的 PIE 验收**（2026-09-22；**第 4 轮后已随 `f83a1e4`/`1a72ddb` 入库，第 5 轮接缝验收于 2026-09-23 23:57 通过**） | **第 1 轮失败**（13:07）：A 键按不出来 —— `CanActivateAbility` 读了尚未消费的激活上下文（附录 A.1 第 17 条，已修）。**第 2 轮失败**（14:12，58 次按压、6 次成功）：三缺陷 —— ①可操作帧设计零消费方（`Combat.State.Aerial.Actionable` 无人读，闸不住任何输入）②舞踏按空回**无位移**（位移所有权互斥静默拒绝 ⇒ 能力自杀；31 个 burst 闪断实例的终点 4/4 精确对齐舞踏 1.6167 s）③**自打断**（`MarkAerialDodgeUsed` 排在位移启动后 ⇒ 失败不记预算 ⇒ 无 CantDodge 自锁 ⇒ 无限重按）；附带「源到期后 0.08 s 内落地两头落空」（录 id=96）。四修复已落地（让位 Superseded、预算 commit 即消费、尾段落地 Landed 接棒、失败停蒙太奇）。**第 3 轮失败**：撑杆跳的最早可操作帧没生效 —— 定义校准（锁空回+攻击；位置 = `IG_AerialHandoff` 通知）后，锁改 tag 形态（`InputLocked` 领于起播、放于 handoff/中止）。**未等 PIE 又经两问机制再校准**（第 20-22 条）：闸门翻转为 **Falling 正判据** —— 裸 `Combat.State.Aerial.Falling` 领于 handoff/离地无 Action/中止滞空、放于新动作起播；空回 `ActivationRequiredTags=[Falling]`、撑杆跳 10 行 `RequiredTags=[Grounded]`（10/10 回读）；`InputLocked` 退役。**第 4 轮 PIE + 遥测比对通过**（录制 `20260922-224312`，43 次出弹道）：空回 22 跑满试次七项标量全进真值允差（v0z 1178.9/g −2368.6/净位移 1066.5,−265.8/顶点 293.4/整条 R² 0.9999）；回归双钉贴线（后撑杆跳 567.6 vs 567.5、舞踏 563.9 vs 564.1）；撑杆跳纯弹道 7 组全落已知偏差带。比对中揪出**看门狗假报警**（`FTimerHandle::Invalidate` 不撤定时器 + 裸 tag 过旧守卫 ⇒ `SetDefaultMovementMode` 拆动作，已修：`ClearTimer` + 守卫改表现会话）与**比对工具三坑**（第 23 条） | **PIE 第 4 轮过，待一次提交** |
 | **A2 / 阶段 E 墙钟** | 交棒仍由 `UAbilityTask_WaitDelay(JumpDuration)` **墙钟**驱动（现 `MHGZPoleVaultAbility::ScheduleJumpOverMovementHandoff`，`:795`，`WaitDelay` 在 `:826`），不是由蒙太奇段边界驱动。**2026-09-21 拆成两条蒙太奇之后，蒙太奇里已经没有 `Jump → JumpOver` 边界了**，所以这条只剩「交棒调度仍是墙钟」这一半 | 收口项，见 §9 |
 
 ### 6.1 A6 的修法
@@ -389,8 +389,8 @@ tag 已定义（`DefaultGameplayTags.ini:64`），但冻结工作列表没有它
    「不转向」与「一按就瞬转」—— 我照它设计错过一次，详见附录 A 新增的方法论条。
 
 **离线验收**：`Saved/_mhr_scratch/verify_air_dodge_end_to_end.py` 只读盘上资产，**26/26 通过**；
-`MHGZ.M5` **21/21**（空中 10 条：路由四态 / 请求形状 / CantDodge 预算 / tag 已声明 /
-激活闸门不读激活上下文 / **闸门 latch 开合** / **预输入策略** / **让位** / **尾段落地** / **预算 commit 即消费**）。
+`MHGZ.M5` **27/27**（2026-09-23/24；空中一组：路由四态 / 请求形状 / CantDodge 预算 / tag 已声明 /
+激活闸门不读激活上下文 / **闸门 latch 开合** / **让位** / **尾段落地** / **预算 commit 即消费** / **收尾判据纯函数**（`MontageEndCompletionWindow`）/ **收尾任务会 tick 且实例保持终态姿势**（`AirDodgeVisualTaskTicksAndHoldsTerminalPose`）。⚠ 原列的「**预输入策略**」已随预输入退役删除 —— 锁定期按下直接作废。
 
 #### PIE 第 2 轮三缺陷与修复（2026-09-22，行为表在此）
 
@@ -402,7 +402,7 @@ tag 已定义（`DefaultGameplayTags.ini:64`），但冻结工作列表没有它
 
 **修复**（机制与分工见计划文件「已定决策」）：
 
-- **可操作帧成为真门**：闸门谓词 =「有无 blocking 动作」（live + 已 Commit + 挂点通知 + 未 latch，**含自己**）；闸在 `CanActivateAbility`（预输入钩子挂在 `!TryActivateDirectInput` 上，Validate 拒绝进不了缓冲）。被闸住的按下**复用既有预输入系统**（独立单槽 `BufferedAerialDodgeInput`、TTL `AerialPreInputLifetime=0.9s`、latch 时经 `OnAerialHandoffReached` → `TryConsumeBufferedAerialDodgeInput` 重放，镜像地面 `OnDodgeAcceptWindowOpened` 那条腿；重放重查 CanActivate）。地面分支一字未动（分派用精确 `==`）。
+- **可操作帧成为真门**：闸门谓词 =「有无 blocking 动作」（live + 已 Commit + 挂点通知 + 未 latch，**含自己**）；闸在 `CanActivateAbility`（预输入钩子挂在 `!TryActivateDirectInput` 上，Validate 拒绝进不了缓冲）。被闸住的按下**当时复用既有预输入系统**（独立单槽 `BufferedAerialDodgeInput`、TTL `AerialPreInputLifetime=0.9s`、latch 时经 `OnAerialHandoffReached` → `TryConsumeBufferedAerialDodgeInput` 重放，镜像地面 `OnDodgeAcceptWindowOpened` 那条腿；重放重查 CanActivate）。⚠ **2026-09-23 该预输入已退役** —— 锁定期按下直接作废，不入槽、放锁点不补发；见本节末的退役记录。地面分支一字未动（分派用精确 `==`）。
 - **让位**：空回 commit 后立刻把其它活跃 IG 动作以 `Superseded` 结束（`RequestEndAction`，与连招确认同语义）⇒ 同步摘源、释放位移所有权 ⇒ 再建本招的源。舞踏与弧段两个入口都由它兜住。
 - **预算 commit 即消费**：失败路径不退款；位移启动失败补了指名日志（`ActionMovementOwned / MontageRootMotionOwned`）；失败/取消收尾**显式停蒙太奇**（引擎语义：`EndTask` 不停蒙太奇）。
 - **尾段落地**：源以 FreeFall 结束后由本 GA 接棒绑 `LandedDelegate`，尾段内触地当帧认领落地表现（与自由落体旗标互斥）。
@@ -470,20 +470,20 @@ tag 已定义（`DefaultGameplayTags.ini:64`），但冻结工作列表没有它
 `AerialPreInputLifetime`/`FindAirDodgeTemplate`），`TryBufferDirectInput` 的空中分派臂改为
 直接 `false`（地面 DodgeAccept 腿不动）。行为表已改「按下作废」。
 
-**缝上速度骤变的根修 —— 状态：机制与来源均已定名；窄门控已实现但默认关，待 PIE A/B（2026-09-23 21:10）**：
+**缝上速度骤变的根修 —— 状态：⚠ 症状已消、写点未修（2026-09-23 24:00）；下列「窄门控」已于 22:50 按用户要求整体删除，仅存历史**：
 来源 = `AnimSync.cpp:98/102`（同步组各资产播放器按根运动权重往代理累加，权重不满时幅度 ≈w² ⇒「标志为真、位移近零」）；
 实测分离干净：空中根位移 29/29 ≤0.0072 cm/帧，合法根运动 1–7 cm/帧全在地面帧。
-窄门 = 项目 CMC 的 `TickCharacterPose` 里对 `|Δroot| < ε` 的帧 `RootMotionParams.Clear()`
+当时实现的窄门 = 项目 CMC 的 `TickCharacterPose` 里对 `|Δroot| < ε` 的帧 `RootMotionParams.Clear()`
 （⇒ 动画根分支整段不执行；不碰旋转、不依赖会失效的 Host 委托绑定），开关
-`mhgz.Aerial.NeutralizeNegligibleAnimRoot`（默认 0）、`mhgz.Aerial.NeutralizeEpsilonCm`（默认 0.05）。
-下面是历史（第一版「整体作废」已回退）：
+（⚠ 已删）曾用开关 `mhgz.Aerial.NeutralizeNegligibleAnimRoot`（默认 0）、`mhgz.Aerial.NeutralizeEpsilonCm`（默认 0.05）。
+**现行修法是表现交棒配方**（`bEnableAutoBlendOut=false` + `EndAbility` 去掉守卫 + 任务在播到长度时上报 —— 见 `空中下落实现缺口.md` §6.5）：缝那帧槽被填满 ⇒ 下层图不漏近零根位移 ⇒ `PerformMovement:2870` 该帧不可达（`20260923-235744` 缝上 7/7 恒 900）；**写点未动**，机制在别处仍触发（同录制 `AM_IG_TuCi` 一帧 424→0）。下面是历史（第一版「整体作废」已回退）：
 137 蒙太奇结束那一帧，水平 900 被抹成 ~0、竖直照走重力（遥测逐帧：vX 899→−0.14、vZ 残差 0.3）。
 **不是本轮回归**：旧录制（`20260922-224312`）每条自由落体缝同样抹零，此前比对窗口截在 1.185 s
 没照到缝外。**机制**（子阶段记录逐位证实，见附录 A.1 第 25 条）：淡出帧 `RootMotionParams.bHasRootMotion`
 翻真、根位移近零，`PerformMovement:2870` 把 XY 换成 `AnimRootMotionVelocity≈0`（Falling 保留 Z）。
 **修的第一版（根盾通电）** 实测止住了缝，但根盾作用面过宽（空中一律丢掉动画根位移与旋转），
 用户 PIE 判定「没修好还把原来好的弄坏了」⇒ **已回退**（`RebuildRuntime` 重绑与 M2 断言删除；
-`Unbind` 日志与 P1-3 记录层保留）。**下一版要窄化**（近零根位移才替换、保留旋转、限定窗口；
+`Unbind` 日志与 P1-3 记录层保留）。**当时的下一版（窄门控）已实现并在 22:50 删除**；不可返回单位变换这条仍然有效。
 不可返回单位变换）。钉 `MHGZ.M5.Aerial.AnimRootMotionShield` / `PresentationClipsHaveNoRootMotion` + e2e §8 三条照旧绿。
 取证、排除与回退记录见附录 A.1 第 25/26/27/28 条与 `docs/using/空回P0-P1完整修复方案.md` 执行进度节。
 
@@ -513,7 +513,7 @@ tag 已定义（`DefaultGameplayTags.ini:64`），但冻结工作列表没有它
 ## 10. 阶段 F — M5 签核
 
 Development Editor 全量编译（新增反射字段**不得用 Live Coding 验证**）→ 命名自动化套件带硬计数 → commandlet 资产审计带计数 → DataValidation 冷启动资产数 → `Saved/RuntimeTelemetry/<timestamp>` 录制 → **用户 PIE 目视确认** → 文档状态行回写。
-**必须重新计数 `MHGZ.M4` / `MHGZ.M5`，不得复用过期数字** —— 全量最近一次是 **2026-09-18（98 / 97 通过 / 1 失败）**；**2026-09-21 只重跑过 `MHGZ.M5`（11/11），全量没跑**，所以签核时必须重跑。
+**必须重新计数 `MHGZ.M4` / `MHGZ.M5`，不得复用过期数字** —— 全量最近一次是 **2026-09-18（98 / 97 通过 / 1 失败）**；**2026-09-21 只重跑过 `MHGZ.M5`（11/11）；2026-09-23/24 又重跑过 `MHGZ.M5`（27/27）**，全量仍未跑，所以签核时必须重跑。
 
 ---
 
@@ -631,7 +631,7 @@ Development Editor 全量编译（新增反射字段**不得用 Live Coding 验�
 22. **状态 tag 与表现整包要分层；用户说「X 之后就给 tag」时，先查实现的领取点是不是真的在 X。** 2026-09-22 机制再校准：`Combat.State.Aerial.Falling` 的领取被绑在 `BeginAerialFalling`（整包：tag + 重力 + 下落 montage + 看门狗）里、时点在 **GA 结束** —— 于是「handoff 后就能按空回」在实现上根本不成立（让位窗/舞踏/离地/中止四个窗口全被误锁），而用户的心智模型（**handoff 之后就给**）才是对的。正解：拆两层 —— 裸 tag（=「空中可操作」闸门，handoff/离地/中止领、新动作起播放）+ 整包（表现，时机不动）；闸门用**正判据**（`RequiredTags` 查在场）而不是 block 反判据，锁 = 领取点缺席。顺带两条硬事实：`RequestEndAction(Superseded)` ⇒ `bWasCancelled=true`（让位者不抢发整包）；UE 的 loose tag **是计数的**（`GetTagCount` 还会把子 tag 聚合进父计数 —— M1 的台账断言就是这么被裸 Falling 的子计数顶翻的），`FWeaponRuntimeTagLedger` 的 entry 级 Release 由引擎计数兜住，**单槽 re-acquire 是为了让槽永远单一属主、放点可推理**，不是引擎必需。
 23. **UE RuntimeTelemetry 比对三坑（全部会静默给出「看似精确、实则错误」的数）。** 2026-09-22 遥测比对实测：① `Velocity*` 列的**段首样本是动作生效前的旧值**（空回发射帧 vz=−1725、次样本 1152）——整列线性拟合会把 v0z 从 1182 拖到 954、R² 掉到 0.7，**主口径用位置二次拟合**（实测 R² 0.99998），速度列掐首样本只做旁证；② 落地窗口判 `"Combat.State.Aerial" in OwnedGameplayTags` 是**子串误配**（`Aerial.Landing/CantDodge/Falling.*` 都命中），落地表现的 ~0.45 s 会并进下落窗口、整段二次拟合 g 从 −2355 漂到 −1072 —— 必须 split 后**精确集合**判定（`extract_vault_takes.py` 与 `compare_air_dodge.py` 都修过）；③ 试次要按真值侧同款验收**剔污染**：坠崖（|hEnd|>30）、转身（yaw_span>5）、**空回让位串窗**（撑杆跳 0.783 被空回接管 ⇒ 顶点 285+293≈578、距离翻倍，伪装成「干净但翻倍」）。另：`FTimerHandle::Invalidate()` **不撤定时器**只丢句柄，disarm 必须 `ClearTimer`（看门狗 `elapsed=-1` 假报警就是它）。
 24. **表现参数别让一个旗标双挑；预输入是手感决策不是技术决策。** 2026-09-23：① `BeginAerialFalling(bEnhancedVariant)` 一手挑下落 clip、一手挑重力档 —— 空回后坠要 157 的 clip（`AS_Unsh_Fall_W_Jump`）却要非白灯重力 2.4246（真值无/有白灯逐值相同），一个布尔表达不了 ⇒ **clip 与物理变体解耦**（`GetAerialDodgeFallMontage()` + `MontageOverride`）。归属判据别信长度（143/157 的 clip 同长 1.7 s），**二进制 grep uasset 名表**一查一个准。② 空回预输入整套被用户取消（锁定期按下作废、放锁点不补发）——它当初是「复用项目预输入」的顺手决定，真值手感是**到可操作帧再按才出**；预输入这类缓冲层动手前先问手感，别当免费的容错。
-25. **动画根运动是速度小偷：恒定根也会抹掉 CMC 的 XY —— 空中要把「运动权」从动画根手里收走。** 2026-09-23 PIE 第 5 轮「空回下坠途中速度骤变」：137 蒙太奇结束那一帧 vX 899→−0.14、vZ 匀加速照走、胶囊与 RootBone 水平同步冻住（位置二次差分交叉定位）。机制（引擎源码逐环核实，且与项目旧案互证 —— `MHGZAttackAbility.cpp` 里 `AM_IG_TuJinHuiXuan` 淡出期提取根运动、点亮 `CMC->RootMotionParams.bHasRootMotion` 盖掉 RMS 的事故）：任何 `bEnableRootMotion=true` 的 clip 在激活的资产玩家/蒙太奇里被 `Accumulate`（**`FRootMotionMovementParams::Set` 对单位变换不设零检查** —— 恒定 (0,0,−111) 根每帧 `Accumulate(identity)` 也置真 `bHasRootMotion`），CMC 的 `ConstrainAnimRootMotionVelocity`（`CharacterMovementComponent.cpp:2115`，Falling：XY 换成动画根速度、Z 保留）就把水平抹成 ~0。**修（架构 + 卫生双层）**：① Host 的 `ShieldAerialAnimRootMotion` 挂 `CMC->ProcessRootMotionPostConvertToWorld`（该委托只包动画根的 local→world 转换，RMS 源不经过）—— 非地面或托管表现窗口内把根位移换成 `Velocity*Δt`、旋转换成单位，Constrain 的替换变**恒等**，不再对「谁点亮 bHasRootMotion」设任何假设；地面 locomotion（Walk/Dash 一族 `bEnableRootMotion=true`）是合法驱动，放行。② 命令列 `MHGZStripPresentationRootMotion` 对表现 clip（143/157/148 ∪ 四条蒙太奇段引用）写 `bEnableRootMotion=false` + `bForceRootLock=true`（根骨钉首帧，A9 观感不变 —— 撑杆跳 `AS_Unsh_Jump_Over*` 早有同型配方）+ `bRootMotionSettingsCopiedFromMontage=true` 并清蒙太奇 DEPRECATED 旗标（`EnableRootMotionSettingFromMontage` 仅在 copied 标记 false 时写入，双保险断 PostLoad 强制回灌）。**归因未钉死的坦白（经对抗校验 + 散布反证后仍成立）**：852 缝的确切触发点没抓到。对抗校验提出的备择「正面挡墙 + PhysFalling 阻塞命中分支的速度重写」被**散布反证否掉**：33/33 个 take 全在「蒙太奇结束 +1 帧」塌缩（时间确定 = 代码在收尾链），坐标却散布全场（新录制 (603,166)/(−643,404)/(191,−180)…旧录制 (957,−839)/(−26,−275)…），且塌缩后仍**自由下落 5 帧**（Z 一路 −1568→−1865）——贴着任何表面都不可能。反方向，Constrain 说也被打伤：四条 clip `enable=false`（段级闸门连 identity 都不 Accumulate），`MontageHasRootMotion`/`ProxyHasRootMotion` 全程 0，下坠窗 ForceMMIdle。**「残差 = ΔLocation/dt」不构成任何机制的证据** —— 模式尾部 `Velocity = (Location−OldLocation)/dt` 重推导使它恒成立。已钉的硬事实：148 修复前 `enable=true` 是**落地缝**的真实漏点（337 重设被吃出 301）；全库 169 条 clip 115 条 `enable=true`。**2026-09-23 19:35：机制**确认**（本条成立），但**当时的根盾从没通电** —— 真因是绑定生命周期。**
+25. **动画根运动是速度小偷：恒定根也会抹掉 CMC 的 XY —— 空中要把「运动权」从动画根手里收走。** 2026-09-23 PIE 第 5 轮「空回下坠途中速度骤变」：137 蒙太奇结束那一帧 vX 899→−0.14、vZ 匀加速照走、胶囊与 RootBone 水平同步冻住（位置二次差分交叉定位）。机制（引擎源码逐环核实，且与项目旧案互证 —— `MHGZAttackAbility.cpp` 里 `AM_IG_TuJinHuiXuan` 淡出期提取根运动、点亮 `CMC->RootMotionParams.bHasRootMotion` 盖掉 RMS 的事故）：任何 `bEnableRootMotion=true` 的 clip 在激活的资产玩家/蒙太奇里被 `Accumulate`（**`FRootMotionMovementParams::Set` 对单位变换不设零检查** —— 恒定 (0,0,−111) 根每帧 `Accumulate(identity)` 也置真 `bHasRootMotion`），CMC 的 `ConstrainAnimRootMotionVelocity`（`CharacterMovementComponent.cpp:2115`，Falling：XY 换成动画根速度、Z 保留）就把水平抹成 ~0。**修（架构 + 卫生双层）**：① Host 的 `ShieldAerialAnimRootMotion` 挂 `CMC->ProcessRootMotionPostConvertToWorld`（该委托只包动画根的 local→world 转换，RMS 源不经过）—— 非地面或托管表现窗口内把根位移换成 `Velocity*Δt`、旋转换成单位，Constrain 的替换变**恒等**，不再对「谁点亮 bHasRootMotion」设任何假设；地面 locomotion（Walk/Dash 一族 `bEnableRootMotion=true`）是合法驱动，放行。② 命令列 `MHGZStripPresentationRootMotion` 对表现 clip（143/157/148 ∪ 四条蒙太奇段引用）写 `bEnableRootMotion=false` + `bForceRootLock=true`（根骨钉首帧，A9 观感不变 —— 撑杆跳 `AS_Unsh_Jump_Over*` 早有同型配方）+ `bRootMotionSettingsCopiedFromMontage=true` 并清蒙太奇 DEPRECATED 旗标（`EnableRootMotionSettingFromMontage` 仅在 copied 标记 false 时写入，双保险断 PostLoad 强制回灌）。**归因未钉死的坦白（经对抗校验 + 散布反证后仍成立）**：852 缝的确切触发点没抓到。对抗校验提出的备择「正面挡墙 + PhysFalling 阻塞命中分支的速度重写」被**散布反证否掉**：33/33 个 take 全在「蒙太奇结束 +1 帧」塌缩（时间确定 = 代码在收尾链），坐标却散布全场（新录制 (603,166)/(−643,404)/(191,−180)…旧录制 (957,−839)/(−26,−275)…），且塌缩后仍**自由下落 5 帧**（Z 一路 −1568→−1865）——贴着任何表面都不可能。⚠ ~~反方向，Constrain 说也被打伤~~**（该反证已作废 —— 见本条末与附录 A.2：`ConstrainAnimRootMotionVelocity` 后被 19:35 的子阶段记录逐位证实就是写手；「段级闸门」那几句只说明蒙太奇轨不供能，不构成对 Constrain 的反驳）**：四条 clip `enable=false`（段级闸门连 identity 都不 Accumulate），`MontageHasRootMotion`/`ProxyHasRootMotion` 全程 0，下坠窗 ForceMMIdle。**「残差 = ΔLocation/dt」不构成任何机制的证据** —— 模式尾部 `Velocity = (Location−OldLocation)/dt` 重推导使它恒成立。已钉的硬事实：148 修复前 `enable=true` 是**落地缝**的真实漏点（337 重设被吃出 301）；全库 169 条 clip 115 条 `enable=true`。**2026-09-23 19:35：机制**确认**（本条成立），但**当时的根盾从没通电** —— 真因是绑定生命周期。**
 子阶段记录（下一条）在断点帧给出了无歧义的读数（录制 `20260923-193250-…-55480`，断点 820）：
 `CMC.HandlePendingLaunch.Post v=(716.3779, -544.8013, -1507.9955)`（vXY 900，`HasAnimRootMotion=0`）
 → **`CMC.ConstrainAnimRootMotionVelocity`：`callSite=None`（即 `PerformMovement:2870`），
@@ -655,7 +655,7 @@ Development Editor 全量编译（新增反射字段**不得用 Live Coding 验�
 **根盾的作用面过宽**：它挂在 `ConvertLocalRootMotionToWorld`，只要「非地面或托管表现窗口」就把动画根的
 位移换成 `Velocity*Δt`、旋转换成单位 —— 日志实测它**丢掉了真实根位移**
 （`in=V(6.06,-3.55,0) out=V(5.43,-7.03) v=V(215,-278)`，~351 cm/s 空中运动时每帧替换）。
-**下一版候选（未实施）**：只对**近零**根位移替换（本例噪声 ~0.3 cm/s vs 合法 50~240 cm/s，差三个数量级，ε 可分），
+**当时的下一版候选（已实现为窄门控，随后于 22:50 删除；现行修法见 §8.1 与缺口 §6.5）**：只对**近零**根位移替换（本例噪声 ~0.3 cm/s vs 合法 50~240 cm/s，差三个数量级，ε 可分），
 门用「空回/托管窗口」这类窄条件而非「只要在空中」，并保留旋转与合法根位移；
 ⚠ **不可直接返回单位变换**（`Constrain` 会拿到 `0/Δt = 0`，等于亲手抹掉 XY）。
 
@@ -666,7 +666,7 @@ Development Editor 全量编译（新增反射字段**不得用 Live Coding 验�
 
 29. **`LogRootMotion` 声明级别是 `Warning` —— 引擎自带的根运动叙述平时全静音，别把「日志里没有」当成「没发生」。** 2026-09-23 追「谁把 `RootMotionParams` 点亮」时，日志里搜 `WorldSpaceRootMotion` / `FAnimMontageInstance::Advance ExtractedRootMotion` **一条都没有**，一开始差点当成「动画根分支没走」的旁证（与第 28 条同型的误判）。真相：`DECLARE_LOG_CATEGORY_EXTERN(LogRootMotion, Warning, All)`（`EngineLogs.h:17`），而这些叙述是 `UE_LOG(LogRootMotion, Log, ...)` ⇒ 默认被过滤。做法：**判因期用 `log LogRootMotion Log`（或代码里 `FindConsoleVariable("LogRootMotion")->Set(TEXT("Log"))`）打开**，它是零代码的飞行记录仪，直接打印「哪个蒙太奇抽取了多少根运动」与「CMC 帧内应用了多少世界空间根运动」。配套两条本轮读清的源码闸门（用于判断哪条通道**可能**供能）：蒙太奇轨 = `AnimMontage.cpp:2486` `bExtractRootMotion = (OutRootMotionParams != nullptr) && Montage->HasRootMotion()` + `2580` `!IsRootMotionDisabled()` + 权重 `Blend.GetBlendedValue()`（⇒ `MontageHasRootMotion=0` 时该路不通）；动画图 = `AnimInstance.cpp:735-741` 把代理的 `ExtractedRootMotion` 并入 + `753-755` `MakeUpToFullWeight()`（⇒ **全引擎没有任何 writer 写代理那个成员**，grep 只命中读取端与 accessor）。
 
-30. **默认关的开关，必须先证明它「开过」，再谈「有没有效」——A/B 习惯缺一条正向对照。** 2026-09-23 22:30 我按用户提议做了「交棒提前一帧」（开关 `mhgz.Aerial.HandoffOneFrameEarlier`，默认 0，理由：便于同一 PIE 内做对照），用户下一轮报「问题依旧存在」。判读录制时先查了 `Saved/Logs/MHGZ.log` 的 `Cmd:` 列表：**只有 `mhgz.Telemetry.Enable 1/0` 与遥测自己打的 `log LogRootMotion Log/Warning`**，开关从来没被置 1，`[AirDodgeHandoff]` 日志 0 行 ⇒ 两轮录制都是对照轮，**那版实现从未被测过**，「无效」这个判定当时并不成立（同一批数据里缝的形态与改动前逐帧同型，恰好也是对照轮应有的样子）。做法：① 录制入库时**先 dump `Cmd:` 列表**当正向对照，缺了就当没跑；② 默认关的开关**不值得为它多花一整轮 PIE** —— 要么默认开（靠既有的回归判据把关），要么在同一个 PIE 里当场 A/B 并把两条 `Cmd:` 都留档；③ 这与第 28 条同型（那次是「回调没被调」依赖「回调已绑」），**都是让一个未验证的前提给结论背书**。
+30. **默认关的开关，必须先证明它「开过」，再谈「有没有效」——A/B 习惯缺一条正向对照。** 2026-09-23 22:30 我按用户提议做了「交棒提前一帧」（开关 `mhgz.Aerial.HandoffOneFrameEarlier`，默认 0，理由：便于同一 PIE 内做对照；⚠ **该开关与其实现已于 2026-09-23 22:50 整体删除**），用户下一轮报「问题依旧存在」。判读录制时先查了 `Saved/Logs/MHGZ.log` 的 `Cmd:` 列表：**只有 `mhgz.Telemetry.Enable 1/0` 与遥测自己打的 `log LogRootMotion Log/Warning`**，开关从来没被置 1，`[AirDodgeHandoff]` 日志 0 行 ⇒ 两轮录制都是对照轮，**那版实现从未被测过**，「无效」这个判定当时并不成立（同一批数据里缝的形态与改动前逐帧同型，恰好也是对照轮应有的样子）。做法：① 录制入库时**先 dump `Cmd:` 列表**当正向对照，缺了就当没跑；② 默认关的开关**不值得为它多花一整轮 PIE** —— 要么默认开（靠既有的回归判据把关），要么在同一个 PIE 里当场 A/B 并把两条 `Cmd:` 都留档；③ 这与第 28 条同型（那次是「回调没被调」依赖「回调已绑」），**都是让一个未验证的前提给结论背书**。
 
 31. **交棒类缺陷，先问「收尾那一帧实例还在不在」，再问「谁先调了谁」——结构性保证胜过时序提前量。** 2026-09-23 空回缝：两边的收尾代码同构（都在 `EndAbility` 里 `Montage_Stop(0.05f)` 再 `BeginAerialFalling`，都由同一条 `TryFinishXxx` 门控 `移动结束 && 视觉结束`），差别只在一条旗标 —— 撑杆跳 `PlayVaultMontage` 里 `MontageInstance->bEnableAutoBlendOut = false`（终末姿势保持住，等 `EndAbility` 来淡出），空回保留默认 `true`（到自身长度自动淡出 → `Terminate()` → 完成回调落在实例已死之后 ⇒ `Montage_Stop` 成空操作 ⇒ **一帧没有任何蒙太奇**，姿势掉回底层图再半权重混入）。引擎依据：`FAnimMontageInstance::Advance` 的整段自动淡出由 `bEnableAutoBlendOut` 把关，`Terminate()` 只在 `IsStopped() && Blend.IsComplete()` 时发生 ⇒ 关掉之后 `OnMontageEnded`/`OnCompleted` **永远不会来**（本项目 A.2 里那条「`PushDisableRootMotion` 从未被 Pop」的推断已经撞见过这个事实）。做法：① 判据用**位置事实**（`Position >= PlayLength - 1e-3`）而不是提前量 —— 提前量随帧率与采样相位漂、事实不漂，且早/晚一帧都不会破（实例还活着）；② **`Montage_IsPlaying` 不能当判据** —— 保持终末姿势的实例 `bPlaying=false`，它会把「播完了但还活着」判成「不在播」；③ 收尾那行 `Montage_Stop` 的守卫（撑杆跳的 `if (!bVisualFinished)`）**不可照抄** —— 在本招「视觉完成」正是实例还活着的那一刻，漏掉它实例会以权重 1.0 留在槽里抢姿势；④ 现场一眼可验：`MontageInstances.csv` 的 `EnableAutoBlendOut` 列读的就是那条旗标。
 
