@@ -420,6 +420,20 @@ bool UMHGZWeaponInputRouterComponent::IsChordComplete(int32 ChordIndex) const
 	{
 		return false;
 	}
+	// ...unless this chord forbids filling a modifier last: then a modifier that
+	// started after the earliest trigger can never form it. This is what lets a
+	// key be both a standalone action (A alone) and a chord member (RT+A).
+	if (Chord.Definition->bModifiersMustPrecedeTriggers)
+	{
+		for (const FGameplayTag& Modifier : Chord.Definition->RequiredHeldModifiers)
+		{
+			const FPhysicalInputState* State = HeldControls.Find(Modifier);
+			if (!State || State->StartedTime > FirstTriggerTime)
+			{
+				return false;
+			}
+		}
+	}
 
 	// Exact modifiers: no extra configured modifier control may be held, except
 	// ones this chord itself uses (as trigger or required modifier).
@@ -503,6 +517,19 @@ bool UMHGZWeaponInputRouterComponent::IsPossiblyCompletable(int32 ChordIndex, do
 	if (!DoChordContextRequirementsPass(ChordIndex))
 	{
 		return false;
+	}
+	// 修饰键必须先按的 Chord，在修饰键尚未按下时就不可能凑成 ⇒ 不该让别的 Chord 为它推迟。
+	// （这就是「A 单独按下零延迟」的来源：RT 还没按下，RT+A 不再算「可能凑成」。）
+	if (Chord.Definition->bModifiersMustPrecedeTriggers)
+	{
+		for (const FGameplayTag& Modifier : Chord.Definition->RequiredHeldModifiers)
+		{
+			const FPhysicalInputState* State = HeldControls.Find(Modifier);
+			if (!State || State->StartedTime > FirstTriggerTime)
+			{
+				return false;
+			}
+		}
 	}
 
 	// If exact modifiers are already violated by held keys, the chord can never complete.

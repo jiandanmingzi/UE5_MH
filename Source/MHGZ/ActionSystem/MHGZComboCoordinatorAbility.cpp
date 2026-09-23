@@ -37,6 +37,8 @@ namespace
 		TEXT("Combat.State.Hitstun"));
 	const FGameplayTag KnockdownTag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Knockdown"));
+	const FGameplayTag AirDodgeInputTag = FGameplayTag::RequestGameplayTag(
+		TEXT("Input.AirDodge"));
 
 	bool IsPostureTag(const FGameplayTag& Tag)
 	{
@@ -309,6 +311,14 @@ bool UGA_WeaponComboCoordinator::TryBufferDirectInput(
 	const FWeaponInputSnapshot& Input)
 {
 	HasLiveBufferedCombatInput();
+
+	// 空中回避**没有预输入**（用户 2026-09-22 拍板取消）：锁定期里的按下直接作废，
+	// 不入槽、放锁点不补发。`Input.Dodge` 是它的父标签，地面分支靠下面的精确 == 守住。
+	if (Input.ResolvedInputTag == AirDodgeInputTag)
+	{
+		return false;
+	}
+
 	if (Input.Phase != EWeaponInputPhase::Started
 		|| Input.ResolvedInputTag != DodgeInputTag
 		|| PendingTransition.IsSet()
@@ -765,6 +775,46 @@ void UGA_WeaponComboCoordinator::CloseWindowsFor(const FWeaponActionToken& Actio
 		}
 		ComboWindows.Remove(Key);
 	}
+}
+
+// ── M5 空中回避：可操作帧闸门 / 独立预输入槽 / 让位 ──────────────────────────
+
+int32 UGA_WeaponComboCoordinator::SupersedeOtherIGAerialActions(
+	const FWeaponActionToken& Superseder)
+{
+	UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(
+		GetAbilitySystemComponentFromActorInfo());
+	if (!ASC)
+	{
+		return 0;
+	}
+
+	// 先收集再结束（照 MHGZHitReactionAbility::CancelActivePlayerActions 的两段式）：
+	// RequestEndAction 同步走 EndAbility → UnregisterAction / TaskOwnerEnded，迭代中容器会变。
+	TArray<TObjectPtr<UMHGZGameplayAbility>> ActionsToEnd;
+	for (FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		for (UGameplayAbility* Instance : Spec.GetAbilityInstances())
+		{
+			UMHGZInsectGlaiveAbility* Action = Cast<UMHGZInsectGlaiveAbility>(Instance);
+			if (Action && Action->IsActionActivationCommitted() && Action->IsActive()
+				&& Action != Superseder.AbilityInstance.Get())
+			{
+				ActionsToEnd.Add(Action);
+			}
+		}
+	}
+	for (UMHGZGameplayAbility* Action : ActionsToEnd)
+	{
+		if (Action && Action->IsActive())
+		{
+			// 与 ConfirmTransitionActivation 的让位同一行语义：Superseded ⇒ bWasCancelled，
+			// 被让位者不会抢落地/自由落体交接（两招 EndAbility 的旗标都带 !bWasCancelled 守卫）。
+			// RequestEndAction 返回时位移所有权已释放（UnregisterAction 清槽先于任务拆除）。
+			Action->RequestEndAction(EWeaponActionEndReason::Superseded);
+		}
+	}
+	return ActionsToEnd.Num();
 }
 
 bool UGA_WeaponComboCoordinator::CacheCombatInput(const FWeaponInputSnapshot& Input)

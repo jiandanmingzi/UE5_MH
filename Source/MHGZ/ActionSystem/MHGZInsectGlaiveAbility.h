@@ -71,6 +71,8 @@ public:
 	 * （force-Z = 1373.75，完全正确）根本没进 Velocity。
 	 *
 	 * 这一帧之后，CMC 接管：重力与地面判定回来，空中招式与落地动画可触发。
+	 * 同一帧领「空中可操作」（裸 `Combat.State.Aerial.Falling`）——空回与空中攻击的
+	 * 闸门查它，lead 段里它被 Detect 放掉（= 锁）。
 	 * override 模式下的根运动源仍每帧覆盖速度，所以**轨迹不变**，
 	 * 变的只是「落地现在看得见了」。
 	 *
@@ -84,6 +86,16 @@ public:
 
 	/** 蒙太奇上是否挂了点通知。没挂不是错误，但会告警 —— 见 DetectAerialHandoffNotify。 */
 	bool IsAerialHandoffAuthored() const { return bAerialHandoffAuthored; }
+
+	// （旧 B 案的 lead 段钩子已随 InputPolicy 枚举退役 —— lead 的锁就是
+	//「空中可操作」tag 的缺席：Detect 放、handoff 领，起手段天然在锁定期里。）
+
+	/** 自动化专用：直接摆锁存状态（生产路径由 DetectAerialHandoffNotify / NotifyAerialHandoff 驱动）。 */
+	void SetAerialHandoffStateForTest(bool bInAuthored, bool bInReached)
+	{
+		bAerialHandoffAuthored = bInAuthored;
+		bAerialHandoffReached = bInReached;
+	}
 
 	/**
 	 * 纯谓词：这个蒙太奇挂了点通知吗。
@@ -136,7 +148,9 @@ protected:
 	/**
 	 * 在蒙太奇上找 UAnimNotify_IG_AerialHandoff，写进 bAerialHandoffAuthored，
 	 * 并清掉上一次激活留下的锁存。由派生类在起播蒙太奇前调用一次。
-	 * 找不到就告警 —— 静默无释放点比缺释放点更难查。
+	 * 找到点通知 = 本动作有 lead 锁定期 ⇒ 放「空中可操作」（Host 的
+	 * ReleaseAerialFallingState），到 handoff 再领回。找不到就告警 ——
+	 * 静默无释放点比缺释放点更难查。
 	 */
 	void DetectAerialHandoffNotify(const UAnimMontage* Montage);
 

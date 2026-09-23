@@ -51,6 +51,22 @@ struct FWeaponChordDefinition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	bool bRequireExactModifiers = true;
 
+	/**
+	 * 默认 false：修饰键可以在触发键的等待窗口内**最后补齐** —— 这是「RT 后按也能凑成
+	 * RT+A」的实现方式，也是 `Input.Weapon.RTA` 一直以来的行为。
+	 *
+	 * true：修饰键必须**先于**触发键按下；触发键先到该 Chord 就永久不成立 —— 既不形成
+	 * （`IsChordComplete`），也不参与「更好的 Chord 可能凑成」的推迟判定
+	 * （`IsPossiblyCompletable`）。
+	 *
+	 * 它解决的是「一个物理键既要做单独动作、又是组合键成员」的延迟问题：A 单独是
+	 * 闪避/空中回避，RT+A 是撑杆跳。开着这条，A 单独按下时不必再为等 RT 拖满一个
+	 * `ChordGracePeriod`；代价是「先按 A 再补 RT」不再凑成组合键 —— 要出组合键必须
+	 * **先按住 RT**。默认 false 保证既有 Chord 的行为逐字不变。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
+	bool bModifiersMustPrecedeTriggers = false;
+
 	/** 候选排序权重（数值越大越优先） */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	int32 Priority = 0;

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "MHGZGameplayAbility.h"
+#include "MHGZAirDodgeAbility.h"
 #include "MHGZWeaponComboData.h"
 #include "MHGZComboCoordinatorAbility.generated.h"
 
@@ -54,6 +55,19 @@ public:
 	bool PrepareActiveActionForDodge(const FWeaponActionToken& DodgeActionToken);
 	bool CommitActiveActionDodgeSupersede(const FWeaponActionToken& DodgeActionToken);
 	void CancelActiveActionDodgeSupersede(const FWeaponActionToken& DodgeActionToken);
+
+	// ── M5 空中回避：可操作帧闸门 + 让位 ─────────────────────────────────────
+	//
+	// 与上面地面 DodgeAccept 那套**并列**、互不借用：空中走点通知的 latch
+	// （UAnimNotify_IG_AerialHandoff → NotifyAerialHandoff），地面走 NotifyState 的窗口。
+	// **空中回避没有预输入**（2026-09-22 用户拍板取消）：锁定期里的按下直接作废。
+
+	/**
+	 * 让位：把**其它**已 Commit 的 IG 动作以 `Superseded` 结束。返回结束个数。
+	 * `RequestEndAction` 同步摘源、释放位移所有权（UnregisterAction + TaskOwnerEnded），
+	 * 所以调用方随后 AcquireActionMovement 必然成功。
+	 */
+	int32 SupersedeOtherIGAerialActions(const FWeaponActionToken& Superseder);
 
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Combo")
 	FName GetCurrentState() const { return CurrentState; }

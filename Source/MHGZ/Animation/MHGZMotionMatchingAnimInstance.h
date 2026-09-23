@@ -14,6 +14,7 @@
 class AMHGZCharacter;
 class UPoseSearchDatabase;
 class UAnimSequenceBase;
+class UMHGZInstrumentedCharacterMovementComponent;
 struct FMotionMatchingAnimNodeReference;
 
 /** Identifies the existing forward-only locomotion Motion Matching nodes in ABP_MH_Character. */
@@ -330,6 +331,7 @@ private:
 	FString RuntimeTelemetryParsedInputFilePath;
 	FString RuntimeTelemetryCharacterStateFilePath;
 	FString RuntimeTelemetryCharacterSpatialFilePath;
+	FString RuntimeTelemetryMovementPhasesFilePath;
 	FString RuntimeTelemetryRootMotionSourcesFilePath;
 	FString RuntimeTelemetryCapsuleHitsFilePath;
 	FString RuntimeTelemetryMMQueryFilePath;
@@ -346,6 +348,7 @@ private:
 	TArray<FString> RuntimeTelemetryParsedInputPendingRows;
 	TArray<FString> RuntimeTelemetryCharacterStatePendingRows;
 	TArray<FString> RuntimeTelemetryCharacterSpatialPendingRows;
+	TArray<FString> RuntimeTelemetryMovementPhasePendingRows;
 	TArray<FString> RuntimeTelemetryRootMotionSourcesPendingRows;
 	TArray<FString> RuntimeTelemetryCapsuleHitsPendingRows;
 	TArray<FString> RuntimeTelemetryMMQueryPendingRows;
@@ -355,6 +358,7 @@ private:
 	TArray<FString> RuntimeTelemetryMontageInstancesPendingRows;
 	uint64 RuntimeTelemetryLastObservedInputEventSerial = 0;
 	uint64 RuntimeTelemetryLastObservedCapsuleHitSerial = 0;
+	uint64 RuntimeTelemetryLastObservedMovementPhaseSerial = 0;
 	/**
 	 * Previous frame's CMC velocity, used to derive the Spatial row's acceleration.
 	 *

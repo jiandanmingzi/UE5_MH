@@ -115,6 +115,20 @@ static const FMontageHandoffRoute Routes[] =
 		0.783f - VaultTakeoffDuration,
 		TEXT("measured: MHR id 145->156->137; earliest cancel chain frame 94. The 95-frame mode is an upper bound, not the wall, so it is deliberately not used. chain 0.783; arc montage starts at 0.650 => 0.133")
 	},
+	// ── 空中回避（MHR id 137）：它**自己就是一条完整的弧**，没有起手段那一半 ─────
+	//
+	// 0.650 s 不是从别处减出来的，它就在这条蒙太奇自己的时间轴上：真值里 `137` 自身的
+	// 最早可操作帧是 **78 / 142 帧**（全库 0 段更低、16 段精确命中、三个不同后继都能接上），
+	// 而剪辑按 120 fps 栅格烘成有效 142 帧 / 1.18333 s ⇒ 78/120 = **0.6500**。
+	//
+	// 它也不参与上面的「起手段不许挂通知」只读断言（那条按 `ChengGanTiao_Over` 命中筛选，
+	// 本路由天然跳过）。
+	{
+		TEXT("AirDodge"),
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_AirDodge.AM_IG_AirDodge"),
+		0.650f,
+		TEXT("measured: MHR id 137 own earliest actionable frame = 78 of 142 (min over the whole library with no segment lower, 16 exact hits, three distinct successors) => 78/120 = 0.6500 on the clip's 120 fps grid")
+	},
 };
 
 bool SaveAsset(UObject& Asset)

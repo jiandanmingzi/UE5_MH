@@ -11,6 +11,7 @@
 class ACharacter;
 class APlayerController;
 class UAnimMontage;
+class UCharacterMovementComponent;
 class UMHGZAbilitySystemComponent;
 class UMHGZWeaponResourceComponent;
 class USkeletalMeshComponent;
@@ -81,6 +82,16 @@ public:
 	// ----------------------------------------------------------------------
 	const FWeaponRuntimeContext& GetCurrentContext() const { return CurrentContext; }
 
+	/** 自动化专用：直接注入战斗配置（生产路径由 ApplyWeaponSnapshot 经武器快照装配）。 */
+	void SetCombatConfigForTest(UWeaponCombatConfigBase* InCombatConfig)
+	{
+		CurrentContext.CombatConfig = InCombatConfig;
+	}
+
+	/** 自动化专用：直调空中动画根盾（MHGZ.M5.Aerial.AnimRootMotionShield）。 */
+	FTransform ShieldAerialAnimRootMotionForTest(const FTransform& RootMotion,
+		float DeltaSeconds);
+
 	FWeaponRuntimeToken GetCurrentToken() const { return CurrentToken; }
 
 	/** Token 必须同时匹配 Host 指针与当前 Generation。 */
@@ -113,6 +124,9 @@ public:
 	bool RegisterAction(const FWeaponActionToken& ActionToken);
 
 	bool UnregisterAction(const FWeaponActionToken& ActionToken);
+
+	/** Active Action 注册表非空。离地/中止滞空的 Falling 领取点用它让开在场动作的 lead。 */
+	bool HasRegisteredAction() const { return !ActiveActions.IsEmpty(); }
 
 	/** 将 Release 快照分发给 InputTag 精确匹配的 Active Action。 */
 	void DispatchInputRelease(const FWeaponInputSnapshot& Snapshot);
@@ -157,6 +171,9 @@ public:
 
 	/** 指定 Action 是否是当前 MovementTask 的唯一所有者。 */
 	bool IsActionMovementOwnedBy(const FWeaponActionToken& ActionToken) const;
+
+	/** Current Action Movement owner, including its activation sequence, or an empty string. */
+	FString GetActionMovementOwnerDebugString() const;
 
 	// ----------------------------------------------------------------------
 	// Motion Matching Handoff (M4.4)
@@ -206,8 +223,61 @@ public:
 	 * Starts an in-place, CMC-owned free-fall visual and publishes the exact
 	 * Falling tags.  The visual survives the source action; only HandleLanded
 	 * is allowed to clear it.
+	 *
+	 * `MontageOverride`：调用方指定下落 clip（空回走 `GetAerialDodgeFallMontage` =
+	 * 157 的 clip），重力档仍由 `bEnhancedVariant` 独立决定 —— 两者刻意解耦。
 	 */
-	bool BeginAerialFalling(bool bEnhancedVariant, FGameplayTag StyleTag = FGameplayTag());
+	bool BeginAerialFalling(bool bEnhancedVariant, FGameplayTag StyleTag = FGameplayTag(),
+		UAnimMontage* MontageOverride = nullptr);
+
+	/**
+	 * 领「空中可操作」状态 tag（裸 `Combat.State.Aerial.Falling`，无 Style、不播表现）。
+	 *
+	 * 与 BeginAerialFalling 的分工：那个是托管下落**整包**（tag + 2.42g + 下落 montage +
+	 * 看门狗，GA 结束时才进）；这个只发闸门 tag。空回（ActivationRequiredTags）与未来
+	 * 空中攻击行（DA_IG_Combo 行 RequiredTags）都查它的**在场** —— 反过来，空中动作的
+	 * lead（起播→IG_AerialHandoff）里它必须不在（ReleaseAerialFallingState）。
+	 *
+	 * 三个领取点：handoff（NotifyAerialHandoff）、离地且无已注册 Action（SetGrounded，
+	 * 上升段也算 —— 用户拍板）、中止滞空（InsectGlaiveAbility::EndAbility）。
+	 * 单槽 re-acquire 是**纪律**不是引擎必需（引擎 loose tag 是计数的，双持由计数兜住）：
+	 * 单槽保证这个槽永远单一属主、放点可推理。
+	 */
+	bool AcquireAerialFallingState();
+
+	/**
+	 * 放「空中可操作」并收掉托管下落表现（停系统下落 montage、拆看门狗）。
+	 *
+	 * **不** Restore 物理：接管者自己的 profile 会覆写（空回的 ApplyAerialFallingProfile
+	 * 必须在建弹道源**之前**写好 2.42g，先 Restore 会把反算打回 1.0g）。唯一调用方：
+	 * DetectAerialHandoffNotify —— 新动作的 lead 由此开始锁。
+	 */
+	void ReleaseAerialFallingState();
+
+	/**
+	 * 只施加「系统托管下落」的重力 profile，**不**播下落表现、**不**领 Falling pose tag、
+	 * **不**武装看门狗 —— 那三件事仍归 BeginAerialFalling。
+	 *
+	 * 空中回避必须在**建弹道源之前**调它：AbilityTask_MHGZWeaponMovement.cpp:393 用
+	 * `CMC->GetGravityZ()` 反算源的时长与顶点（Duration = 2·vz/g、Height = vz²/2g），
+	 * 而 GravityScale 只在 ApplyAerialFallingPhysics 里被写成 2.4246。撑杆跳的弧段中途
+	 * （Actionable 之后）就能触发空中回避，那一刻撑杆跳还没走到自己的 BeginAerialFalling
+	 * ⇒ 若不先设重力，反算会按 1.0g 得出 **2.4 倍**长的弧与 2.4 倍高的顶点。
+	 *
+	 * 返回 false 表示配置没 opt-in（ResolveAerialFallingPhysics 拒绝）—— 调用方必须
+	 * **硬失败**，不能静默按 1.0g 起源。恢复义务不在这里：RestoreAerialFallingPhysics
+	 * 的既有调用点（落地 / teardown / 看门狗）已覆盖全部退出口。
+	 */
+	bool ApplyAerialFallingProfile(bool bEnhancedVariant);
+
+	/**
+	 * 记一次「空中回避已用」（`Combat.State.Aerial.CantDodge`）。
+	 *
+	 * 语义是**本次滞空已消耗**，所以 Token 由 Host 持有（Pose 槽）、**不由能力持有** ——
+	 * 能力结束时不得退款（取消进别的空中招式也算用掉了）。唯一释放点是 HandleLanded()
+	 * 的落地清理，那里已经在释放这个 Token，只是此前从来没有人领取过。幂等。
+	 */
+	bool MarkAerialDodgeUsed();
 
 	/** 清除全部空中 Cant/Falling 拥有状态并落回 Grounded。 */
 	void HandleLanded();
@@ -227,8 +297,16 @@ public:
 
 	bool IsGrounded() const { return bGrounded; }
 
-	/** True only while the Host owns the CMC free-fall presentation/state. */
-	bool IsAerialFalling() const { return PoseTokens.AerialFalling.IsValid(); }
+	/**
+	 * True only while the **system-owned free-fall presentation** is open
+	 * （BeginAerialFalling 起的托管下落表现会话：下落 montage + 看门狗）。
+	 *
+	 * ⚠ 这**不是** `Combat.State.Aerial.Falling` tag 的在场性 —— 那个 tag 现在是
+	 * 「空中可操作」闸门（handoff / 离地无 Action / 中止滞空就亮，见
+	 * AcquireAerialFallingState）。本谓词仍只答「托管下落表现进行中」，供摇杆屏蔽
+	 * （MHGZCharacter 的 bAerialPresentationLocked）与落地收尾判据使用。
+	 */
+	bool IsAerialFalling() const { return ActiveAerialFallingMontage.IsValid(); }
 
 	/** True while the system-owned landing presentation locks locomotion input. */
 	bool IsAerialLanding() const { return PoseTokens.AerialLanding.IsValid(); }
@@ -288,6 +366,20 @@ private:
 	/** Applies/restores the optional current-weapon CMC profile for free fall. */
 	void ApplyAerialFallingPhysics(bool bEnhancedVariant);
 	void RestoreAerialFallingPhysics();
+
+	/**
+	 * 空中动画根盾（挂在 CMC 的 ProcessRootMotionPostConvertToWorld，初始化期绑定）：
+	 * 空中（非地面）动画根只许贡献**姿势** —— 位移换成 Velocity*DeltaSeconds、旋转换成
+	 * 单位，于是 CMC 的 ConstrainAnimRootMotionVelocity（Falling：XY 换成动画根速度、
+	 * Z 保留）变成恒等替换，恒定根轨道再也不能把水平抹成 ~0（PIE 第 5 轮 137→下坠缝
+	 * 的「速度骤变」，附录 A.25）。托管表现窗口（IsAerialFalling/IsAerialLanding，
+	 * 含 148 落地段的地面帧）无条件进盾；地面 locomotion 的动画根是合法驱动，放行。
+	 * RMS 源（弹道/弧线）不走这个委托口，不受影响。
+	 */
+	FTransform ShieldAerialAnimRootMotion(const FTransform& RootMotion,
+		UCharacterMovementComponent* CMC, float DeltaSeconds);
+	void BindAerialRootMotionShield();
+	void UnbindAerialRootMotionShield();
 
 	/** Plays the configured landing presentation with root motion explicitly disabled. */
 	bool PlayAerialLandingVisual();

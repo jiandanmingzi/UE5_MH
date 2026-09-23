@@ -234,6 +234,8 @@ public:
 		const FGameplayAbilityActivationInfo ActivationInfo,
 		bool bReplicateEndAbility, bool bWasCancelled) override;
 
+	// （旧 lead 段覆写已随 InputPolicy 退役 —— 锁 tag 从 Detect 起领，起手段在锁定期里。）
+
 	/**
 	 * Analytic tangent of a recorded back-vault trajectory at HandoffProgress,
 	 * expressed in the path's facing frame (X forward, Y right, Z up) in cm/s.

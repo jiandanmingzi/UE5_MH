@@ -270,13 +270,54 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Presentation")
 	TObjectPtr<UAnimMontage> AerialFallMontage;
 
-	/** CMC-owned free-fall visual after a White Extract launch, dance vault, or air dodge. */
+	// ----------------------------------------------------------------------
+	// 空中回避（MHR id 137）
+	//
+	// 它是**纯抛体**：142 帧 / 1.185 s 里 g 恒为 −2378 cm/s²（R² 中位 0.9991），
+	// 水平 900 cm/s 沿摇杆方向、垂直 +1182 cm/s 起，净位移水平 1065 cm / 垂直 −268 cm。
+	// 无白灯与有白灯**逐值相同** ⇒ 没有白灯变体，`bEnhancedVariant` 恒 false。
+	// ----------------------------------------------------------------------
+
+	/**
+	 * 实录反推的水平初速（cm/s）；方向取输入快照里的世界系摇杆方向（八向连续角，不量化）。
+	 *
+	 * 蒙太奇刻意**不在**这里：按项目分工，动作蒙太奇由 GA 蓝图指派
+	 * （`UMHGZAttackAbility::AttackMontage`），配置只放运行时数值 —— 与撑杆跳同构。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|AirDodge",
+		meta = (ClampMin = "0.01"))
+	float AirDodgeHorizontalSpeed = 900.0f;
+
+	/**
+	 * 实录反推的垂直初速（cm/s，向上）。它与水平初速一起决定整条弧：
+	 * 源时长 = 2·vz/g、顶点 = vz²/(2g)（g 取 CMC 当前重力 = AerialFallGravityScale × 980）。
+	 *
+	 * ⚠ 顶点**不在**时长中点（上升 0.497 s、下降 0.688 s），所以**不能**改用
+	 * 「顶点 + 时长」那组参数：那条路由引擎按 4H/D 反算 v0，代入会得到 989 而不是 1182。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|AirDodge",
+		meta = (ClampMin = "0.01"))
+	float AirDodgeVerticalSpeed = 1182.0f;
+
+	// ⚠ 自身最早可操作帧（0.650 s = 78 帧）刻意**不在这里**：它是**资产里那条点通知**
+	// 的时间，归属 `MHGZAerialHandoffSetupCommandlet` 的路由表（那里本来就逐条写着
+	// montage 名与 handoff_time，并带出处）。放两份会立刻互漂。
+
+	/** CMC-owned free-fall visual after a White Extract launch or dance vault. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Presentation")
 	TObjectPtr<UAnimMontage> WhiteAerialFallMontage;
 
 	/** CMC landing visual for any free insect-glaive aerial state. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Presentation")
 	TObjectPtr<UAnimMontage> AerialLandingMontage;
+
+	/**
+	 * 落地水平重设（cm/s）。真值 `148` 首帧水平恒 **337±6**、与入速无关（入速 306
+	 * 也变 337、898 也变 337，r=+0.09）—— 触地是唯一速度**重置**点，不是摩擦衰减
+	 * （下落物理.md §六 / 操虫斩曲线.md §六）。方向保持；近零速取朝向。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aerial|Presentation", meta = (ClampMin = "0.0"))
+	float AerialLandingHorizontalSpeed = 337.0f;
 
 	virtual UAnimMontage* GetAerialFallingMontage(bool bEnhancedVariant) const override
 	{
@@ -286,6 +327,19 @@ public:
 	virtual UAnimMontage* GetAerialLandingMontage() const override
 	{
 		return AerialLandingMontage;
+	}
+
+	virtual UAnimMontage* GetAerialDodgeFallMontage() const override
+	{
+		// 空回后坠 = id `157` 的 clip = `AS_Unsh_Fall_W_Jump`（WhiteAerialFallMontage）。
+		// 真值语义（撑杆跳曲线.md §3.3）：157 是「回避后（任何灯态）/ 白灯弧后」的下坠，
+		// 与灯态无关 —— 所以这里固定取 157，不随 bEnhancedVariant 摇摆。
+		return WhiteAerialFallMontage;
+	}
+
+	virtual float GetAerialLandingHorizontalSpeed() const override
+	{
+		return AerialLandingHorizontalSpeed;
 	}
 
 	virtual bool ResolveAerialFallingPhysics(bool bEnhancedVariant,

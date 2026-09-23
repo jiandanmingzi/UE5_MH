@@ -21,7 +21,23 @@
 #include "MHGZ.h"
 #include "MHGZCharacter.h"
 #include "MotionWarpingComponent.h"
+#include "Movement/MHGZInstrumentedCharacterMovementComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeDefinition.h"
+
+namespace
+{
+void RecordAerialMovementPhase(ACharacter* Character, const FName Phase,
+	const FTransform* RootMotionTransform = nullptr, const float DeltaSeconds = 0.0f)
+{
+	UMHGZInstrumentedCharacterMovementComponent* InstrumentedMovement = Character
+		? Cast<UMHGZInstrumentedCharacterMovementComponent>(Character->GetCharacterMovement())
+		: nullptr;
+	if (InstrumentedMovement)
+	{
+		InstrumentedMovement->RecordAerialMovementEvent(Phase, RootMotionTransform, DeltaSeconds);
+	}
+}
+}
 
 UMHGZWeaponRuntimeHostComponent::UMHGZWeaponRuntimeHostComponent()
 {
@@ -98,6 +114,7 @@ void UMHGZWeaponRuntimeHostComponent::InitializePawnRuntime(
 	}
 
 	InitializePoseState(InCharacter);
+	BindAerialRootMotionShield();
 	ApplyWeaponSnapshot(InitialSnapshot);
 }
 
@@ -323,6 +340,7 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 		return;
 	}
 
+	UnbindAerialRootMotionShield();
 	RestoreAerialFallingPhysics();
 	StopAerialFallingVisual(0.0f);
 	StopAerialLandingVisual(0.0f);
@@ -750,6 +768,18 @@ bool UMHGZWeaponRuntimeHostComponent::IsActionMovementOwnedBy(
 	return IsActionMovementOwned() && ActionMovementOwner == ActionToken;
 }
 
+FString UMHGZWeaponRuntimeHostComponent::GetActionMovementOwnerDebugString() const
+{
+	if (!IsActionMovementOwned())
+	{
+		return FString();
+	}
+	const UGameplayAbility* Ability = ActionMovementOwner.AbilityInstance.Get();
+	const FString AbilityName = Ability ? Ability->GetClass()->GetName() : TEXT("InvalidAbility");
+	return FString::Printf(TEXT("%s#%u"), *AbilityName,
+		ActionMovementOwner.ActivationSequenceID);
+}
+
 // ----------------------------------------------------------------------
 // Motion Matching Handoff
 // ----------------------------------------------------------------------
@@ -899,7 +929,16 @@ bool UMHGZWeaponRuntimeHostComponent::SetGrounded(bool bInGrounded)
 		// A new take-off must not inherit the previous landing's input lock.
 		StopAerialLandingVisual(0.0f);
 	}
-	return ApplyGroundedPose(bInGrounded);
+	const bool bPoseApplied = ApplyGroundedPose(bInGrounded);
+	// 离地即「空中可操作」（上升段也算 —— 用户拍板）。**必须排在 ApplyGroundedPose
+	// 之后**：AcquireAerialFallingState 以 !bGrounded 为前提，姿态先翻、领取才不被自挡。
+	// 动作在场时它的 lead 自己要锁（起手段也是离地）：那种情形交给
+	// DetectAerialHandoffNotify 放行/收回，这里只接管「无主动作的腾空」（走落台阶等）。
+	if (bPoseApplied && !bInGrounded && !HasRegisteredAction())
+	{
+		AcquireAerialFallingState();
+	}
+	return bPoseApplied;
 }
 
 bool UMHGZWeaponRuntimeHostComponent::SetSheathed(bool bInSheathed)
@@ -918,18 +957,23 @@ void UMHGZWeaponRuntimeHostComponent::HandleLanded()
 	{
 		return;
 	}
+	ACharacter* Character = CurrentContext.Character.Get();
+	RecordAerialMovementPhase(Character, TEXT("Host.HandleLanded.Pre"));
 
 	// The fall visual is system-owned rather than Action-owned: a landing can
 	// happen after the launching GA has ended, so stop it before starting the
 	// real landing pose and before releasing its tag ledger entry.
-	const bool bHadSystemOwnedFreeFall = PoseTokens.AerialFalling.IsValid()
-		|| ActiveAerialFallingMontage.IsValid();
+	// 判据只看**表现会话**（ActiveAerialFallingMontage）：AerialFalling 槽现在也挂
+	// 裸「空中可操作」tag（handoff/离地/中止领取），拿槽判会把舞踏 handoff 后的
+	// 落地误判成系统下落收尾、叠播一份系统落地表现。
+	const bool bHadSystemOwnedFreeFall = ActiveAerialFallingMontage.IsValid();
 	RestoreAerialFallingPhysics();
 	StopAerialFallingVisual(0.05f);
 	if (bHadSystemOwnedFreeFall)
 	{
 		PlayAerialLandingVisual();
 	}
+	RecordAerialMovementPhase(Character, TEXT("Host.HandleLanded.PostLandingPresentation"));
 
 	// 仅释放 Host 自身持有的空中姿态 Token；禁止按 Tag 扫描其他所有者。
 	ReleasePoseToken(PoseTokens.AerialFalling);
@@ -947,11 +991,14 @@ void UMHGZWeaponRuntimeHostComponent::HandleLanded()
 	{
 		IGResource->ClearDanceStacks(EIGDanceClearReason::Landed);
 	}
+	RecordAerialMovementPhase(Character, TEXT("Host.HandleLanded.Post"));
 }
 
 bool UMHGZWeaponRuntimeHostComponent::BeginAerialFalling(const bool bEnhancedVariant,
-	FGameplayTag StyleTag)
+	FGameplayTag StyleTag, UAnimMontage* MontageOverride)
 {
+	RecordAerialMovementPhase(CurrentContext.Character.Get(),
+		TEXT("Host.BeginAerialFalling.Pre"));
 	if (!bInitialized || bShuttingDown || bGrounded)
 	{
 		return false;
@@ -961,15 +1008,17 @@ bool UMHGZWeaponRuntimeHostComponent::BeginAerialFalling(const bool bEnhancedVar
 	ACharacter* Character = CurrentContext.Character.Get();
 	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
 	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
-	UAnimMontage* Montage = CombatConfig
-		? CombatConfig->GetAerialFallingMontage(bEnhancedVariant) : nullptr;
+	UAnimMontage* Montage = MontageOverride ? MontageOverride
+		: (CombatConfig ? CombatConfig->GetAerialFallingMontage(bEnhancedVariant) : nullptr);
 	if (!AnimInstance || !Montage)
 	{
 		return false;
 	}
 
 	ApplyAerialFallingPhysics(bEnhancedVariant);
+	RecordAerialMovementPhase(Character, TEXT("Host.BeginAerialFalling.PostPhysics"));
 	StopAerialFallingVisual(0.0f);
+	RecordAerialMovementPhase(Character, TEXT("Host.BeginAerialFalling.PostStopOldVisual"));
 	ReleasePoseToken(PoseTokens.AerialFalling);
 	FGameplayTagContainer FallingTags;
 	FallingTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.Falling")));
@@ -987,6 +1036,7 @@ bool UMHGZWeaponRuntimeHostComponent::BeginAerialFalling(const bool bEnhancedVar
 	{
 		ReleasePoseToken(PoseTokens.AerialFalling);
 		RestoreAerialFallingPhysics();
+		RecordAerialMovementPhase(Character, TEXT("Host.BeginAerialFalling.MontagePlayFailed"));
 		return false;
 	}
 	if (FAnimMontageInstance* Instance = AnimInstance->GetActiveInstanceForMontage(Montage))
@@ -1008,15 +1058,18 @@ bool UMHGZWeaponRuntimeHostComponent::BeginAerialFalling(const bool bEnhancedVar
 			&UMHGZWeaponRuntimeHostComponent::HandleAerialFallingWatchdog,
 			MaxSeconds, false);
 	}
+	RecordAerialMovementPhase(Character, TEXT("Host.BeginAerialFalling.Post"));
 	return true;
 }
 
 void UMHGZWeaponRuntimeHostComponent::HandleAerialFallingWatchdog()
 {
 	AerialFallingWatchdogTimer.Invalidate();
-	if (!PoseTokens.AerialFalling.IsValid())
+	if (!ActiveAerialFallingMontage.IsValid())
 	{
-		// Ended normally; the timer was simply not the one that noticed.
+		// 已正常收尾，或场上只有裸「空中可操作」tag（handoff/离地/中止领取的窗口
+		// 没有看门狗）——stale 定时器不得碰这些状态，否则会把动作中途的胶囊
+		// SetDefaultMovementMode 掉（PIE 第 4 轮实测 elapsed=-1 的假报警就是它）。
 		return;
 	}
 
@@ -1154,6 +1207,84 @@ void UMHGZWeaponRuntimeHostComponent::StopAerialLandingVisual(const float BlendO
 	ReleasePoseToken(PoseTokens.AerialLanding);
 }
 
+bool UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingProfile(const bool bEnhancedVariant)
+{
+	if (!bInitialized || bShuttingDown)
+	{
+		return false;
+	}
+	ACharacter* Character = CurrentContext.Character.Get();
+	UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
+	UWeaponCombatConfigBase* CombatConfig = CurrentContext.CombatConfig.Get();
+	if (!CMC || !CombatConfig)
+	{
+		return false;
+	}
+
+	// 写只有 ApplyAerialFallingPhysics 一个来源（含「原值只存一次」的语义），
+	// 这里只多做一次回读：调用方据此**硬失败**，而不是等反算出来的弧长成 2.4 倍。
+	float ExpectedGravityScale = 1.0f;
+	float ExpectedBraking = 0.0f;
+	if (!CombatConfig->ResolveAerialFallingPhysics(bEnhancedVariant, ExpectedGravityScale,
+		ExpectedBraking))
+	{
+		return false;
+	}
+	ApplyAerialFallingPhysics(bEnhancedVariant);
+	return FMath::IsNearlyEqual(CMC->GravityScale, ExpectedGravityScale);
+}
+
+bool UMHGZWeaponRuntimeHostComponent::MarkAerialDodgeUsed()
+{
+	if (!bInitialized || bShuttingDown)
+	{
+		return false;
+	}
+	if (PoseTokens.AerialCantDodge.IsValid())
+	{
+		return true; // 幂等：本次滞空已经记过。
+	}
+
+	FGameplayTagContainer Tags;
+	Tags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.CantDodge")));
+	PoseTokens.AerialCantDodge = AcquireTags(EWeaponTagOwnerKind::Pose,
+		FGameplayAbilitySpecHandle(), 0, TEXT("Pose.AerialCantDodge"), Tags);
+	return PoseTokens.AerialCantDodge.IsValid();
+}
+
+bool UMHGZWeaponRuntimeHostComponent::AcquireAerialFallingState()
+{
+	if (!bInitialized || bShuttingDown || bGrounded)
+	{
+		return false;
+	}
+	// 单槽 re-acquire（照 BeginAerialFalling 的配方）：槽永远单一属主、放点可推理。
+	// （引擎 loose tag 其实是计数的 —— 双持引擎层不会拆；单槽是纪律，不是引擎必需。）
+	ReleasePoseToken(PoseTokens.AerialFalling);
+	FGameplayTagContainer Tags;
+	Tags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.Falling")));
+	PoseTokens.AerialFalling = AcquireTags(EWeaponTagOwnerKind::Pose,
+		FGameplayAbilitySpecHandle(), 0, TEXT("Pose.AerialFalling"), Tags);
+	return PoseTokens.AerialFalling.IsValid();
+}
+
+void UMHGZWeaponRuntimeHostComponent::ReleaseAerialFallingState()
+{
+	// 新动作的 lead 由此开始锁（起播→IG_AerialHandoff）。刻意**不** Restore 物理：
+	// 接管者自己的 profile 会覆写，而空回的 ApplyAerialFallingProfile 必须在建弹道源
+	// 之前写好 2.42g —— 先 Restore 会把源时长/顶点反算打回 1.0g。
+	StopAerialFallingVisual(0.05f);
+	ReleasePoseToken(PoseTokens.AerialFalling);
+	// 看门狗只属于托管下落段。Invalidate 只丢句柄不撤定时器 —— 必须 ClearTimer，
+	// 不然旧 timer 会飘进新动作的 lead/裸 tag 窗口假报警并拆掉胶囊模式。
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AerialFallingWatchdogTimer);
+	}
+	AerialFallingWatchdogTimer.Invalidate();
+	AerialFallingStartedAtSeconds = 0.0;
+}
+
 void UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingPhysics(const bool bEnhancedVariant)
 {
 	ACharacter* Character = CurrentContext.Character.Get();
@@ -1186,6 +1317,12 @@ void UMHGZWeaponRuntimeHostComponent::RestoreAerialFallingPhysics()
 {
 	// Every route out of the fall -- landing, teardown, and the watchdog itself --
 	// comes through here, so this is the one place the watchdog needs disarming.
+	// Invalidate 只丢句柄**不撤定时器** —— 必须 ClearTimer，否则旧 timer 会飘到
+	// 下一次下落/裸 tag 窗口里假报警（elapsed=-1 那批）。
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AerialFallingWatchdogTimer);
+	}
 	AerialFallingWatchdogTimer.Invalidate();
 	AerialFallingStartedAtSeconds = 0.0;
 
@@ -1204,6 +1341,77 @@ void UMHGZWeaponRuntimeHostComponent::RestoreAerialFallingPhysics()
 	bAerialFallingPhysicsOverridden = false;
 }
 
+FTransform UMHGZWeaponRuntimeHostComponent::ShieldAerialAnimRootMotion(
+	const FTransform& RootMotion, UCharacterMovementComponent* CMC,
+	const float DeltaSeconds)
+{
+	// 地面 locomotion 的动画根是合法驱动（Walk/Dash 一族 bEnableRootMotion=true）；
+	// 托管表现窗口（下坠/落地）即使人在地面（148 落地段）也进盾。
+	const bool bPresentationWindow = IsAerialFalling() || IsAerialLanding();
+	if (!CMC || (!bPresentationWindow && CMC->IsMovingOnGround()))
+	{
+		if (CMC)
+		{
+			RecordAerialMovementPhase(Cast<ACharacter>(CMC->GetOwner()),
+				TEXT("Host.RootMotionPostConvert.Pass"), &RootMotion, DeltaSeconds);
+		}
+		return RootMotion;
+	}
+	RecordAerialMovementPhase(Cast<ACharacter>(CMC->GetOwner()),
+		TEXT("Host.RootMotionPostConvert.Input"), &RootMotion, DeltaSeconds);
+	// 动画根只许贡献姿势：位移 = 当前速度的本帧位移（ConstrainAnimRootMotionVelocity
+	// 随后拿 translation/dt 做替换 ⇒ 恒等），旋转清零（空中朝向归动作自己）。
+	static int32 ShieldFireCount = 0;
+	if (ShieldFireCount < 20)
+	{
+		++ShieldFireCount;
+		UE_LOG(LogMHGZ, Warning,
+			TEXT("[AerialRootMotionShield] shielding anim root: in=%s out=%s v=%s dt=%.4f"),
+			*RootMotion.GetTranslation().ToCompactString(),
+			*(CMC->Velocity * DeltaSeconds).ToCompactString(),
+			*CMC->Velocity.ToCompactString(), DeltaSeconds);
+	}
+	const FTransform ShieldedRootMotion(FQuat::Identity, CMC->Velocity * DeltaSeconds);
+	RecordAerialMovementPhase(Cast<ACharacter>(CMC->GetOwner()),
+		TEXT("Host.RootMotionPostConvert.Output"), &ShieldedRootMotion, DeltaSeconds);
+	return ShieldedRootMotion;
+}
+
+void UMHGZWeaponRuntimeHostComponent::BindAerialRootMotionShield()
+{
+	ACharacter* Character = CurrentContext.Character.Get();
+	UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
+	if (CMC && !CMC->ProcessRootMotionPostConvertToWorld.IsBoundToObject(this))
+	{
+		CMC->ProcessRootMotionPostConvertToWorld.BindUObject(this,
+			&UMHGZWeaponRuntimeHostComponent::ShieldAerialAnimRootMotion);
+		UE_LOG(LogMHGZ, Warning, TEXT("[AerialRootMotionShield] bound to CMC %s"),
+			*CMC->GetPathName());
+	}
+}
+
+void UMHGZWeaponRuntimeHostComponent::UnbindAerialRootMotionShield()
+{
+	ACharacter* Character = CurrentContext.Character.Get();
+	UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
+	if (CMC && CMC->ProcessRootMotionPostConvertToWorld.IsBoundToObject(this))
+	{
+		CMC->ProcessRootMotionPostConvertToWorld.Unbind();
+		// 与 bound 日志配对：只打了 bound 却看不到 shielding anim root 时，
+		// 看这里有没有紧跟一条 unbound —— 那就是「盾被关停、又没走重建路径」。
+		UE_LOG(LogMHGZ, Warning, TEXT("[AerialRootMotionShield] unbound from CMC %s"),
+			*CMC->GetPathName());
+	}
+}
+
+FTransform UMHGZWeaponRuntimeHostComponent::ShieldAerialAnimRootMotionForTest(
+	const FTransform& RootMotion, const float DeltaSeconds)
+{
+	ACharacter* Character = CurrentContext.Character.Get();
+	return ShieldAerialAnimRootMotion(RootMotion,
+		Character ? Character->GetCharacterMovement() : nullptr, DeltaSeconds);
+}
+
 bool UMHGZWeaponRuntimeHostComponent::PlayAerialLandingPresentation()
 {
 	if (!bInitialized || bShuttingDown)
@@ -1217,11 +1425,43 @@ bool UMHGZWeaponRuntimeHostComponent::PlayAerialLandingVisual()
 {
 	UWeaponCombatConfigBase* CombatConfig = CurrentContext.CombatConfig.Get();
 	ACharacter* Character = CurrentContext.Character.Get();
+	RecordAerialMovementPhase(Character, TEXT("Host.PlayLanding.PreSpeedReset"));
+
+	// `148` 的首帧 = 落地表现认领的这一刻：水平速度重设到真值 337±6（方向保持）。
+	// 走落台阶这类不认领落地表现的触地不重设 —— 与真值里 148 只覆盖真正的落地动作一致。
+	// **排在表现守卫之前**：重设是物理真值，不依赖蒙太奇/AnimInstance 是否就绪。
+	{
+		const float Speed = CombatConfig
+			? CombatConfig->GetAerialLandingHorizontalSpeed() : 337.0f;
+		if (UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr)
+		{
+			FVector Planar(CMC->Velocity.X, CMC->Velocity.Y, 0.0);
+			if (Planar.IsNearlyZero())
+			{
+				const FVector Forward = Character->GetActorForwardVector();
+				Planar = FVector(Forward.X, Forward.Y, 0.0);
+			}
+			Planar = Planar.GetSafeNormal() * Speed;
+			CMC->Velocity.X = Planar.X;
+			CMC->Velocity.Y = Planar.Y;
+			RecordAerialMovementPhase(Character, TEXT("Host.PlayLanding.PostSpeedReset"));
+			if (UMHGZInstrumentedCharacterMovementComponent* InstrumentedCMC =
+				Cast<UMHGZInstrumentedCharacterMovementComponent>(CMC))
+			{
+				// LandedDelegate fires inside PerformMovement. Walking may consume the remaining
+				// slice and brake this value before the frame-end sample, so preserve Rise 148's
+				// authored first-frame speed once at the end of this CMC update.
+				InstrumentedCMC->QueuePostMovementLandingSpeedReset(Speed, Planar);
+			}
+		}
+	}
+
 	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
 	UAnimInstance* AnimInstance = Mesh ? Mesh->GetAnimInstance() : nullptr;
 	UAnimMontage* Montage = CombatConfig ? CombatConfig->GetAerialLandingMontage() : nullptr;
 	if (!AnimInstance || !Montage)
 	{
+		RecordAerialMovementPhase(Character, TEXT("Host.PlayLanding.MissingPresentation"));
 		return false;
 	}
 
@@ -1233,6 +1473,7 @@ bool UMHGZWeaponRuntimeHostComponent::PlayAerialLandingVisual()
 		|| AnimInstance->Montage_Play(Montage, 1.0f) <= 0.0f)
 	{
 		ReleasePoseToken(PoseTokens.AerialLanding);
+		RecordAerialMovementPhase(Character, TEXT("Host.PlayLanding.MontagePlayFailed"));
 		return false;
 	}
 	if (FAnimMontageInstance* Instance = AnimInstance->GetActiveInstanceForMontage(Montage))
@@ -1245,6 +1486,7 @@ bool UMHGZWeaponRuntimeHostComponent::PlayAerialLandingVisual()
 	MontageEndedDelegate.BindUObject(this,
 		&UMHGZWeaponRuntimeHostComponent::HandleAerialLandingMontageEnded);
 	AnimInstance->Montage_SetEndDelegate(MontageEndedDelegate, Montage);
+	RecordAerialMovementPhase(Character, TEXT("Host.PlayLanding.Post"));
 	return true;
 }
 

@@ -9,6 +9,7 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Movement/MHGZInstrumentedCharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "GameFramework/Controller.h"
 #include "EnhancedInputComponent.h"
@@ -102,7 +103,9 @@ void RestoreHeadModuleAttachment(USkeletalMeshComponent* MeshComponent)
 }
 }
 
-AMHGZCharacter::AMHGZCharacter()
+AMHGZCharacter::AMHGZCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UMHGZInstrumentedCharacterMovementComponent>(
+		ACharacter::CharacterMovementComponentName))
 {
 	// 碰撞胶囊体
 	GetCapsuleComponent()->InitCapsuleSize(42.f, 96.0f);

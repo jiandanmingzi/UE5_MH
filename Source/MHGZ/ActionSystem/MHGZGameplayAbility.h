@@ -161,6 +161,9 @@ public:
 
 	bool IsActionActivationCommitted() const { return bIsActionActivationCommitted; }
 
+	/** 自动化专用：把实例置入/移出「已 Commit」态（生产路径由 ActivateAbility 流水线写入）。 */
+	void SetActionActivationCommittedForTest(bool bInCommitted) { bIsActionActivationCommitted = bInCommitted; }
+
 	const FWeaponActionToken& GetActionToken() const { return CurrentActionToken; }
 
 	const FWeaponAbilityActivationContext& GetWeaponActivationContext() const { return ActivationContext; }

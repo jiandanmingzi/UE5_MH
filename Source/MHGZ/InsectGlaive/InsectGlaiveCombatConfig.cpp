@@ -221,6 +221,8 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckPositive(TEXT("AerialFallGravityScale"), AerialFallGravityScale);
 	CheckPositive(TEXT("WhiteAerialFallGravityScale"), WhiteAerialFallGravityScale);
 	CheckNonNegative(TEXT("AerialFallBrakingDeceleration"), AerialFallBrakingDeceleration);
+	CheckPositive(TEXT("AirDodgeHorizontalSpeed"), AirDodgeHorizontalSpeed);
+	CheckPositive(TEXT("AirDodgeVerticalSpeed"), AirDodgeVerticalSpeed);
 	CheckPositive(TEXT("PowderGatherRadius"), PowderGatherRadius);
 	CheckPositive(TEXT("PowderGatherDuration"), PowderGatherDuration);
 
@@ -235,6 +237,7 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckNonNegative(TEXT("DrawSendKinsectMotionValue"), DrawSendKinsectMotionValue);
 	CheckNonNegative(TEXT("AwakenedKinsectMotionValue"), AwakenedKinsectMotionValue);
 	CheckNonNegative(TEXT("DescendingThrustAirControl"), DescendingThrustAirControl);
+	CheckNonNegative(TEXT("AerialLandingHorizontalSpeed"), AerialLandingHorizontalSpeed);
 
 	if (AerialFallMontage == nullptr)
 	{

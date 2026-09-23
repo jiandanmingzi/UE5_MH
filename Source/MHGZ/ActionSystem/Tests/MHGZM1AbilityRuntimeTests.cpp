@@ -143,7 +143,10 @@ bool FMHGZM1HostTokenAndRegistries::RunTest(const FString& Parameters)
 	TestEqual(TEXT("sheathed ledger count is 1"), ASC->GetTagCount(SheathedTag), 1);
 
 	TestTrue(TEXT("SetGrounded(false) succeeds"), Host->SetGrounded(false));
-	TestEqual(TEXT("aerial ledger count is 1"), ASC->GetTagCount(AerialTag), 1);
+	// 离地且无已注册 Action ⇒ 两条 Pose 条目：姿态 [Aerial] + 「空中可操作」
+	// [Aerial.Falling]（后者是前者的子 tag，GetTagCount 对父 tag 会把子聚合上来）。
+	TestEqual(TEXT("aerial ledger count is 2 (posture + operable child)"),
+		ASC->GetTagCount(AerialTag), 2);
 	TestEqual(TEXT("grounded ledger count is 0"), ASC->GetTagCount(GroundedTag), 0);
 	TestFalse(TEXT("unchanged SetGrounded is a no-op"), Host->SetGrounded(false));
 

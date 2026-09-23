@@ -40,6 +40,22 @@ public:
 	}
 
 	/**
+	 * 空回（空中回避）后坠的下落表现 clip。真值 = id `157`（回避后**任何灯态**都是它）。
+	 * ⚠ 与 `GetAerialFallingMontage(bEnhancedVariant)` 解耦：那个旗标一手挑 clip 一手挑
+	 * 重力，而空回要 157 的 clip、重力却仍是非白灯档。
+	 */
+	virtual UAnimMontage* GetAerialDodgeFallMontage() const
+	{
+		return GetAerialFallingMontage(false);
+	}
+
+	/** 落地水平重设值（cm/s）：真值 `148` 首帧恒 337±6、入速无关（下落物理.md §六）。 */
+	virtual float GetAerialLandingHorizontalSpeed() const
+	{
+		return 337.0f;
+	}
+
+	/**
 	 * Lets a weapon opt into a temporary CMC physics profile for its
 	 * system-owned aerial fall.  Returning false deliberately leaves the
 	 * character's ordinary CMC gravity and falling braking untouched.

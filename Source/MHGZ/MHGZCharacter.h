@@ -120,7 +120,7 @@ protected:
 	TObjectPtr<UMHGZWeaponDefinition> DefaultWeaponDefinition;
 
 public:
-	AMHGZCharacter();
+	explicit AMHGZCharacter(const FObjectInitializer& ObjectInitializer = FObjectInitializer::Get());
 
 	// ── IAbilitySystemInterface ──
 	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;

@@ -5,6 +5,7 @@
 #include "Animation/AnimMontage.h"
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "MHGZAbilitySystemComponent.h"
+#include "MHGZComboCoordinatorAbility.h"
 #include "Kismet/GameplayStatics.h"
 #include "GameplayEffect.h"
 #include "GameFramework/Character.h"
@@ -157,6 +158,13 @@ bool UMHGZInsectGlaiveAbility::NotifyAerialHandoff()
 	// 先锁存再动模式：exit 判据读的是这个标志，它必须与模式切换无关地成立。
 	bAerialHandoffReached = true;
 
+	// handoff = 锁定期终点：领「空中可操作」（裸 Falling）—— 空回/空中攻击的
+	// 闸门（ActivationRequiredTags / 行 RequiredTags）查它。
+	if (UMHGZWeaponRuntimeHostComponent* HandoffHost = GetRuntimeHost())
+	{
+		HandoffHost->AcquireAerialFallingState();
+	}
+
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 	const FWeaponActionToken& ActionToken = GetActionToken();
 	if (Host && ActionToken.IsValid() && Host->IsTokenCurrent(ActionToken.RuntimeToken))
@@ -170,16 +178,14 @@ bool UMHGZInsectGlaiveAbility::NotifyAerialHandoff()
 
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
-	if (!CMC || CMC->MovementMode != MOVE_Flying)
+	if (CMC && CMC->MovementMode == MOVE_Flying)
 	{
-		return true;
+		// 显式 MOVE_Falling，不用 SetDefaultMovementMode()：释放按构造发生在半空
+		// （舞踏 0.316 / 1.6167，后撑杆跳 0.783 / 1.7333），而 SetDefaultMovementMode
+		// 会去查 CurrentFloor —— 那个 floor 已被 SetMovementMode(MOVE_Flying) 清掉了。
+		// 这里要表达的正是「CMC 接管」这个事实本身。
+		CMC->SetMovementMode(MOVE_Falling);
 	}
-
-	// 显式 MOVE_Falling，不用 SetDefaultMovementMode()：释放按构造发生在半空
-	// （舞踏 0.316 / 1.6167，后撑杆跳 0.783 / 1.7333），而 SetDefaultMovementMode
-	// 会去查 CurrentFloor —— 那个 floor 已被 SetMovementMode(MOVE_Flying) 清掉了。
-	// 这里要表达的正是「CMC 接管」这个事实本身。
-	CMC->SetMovementMode(MOVE_Falling);
 	return true;
 }
 
@@ -207,6 +213,21 @@ void UMHGZInsectGlaiveAbility::EndAbility(
 	// 那之后 Host 上按本次 Action 记账的 tag 就找不到主人了。
 	CloseAerialHandoff();
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
+
+	// 中止滞空 = 「空中可操作」的领取点：handoff 没到就被打断时，玩家输入必须即刻
+	// 恢复（空回没有预输入，恢复 = 之后的按下能过闸）。判「滞空」用 Host 的 Grounded
+	// 而不是 CMC->IsFalling()：此时运动任务刚拆完，Flying→Falling 的交接不一定已落定。
+	// 已被新动作接管（让位/反击进入）时注册表非空 ⇒ 不领 —— 新动作的 lead 自己要锁。
+	if (bWasCancelled)
+	{
+		if (UMHGZWeaponRuntimeHostComponent* AbortHost = GetRuntimeHost())
+		{
+			if (!AbortHost->IsGrounded() && !AbortHost->HasRegisteredAction())
+			{
+				AbortHost->AcquireAerialFallingState();
+			}
+		}
+	}
 }
 
 bool UMHGZInsectGlaiveAbility::MontageHasAerialHandoffNotify(const UAnimMontage* Montage)
@@ -238,6 +259,14 @@ void UMHGZInsectGlaiveAbility::DetectAerialHandoffNotify(const UAnimMontage* Mon
 	if (MontageHasAerialHandoffNotify(Montage))
 	{
 		bAerialHandoffAuthored = true;
+		// 【锁】空中动作的 lead 由此开始：放「空中可操作」（裸 Falling）。
+		// 起播→handoff 之间它不在场 ⇒ 空回（ActivationRequiredTags）与空中招式起手
+		// （DA_IG_Combo 行 RequiredTags）天然被拦；handoff / 中止滞空再领回。
+		// 不 Restore 物理：接管者自己的 profile 会覆写（见 ReleaseAerialFallingState）。
+		if (UMHGZWeaponRuntimeHostComponent* DetectHost = GetRuntimeHost())
+		{
+			DetectHost->ReleaseAerialFallingState();
+		}
 		return;
 	}
 	UE_LOG(LogMHGZ, Warning,
