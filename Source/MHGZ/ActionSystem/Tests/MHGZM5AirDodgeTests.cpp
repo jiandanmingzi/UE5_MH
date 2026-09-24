@@ -20,16 +20,24 @@
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/MHGZMotionMatchingAnimInstance.h"
 #include "Animation/AnimSequence.h"
 #include "Components/BoxComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/Engine.h"
+#include "Engine/EngineBaseTypes.h"
+#include "Engine/GameInstance.h"
+#include "EngineGlobals.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/WorldSettings.h"
 #include "GameplayTasksComponent.h"
 #include "HAL/IConsoleManager.h"
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
+#include "MHGZCharacter.h"
 #include "MHGZPlayerState.h"
 #include "MHGZM3TestTypes.h"
 #include "MHGZM5TestTypes.h"
@@ -132,6 +140,172 @@ struct FAirDodgeHarness
 		if (World)
 		{
 			World->DestroyWorld(false);
+		}
+	}
+};
+
+/**
+ * P0-2 integration setup: use the project's actual BP character and AnimBP, not the
+ * lightweight M3 test pawn. The world is fully begun and advanced through UWorld::Tick;
+ * no montage position, CMC step, or ability completion callback is driven by the test.
+ */
+struct FProductionAirDodgeHarness
+{
+	UWorld* World = nullptr;
+	FWorldContext* WorldContext = nullptr;
+	UGameInstance* GameInstance = nullptr;
+	AMHGZCharacter* Character = nullptr;
+	AMHGZPlayerState* PlayerState = nullptr;
+	UMHGZAbilitySystemComponent* ASC = nullptr;
+	UMHGZWeaponRuntimeHostComponent* Host = nullptr;
+	UInsectGlaiveCombatConfig* CombatConfig = nullptr;
+	UAnimMontage* DodgeMontage = nullptr;
+	UAnimMontage* FallMontage = nullptr;
+	UMHGZAirDodgeAbility* Action = nullptr;
+	FGameplayAbilitySpecHandle AbilityHandle;
+
+	bool Build()
+	{
+		World = UWorld::CreateWorld(EWorldType::Game, false);
+		if (!World)
+		{
+			return false;
+		}
+		World->AddToRoot();
+		World->SetShouldTick(false); // manually ticked by this deterministic integration test
+		if (GEngine)
+		{
+			WorldContext = &GEngine->CreateNewWorldContext(EWorldType::Game);
+			GameInstance = NewObject<UGameInstance>(GEngine);
+			WorldContext->OwningGameInstance = GameInstance;
+			WorldContext->SetCurrentWorld(World);
+		}
+		if (!WorldContext || !GameInstance)
+		{
+			return false;
+		}
+		World->SetGameInstance(GameInstance);
+		GameInstance->Init();
+
+		UClass* CharacterClass = LoadClass<AMHGZCharacter>(nullptr,
+			TEXT("/Game/Blueprints/Characters/Demo/BP_IG_Character.BP_IG_Character_C"));
+		CombatConfig = LoadObject<UInsectGlaiveCombatConfig>(nullptr,
+			TEXT("/Game/Weapons/InsectGlaive/Data/DA_IG_Combat.DA_IG_Combat"));
+		DodgeMontage = LoadObject<UAnimMontage>(nullptr,
+			TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_AirDodge.AM_IG_AirDodge"));
+		if (!CharacterClass || !CombatConfig || !DodgeMontage)
+		{
+			return false;
+		}
+		FallMontage = CombatConfig->GetAerialDodgeFallMontage();
+		if (!FallMontage)
+		{
+			return false;
+		}
+
+		Character = World->SpawnActor<AMHGZCharacter>(CharacterClass,
+			FVector(0.0f, 0.0f, 10000.0f), FRotator::ZeroRotator);
+		PlayerState = World->SpawnActor<AMHGZPlayerState>();
+		if (!Character || !PlayerState)
+		{
+			return false;
+		}
+		Character->SetPlayerState(PlayerState);
+
+		// Initialize real components and dispatch BeginPlay before manually mirroring the
+		// possession-time ASC/Host wiring. The test has no controller, but all runtime
+		// objects, generated AnimBP, and task tick registration are production instances.
+		const FURL URL;
+		World->SetGameMode(URL);
+		World->InitializeActorsForPlay(URL);
+		World->BeginPlay();
+
+		ASC = PlayerState->GetMHGZAbilitySystemComponent();
+		Host = Character->GetWeaponRuntimeHost();
+		USkeletalMeshComponent* Mesh = Character->GetMesh();
+		if (!ASC || !Host || !Mesh
+			|| !Cast<UMHGZMotionMatchingAnimInstance>(Mesh->GetAnimInstance()))
+		{
+			return false;
+		}
+
+		ASC->InitAbilityActorInfo(PlayerState, Character);
+		ASC->InitializeAbilitySystem();
+		Host->InitializePawnRuntime(Character, nullptr, ASC, PlayerState->GetEquipmentComponent());
+		Host->SetCombatConfigForTest(CombatConfig);
+		Host->SetGrounded(false);
+		Character->SetActorLocation(FVector(0.0f, 0.0f, 10000.0f), false, nullptr,
+			ETeleportType::TeleportPhysics);
+		Character->GetCharacterMovement()->Velocity = FVector::ZeroVector;
+		Character->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+		Mesh->VisibilityBasedAnimTickOption = EVisibilityBasedAnimTickOption::AlwaysTickPoseAndRefreshBones;
+		Mesh->bEnableUpdateRateOptimizations = false;
+		Mesh->SetComponentTickEnabled(true);
+		return true;
+	}
+
+	bool Activate()
+	{
+		UClass* AbilityClass = LoadClass<UMHGZAirDodgeAbility>(nullptr,
+			TEXT("/Game/Weapons/InsectGlaive/Abilities/GA_IG_AirDodge.GA_IG_AirDodge_C"));
+		if (!AbilityClass || !ASC || !Host)
+		{
+			return false;
+		}
+		AbilityHandle = ASC->GiveAbility(FGameplayAbilitySpec(AbilityClass, 1, INDEX_NONE, ASC));
+		if (!AbilityHandle.IsValid())
+		{
+			return false;
+		}
+
+		FWeaponAbilityActivationContext Context;
+		Context.RuntimeToken = Host->GetCurrentToken();
+		Context.ActivationSequenceID = Host->AllocateActivationSequenceID();
+		Context.Input.ContextTags.AddTag(AirDodgeTag(TEXT("Combat.State.Aerial")));
+		Context.Input.WorldDirection = FVector::ForwardVector;
+		Context.Input.ActorForward = Character->GetActorForwardVector();
+		ASC->PrepareWeaponAbilityActivation(AbilityHandle, Context);
+		if (!ASC->TryActivateAbility(AbilityHandle))
+		{
+			return false;
+		}
+
+		if (FGameplayAbilitySpec* Spec = ASC->FindAbilitySpecFromHandle(AbilityHandle))
+		{
+			for (UGameplayAbility* Instance : Spec->GetAbilityInstances())
+			{
+				if (UMHGZAirDodgeAbility* AirDodge = Cast<UMHGZAirDodgeAbility>(Instance))
+				{
+					Action = AirDodge;
+					break;
+				}
+			}
+		}
+		return Action && Action->IsActive();
+	}
+
+	void Teardown()
+	{
+		if (World)
+		{
+			if (World->HasBegunPlay())
+			{
+				World->BeginTearingDown();
+				World->EndPlay(EEndPlayReason::Quit);
+			}
+			World->RemoveFromRoot();
+			if (GameInstance)
+			{
+				GameInstance->Shutdown();
+			}
+			if (GEngine)
+			{
+				GEngine->DestroyWorldContext(World);
+			}
+			World->DestroyWorld(false);
+			World = nullptr;
+			WorldContext = nullptr;
+			GameInstance = nullptr;
 		}
 	}
 };
@@ -1405,6 +1579,235 @@ bool FMHGZM5AirDodgeVisualTeardownPinsTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("reaching the montage length reports completion through to the ability"),
 			Action->GetAirDodgeVisualFinishedForTest());
 	}
+	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM5AirDodgeProductionMontageHandoffTest,
+	"MHGZ.M5.Aerial.ProductionAirDodgeMontageToFallHandoff",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+// P0-2: let the real Blueprint character, AnimBP, GA task, CMC and both production
+// montages progress from ordinary UWorld ticks. This is deliberately not a test of
+// NotifyAerialHandoff()/completion helpers: the authored notify and montage-end task
+// must drive those state changes themselves.
+bool FMHGZM5AirDodgeProductionMontageHandoffTest::RunTest(const FString& Parameters)
+{
+	IConsoleVariable* TelemetryCVar = IConsoleManager::Get().FindConsoleVariable(
+		TEXT("mhgz.Telemetry.Enable"));
+	if (!TestNotNull(TEXT("the CMC telemetry switch exists"), TelemetryCVar))
+	{
+		return false;
+	}
+	struct FScopedTelemetry
+	{
+		IConsoleVariable* CVar = nullptr;
+		int32 PreviousValue = 0;
+		~FScopedTelemetry()
+		{
+			if (CVar)
+			{
+				CVar->Set(PreviousValue, ECVF_SetByCode);
+			}
+		}
+	} TelemetryGuard{ TelemetryCVar, TelemetryCVar->GetInt() };
+	TelemetryCVar->Set(1, ECVF_SetByCode);
+
+	FProductionAirDodgeHarness H;
+	if (!TestTrue(TEXT("production BP_IG_Character, ASC, Host, config and AnimBP initialize"), H.Build()))
+	{
+		H.Teardown();
+		return false;
+	}
+	if (!TestTrue(TEXT("the real GA_IG_AirDodge_C activates"), H.Activate()))
+	{
+		H.Teardown();
+		return false;
+	}
+
+	USkeletalMeshComponent* Mesh = H.Character->GetMesh();
+	UMHGZMotionMatchingAnimInstance* Anim = Mesh
+		? Cast<UMHGZMotionMatchingAnimInstance>(Mesh->GetAnimInstance()) : nullptr;
+	UMHGZInstrumentedCharacterMovementComponent* CMC = Cast<UMHGZInstrumentedCharacterMovementComponent>(
+		H.Character->GetCharacterMovement());
+	if (!TestNotNull(TEXT("the production Motion Matching AnimInstance remains installed"), Anim)
+		|| !TestNotNull(TEXT("BP character uses the instrumented production CMC"), CMC)
+		|| !TestTrue(TEXT("the actual air-dodge montage is active"),
+			Anim && Anim->Montage_IsActive(H.DodgeMontage)))
+	{
+		H.Teardown();
+		return false;
+	}
+
+	// Inspect only the real task's registration; never call DriveTickForTest.
+	UAbilityTask_MHGZPlayMontageAndWait* Task = H.Action->GetAirDodgeVisualTaskForTest();
+	bool bTaskRegisteredForTick = false;
+	if (Task)
+	{
+		if (const UGameplayTasksComponent* Tasks = Task->GetGameplayTasksComponent())
+		{
+			for (auto It = Tasks->GetTickingTaskIterator(); It; ++It)
+			{
+				if (*It == Task)
+				{
+					bTaskRegisteredForTick = true;
+					break;
+				}
+			}
+		}
+	}
+	TestTrue(TEXT("the real montage task is registered for ticking before the world advances"),
+		Task && Task->IsTickingTask() && bTaskRegisteredForTick);
+
+	constexpr float Dt = 1.0f / 60.0f;
+	constexpr int32 MaxFrames = 180;
+	constexpr float WeightEpsilon = 0.01f;
+	struct FScopedFrameCounter
+	{
+		uint64 InitialValue = GFrameCounter;
+		~FScopedFrameCounter() { GFrameCounter = InitialValue; }
+	} FrameCounterGuard;
+	bool bSawDodgePose = false;
+	bool bSawSource = false;
+	bool bSawSourceExpire = false;
+	bool bSawActionableNotify = false;
+	bool bSawAbilityEnd = false;
+	bool bSawSystemFall = false;
+	bool bSawFallMontagePose = false;
+	bool bSawFallMontageAdvance = false;
+	bool bSawMontageWeightOverlap = false;
+	bool bSawZeroWeightGapBeforeFall = false;
+	bool bSawBlockingImpact = false;
+	float MaxDodgePosition = 0.0f;
+	float MaxFallPosition = 0.0f;
+	float WorstTailSpeedError = 0.0f;
+	float WorstTailStepDisplacementError = 0.0f;
+	int32 TailMovementSamples = 0;
+	int32 FallPoseFrames = 0;
+	FVector FinalLocation = H.Character->GetActorLocation();
+	uint64 LastSampleSerial = CMC->GetLatestAerialMovementSampleSerial();
+
+	for (int32 Frame = 0; Frame < MaxFrames; ++Frame)
+	{
+		H.World->Tick(ELevelTick::LEVELTICK_All, Dt);
+		// Manual test-world ticks don't advance the engine's global frame number. Without
+		// this, SkeletalMeshComponent::PoseTickedThisFrame stays true after tick one and
+		// the production AnimBP never gets another pose tick.
+		++GFrameCounter;
+
+		// GetInstanceForMontage retains a montage while it is blending out; the Active
+		// accessor drops the outgoing instance precisely when this overlap is meaningful.
+		const FAnimMontageInstance* DodgeInstance = Anim->GetInstanceForMontage(H.DodgeMontage);
+		const FAnimMontageInstance* FallInstance = Anim->GetInstanceForMontage(H.FallMontage);
+		const float DodgeWeight = DodgeInstance ? DodgeInstance->GetWeight() : 0.0f;
+		const float FallWeight = FallInstance ? FallInstance->GetWeight() : 0.0f;
+		const float DodgePosition = Anim->Montage_GetPosition(H.DodgeMontage);
+		const float FallPosition = Anim->Montage_GetPosition(H.FallMontage);
+		MaxDodgePosition = FMath::Max(MaxDodgePosition, DodgePosition);
+		MaxFallPosition = FMath::Max(MaxFallPosition, FallPosition);
+
+		bSawDodgePose |= DodgeWeight > WeightEpsilon;
+		bSawFallMontagePose |= FallWeight > WeightEpsilon;
+		bSawFallMontageAdvance |= FallPosition >= 2.0f * Dt;
+		bSawMontageWeightOverlap |= DodgeWeight > WeightEpsilon && FallWeight > WeightEpsilon;
+		if (bSawDodgePose && !H.Host->IsAerialFalling()
+			&& DodgeWeight + FallWeight <= WeightEpsilon)
+		{
+			bSawZeroWeightGapBeforeFall = true;
+		}
+		bSawActionableNotify |= H.ASC->HasMatchingGameplayTag(
+			AirDodgeTag(TEXT("Combat.State.Aerial.Actionable")));
+		bSawAbilityEnd |= !H.Action->IsActive();
+		bSawSystemFall |= H.Host->IsAerialFalling();
+
+		const int32 ActiveSourceCount = CMC->GetCurrentActiveRootMotionSourceCount();
+		bSawSource |= ActiveSourceCount > 0;
+		if (bSawSource && ActiveSourceCount == 0)
+		{
+			bSawSourceExpire = true;
+		}
+
+		TArray<FMHGZAerialMovementPhaseSample> Samples;
+		CMC->GetAerialMovementSamplesSince(LastSampleSerial, Samples);
+		for (const FMHGZAerialMovementPhaseSample& Sample : Samples)
+		{
+			LastSampleSerial = FMath::Max(LastSampleSerial, Sample.Serial);
+			bSawBlockingImpact |= Sample.bHasMovementImpact && Sample.bImpactBlockingHit;
+		}
+
+		if (bSawSourceExpire && CMC->MovementMode == MOVE_Falling && !bSawBlockingImpact)
+		{
+			const float PlanarSpeed = FVector2D(CMC->Velocity.X, CMC->Velocity.Y).Size();
+			WorstTailSpeedError = FMath::Max(WorstTailSpeedError,
+				FMath::Abs(PlanarSpeed - 900.0f));
+			++TailMovementSamples;
+
+			const FMHGZAerialMovementPhaseSample* PreSample = nullptr;
+			const FMHGZAerialMovementPhaseSample* PostSample = nullptr;
+			for (const FMHGZAerialMovementPhaseSample& Sample : Samples)
+			{
+				if (Sample.Phase == FName(TEXT("CMC.PerformMovement.Pre")))
+				{
+					PreSample = &Sample;
+				}
+				else if (Sample.Phase == FName(TEXT("CMC.PerformMovement.Post")))
+				{
+					PostSample = &Sample;
+				}
+			}
+			if (PreSample && PostSample)
+			{
+				const float MeasuredStep = FVector2D(
+					PostSample->Location.X - PreSample->Location.X,
+					PostSample->Location.Y - PreSample->Location.Y).Size();
+				const float ExpectedStep = 900.0f * PostSample->DeltaSeconds;
+				WorstTailStepDisplacementError = FMath::Max(WorstTailStepDisplacementError,
+					FMath::Abs(MeasuredStep - ExpectedStep));
+			}
+		}
+
+		if (FallWeight > WeightEpsilon)
+		{
+			++FallPoseFrames;
+		}
+		FinalLocation = H.Character->GetActorLocation();
+		if (bSawFallMontageAdvance && FallPoseFrames >= 4 && bSawAbilityEnd)
+		{
+			break;
+		}
+	}
+
+	AddInfo(FString::Printf(
+		TEXT("Natural handoff: Dodge %.3f/%.3f s, Fall %.3f/%.3f s, RMS expired=%d, tail samples=%d, worst XY speed error=%.2f, worst step displacement error=%.2f cm, final capsule=%s"),
+		MaxDodgePosition, H.DodgeMontage->GetPlayLength(), MaxFallPosition,
+		H.FallMontage->GetPlayLength(), bSawSourceExpire ? 1 : 0, TailMovementSamples,
+		WorstTailSpeedError, WorstTailStepDisplacementError, *FinalLocation.ToCompactString()));
+
+	TestTrue(TEXT("the production AnimBP evaluated the dodge montage through its authored end"),
+		MaxDodgePosition >= H.DodgeMontage->GetPlayLength() - 2.0f * Dt);
+	TestTrue(TEXT("the authored aerial handoff notify naturally made the action actionable"),
+		bSawActionableNotify);
+	TestTrue(TEXT("the CMC ballistic root-motion source was present and expired naturally"),
+		bSawSource && bSawSourceExpire);
+	TestTrue(TEXT("the real GA ended from its montage task rather than a test callback"),
+		bSawAbilityEnd);
+	TestTrue(TEXT("the Host naturally started the configured aerial-fall presentation"),
+		bSawSystemFall && H.Host->IsAerialFalling());
+	TestTrue(TEXT("the configured 157 fall montage evaluated and advanced at least two frames"),
+		bSawFallMontagePose && bSawFallMontageAdvance && FallPoseFrames >= 4);
+	TestFalse(TEXT("dodge-to-fall never exposed a zero-weight montage gap"),
+		bSawZeroWeightGapBeforeFall);
+	TestTrue(TEXT("dodge and fall montage weights overlapped during the handoff"),
+		bSawMontageWeightOverlap);
+	TestFalse(TEXT("the high-altitude test world produced no blocking impacts"), bSawBlockingImpact);
+	TestEqual(TEXT("the capsule stayed in CMC falling through the montage handoff"),
+		CMC->MovementMode, MOVE_Falling);
+	TestTrue(TEXT("the unblocked post-RMS tail kept Rise's 900 cm/s horizontal tangent"),
+		TailMovementSamples >= 4 && WorstTailSpeedError <= 5.0f);
+	TestTrue(TEXT("post-RMS capsule displacement follows 900 cm/s at measured frame delta"),
+		TailMovementSamples >= 4 && WorstTailStepDisplacementError <= 2.0f);
+
 	H.Teardown();
 	return true;
 }
