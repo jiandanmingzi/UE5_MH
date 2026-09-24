@@ -41,6 +41,8 @@
 
 **2026-09-15 到 09-18 的五次都是同一个失败项，逐项未变** —— `MHGZ.PMM.Assets.PoseSearchControlNotifies`，无武装 locomotion 序列把 Notify 挂在 `PoseSearchBlock` / `PoseSearchCostBias` 轨上。**是既存资产问题，与 M5 无关；全量套件在任何改动之前就不是绿的**，所以 `milestone-gates.md` 里的 54/54 是过期数字。
 
+**2026-09-24 已修，套件首次全绿**：新增单一用途 commandlet `MHGZPMMNotifyTrackRepair`（只改轨名 / `TrackIndex`，不碰通知类别与时间），把 **17 条**序列（测试只点名落在 PSD 引用集里的 4 条）的轨名归位到 `PoseSearchControl`，并删掉被清空的冗余轨。全量 `Automation RunTests MHGZ` = **117 项 117 成功 / 0 失败、`EXIT CODE 0`**，`-run=DataValidation` 复跑仍是 0 error / 0 warning。⚠ 顺带记一条：**不要**改成重跑 `MHGZPMMAssetFixupCommandlet` —— 它的 Stop 块起点是固定 `0.12`，而测试按 PMM-7.1 从 `MM_DistanceToStop` 的提交键推导生成停步的起点，重跑会把那批时序改坏（该工具相对测试已过期，属独立待办）。
+
 **2026-09-21 那一行只跑了 `MHGZ.M5`（11/11）**，全量未重跑 —— 所以「同一个失败项还在不在」这一行没有新证据，**签核（§10）时必须重跑全量**。
 
 **历史测试口径**：当时那批改动没有修改 `DA_IG_Combat`，但资产已序列化普通/白灯下落重力与制动值；后续不能只改 `InsectGlaiveCombatConfig.h` 的类默认值就假定运行时配置随之改变，见[下落现状与缺口](空中下落实现缺口.md)。
