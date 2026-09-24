@@ -10,7 +10,7 @@
 `FBackVaultTrajectoryKey`（`Time` + `NormalizedPosition`），跟真值表的表格不是一回事。
 
 **输出**：
-  - `Saved/_mhr_curves/<状态>_<方向>.csv` —— 逐帧归一化轨迹（曲线源，**不入库**）
+  - `Saved/_mhr_curves/<状态>_<方向>.csv` —— 逐帧归一化轨迹（曲线源，**已入库**）
   - `docs/reference/撑杆跳曲线.md` —— 各变体真值 + 可直接抄进蓝图的关键帧表
   - `Source/MHGZ/Generated/MHGZVaultCurveTables.h` —— 喂给 C++ 的 `constexpr` 曲线表
 
@@ -944,7 +944,7 @@ def main() -> int:
         "# 撑杆跳曲线真值（生成物，勿手改）",
         "",
         "> 由 `Scripts/MHRise/build_vault_curves.py` 从**专门录的两次撑杆跳会话**生成。",
-        "> **改数请改脚本或原始录制。** 逐帧曲线源在 `Saved/_mhr_curves/`（**不入库**）。",
+        "> **改数请改脚本或原始录制。** 逐帧曲线源在 `Saved/_mhr_curves/`（**已入库**）。",
         "",
         f"**真值源**：`{RECORDER_DIR}`",
         "—— 本表扫了**全部实录**，下列这些里找到了完整的撑杆跳链："

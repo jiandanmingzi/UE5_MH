@@ -16,7 +16,7 @@
 
 **为什么撑杆跳单独一份**：真值表是按 `player_motion_old_id` **逐个动作**归并的，而撑杆跳的真值属于**一条链**（起手段 → 弧段 → 下坠段 → 落地），不属于任何单个 id；曲线还有自己的消费方（`FBackVaultTrajectoryKey`）。
 
-**逐帧轨迹不在 `docs/`。** 生成器把它们写到 `Saved/_mhr_frames/<id>_<招式名>.csv`（86 个，约 14 MB，**不入库**），每行一帧：`trial, frame, t_s, x_cm, y_cm, z_cm, vx, vy, vz`，坐标相对该段首帧。
+**逐帧轨迹不在 `docs/`。** 生成器把它们写到 `Saved/_mhr_frames/<id>_<招式名>.csv`（已入库），每行一帧：`trial, frame, t_s, x_cm, y_cm, z_cm, vx, vy, vz`，坐标相对该段首帧。`Saved/_mhr_curves/` 的逐帧曲线也已入库；`Saved/RuntimeTelemetry/` 等本机调试文件仍被忽略。
 
 ## 真值源
 

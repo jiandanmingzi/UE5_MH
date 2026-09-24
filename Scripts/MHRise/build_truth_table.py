@@ -3,7 +3,7 @@
 """从 MHRise 实录生成真值表（docs/reference/真值表.md）+ 每招式逐帧中间文件。
 
 **为什么要有这个脚本**：真值源是原始 `*_samples.csv`（单份 17 MB / 四万行），每次要一个数
-都得重读全表再算。本脚本把「招式真值」固化进仓库；每帧轨迹则写成中间文件（`Saved/`，不入库），
+都得重读全表再算。本脚本把「招式真值」固化进仓库；每帧轨迹则写成已入库的中间文件（`Saved/_mhr_frames/`），
 将来要烘成 `UCurveVector` 资产时直接读它。
 
 **这个脚本取代的第一版错在哪**（别再犯）：
@@ -672,7 +672,7 @@ def render(moves: dict, earliest: list, skipped: list[str], recordings: int) -> 
         "## 五、每帧轨迹",
         "",
         "逐帧数据**不放在本文档**（120 Hz × 2 s 就是 240 帧，塞进表格会撑爆）。"
-        "生成器把它们写到 `Saved/_mhr_frames/<id>_<招式名>.csv`（**不入库**），"
+        "生成器把它们写到 `Saved/_mhr_frames/<id>_<招式名>.csv`（**已入库**），"
         "每行一帧：`trial, frame, t_s, x_cm, y_cm, z_cm, vx, vy, vz`，坐标为**相对该段首帧**。",
         "",
         "将来要烘成 `UCurveVector` 资产时读它。**注意消费方约束**："
