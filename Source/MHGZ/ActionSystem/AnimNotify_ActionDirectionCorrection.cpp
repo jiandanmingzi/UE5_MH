@@ -14,7 +14,11 @@ void UAnimNotify_ActionDirectionCorrection::Notify(USkeletalMeshComponent* MeshC
 		if (UMHGZAttackAbility* Attack =
 			Cast<UMHGZAttackAbility>(Action.AbilityInstance.Get()))
 		{
-			Attack->ApplyInActionDirectionCorrection(Action, MaxCorrectionAngleOverride);
+			Attack->ApplyInActionDirectionCorrection(Action,
+				MaxCorrectionAngleOverride,
+				CorrectionDuration,
+				MaxYawSpeedDegreesPerSecond,
+				Easing);
 		}
 	}
 	(void)Animation;

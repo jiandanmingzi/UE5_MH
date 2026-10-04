@@ -192,7 +192,7 @@ RuntimeHost 需要提供按 ActionToken 获取/释放的根位移所有权（例
 
 #### 上半身送虫/收虫（M4.1.5）
 
-持刀 `LT+Y` / `LT+B` 的送虫、收虫不是“动作尾段接移动”，而是从第一帧起就允许完整持刀移动。二者的 Montage 必须为 in-place、无 Root Motion，并只播放 `UpperBody_IGAction` Slot；AnimGraph 以 Armed Motion Matching 为 Base Pose，将该 Slot 作为 `Layered Blend per Bone` 的 Blend Pose，从骨盆上方第一根脊椎骨开始混合全部上半身。它们不获取 `MontageRootMotionOwner`，不持有 `BlockMovement`，因此 `bForceMMIdle=false`，下半身的起步、移动、停步和转向始终由正常持刀 MM 输出。该规则只影响视觉分层；GA 在 Montage 中仍以 ActionToken 注册实例，送虫/收虫仅在各自精确 Commit Notify 执行，不能因移动而重读或更改冻结的 Aim 请求。
+持刀 `LT+Y` / `LT+B` 的送虫、收虫不是“动作尾段接移动”，而是从第一帧起就允许完整持刀移动。二者的 Montage 必须为 in-place、无 Root Motion，并播放 `UpperBody_IGAction` Slot。AnimGraph 用角色原始移动输入作姿势范围门控：无摇杆输入时选 Slot 的全身姿势；有摇杆输入时以 Armed Motion Matching 为 Base Pose，将 Slot 姿势作为 `Layered Blend per Bone` 的 Blend Pose，从 `Spine_00`（含其后代）混合，使下半身持续使用 MM。它们不获取 `MontageRootMotionOwner`，不持有 `BlockMovement`，因此 `bForceMMIdle=false`；GA 在 Montage 中仍以 ActionToken 注册实例，送虫/收虫仅在各自精确 Commit Notify 执行，不能因移动而重读或更改冻结的 Aim 请求。输入变化只切换当前 Montage 姿势的覆盖范围，不重启 Montage 或改写 GA 状态。
 
 ### 5.3 摇杆 → 巡航速度映射（替代原 `CalcMaxSpeed`）
 

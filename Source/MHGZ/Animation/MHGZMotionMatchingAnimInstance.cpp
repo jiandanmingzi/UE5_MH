@@ -3,6 +3,8 @@
 #include "Animation/MHGZMotionMatchingAnimInstance.h"
 
 #include "AbilitySystemComponent.h"
+#include "ActionSystem/MHGZDescendingThrustAbility.h"
+#include "ActionSystem/MHGZKinsectPiercerAbility.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
 #include "Animation/AnimMontage.h"
@@ -13,6 +15,8 @@
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Camera/PlayerCameraManager.h"
+#include "GameFramework/PlayerController.h"
 #include "GameFramework/RootMotionSource.h"
 #include "HAL/FileManager.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
@@ -74,7 +78,7 @@ FString BuildRuntimeTelemetryReadme()
 		TEXT("  Input/RawInput.csv              physical stick/buttons sampled at the telemetry rate\n")
 		TEXT("  Input/ParsedInput.csv           every Router-resolved Input.* event\n")
 		TEXT("  Character/State.csv             gameplay tags, equipment state, and GAS attributes\n")
-		TEXT("  Character/Spatial.csv           capsule kinematics, Mesh-to-capsule transform, animated root bone and posed mesh bounds, and movement targets\n")
+		TEXT("  Character/Spatial.csv           capsule kinematics, Mesh-to-capsule transform, root-bone world/component rotations, action-pitch output, and posed mesh bounds\n")
 		TEXT("  Character/MovementPhases.csv    CMC pre/post, intra-CMC sub-phases, exact collision impacts, movement owners, landing speed reset, and sparse handoff events\n")
 		TEXT("  Character/RootMotionSources.csv CMC RootMotionSource snapshots; one or more rows per frame\n")
 		TEXT("  Character/CapsuleHits.csv       capsule blocking-contact events; zero or more rows per frame\n")
@@ -83,7 +87,8 @@ FString BuildRuntimeTelemetryReadme()
 		TEXT("  MotionMatching/PoseSearchCandidates.csv  optional engine-traced Top-N candidates\n")
 		TEXT("  MotionMatching/PoseSearchChannelCosts.csv optional per-channel feature costs\n")
 		TEXT("  MotionMatching/PoseSearchDetail.utrace    optional raw Unreal Insights trace\n")
-		TEXT("  Animation/Playback.csv          active GA/actions, Montage, and Root Motion ownership\n")
+		TEXT("  Animation/Playback.csv          active GA/actions, Montage and Root Motion ownership; Kinsect Piercer phase, curve lease, source/budget, hit quotas and 203 playback fields\n")
+		TEXT("  Animation/ActionVisualPitchEvents.csv sparse exact action-owned pitch set/release/reset events\n")
 		TEXT("  Animation/AnimGraphRootMotion.csv graph-proxy Root Motion immediately after evaluation\n")
 		TEXT("  Animation/MontageInstances.csv  every live/blending-out Montage instance and its weights\n")
 		TEXT("```\n\n")
@@ -93,9 +98,12 @@ FString BuildRuntimeTelemetryReadme()
 		TEXT("- `Character/RootMotionSources` distinguishes active from pending sources and records their identity, timing, accumulation/finish policy and status flags. A `Group=None` row is emitted when CMC owns no source that frame. Compare this with `Spatial`'s `MeshRelativeToCapsule*` fields to separate a capsule displacement from a mesh-only visual offset.\n")
 		TEXT("- `Character/MovementPhases` records CMC state at `PerformMovement.Pre` and `.Post`, the runtime generation and action/montage movement owners, exact `HandleImpact` pre/post normals, and explicitly named callbacks. Root-motion callback rows contain the transform passed at that call site; the generic Spatial `HasAnimRootMotion` sample is not used as an in-PerformMovement signal. While airborne (or inside a Host aerial presentation window) it also brackets the CMC sub-phases that can write Velocity — `RestorePreAdditiveRootMotionVelocity`, `CalcVelocity`, `ApplyRootMotionToVelocity`, `PhysFalling`, `ApplyAccumulatedForces`, `HandlePendingLaunch` — plus every `ConstrainAnimRootMotionVelocity` vote. Read `SubPhaseSite`/`SubPhaseEntryVelocity*` to find the first sub-phase whose entry and exit planar speeds differ, and the `AnimRootMotion*` / `PlayingRootMotion` / `Constrain*` columns to tell an animation-root write from a braking, additive-restore or collision write. `HasAnimRootMotion` here is `RootMotionParams.bHasRootMotion` read inside the movement update, which is the only sample point where that flag is valid.\n")
 		TEXT("- `Character/Spatial` records geometry at three separate levels, and only the last two can show a pose that displaces the visible mesh: the capsule transform (`Location*`, `Actor*`), the mesh *component* transform (`MeshRelativeToCapsule*`, constant unless the component is re-attached), and the animated skeleton itself (`RootBoneWorld*` / `RootBoneRel*` / `MeshBounds*`). `RootBoneRel*` is the root bone in component space, i.e. purely what the animation contributed; `MeshBounds*` is the posed geometry origin, so it also moves when a child bone shifts the silhouette. `MeshBoundsExtentZ` is the box half-height and `MeshBoundsMinZ` its bottom edge — the lowest geometry, effectively the feet — which is what a viewer reads as the model dropped when a seam leaves a frame without a pose; compare the pair so a box that changes size is not mistaken for a downward slide. When a viewer reports the model sliding sideways, subtracting the capsule from `RootBoneWorld*` localises it: unchanged means the pose did it, changing means the capsule did.\n")
+		TEXT("- `Character/Spatial` also records Actor Pitch/Roll separately from final sampled root-bone world/component rotation and the AnimInstance's action-pitch value/weight. Root-bone samples are captured during AnimInstance update and must not be treated as proof that a later same-frame AttackCollision Socket Sweep saw that exact pose; use the event/order instrumentation and PIE check for that contract.\n")
+		TEXT("- `Animation/ActionVisualPitchEvents` is the sparse lifecycle timeline for the exact RuntimeGeneration/ActionActivationSequenceID/MontageInstanceID. `EventSerial` orders accepted Set, BlendOut, and reset/retirement events; periodic `Playback.csv` rows show current target direction, blend weight, component correction, and the actual CameraManager pitch bounds.\n")
 		TEXT("- `Character/CapsuleHits` records every blocking hit emitted by the Character capsule, including the other actor/component and both hit normals. Absence of an event during a no-displacement interval helps distinguish collision blocking from root-motion extraction or movement-mode issues.\n")
 		TEXT("- `Animation/AnimGraphRootMotion` is captured from the AnimInstance proxy immediately after AnimGraph evaluation and before CMC consumes it. Its translation is mesh-local; `ScaledLocalTranslation*` applies the Character's current AnimRootMotionTranslationScale. It isolates a zero locomotion graph output from a later CMC-consumption failure. Montage Root Motion is queued after this proxy stage, so inspect it together with `Animation/MontageInstances`.\n")
 		TEXT("- `Animation/MontageInstances` writes every current or blending-out montage instance. `Weight`/`DesiredWeight`, per-slot graph weight and `RootMotionDisabled` expose a stale slot or a disabled blend-out that `Playback`'s single active montage field cannot show.\n")
+		TEXT("- `Animation/Playback.csv` also records the active Descending Thrust GA: RT release-fallback identity/duration, prior/current aerial source, Start/Loop/Over phase and montage instances, continuous movement lease clock, locked planar velocity, Dance snapshot, three one-shot correction snapshots/results, root-motion ownership/mode, and successful per-segment target counts. Correction frame numbers are engine game frames; valid direction samples must equal event frame N-1.\n")
 		TEXT("- `MotionMatching/Selection` contains only the winning candidate. `*WeightedSquaredEstimate` is a raw diagnostic estimate using the documented schema weights; it is NOT Unreal's normalized per-channel search cost. `SearchCost` remains the engine's final total.\n")
 		TEXT("- When `mhgz.Telemetry.PoseSearchDetail 1` was set before starting the session, `PoseSearchCandidates.csv` contains up to the configured Top-N of the engine-tracked candidates (the engine captures at most 256/database/search). Its total and addend costs are native trace values. `PoseSearchChannelCosts.csv` reconstructs feature-vector channel costs from the trace query and current PSS weights; do not alter PSS/schema weights before recording stops.\n")
 		TEXT("- The detail mode is intentionally expensive. Keep captures short (normally 5-10 seconds) and never leave it enabled for ordinary PIE testing.\n\n")
@@ -238,6 +246,7 @@ void UMHGZMotionMatchingAnimInstance::NativeInitializeAnimation()
 	MMStopGaitQuery = 0.0f;
 	MMMoveGaitQuery = 0.0f;
 	bMMForceIdle = false;
+	ResetActionVisualPitchLocalState();
 	bMMHasLocomotionInput = false;
 	bMMUnsheathedLocomotion = false;
 	bMMStopRequestActive = false;
@@ -265,6 +274,20 @@ void UMHGZMotionMatchingAnimInstance::NativeInitializeAnimation()
 
 void UMHGZMotionMatchingAnimInstance::NativeUninitializeAnimation()
 {
+	if (CachedActionVisualPitchState.bValid)
+	{
+		if (AMHGZCharacter* Character = CachedCharacter.Get())
+		{
+			if (UMHGZWeaponRuntimeHostComponent* Host = Character->GetWeaponRuntimeHost())
+			{
+				Host->ReleaseActionVisualPitch(
+					CachedActionVisualPitchState.OwnerAction,
+					CachedActionVisualPitchState.SourceMontageInstanceID,
+					EActionVisualPitchReleaseMode::ImmediateReset);
+			}
+		}
+	}
+	ResetActionVisualPitchLocalState();
 	StopRuntimeTelemetry();
 	ResetSheathedNormalMoveCandidateRouting();
 	ResetActionExitRouting();
@@ -821,6 +844,158 @@ void UMHGZMotionMatchingAnimInstance::QueueMotionMatchingActionIdleContextConsum
 	}
 }
 
+bool UMHGZMotionMatchingAnimInstance::BuildActionVisualPitchComponentRotation(
+	const FVector& FacingWorld, const FVector& TargetWorld,
+	const FQuat& MeshWorldRotation, FQuat& OutComponentRotation)
+{
+	OutComponentRotation = FQuat::Identity;
+	if (FacingWorld.ContainsNaN() || TargetWorld.ContainsNaN()
+		|| MeshWorldRotation.ContainsNaN() || FacingWorld.IsNearlyZero()
+		|| TargetWorld.IsNearlyZero())
+	{
+		return false;
+	}
+
+	const FQuat MeshRotation = MeshWorldRotation.GetNormalized();
+	const FVector FacingInComponent = MeshRotation.UnrotateVector(
+		FacingWorld.GetSafeNormal()).GetSafeNormal();
+	const FVector TargetInComponent = MeshRotation.UnrotateVector(
+		TargetWorld.GetSafeNormal()).GetSafeNormal();
+	if (FacingInComponent.IsNearlyZero() || TargetInComponent.IsNearlyZero())
+	{
+		return false;
+	}
+
+	OutComponentRotation = FQuat::FindBetweenNormals(
+		FacingInComponent, TargetInComponent).GetNormalized();
+	return !OutComponentRotation.ContainsNaN();
+}
+
+void UMHGZMotionMatchingAnimInstance::ResetActionVisualPitchLocalState()
+{
+	CachedActionVisualPitchState = FWeaponActionVisualPitchState();
+	LastActionVisualPitchRevision = 0;
+	ActionVisualPitchTransitionStart = FQuat::Identity;
+	ActionVisualPitchTransitionTarget = FQuat::Identity;
+	ActionVisualPitchTransitionElapsed = 0.0f;
+	ActionVisualPitchTransitionDuration = 0.0f;
+	ActionVisualPitchTransitionStartWeight = 0.0f;
+	ActionVisualPitchTransitionTargetWeight = 0.0f;
+	bActionVisualPitchTransitionActive = false;
+	bActionVisualPitchActive = false;
+	ActionVisualPitchDegrees = 0.0f;
+	ActionVisualPitchWeight = 0.0f;
+	ActionVisualPitchComponentRotation = FRotator::ZeroRotator;
+}
+
+void UMHGZMotionMatchingAnimInstance::UpdateActionVisualPitch(
+	const AMHGZCharacter* Character, const float DeltaSeconds)
+{
+	FWeaponActionVisualPitchState State;
+	UMHGZWeaponRuntimeHostComponent* Host = Character
+		? Character->GetWeaponRuntimeHost() : nullptr;
+	if (Host)
+	{
+		Host->GetActionVisualPitchState(State);
+	}
+
+	if (!Host)
+	{
+		ResetActionVisualPitchLocalState();
+		return;
+	}
+
+	const bool bNewRevision = State.StateRevision != LastActionVisualPitchRevision;
+	if (bNewRevision)
+	{
+		CachedActionVisualPitchState = State;
+		LastActionVisualPitchRevision = State.StateRevision;
+		ActionVisualPitchTransitionStart = ActionVisualPitchComponentRotation.Quaternion();
+		ActionVisualPitchTransitionStartWeight = ActionVisualPitchWeight;
+		ActionVisualPitchTransitionTargetWeight = State.bValid
+			? FMath::Clamp(State.TargetWeight, 0.0f, 1.0f) : 0.0f;
+		ActionVisualPitchTransitionTarget = FQuat::Identity;
+		ActionVisualPitchDegrees = 0.0f;
+
+		if (State.bValid && State.TargetWeight > 0.0f)
+		{
+			ActionVisualPitchDegrees = FMath::RadiansToDegrees(FMath::Atan2(
+				State.LockedDirection.Z,
+				FMath::Sqrt(FMath::Square(State.LockedDirection.X)
+					+ FMath::Square(State.LockedDirection.Y))));
+
+			const USkeletalMeshComponent* Mesh = Character->GetMesh();
+			FVector HorizontalFacing = Character->GetActorForwardVector();
+			HorizontalFacing.Z = 0.0f;
+			HorizontalFacing = HorizontalFacing.GetSafeNormal();
+			if (Mesh && !HorizontalFacing.IsNearlyZero())
+			{
+				FQuat ComponentRotation = FQuat::Identity;
+				if (BuildActionVisualPitchComponentRotation(HorizontalFacing,
+					State.LockedDirection, Mesh->GetComponentQuat(), ComponentRotation))
+				{
+					ActionVisualPitchTransitionTarget = ComponentRotation;
+				}
+			}
+		}
+
+		ActionVisualPitchTransitionElapsed = 0.0f;
+		ActionVisualPitchTransitionDuration = State.bValid
+			? (State.bReleasing ? State.BlendOutSeconds : State.BlendInSeconds)
+			: 0.0f;
+		bActionVisualPitchTransitionActive =
+			ActionVisualPitchTransitionDuration > KINDA_SMALL_NUMBER
+			&& (!ActionVisualPitchTransitionStart.Equals(
+				ActionVisualPitchTransitionTarget, 1.0e-5f)
+				|| !FMath::IsNearlyEqual(ActionVisualPitchTransitionStartWeight,
+					ActionVisualPitchTransitionTargetWeight, 1.0e-4f));
+		if (!bActionVisualPitchTransitionActive)
+		{
+			ActionVisualPitchComponentRotation =
+				ActionVisualPitchTransitionTarget.Rotator();
+			ActionVisualPitchWeight = ActionVisualPitchTransitionTargetWeight;
+		}
+	}
+
+	if (bActionVisualPitchTransitionActive)
+	{
+		ActionVisualPitchTransitionElapsed += FMath::Max(0.0f, DeltaSeconds);
+		const float Alpha = FMath::Clamp(
+			ActionVisualPitchTransitionElapsed / ActionVisualPitchTransitionDuration,
+			0.0f, 1.0f);
+		const FQuat AppliedRotation = FQuat::Slerp(
+			ActionVisualPitchTransitionStart,
+			ActionVisualPitchTransitionTarget, Alpha).GetNormalized();
+		ActionVisualPitchComponentRotation = AppliedRotation.Rotator();
+		ActionVisualPitchWeight = FMath::Lerp(
+			ActionVisualPitchTransitionStartWeight,
+			ActionVisualPitchTransitionTargetWeight, Alpha);
+		if (Alpha >= 1.0f)
+		{
+			bActionVisualPitchTransitionActive = false;
+		}
+	}
+
+	bActionVisualPitchActive = CachedActionVisualPitchState.bValid
+		|| !ActionVisualPitchComponentRotation.IsNearlyZero(1.0e-3f)
+		|| ActionVisualPitchWeight > KINDA_SMALL_NUMBER;
+	if (!bActionVisualPitchActive)
+	{
+		ActionVisualPitchComponentRotation = FRotator::ZeroRotator;
+		ActionVisualPitchWeight = 0.0f;
+		ActionVisualPitchDegrees = 0.0f;
+	}
+
+	if (CachedActionVisualPitchState.bValid
+		&& CachedActionVisualPitchState.bReleasing
+		&& !bActionVisualPitchTransitionActive
+		&& ActionVisualPitchWeight <= KINDA_SMALL_NUMBER)
+	{
+		Host->AcknowledgeActionVisualPitchRetirement(
+			CachedActionVisualPitchState.StateRevision);
+	}
+}
+
 void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
@@ -838,6 +1013,7 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 	}
 	if (!IsValid(Character))
 	{
+		ResetActionVisualPitchLocalState();
 		MMActualSpeed2D = 0.0f;
 		MMIntentQuery = 0.0f;
 		MMDistanceToStopQuery = 0.0f;
@@ -845,6 +1021,7 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 		MMMoveGaitQuery = 0.0f;
 		bMMForceIdle = false;
 		bMMHasLocomotionInput = false;
+		bKinsectUpperBodyOnly = false;
 		bMMUnsheathedLocomotion = false;
 		bMMStopRequestActive = false;
 		bMMExitWantsMoveDatabase = false;
@@ -883,6 +1060,11 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 		UpdateRuntimeTelemetry(nullptr, DeltaSeconds);
 		return;
 	}
+	UpdateActionVisualPitch(Character, DeltaSeconds);
+	// The kinsect GA remains in-place and lets locomotion run. Use the physical
+	// movement stick (with the Character's authored deadzone), not speed or the
+	// post-BlockMovement MM input flag, to decide whether its montage is upper-body-only.
+	bKinsectUpperBodyOnly = Character->HasRawMovementInput();
 
 	UpdateMotionMatchingHandoff(Character);
 	// Update the public snapshot before draining acknowledgements. A graph callback
@@ -1912,6 +2094,44 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	const UWorld* World = Character->GetWorld();
 	const float WorldTimeSeconds = World ? World->GetTimeSeconds() : 0.0f;
 	CaptureParsedInputEvents(Character, WorldTimeSeconds);
+	if (UMHGZWeaponRuntimeHostComponent* RuntimeHost = Character->GetWeaponRuntimeHost())
+	{
+		TArray<FWeaponActionVisualPitchTelemetryEvent> PitchEvents;
+		RuntimeHost->GetActionVisualPitchTelemetrySince(
+			RuntimeTelemetryLastObservedActionVisualPitchEventSerial, PitchEvents);
+		for (const FWeaponActionVisualPitchTelemetryEvent& Event : PitchEvents)
+		{
+			const float HorizontalMagnitude = FMath::Sqrt(
+				FMath::Square(Event.LockedDirection.X)
+				+ FMath::Square(Event.LockedDirection.Y));
+			const float PitchDegrees = FMath::RadiansToDegrees(FMath::Atan2(
+				Event.LockedDirection.Z, HorizontalMagnitude));
+			TArray<FString> Fields;
+			Fields.Reserve(17);
+			Fields.Append({ ToCSVDouble(Event.WorldTimeSeconds),
+				FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.Frame)),
+				FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.Serial)),
+				ToCSVString(Event.EventName.ToString()),
+				FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(
+					Event.OwnerAction.RuntimeToken.Generation)),
+				FString::Printf(TEXT("%u"), Event.OwnerAction.ActivationSequenceID),
+				FString::FromInt(Event.SourceMontageInstanceID),
+				ToCSVFloat(Event.LockedDirection.X), ToCSVFloat(Event.LockedDirection.Y),
+				ToCSVFloat(Event.LockedDirection.Z), ToCSVFloat(PitchDegrees),
+				ToCSVFloat(Event.TargetWeight), ToCSVFloat(Event.BlendInSeconds),
+				ToCSVFloat(Event.BlendOutSeconds),
+				FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.StateRevision)),
+				Event.bValid ? TEXT("1") : TEXT("0"), Event.bReleasing ? TEXT("1") : TEXT("0") });
+			RuntimeTelemetryActionVisualPitchEventsPendingRows.Add(
+				FString::Join(Fields, TEXT(",")));
+		}
+		if (!PitchEvents.IsEmpty())
+		{
+			// These rows encode edge ordering, so persist them immediately instead
+			// of waiting for the periodic telemetry flush threshold.
+			FlushRuntimeTelemetry();
+		}
+	}
 	TArray<FMHGZCapsuleBlockingHitTelemetry> CapsuleHitEvents;
 	Character->GetCapsuleBlockingHitTelemetrySince(RuntimeTelemetryLastObservedCapsuleHitSerial,
 		CapsuleHitEvents);
@@ -1955,11 +2175,11 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	const FVector2D RawMoveInput = Character->GetRawMoveInput();
 	const float RawMoveMagnitude = RawMoveInput.Size();
 	const bool bHasRawMovementInput = Character->HasRawMovementInput();
-	const FVector LastRawMovementDirection = Character->GetLastMovementInputDir();
+	const FVector RawMovementDirection = Character->GetCurrentMoveInputWorldDirection();
 	const float ActorYaw = Character->GetActorRotation().Yaw;
-	const float RawInputYaw = bHasRawMovementInput && !LastRawMovementDirection.IsNearlyZero()
-		? LastRawMovementDirection.Rotation().Yaw : 0.0f;
-	const float ActorToRawInputYawDelta = bHasRawMovementInput
+	const float RawInputYaw = bHasRawMovementInput && !RawMovementDirection.IsNearlyZero()
+		? RawMovementDirection.Rotation().Yaw : 0.0f;
+	const float ActorToRawInputYawDelta = !RawMovementDirection.IsNearlyZero()
 		? FMath::FindDeltaAngleDegrees(ActorYaw, RawInputYaw) : 0.0f;
 	const UCharacterMovementComponent* MovementComponent = Character->GetCharacterMovement();
 	const float CharacterMovementVelocity2D = MovementComponent
@@ -1993,6 +2213,8 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	// a reported "the model slides sideways while I am falling" symptom.
 	FVector RootBoneWorldLocation = FVector::ZeroVector;
 	FVector RootBoneRelativeLocation = FVector::ZeroVector;
+	FRotator RootBoneWorldRotation = FRotator::ZeroRotator;
+	FRotator RootBoneRelativeRotation = FRotator::ZeroRotator;
 	bool bHasRootBoneSample = false;
 	if (CharacterMesh)
 	{
@@ -2003,6 +2225,10 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 				RootBoneName, EBoneSpaces::WorldSpace);
 			RootBoneRelativeLocation = CharacterMesh->GetBoneLocation(
 				RootBoneName, EBoneSpaces::ComponentSpace);
+			RootBoneWorldRotation = CharacterMesh->GetBoneQuaternion(
+				RootBoneName, EBoneSpaces::WorldSpace).Rotator();
+			RootBoneRelativeRotation = CharacterMesh->GetBoneQuaternion(
+				RootBoneName, EBoneSpaces::ComponentSpace).Rotator();
 			bHasRootBoneSample = true;
 		}
 	}
@@ -2018,6 +2244,60 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	const int32 AnimRootMotionMode = static_cast<int32>(RootMotionMode.GetValue());
 	const bool bAnimShouldExtractRootMotion = ShouldExtractRootMotion();
 	const UAbilitySystemComponent* ASC = Character->GetAbilitySystemComponent();
+	FMHGZKinsectPiercerTelemetrySnapshot KinsectPiercerTelemetry;
+	bool bKinsectPiercerTelemetryAvailable = false;
+	if (ASC)
+	{
+		for (const FGameplayAbilitySpec& AbilitySpec : ASC->GetActivatableAbilities())
+		{
+			for (UGameplayAbility* AbilityInstance : AbilitySpec.GetAbilityInstances())
+			{
+				const UMHGZKinsectPiercerAbility* Piercer =
+					Cast<UMHGZKinsectPiercerAbility>(AbilityInstance);
+				if (!Piercer || !Piercer->IsActive())
+				{
+					continue;
+				}
+				Piercer->GetRuntimeTelemetrySnapshot(KinsectPiercerTelemetry);
+				if (KinsectPiercerTelemetry.bAbilityActive)
+				{
+					bKinsectPiercerTelemetryAvailable = true;
+					break;
+				}
+			}
+			if (bKinsectPiercerTelemetryAvailable)
+			{
+				break;
+			}
+		}
+	}
+	FMHGZDescendingThrustTelemetrySnapshot DescendingThrustTelemetry;
+	bool bDescendingThrustTelemetryAvailable = false;
+	if (ASC)
+	{
+		for (const FGameplayAbilitySpec& AbilitySpec : ASC->GetActivatableAbilities())
+		{
+			for (UGameplayAbility* AbilityInstance : AbilitySpec.GetAbilityInstances())
+			{
+				const UMHGZDescendingThrustAbility* DescendingThrust =
+					Cast<UMHGZDescendingThrustAbility>(AbilityInstance);
+				if (!DescendingThrust || !DescendingThrust->IsActive())
+				{
+					continue;
+				}
+				DescendingThrust->GetRuntimeTelemetrySnapshot(DescendingThrustTelemetry);
+				if (DescendingThrustTelemetry.bAbilityActive)
+				{
+					bDescendingThrustTelemetryAvailable = true;
+					break;
+				}
+			}
+			if (bDescendingThrustTelemetryAvailable)
+			{
+				break;
+			}
+		}
+	}
 	FGameplayTagContainer OwnedGameplayTags;
 	if (ASC)
 	{
@@ -2044,6 +2324,12 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	const float ActiveMontageTime = ActiveMontage ? Montage_GetPosition(ActiveMontage) : 0.0f;
 	const float ActiveMontageLength = ActiveMontage ? ActiveMontage->GetPlayLength() : 0.0f;
 	const float ActiveMontagePlayRate = ActiveMontage ? Montage_GetPlayRate(ActiveMontage) : 0.0f;
+	const FWeaponActionVisualPitchState& PitchState = CachedActionVisualPitchState;
+	const APlayerController* PlayerController = Character->GetController<APlayerController>();
+	const APlayerCameraManager* CameraManager = PlayerController
+		? PlayerController->PlayerCameraManager : nullptr;
+	const FRotator ViewRotation = CameraManager
+		? CameraManager->GetCameraRotation() : FRotator::ZeroRotator;
 
 	const uint64 Frame = GFrameCounter;
 	const FString FrameString = FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Frame));
@@ -2064,8 +2350,8 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	RawInputFields.Reserve(14);
 	RawInputFields.Append({ ToCSVDouble(WorldTimeSeconds), FrameString,
 		ToCSVFloat(RawMoveInput.X), ToCSVFloat(RawMoveInput.Y), ToCSVFloat(RawMoveMagnitude),
-		bHasRawMovementInput ? TEXT("1") : TEXT("0"), ToCSVFloat(LastRawMovementDirection.X),
-		ToCSVFloat(LastRawMovementDirection.Y), ToCSVFloat(LastRawMovementDirection.Z),
+		bHasRawMovementInput ? TEXT("1") : TEXT("0"), ToCSVFloat(RawMovementDirection.X),
+		ToCSVFloat(RawMovementDirection.Y), ToCSVFloat(RawMovementDirection.Z),
 		ToCSVFloat(RawInputYaw), Character->IsSprintHeld() ? TEXT("1") : TEXT("0"),
 		ToCSVString(HeldPhysicalTags) });
 	RuntimeTelemetryRawInputPendingRows.Add(FString::Join(RawInputFields, TEXT(",")));
@@ -2083,7 +2369,7 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	RuntimeTelemetryCharacterStatePendingRows.Add(FString::Join(StateFields, TEXT(",")));
 
 	TArray<FString> SpatialFields;
-	SpatialFields.Reserve(46);
+	SpatialFields.Reserve(64);
 	SpatialFields.Append({ ToCSVDouble(WorldTimeSeconds), FrameString, ToCSVFloat(CharacterLocation.X),
 		ToCSVFloat(CharacterLocation.Y), ToCSVFloat(CharacterLocation.Z), ToCSVFloat(CharacterRotation.Pitch),
 		ToCSVFloat(CharacterRotation.Yaw), ToCSVFloat(CharacterRotation.Roll), ToCSVFloat(RawInputYaw),
@@ -2105,6 +2391,14 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 		ToCSVFloat(RootBoneWorldLocation.Z),
 		ToCSVFloat(RootBoneRelativeLocation.X), ToCSVFloat(RootBoneRelativeLocation.Y),
 		ToCSVFloat(RootBoneRelativeLocation.Z),
+		ToCSVFloat(RootBoneWorldRotation.Pitch), ToCSVFloat(RootBoneWorldRotation.Yaw),
+		ToCSVFloat(RootBoneWorldRotation.Roll), ToCSVFloat(RootBoneRelativeRotation.Pitch),
+		ToCSVFloat(RootBoneRelativeRotation.Yaw), ToCSVFloat(RootBoneRelativeRotation.Roll),
+		bActionVisualPitchActive ? TEXT("1") : TEXT("0"),
+		ToCSVFloat(ActionVisualPitchDegrees), ToCSVFloat(ActionVisualPitchWeight),
+		ToCSVFloat(ActionVisualPitchComponentRotation.Pitch),
+		ToCSVFloat(ActionVisualPitchComponentRotation.Yaw),
+		ToCSVFloat(ActionVisualPitchComponentRotation.Roll),
 		ToCSVFloat(MeshBounds.Origin.X), ToCSVFloat(MeshBounds.Origin.Y),
 		ToCSVFloat(MeshBounds.Origin.Z), ToCSVFloat(MeshBoundsExtentZ),
 		ToCSVFloat(MeshBoundsMinZ) });
@@ -2209,7 +2503,7 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 	RuntimeTelemetryMMQueryPendingRows.Add(FString::Join(MMQueryFields, TEXT(",")));
 
 	TArray<FString> AnimationFields;
-	AnimationFields.Reserve(30);
+	AnimationFields.Reserve(160);
 	AnimationFields.Append({ ToCSVDouble(WorldTimeSeconds), FrameString, ToCSVString(ActiveActions),
 		ToCSVString(RootMotionOwner), bMontageRootMotionOwned ? TEXT("1") : TEXT("0"),
 		ToCSVString(ActiveMontage ? ActiveMontage->GetPathName() : FString()), ToCSVFloat(ActiveMontageTime),
@@ -2231,7 +2525,111 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 		AerialPresentationTelemetry.bLandingMontageReferenced ? TEXT("1") : TEXT("0"),
 		AerialPresentationTelemetry.bLandingRootMotionDisabledByHost ? TEXT("1") : TEXT("0"),
 		AerialPresentationTelemetry.bLandingMontageInstanceFound ? TEXT("1") : TEXT("0"),
-		AerialPresentationTelemetry.bLandingInstanceRootMotionDisabled ? TEXT("1") : TEXT("0") });
+		AerialPresentationTelemetry.bLandingInstanceRootMotionDisabled ? TEXT("1") : TEXT("0"),
+		ToCSVString(CameraManager ? CameraManager->GetClass()->GetPathName() : FString()),
+		ToCSVFloat(ViewRotation.Pitch),
+		ToCSVFloat(CameraManager ? CameraManager->ViewPitchMin : 0.0f),
+		ToCSVFloat(CameraManager ? CameraManager->ViewPitchMax : 0.0f),
+		bActionVisualPitchActive ? TEXT("1") : TEXT("0"),
+		ToCSVFloat(ActionVisualPitchDegrees), ToCSVFloat(ActionVisualPitchWeight),
+		ToCSVFloat(ActionVisualPitchComponentRotation.Pitch),
+		ToCSVFloat(ActionVisualPitchComponentRotation.Yaw),
+		ToCSVFloat(ActionVisualPitchComponentRotation.Roll),
+		ToCSVFloat(PitchState.LockedDirection.X), ToCSVFloat(PitchState.LockedDirection.Y),
+		ToCSVFloat(PitchState.LockedDirection.Z),
+		FString::Printf(TEXT("%u"), PitchState.OwnerAction.ActivationSequenceID),
+		FString::FromInt(PitchState.SourceMontageInstanceID),
+		FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(PitchState.StateRevision)),
+		PitchState.bValid ? TEXT("1") : TEXT("0"),
+		PitchState.bReleasing ? TEXT("1") : TEXT("0"),
+		bKinsectPiercerTelemetryAvailable ? TEXT("1") : TEXT("0"),
+		FString::Printf(TEXT("%u"), KinsectPiercerTelemetry.ActivationSequenceID),
+		FString::FromInt(KinsectPiercerTelemetry.Phase),
+		ToCSVFloat(KinsectPiercerTelemetry.CurveElapsedSeconds),
+		ToCSVFloat(KinsectPiercerTelemetry.CurveCoveredSeconds),
+		FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(KinsectPiercerTelemetry.MovementLease)),
+		KinsectPiercerTelemetry.bRecordedTrajectoryActive ? TEXT("1") : TEXT("0"),
+		KinsectPiercerTelemetry.bActionMovementOwned ? TEXT("1") : TEXT("0"),
+		KinsectPiercerTelemetry.bAerialAttackBudgetSpent ? TEXT("1") : TEXT("0"),
+		FString::FromInt(KinsectPiercerTelemetry.DanceSource),
+		KinsectPiercerTelemetry.bKinsectSlashSourceTagPresent ? TEXT("1") : TEXT("0"),
+		ToCSVFloat(KinsectPiercerTelemetry.LockedYawDirection.X),
+		ToCSVFloat(KinsectPiercerTelemetry.LockedYawDirection.Y),
+		FString::FromInt(KinsectPiercerTelemetry.MainMontageInstanceID),
+		FString::FromInt(KinsectPiercerTelemetry.LandingMontageInstanceID),
+		ToCSVFloat(KinsectPiercerTelemetry.LandingMontageTimeSeconds),
+		KinsectPiercerTelemetry.bLandingRootMotionOwned ? TEXT("1") : TEXT("0"),
+		KinsectPiercerTelemetry.bLandingRootMotionModeCaptured ? TEXT("1") : TEXT("0"),
+		FString::FromInt(KinsectPiercerTelemetry.AnimRootMotionMode),
+		FString::FromInt(KinsectPiercerTelemetry.SegmentConfigCount),
+		FString::FromInt(KinsectPiercerTelemetry.LastSuccessfulConfigIndex),
+		FString::FromInt(KinsectPiercerTelemetry.SuccessfulTargetCounts[0]),
+		FString::FromInt(KinsectPiercerTelemetry.SuccessfulTargetCounts[1]),
+		FString::FromInt(KinsectPiercerTelemetry.SuccessfulTargetCounts[2]),
+		bDescendingThrustTelemetryAvailable ? TEXT("1") : TEXT("0"),
+		FString::Printf(TEXT("%u"), DescendingThrustTelemetry.ActivationSequenceID),
+		FString::FromInt(static_cast<int32>(DescendingThrustTelemetry.Phase)),
+		ToCSVString(DescendingThrustTelemetry.InputTag.ToString()),
+		ToCSVString(DescendingThrustTelemetry.InputSourceControlTag.ToString()),
+		FString::FromInt(static_cast<int32>(DescendingThrustTelemetry.InputSequenceID)),
+		ToCSVFloat(DescendingThrustTelemetry.PhysicalPressDurationSeconds),
+		DescendingThrustTelemetry.bInputReleaseFallback ? TEXT("1") : TEXT("0"),
+		ToCSVString(DescendingThrustTelemetry.PriorAerialSource.ToString()),
+		ToCSVString(DescendingThrustTelemetry.PublishedAerialSource.ToString()),
+		ToCSVString(DescendingThrustTelemetry.CurrentMontageSection.ToString()),
+		FString::FromInt(DescendingThrustTelemetry.MainMontageInstanceID),
+		FString::FromInt(DescendingThrustTelemetry.LandingMontageInstanceID),
+		ToCSVFloat(DescendingThrustTelemetry.ActionClockSeconds),
+		FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(DescendingThrustTelemetry.MovementLease)),
+		DescendingThrustTelemetry.bRecordedTrajectoryActive ? TEXT("1") : TEXT("0"),
+		DescendingThrustTelemetry.bActionMovementOwned ? TEXT("1") : TEXT("0"),
+		DescendingThrustTelemetry.bLandingRootMotionOwned ? TEXT("1") : TEXT("0"),
+		DescendingThrustTelemetry.bLandingRootMotionModeCaptured ? TEXT("1") : TEXT("0"),
+		FString::FromInt(DescendingThrustTelemetry.SavedAnimRootMotionMode),
+		FString::FromInt(DescendingThrustTelemetry.CurrentAnimRootMotionMode),
+		ToCSVFloat(DescendingThrustTelemetry.LockedPlanarVelocity.X),
+		ToCSVFloat(DescendingThrustTelemetry.LockedPlanarVelocity.Y),
+		ToCSVFloat(DescendingThrustTelemetry.LockedPlanarVelocity.Z),
+		ToCSVFloat(DescendingThrustTelemetry.FrozenDanceDamageMultiplier),
+		FString::FromInt(DescendingThrustTelemetry.LastSuccessfulSegmentIndex),
+		ToCSVString(DescendingThrustTelemetry.SegmentDamageInstanceIDs[0].ToString()),
+		ToCSVString(DescendingThrustTelemetry.SegmentDamageInstanceIDs[1].ToString()),
+		ToCSVString(DescendingThrustTelemetry.SegmentDamageInstanceIDs[2].ToString()),
+		ToCSVString(DescendingThrustTelemetry.SegmentDamageInstanceIDs[3].ToString()),
+		FString::FromInt(DescendingThrustTelemetry.SuccessfulTargetCounts[0]),
+		FString::FromInt(DescendingThrustTelemetry.SuccessfulTargetCounts[1]),
+		FString::FromInt(DescendingThrustTelemetry.SuccessfulTargetCounts[2]),
+		FString::FromInt(DescendingThrustTelemetry.SuccessfulTargetCounts[3]),
+		FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(DescendingThrustTelemetry.CorrectionFrameNumbers[0])),
+		DescendingThrustTelemetry.bCorrectionSnapshotValid[0] ? TEXT("1") : TEXT("0"),
+		DescendingThrustTelemetry.bCorrectionApplied[0] ? TEXT("1") : TEXT("0"),
+		DescendingThrustTelemetry.bCorrectionConsumed[0] ? TEXT("1") : TEXT("0"),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionAngles[0]),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionTargets[0].X),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionTargets[0].Y),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionTargets[0].Z),
+		FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(DescendingThrustTelemetry.CorrectionFrameNumbers[1])),
+		DescendingThrustTelemetry.bCorrectionSnapshotValid[1] ? TEXT("1") : TEXT("0"),
+		DescendingThrustTelemetry.bCorrectionApplied[1] ? TEXT("1") : TEXT("0"),
+		DescendingThrustTelemetry.bCorrectionConsumed[1] ? TEXT("1") : TEXT("0"),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionAngles[1]),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionTargets[1].X),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionTargets[1].Y),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionTargets[1].Z),
+		FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(DescendingThrustTelemetry.CorrectionFrameNumbers[2])),
+		DescendingThrustTelemetry.bCorrectionSnapshotValid[2] ? TEXT("1") : TEXT("0"),
+		DescendingThrustTelemetry.bCorrectionApplied[2] ? TEXT("1") : TEXT("0"),
+		DescendingThrustTelemetry.bCorrectionConsumed[2] ? TEXT("1") : TEXT("0"),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionAngles[2]),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionTargets[2].X),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionTargets[2].Y),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionTargets[2].Z),
+		ToCSVString(DescendingThrustTelemetry.AbilityConsumer.ToString()),
+		ToCSVString(DescendingThrustTelemetry.MainMontagePath),
+		ToCSVString(DescendingThrustTelemetry.LandingMontagePath),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionRawMoveInputs[0].Size()),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionRawMoveInputs[1].Size()),
+		ToCSVFloat(DescendingThrustTelemetry.CorrectionRawMoveInputs[2].Size()) });
 	RuntimeTelemetryAnimationPendingRows.Add(FString::Join(AnimationFields, TEXT(",")));
 
 	const int32 FlushRowCount = FMath::Clamp(CVarMHGZTelemetryFlushRows.GetValueOnGameThread(), 1, 600);
@@ -2244,6 +2642,7 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 		|| RuntimeTelemetryMMQueryPendingRows.Num() >= FlushRowCount
 		|| RuntimeTelemetryMMSelectionPendingRows.Num() >= FlushRowCount
 		|| RuntimeTelemetryAnimationPendingRows.Num() >= FlushRowCount
+		|| RuntimeTelemetryActionVisualPitchEventsPendingRows.Num() >= FlushRowCount
 		|| RuntimeTelemetryAnimGraphRootMotionPendingRows.Num() >= FlushRowCount
 		|| RuntimeTelemetryMontageInstancesPendingRows.Num() >= FlushRowCount)
 	{
@@ -2313,6 +2712,7 @@ void UMHGZMotionMatchingAnimInstance::CaptureParsedInputEvents(const AMHGZCharac
 bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter* Character)
 {
 	check(Character);
+	const UMHGZWeaponRuntimeHostComponent* RuntimeHost = Character->GetWeaponRuntimeHost();
 
 	// FTraceAuxiliary resolves a relative output path against its own trace base, which is
 	// not necessarily the project directory. Resolve once here so both CSV writers and
@@ -2367,6 +2767,8 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	RuntimeTelemetryMMQueryFilePath = FPaths::Combine(MotionMatchingDirectory, TEXT("Query.csv"));
 	RuntimeTelemetryMMSelectionFilePath = FPaths::Combine(MotionMatchingDirectory, TEXT("Selection.csv"));
 	RuntimeTelemetryAnimationFilePath = FPaths::Combine(AnimationDirectory, TEXT("Playback.csv"));
+	RuntimeTelemetryActionVisualPitchEventsFilePath = FPaths::Combine(AnimationDirectory,
+		TEXT("ActionVisualPitchEvents.csv"));
 	RuntimeTelemetryAnimGraphRootMotionFilePath = FPaths::Combine(AnimationDirectory,
 		TEXT("AnimGraphRootMotion.csv"));
 	RuntimeTelemetryMontageInstancesFilePath = FPaths::Combine(AnimationDirectory,
@@ -2378,13 +2780,17 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	const FString RawInputHeader = TEXT("WorldTimeSeconds,Frame,RawMoveRight,RawMoveForward,RawMoveMagnitude,HasRawMovementInput,RawWorldDirectionX,RawWorldDirectionY,RawWorldDirectionZ,RawInputYaw,SprintHeld,HeldPhysicalInputTags") LINE_TERMINATOR;
 	const FString ParsedInputHeader = TEXT("WorldTimeSeconds,Frame,EventSerial,RouterTimestamp,ResolvedInputTag,SourceControlTag,HeldModifierTags,ContextTags,Phase,SequenceID,FrozenRawMoveRight,FrozenRawMoveForward,FrozenWorldDirectionX,FrozenWorldDirectionY,FrozenWorldDirectionZ,FrozenDirection") LINE_TERMINATOR;
 	const FString CharacterStateHeader = TEXT("WorldTimeSeconds,Frame,Character,HasAbilitySystem,Unsheathed,HasLocomotionInput,BlockMovement,ForceMMIdle,OwnedGameplayTags,Health,MaxHealth,Stamina,MaxStamina,MoveSpeedMultiplier,WeaponResourceClass,DownshiftConfirmActive,DownshiftConfirmRemaining") LINE_TERMINATOR;
-	const FString CharacterSpatialHeader = TEXT("WorldTimeSeconds,Frame,LocationX,LocationY,LocationZ,ActorPitch,ActorYaw,ActorRoll,RawInputYaw,ActorToRawInputYawDelta,VelocityX,VelocityY,VelocityZ,Velocity2D,AccelerationX,AccelerationY,AccelerationZ,ActualRootMotionSpeed2D,TargetCruiseSpeed,DesiredSpeed,LocomotionInputMagnitude,MovementMode,HasAnimRootMotion,HasRootMotionSources,RootMotionHasOverrideVelocity,RootMotionHasAdditiveVelocity,AnimRootMotionMode,AnimShouldExtractRootMotion,MeshRelativeToCapsuleX,MeshRelativeToCapsuleY,MeshRelativeToCapsuleZ,MeshRelativeToCapsulePitch,MeshRelativeToCapsuleYaw,MeshRelativeToCapsuleRoll,HasRootBoneSample,RootBoneWorldX,RootBoneWorldY,RootBoneWorldZ,RootBoneRelX,RootBoneRelY,RootBoneRelZ,MeshBoundsX,MeshBoundsY,MeshBoundsZ,MeshBoundsExtentZ,MeshBoundsMinZ") LINE_TERMINATOR;
+	const FString CharacterSpatialHeader = TEXT("WorldTimeSeconds,Frame,LocationX,LocationY,LocationZ,ActorPitch,ActorYaw,ActorRoll,RawInputYaw,ActorToRawInputYawDelta,VelocityX,VelocityY,VelocityZ,Velocity2D,AccelerationX,AccelerationY,AccelerationZ,ActualRootMotionSpeed2D,TargetCruiseSpeed,DesiredSpeed,LocomotionInputMagnitude,MovementMode,HasAnimRootMotion,HasRootMotionSources,RootMotionHasOverrideVelocity,RootMotionHasAdditiveVelocity,AnimRootMotionMode,AnimShouldExtractRootMotion,MeshRelativeToCapsuleX,MeshRelativeToCapsuleY,MeshRelativeToCapsuleZ,MeshRelativeToCapsulePitch,MeshRelativeToCapsuleYaw,MeshRelativeToCapsuleRoll,HasRootBoneSample,RootBoneWorldX,RootBoneWorldY,RootBoneWorldZ,RootBoneRelX,RootBoneRelY,RootBoneRelZ,RootBoneWorldPitch,RootBoneWorldYaw,RootBoneWorldRoll,RootBoneRelPitch,RootBoneRelYaw,RootBoneRelRoll,ActionVisualPitchActive,ActionVisualPitchDegrees,ActionVisualPitchWeight,ActionVisualPitchComponentPitch,ActionVisualPitchComponentYaw,ActionVisualPitchComponentRoll,MeshBoundsX,MeshBoundsY,MeshBoundsZ,MeshBoundsExtentZ,MeshBoundsMinZ") LINE_TERMINATOR;
 	const FString MovementPhasesHeader = TEXT("WorldTimeSeconds,Frame,EventSerial,Phase,DeltaSeconds,LocationX,LocationY,LocationZ,VelocityX,VelocityY,VelocityZ,AccelerationX,AccelerationY,AccelerationZ,MovementMode,CustomMovementMode,GravityScale,BrakingDecelerationFalling,FallingLateralFriction,RuntimeGeneration,ActionMovementOwner,MontageRootMotionOwner,ActiveActions,ActiveRootMotionSourceCount,PendingRootMotionSourceCount,HasOverrideRootMotionVelocity,HasAdditiveRootMotionVelocity,HasRootMotionCallbackTransform,RootMotionTranslationX,RootMotionTranslationY,RootMotionTranslationZ,RootMotionPitch,RootMotionYaw,RootMotionRoll,HasMovementImpact,ImpactBlockingHit,ImpactStartPenetrating,ImpactActor,ImpactComponent,ImpactPointX,ImpactPointY,ImpactPointZ,ImpactNormalX,ImpactNormalY,ImpactNormalZ,ImpactMoveDeltaX,ImpactMoveDeltaY,ImpactMoveDeltaZ,ImpactTimeSlice,SubPhaseSite,SubPhaseEntryVelocityX,SubPhaseEntryVelocityY,SubPhaseEntryVelocityZ,SubPhaseFriction,SubPhaseBrakingDeceleration,SubPhaseIterations,HasAnimRootMotion,RootMotionParamsTranslationX,RootMotionParamsTranslationY,RootMotionParamsTranslationZ,AnimRootMotionVelocityX,AnimRootMotionVelocityY,AnimRootMotionVelocityZ,IsPlayingRootMotion,RootMotionShieldBound,AdditiveVelocityApplied,LastPreAdditiveVelocityX,LastPreAdditiveVelocityY,LastPreAdditiveVelocityZ,ConstrainProbe,ConstrainCallSite,ConstrainRootMotionVelocityX,ConstrainRootMotionVelocityY,ConstrainRootMotionVelocityZ,ConstrainInputVelocityX,ConstrainInputVelocityY,ConstrainInputVelocityZ,ConstrainOutputVelocityX,ConstrainOutputVelocityY,ConstrainOutputVelocityZ") LINE_TERMINATOR;
 	const FString RootMotionSourcesHeader = TEXT("WorldTimeSeconds,Frame,Group,SourceIndex,SourceValid,LocalID,InstanceName,SourceType,SourceDebug,Priority,AccumulateMode,StartTime,CurrentTime,PreviousTime,Duration,StatusFlags,Prepared,Finished,MarkedForRemoval,InLocalSpace,NeedsSimulatedCatchup,FinishVelocityMode,FinishVelocityX,FinishVelocityY,FinishVelocityZ,GroupHasRootMotionSources,GroupHasOverrideVelocity,GroupHasAdditiveVelocity,ActiveSourceCount,PendingSourceCount") LINE_TERMINATOR;
 	const FString CapsuleHitsHeader = TEXT("WorldTimeSeconds,Frame,EventSerial,OtherActor,OtherComponent,LocationX,LocationY,LocationZ,ImpactPointX,ImpactPointY,ImpactPointZ,ImpactNormalX,ImpactNormalY,ImpactNormalZ,NormalX,NormalY,NormalZ") LINE_TERMINATOR;
 	const FString MMQueryHeader = TEXT("WorldTimeSeconds,Frame,Unsheathed,IntentQuery,DistanceToStopQuery,StopGaitQuery,MoveGaitQuery,SheathedCandidateSet,SheathedTargetGait,LastNonZeroCruiseSpeed,StartQueryActive,StartQueryElapsed,StartQueryDuration,SheathedStopMode,LegacyStopMode,ExternalForceMMIdle,EffectiveForceMMIdle,ForceIdleReleaseHoldRemaining,StartInputSettleRemaining,HasLocomotionInput,StopRequestActive,ExitWantsMoveDatabase,ActionIdleContextActive,ActionIdleContextUnsheathed,ActionIdleContextSerial,SheathedActionExitRoute,UnsheathedActionExitRoute,SheathedActionExitSerial,UnsheathedActionExitSerial,SheathedExitSelectedTime,UnsheathedExitSelectedTime,PredictedDistance0,PredictedDistance0p2,PredictedDistance0p5,PredictedDistance0p8,PredictedDistance1p0") LINE_TERMINATOR;
 	const FString MMSelectionHeader = TEXT("Frame,Node,SelectedDatabase,SelectedAnimation,SelectedTime,SearchCost,WantedPlayRate,HasSelectionResult,IsContinuing,IsLooping,IsMirrored,QueryIntent,QueryDistanceToStop,QueryStopGait,QueryMoveGait,CandidateIntent,CandidateDistanceToStop,CandidateStopGait,CandidateMoveGait,IntentDelta,DistanceToStopDelta,StopGaitDelta,MoveGaitDelta,IntentWeightedSquaredEstimate,DistanceToStopWeightedSquaredEstimate,StopGaitWeightedSquaredEstimate,MoveGaitWeightedSquaredEstimate") LINE_TERMINATOR;
-	const FString AnimationHeader = TEXT("WorldTimeSeconds,Frame,ActiveActions,MontageRootMotionOwnerAction,MontageRootMotionOwned,ActiveMontage,ActiveMontageTime,ActiveMontageLength,ActiveMontagePlayRate,HandoffActive,HandoffType,HandoffSerial,HandoffRawMoveRight,HandoffRawMoveForward,HandoffHasRawMoveInput,HandoffHadRawMoveInputInMobilePhase,PendingStopAtHandoff,HandoffLastActiveRawMoveCruiseSpeed,AerialFallingMontage,AerialFallingMontageReferenced,AerialFallingRootMotionDisabledByHost,AerialFallingMontageInstanceFound,AerialFallingInstanceRootMotionDisabled,AerialLandingMontage,AerialLandingMontageReferenced,AerialLandingRootMotionDisabledByHost,AerialLandingMontageInstanceFound,AerialLandingInstanceRootMotionDisabled") LINE_TERMINATOR;
+	const FString AnimationHeader = TEXT("WorldTimeSeconds,Frame,ActiveActions,MontageRootMotionOwnerAction,MontageRootMotionOwned,ActiveMontage,ActiveMontageTime,ActiveMontageLength,ActiveMontagePlayRate,HandoffActive,HandoffType,HandoffSerial,HandoffRawMoveRight,HandoffRawMoveForward,HandoffHasRawMoveInput,HandoffHadRawMoveInputInMobilePhase,PendingStopAtHandoff,HandoffLastActiveRawMoveCruiseSpeed,AerialFallingMontage,AerialFallingMontageReferenced,AerialFallingRootMotionDisabledByHost,AerialFallingMontageInstanceFound,AerialFallingInstanceRootMotionDisabled,AerialLandingMontage,AerialLandingMontageReferenced,AerialLandingRootMotionDisabledByHost,AerialLandingMontageInstanceFound,AerialLandingInstanceRootMotionDisabled,CameraManagerClass,CameraViewPitch,CameraViewPitchMin,CameraViewPitchMax,ActionVisualPitchActive,ActionVisualPitchDegrees,ActionVisualPitchWeight,ActionVisualPitchComponentPitch,ActionVisualPitchComponentYaw,ActionVisualPitchComponentRoll,LockedDirectionX,LockedDirectionY,LockedDirectionZ,ActionActivationSequenceID,PitchSourceMontageInstanceID,PitchStateRevision,PitchStateValid,PitchStateReleasing,KinsectPiercerActive,KinsectPiercerActivationSequenceID,KinsectPiercerPhase,KinsectPiercerCurveElapsedSeconds,KinsectPiercerCurveCoveredSeconds,KinsectPiercerMovementLease,KinsectPiercerRecordedTrajectoryActive,KinsectPiercerActionMovementOwned,KinsectPiercerAerialAttackBudgetSpent,KinsectPiercerDanceSource,KinsectPiercerSourceTagPresent,KinsectPiercerLockedYawX,KinsectPiercerLockedYawY,KinsectPiercerMainMontageInstanceID,KinsectPiercerLandingMontageInstanceID,KinsectPiercerLandingMontageTimeSeconds,KinsectPiercerLandingRootMotionOwned,KinsectPiercerLandingRootMotionModeCaptured,KinsectPiercerAnimRootMotionMode,KinsectPiercerSegmentConfigCount,KinsectPiercerLastSuccessfulConfigIndex,KinsectPiercerSegment0SuccessfulTargets,KinsectPiercerSegment1SuccessfulTargets,KinsectPiercerSegment2SuccessfulTargets,")
+		TEXT("DescendingThrustActive,DescendingThrustActivationSequenceID,DescendingThrustPhase,DescendingThrustInputTag,DescendingThrustInputSourceControlTag,DescendingThrustInputSequenceID,DescendingThrustPhysicalPressDurationSeconds,DescendingThrustInputReleaseFallback,DescendingThrustPriorAerialSource,DescendingThrustPublishedAerialSource,DescendingThrustCurrentMontageSection,DescendingThrustMainMontageInstanceID,DescendingThrustLandingMontageInstanceID,DescendingThrustActionClockSeconds,DescendingThrustMovementLease,DescendingThrustRecordedTrajectoryActive,DescendingThrustActionMovementOwned,DescendingThrustLandingRootMotionOwned,DescendingThrustLandingRootMotionModeCaptured,DescendingThrustSavedAnimRootMotionMode,DescendingThrustCurrentAnimRootMotionMode,DescendingThrustLockedPlanarVelocityX,DescendingThrustLockedPlanarVelocityY,DescendingThrustLockedPlanarVelocityZ,DescendingThrustFrozenDanceDamageMultiplier,DescendingThrustLastSuccessfulSegmentIndex,DescendingThrustSegment0DamageInstanceID,DescendingThrustSegment1DamageInstanceID,DescendingThrustSegment2DamageInstanceID,DescendingThrustSegment3DamageInstanceID,DescendingThrustSegment0SuccessfulTargets,DescendingThrustSegment1SuccessfulTargets,DescendingThrustSegment2SuccessfulTargets,DescendingThrustSegment3SuccessfulTargets,")
+		TEXT("DescendingThrustCorrection0Frame,DescendingThrustCorrection0SnapshotValid,DescendingThrustCorrection0Applied,DescendingThrustCorrection0Consumed,DescendingThrustCorrection0AngleDegrees,DescendingThrustCorrection0TargetX,DescendingThrustCorrection0TargetY,DescendingThrustCorrection0TargetZ,DescendingThrustCorrection1Frame,DescendingThrustCorrection1SnapshotValid,DescendingThrustCorrection1Applied,DescendingThrustCorrection1Consumed,DescendingThrustCorrection1AngleDegrees,DescendingThrustCorrection1TargetX,DescendingThrustCorrection1TargetY,DescendingThrustCorrection1TargetZ,DescendingThrustCorrection2Frame,DescendingThrustCorrection2SnapshotValid,DescendingThrustCorrection2Applied,DescendingThrustCorrection2Consumed,DescendingThrustCorrection2AngleDegrees,DescendingThrustCorrection2TargetX,DescendingThrustCorrection2TargetY,DescendingThrustCorrection2TargetZ")
+		TEXT(",DescendingThrustAbilityConsumerHandle,DescendingThrustMainMontagePath,DescendingThrustLandingMontagePath,DescendingThrustCorrection0RawMoveMagnitude,DescendingThrustCorrection1RawMoveMagnitude,DescendingThrustCorrection2RawMoveMagnitude") LINE_TERMINATOR;
+	const FString ActionVisualPitchEventsHeader = TEXT("WorldTimeSeconds,Frame,EventSerial,Event,RuntimeGeneration,ActionActivationSequenceID,SourceMontageInstanceID,LockedDirectionX,LockedDirectionY,LockedDirectionZ,PitchDegrees,TargetWeight,BlendInSeconds,BlendOutSeconds,StateRevision,StateValid,IsReleasing") LINE_TERMINATOR;
 	const FString AnimGraphRootMotionHeader = TEXT("WorldTimeSeconds,Frame,ProxyHasRootMotion,ProxyBlendWeight,RawLocalTranslationX,RawLocalTranslationY,RawLocalTranslationZ,RawLocalTranslationMagnitude,RawLocalRotationPitch,RawLocalRotationYaw,RawLocalRotationRoll,AnimRootMotionTranslationScale,ScaledLocalTranslationX,ScaledLocalTranslationY,ScaledLocalTranslationZ,ScaledLocalTranslationMagnitude,CharacterIsPlayingRootMotion,AnimRootMotionMode,AnimShouldExtractRootMotion") LINE_TERMINATOR;
 	const FString MontageInstancesHeader = TEXT("WorldTimeSeconds,Frame,InstanceIndex,InstanceID,Montage,Position,PreviousPosition,DeltaMoved,PlayRate,Weight,DesiredWeight,BlendTime,IsPlaying,IsActive,IsStopped,EnableAutoBlendOut,RootMotionDisabled,IsRootMotionMontageInstance,MontageHasRootMotion,SlotNames,SlotGlobalWeights") LINE_TERMINATOR;
 	const auto CreateCSV = [this](const FString& Header, const FString& FilePath, const TCHAR* Category) -> bool
@@ -2408,6 +2814,8 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 		|| !CreateCSV(MMQueryHeader, RuntimeTelemetryMMQueryFilePath, TEXT("Motion Matching query"))
 		|| !CreateCSV(MMSelectionHeader, RuntimeTelemetryMMSelectionFilePath, TEXT("Motion Matching selection"))
 		|| !CreateCSV(AnimationHeader, RuntimeTelemetryAnimationFilePath, TEXT("animation"))
+		|| !CreateCSV(ActionVisualPitchEventsHeader, RuntimeTelemetryActionVisualPitchEventsFilePath,
+			TEXT("action visual pitch events"))
 		|| !CreateCSV(AnimGraphRootMotionHeader, RuntimeTelemetryAnimGraphRootMotionFilePath,
 			TEXT("AnimGraph Root Motion"))
 		|| !CreateCSV(MontageInstancesHeader, RuntimeTelemetryMontageInstancesFilePath,
@@ -2429,6 +2837,7 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	RuntimeTelemetryMMQueryPendingRows.Reset();
 	RuntimeTelemetryMMSelectionPendingRows.Reset();
 	RuntimeTelemetryAnimationPendingRows.Reset();
+	RuntimeTelemetryActionVisualPitchEventsPendingRows.Reset();
 	RuntimeTelemetryAnimGraphRootMotionPendingRows.Reset();
 	RuntimeTelemetryMontageInstancesPendingRows.Reset();
 	bRuntimeTelemetryPoseSearchDetailRequested = CVarMHGZTelemetryPoseSearchDetail.GetValueOnGameThread() != 0;
@@ -2465,6 +2874,8 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	RuntimeTelemetryLastObservedInputEventSerial = 0;
 	RuntimeTelemetryLastObservedCapsuleHitSerial = Character->GetLatestCapsuleBlockingHitTelemetrySerial();
 	RuntimeTelemetryLastObservedMovementPhaseSerial = 0;
+	RuntimeTelemetryLastObservedActionVisualPitchEventSerial = RuntimeHost
+		? RuntimeHost->GetLatestActionVisualPitchTelemetrySerial() : 0;
 	if (const UMHGZInstrumentedCharacterMovementComponent* InstrumentedMovement =
 		Cast<UMHGZInstrumentedCharacterMovementComponent>(Character->GetCharacterMovement()))
 	{
@@ -2531,6 +2942,7 @@ void UMHGZMotionMatchingAnimInstance::StopRuntimeTelemetry()
 	RuntimeTelemetryMMQueryFilePath.Reset();
 	RuntimeTelemetryMMSelectionFilePath.Reset();
 	RuntimeTelemetryAnimationFilePath.Reset();
+	RuntimeTelemetryActionVisualPitchEventsFilePath.Reset();
 	RuntimeTelemetryAnimGraphRootMotionFilePath.Reset();
 	RuntimeTelemetryMontageInstancesFilePath.Reset();
 	RuntimeTelemetryPoseSearchTraceFilePath.Reset();
@@ -2540,6 +2952,7 @@ void UMHGZMotionMatchingAnimInstance::StopRuntimeTelemetry()
 	RuntimeTelemetryLastObservedInputEventSerial = 0;
 	RuntimeTelemetryLastObservedCapsuleHitSerial = 0;
 	RuntimeTelemetryLastObservedMovementPhaseSerial = 0;
+	RuntimeTelemetryLastObservedActionVisualPitchEventSerial = 0;
 	// Drop the acceleration difference cache with the session it belongs to, so a
 	// restart cannot produce one spike against the previous run's last velocity.
 	RuntimeTelemetryPrevVelocity = FVector::ZeroVector;
@@ -2555,6 +2968,7 @@ void UMHGZMotionMatchingAnimInstance::FlushRuntimeTelemetry()
 		&& RuntimeTelemetryCapsuleHitsPendingRows.IsEmpty()
 		&& RuntimeTelemetryMMQueryPendingRows.IsEmpty() && RuntimeTelemetryMMSelectionPendingRows.IsEmpty()
 		&& RuntimeTelemetryAnimationPendingRows.IsEmpty()
+		&& RuntimeTelemetryActionVisualPitchEventsPendingRows.IsEmpty()
 		&& RuntimeTelemetryAnimGraphRootMotionPendingRows.IsEmpty()
 		&& RuntimeTelemetryMontageInstancesPendingRows.IsEmpty())
 	{
@@ -2618,6 +3032,11 @@ void UMHGZMotionMatchingAnimInstance::FlushRuntimeTelemetry()
 	if (bRuntimeTelemetryActive)
 	{
 		AppendRows(RuntimeTelemetryAnimationPendingRows, RuntimeTelemetryAnimationFilePath, TEXT("animation"));
+	}
+	if (bRuntimeTelemetryActive)
+	{
+		AppendRows(RuntimeTelemetryActionVisualPitchEventsPendingRows,
+			RuntimeTelemetryActionVisualPitchEventsFilePath, TEXT("action visual pitch events"));
 	}
 	if (bRuntimeTelemetryActive)
 	{

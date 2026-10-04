@@ -3,6 +3,7 @@
 #include "MHGZGameplayAbility.h"
 
 #include "AbilityTask_MHGZStaminaDrain.h"
+#include "AbilityTask_MHGZWeaponMovement.h"
 #include "MHGZAbilityCostGameplayEffects.h"
 #include "MHGZAbilitySystemComponent.h"
 #include "MHGZComboCoordinatorAbility.h"
@@ -343,6 +344,21 @@ void UMHGZGameplayAbility::EndAbility(
 			Host->ReleaseReservation(ActiveReservation);
 		}
 		ActiveReservation = FWeaponResourceCostReservation();
+	}
+
+	// Movement tasks must retire while their exact ActionToken is still registered.
+	// Super::EndAbility destroys remaining tasks after UnregisterAction below,
+	// which otherwise removes the ownership needed to release Flying safely.
+	// Use a snapshot because ending a task removes it from ActiveTasks. Only
+	// movement tasks retire here; montage/delegate teardown retains its order.
+	const TArray<TObjectPtr<UGameplayTask>> TasksToRetire = ActiveTasks;
+	for (UGameplayTask* Task : TasksToRetire)
+	{
+		if (UAbilityTask_MHGZWeaponMovement* MovementTask =
+			Cast<UAbilityTask_MHGZWeaponMovement>(Task))
+		{
+			MovementTask->EndTask();
+		}
 	}
 
 	// 3. 注销 Montage 与 Active Action。

@@ -26,18 +26,25 @@ public class MHGZ : ModuleRules
 			// MotionWarping
 			"MotionWarping",
 			"PoseSearch", 
-			"MotionTrajectory"
+			"MotionTrajectory",
+			"AnimGraphRuntime"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
 		if (Target.bBuildEditor)
 		{
+			if (Target.Platform == UnrealTargetPlatform.Win64)
+			{
+				PublicSystemLibraries.Add("Bcrypt.lib");
+			}
 			PrivateDependencyModuleNames.AddRange(new string[] {
 				"AssetRegistry",
+				"AnimGraph",
 				"AnimationBlueprintLibrary",
 				"BlueprintGraph",
 				"Kismet",
+				"Json",
 				"PoseSearchEditor",
 				"TraceAnalysis",
 				"TraceServices",

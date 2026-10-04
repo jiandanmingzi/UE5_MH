@@ -7,7 +7,7 @@
 ### 范围与通用架构
 
 1. README、Demo 指南、虫棍资源和动作文档统一声明：以《世界》为基底，选择性改造三部曲动作；不是《崛起》逐项复刻。
-2. 项目中没有翔虫资源/恢复/消费、集中模式或钩爪作为 Demo 前置系统；降龙等移植动作不隐式检查翔虫。
+2. 项目中没有翔虫资源/恢复/消费、集中模式或钩爪作为 Demo 前置系统；范围内移植动作不隐式检查翔虫。强化跳跃斩与降龙已于2026-10-01移出当前Demo/M5范围；已签空回、操虫斩与强化操虫穿刺保留，剩余新增空中招式仅急袭突刺。M5收口与总验收仍须完成，主M5尚未签收。
 3. 通用协调器只处理 InputSnapshot、转移边、ActionToken 与标签条件；新增虫棍动作不增加 `if Weapon==InsectGlaive`。
 4. 每条 Combo 转移拥有唯一 TransitionID；自动派生按 ID 定位。ActivateAbility 边经过 Pending→Resource Reserve→GAS Commit→Consume→Confirm，StateOnly 只用于同一 ActionToken 的自动阶段变化。
 5. TryActivate、Reserve 或 Commit 失败均不改变 CurrentState/Tag，且 reservation 被释放；旧 Ability 的迟到 Hit/End/Notify 不能清理或重置新 ActiveTransition。
@@ -75,22 +75,22 @@ E4-A.5. 收刀地面按 Y 只产生一个 `Input.Weapon.Y` 快照：无、左、
 
 21. 空中直接 B 的操虫斩沿角色 Forward；LT+B 沿激活瞬间准心方向；两者均受距离/碰撞限制且命中后点灯。
 22. 只有操虫斩命中和突进回旋斩反击增加舞踏；达到 MaxDanceStacks 后不超限，逐层倍率读取配置。
-23. 舞踏倍率只作用于猎人的空中攻击，不作用于猎虫、粉尘和地面伤害；落地、受击、收刀/卸装、急袭突刺、降龙会按规则清空。
-24. 强化操虫穿刺只可从操虫斩来源的舞踏用 LT+Y 派生；回旋斩来源的舞踏不能派生。
-25. 空中不存在跳跃突进斩；强化跳跃斩和急袭突刺继承进入动作时的水平惯性，动作结束正确交还 FinalVelocity。
+23. 舞踏倍率只作用于猎人的空中攻击，不作用于猎虫、粉尘和地面伤害；落地、受击、死亡、收刀/卸装、急袭突刺会按规则清空，急袭突刺Commit先快照倍率再清层。
+24. 强化操虫穿刺只可从操虫斩有效命中提交的当前KinsectSlash舞踏来源，在Falling开放阶段用RT+Y派生；保护前段、落空、仅武器命中和回旋斩来源均拒绝。三段判定用用户放置的Attack Collision索引0/1/2，各对同目标最多成功一次；相同Yaw下改变准心Pitch不改变实际轨迹。200→201真实触地后进入203，202仅循环姿势。**2026-10-01：M1/M2/M3/E1/M4完成，E2本轮平地可玩范围已签收**，最新证据见[本招计划§13.5](../using/强化操虫穿刺实现计划.md)，规则矩阵保留§9～10。用户确认除撞墙无法测且暂不管外目测正常；碰墙/封顶暂缓，未发现已确认bug。录制没有slomo命令，不宣称慢放采样、全取消矩阵或五条clone全部实机通过。主M5尚未签收；强化跳跃斩与降龙已移出当前Demo/M5范围，剩余新增空中招式仅急袭突刺，先资源/真值核对与独立详细实施方案。
+25. 空中不存在跳跃突进斩；急袭突刺按[2026-10-03详细计划](../using/急袭突刺实现计划.md)验收：同操虫斩持刀Falling/预算门禁，RT限时松开且未组合消费；380进入/循环不重置连续轨迹，381地面段保留原Montage Root Motion。三次180°/180°/60°用指定前帧快照并按真值渐进转向；四判定窗用户配置，每段对同目标最多成功一次，地面可派生二连/后撤/飞圆，飞圆入口同二连来源。两条常驻Montage、同一Action/Ability完成落地段且精确清理所有权。方案已写，本招M1待验收，不表示本项通过。
 26. 持刀虫印斩首次有效 Hitzone 命中、或 LT+RT 虫印弹命中 Hitzone 后创建唯一虫印；两种来源的新印均替换旧印，近战落空/虫印弹射空均不替换，收刀保留，目标失效/到期/卸装清除。
 27. 地面 RT+Y：有效虫印在距离内时猎虫滑翔追向虫印；否则短距前飞并少量抬升；命中怪物后小跳进入空战但不增加舞踏。
 28. 三灯下 RT+Y+B：觉虫击 Commit 通过 `Cost.IG.TripleUp` 原子清空旧三灯，准心方向限制在角色正前方上下左右 60°；猎虫每次成功提交贯通伤害后恰好按 Hitzone ApplyExtract 一次并留下通用粉尘一团，命中三色可在途中重新形成三灯，之后的萃取被吞且不刷新；伤害提交失败不点灯、不产粉尘；猎人位移有距离/碰撞上限。
 29. 无三灯觉虫击激活失败且不移动、不耗资源；过程中受击/碰墙能清理猎人位移，猎虫按独立生命周期结束。
 30. 地面 LT+Y+B 只集约范围内己方未预留粉尘；同一目标只结算一次聚合爆炸；取消时解除 Reserved 且不丢失粉尘。Demo 粉尘不被普通武器/猎虫接触引爆。
-31. 空中 LT+Y+B 的降龙不消耗翔虫或精华；使用当前舞踏倍率后清层，连续碰撞、落地段和异常取消均无残留 RootMotionSource/攻击窗口。
+31. 降龙功能验收取消：2026-10-01移出当前Demo，不再作为M5门禁；强化跳跃斩的功能要求同样取消。
 
 ### 木桩、伤害与稳定性
 
 32. 自定义 EffectContext 保留真实 HitResult/AttackInstanceID；零 MotionValue 的有效命中通过四个 Meta+最终 HitSignal 产生一次零伤害反馈，正动作值按 Demo 简化公式结算。
 33. 木桩三色 Hitzone 互不重叠且 ObjectType=Hitzone/QueryOnly；实体 Body 独立。武器用 Weapon Trace，猎虫用 Hitzone Object Sweep；Aim 用 Visibility 并验证 Hitzone，墙后部位不显示颜色。
 34. 在 30/60/120 FPS 下，组合输入、四连印斩四段、回旋反击窗口、觉虫击贯通和粉尘集约结果一致。
-35. 任意动作在受击、落地、死亡、收刀、换武器或 PIE End 时不残留 PendingTransition、Timer、Delegate、Reserved Powder、Loose Tag/GE、攻击窗口、Projectile 或 RootMotionSource；急袭突刺/降龙的 AbilityOwned Landing 不被通用落地重置提前截断。
+35. 任意动作在受击、落地、死亡、收刀、换武器或 PIE End 时不残留 PendingTransition、Timer、Delegate、Reserved Powder、Loose Tag/GE、攻击窗口、Projectile 或 RootMotionSource；急袭突刺的 AbilityOwned Landing 不被通用落地重置提前截断。
 36. Packaged Development Build 中完整执行 [编辑器接线指南](demo-setup.md) 第 10 节的分层验证，结果与 PIE 一致。
 37. 动作 GA 为 InstancedPerExecution、协调器为 InstancedPerActor；连续激活同一 GA Class/Spec 时两个实例有不同 ActionToken，旧实例以 Superseded 结束。
 38. 同时存在旧 BlendOut 与新 Montage 时，AttackCollision/Combo/Dodge Notify 只通过 Mesh+MontageInstanceID 调用所属 AbilityInstance；Notify 不遍历全部 Active Specs。送虫/收虫 Commit Notify 在 UE Context 缺少 InstanceID 的 Layered Slot 回调中，只可由该回调的源 Montage 取得同一 Mesh 的当前 InstanceID 后再走同一精确注册表；不得按 AbilityClass 猜实例。旧 NotifyEnd 不关闭新窗口。
@@ -154,8 +154,8 @@ E4-A.5. 收刀地面按 Y 只产生一个 `Input.Weapon.Y` 快照：无、左、
 43. **无敌帧碰撞穿透**：(a) NotifyBegin→Weapon 通道=Ignore+Invincible Tag。(b) 怪物攻击 Sweep→Ignore→不命中。(c) Pawn 通道 Block→无法穿过怪物。(d) NotifyEnd→恢复
 44. **怪物攻击碰撞**：(a) NotifyBegin→部位 MonsterAttack 通道=Block。(b) NotifyTick Sweep 检测玩家→命中→Apply 伤害。(c) NotifyEnd→恢复 Ignore→收招不误伤。(d) 龙车高速冲撞→首帧 Sweep→命中
 45. **怪物部位胶囊体常态**：(a) 头部始终 Block Weapon→玩家斩击能命中。(b) 头部始终 Block Pawn→玩家不能穿过。(c) MonsterAttack 常态 Ignore→待机不误伤
-46. **普通攻击入口方向修正**：(a) Action Confirm 后、Montage 播放前，MaxCorrectionAngle=30° 且冻结摇杆方向偏差 20°→Actor Yaw 一次性转到目标，Root Motion 从新朝向开始；(b) 冻结方向偏差 50°→不修正；(c) 无摇杆或 MaxCorrectionAngle=0→不修正；(d) 蒙太奇播放期间改变摇杆不改变本招朝向，且本招没有 `AttackDirection` WarpTarget。
-46a. **单帧招内方向修正**：(a) 攻击已 Confirm 且播放到 `Action Direction Correction` 时，实时 `LastMovementInputDir` 偏差 20°、Override=30°→只在该 Notify 帧转向一次；(b) 实时偏差 50°、无实时方向、Override=0 或错误/旧 ActionToken→不转向；(c) Override=-1 时回退 GA 的 `MaxCorrectionAngle`；(d) 同一 Montage 的其他帧及 Notify 后改变摇杆均不再修正；(e) 全程不创建 `AttackDirection` WarpTarget，不使用 MotionWarping。
+46. **普通攻击入口方向修正**：(a) Action Confirm 后、Montage 播放前，MaxCorrectionAngle=30°、冻结方向偏差20°→转到目标；(b) 偏差50°→只转30°；(c) 偏差120°→仍只转30°；(d) 偏差大于120°→不修正；(e) 无摇杆或 MaxCorrectionAngle=0→不修正；(f) Montage 播放期间改变摇杆不改变本招朝向，且本招没有 `AttackDirection` WarpTarget。
+46a. **单帧招内方向修正**：(a) 攻击已 Confirm 且播放到 `Action Direction Correction` 时，实时偏差20°、Override=30°→只在该 Notify 帧转到目标；(b) 实时偏差50°→只转30°，偏差120°→仍只转30°，大于120°→不转；(c) 无实时方向、Override=0 或错误/旧 ActionToken→不转向；(d) Override=-1 时回退 GA 的 `MaxCorrectionAngle`；(e) 同一 Montage 的其他帧及 Notify 后改变摇杆均不再修正；(f) 全程不创建 `AttackDirection` WarpTarget，不使用 MotionWarping。
 47. **蓄力释放方向修正**：(a) 蓄力期间摇杆推左→Completed 时读方向→Warp Target=左+60°→Montage 播放时旋向目标
 48. **见切多段二次修正**：(a) 激活→段1 Warp Target=后方 180°→后撤。(b) 段1 NotifyEnd→段2 Warp Target=左方 120°→回砍修正。(c) 超出 120°→截断
 49. **多段攻击不同 MotionValue**：(a) 横扫段 MotionValue=0.6、下劈段=1.2→两段分别读取。(b) 两段都命中→伤害分别为 Attack×0.6 和 Attack×1.2

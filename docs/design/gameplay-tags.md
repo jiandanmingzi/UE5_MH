@@ -52,7 +52,7 @@ GameplayCue.Hit.Fire       ← 火属性命中特效
 GameplayCue.Hit.Crit       ← 暴击命中特效
 GameplayCue.Hit.Kinsect    ← 猎虫命中反馈
 GameplayCue.Hit.DamageNumber ← 伤害数字
-GameplayCue.Hit.IG.DivingWyvern  ← 虫棍降龙命中特效
+GameplayCue.Hit.IG.DivingWyvern  ← 旧保留名；降龙已移出 Demo，不作为待制作 Cue
 GameplayCue.Monster.Roar   ← 怪物咆哮
 GameplayCue.Buff.Applied   ← Buff 叠加特效
 GameplayCue.Weapon.Trail   ← 武器拖尾
@@ -81,12 +81,12 @@ Combat.State.Aerial        ← 空中态（与 Grounded 互斥）
 Combat.State.Aerial.Falling               ← 下落态（GA 结束但未落地，AnimBP 读此 Tag 选下落 Pose）
 Combat.State.Aerial.Falling.Default       ← 兜底下落 Pose
 Combat.State.Aerial.Falling.IG_AirDodge      ← 空中回避后
-Combat.State.Aerial.Falling.IG_StrongJumpingSlash ← 强化跳跃斩后
+Combat.State.Aerial.Falling.IG_StrongJumpingSlash ← 旧保留名；强化跳跃斩已移出 Demo，不配置表现/转移
 Combat.State.Aerial.Falling.IG_DanceVault    ← 舞踏后
 Combat.State.Aerial.Falling.IG_KinsectGlide  ← 猎虫滑翔后
 Combat.State.Aerial.Falling.IG_KinsectSlash  ← 操虫斩后
 Combat.State.Aerial.Falling.IG_DescendingThrust ← 急袭突刺阶段
-Combat.State.Aerial.Falling.IG_DivingWyvern  ← 降龙阶段
+Combat.State.Aerial.Falling.IG_DivingWyvern  ← 旧保留名；降龙已移出 Demo，不配置表现/转移
 Combat.State.Aerial.Dance.Source.KinsectSlash ← 操虫斩触发的舞踏，可派生强化操虫穿刺
 Combat.State.Aerial.Dance.Source.AdvancingCounter ← 突进回旋斩反击舞踏，不可派生强化操虫穿刺
 Combat.State.Aerial.CantDodge             ← 空中回避已用（默认无限制，舞踏重置清）
@@ -162,7 +162,7 @@ Input.Weapon               ← 武器输入父标签
 Input.Weapon.Y             ← △/Y — 轻/基础攻击
 Input.Weapon.B             ← ○/B — 重/特殊攻击
 Input.Weapon.LT            ← 输出层预留：暂未使用（物理层为 Input.Modifier.LT）
-Input.Weapon.RT            ← 单 RT 语义输出：收刀地面按下=拔刀直飞；持刀地面未组合松开=虫印斩；空中按下=急袭突刺（物理层为 Input.Modifier.RT）
+Input.Weapon.RT            ← 单RT语义输出：收刀地面按下宽限期后=拔刀直飞；持刀地面限时未组合松开=虫印斩；持刀Falling限时未组合松开=急袭突刺（2026-10-03目标，见急袭计划；物理层为Input.Modifier.RT）
 Input.Weapon.RTA           ← RT+A（Chord Resolver）：起跳
 Input.Weapon.RTB           ← RT+○（Chord Trigger）
 Input.Weapon.RTY           ← RT+Y（Chord Trigger）
@@ -170,7 +170,7 @@ Input.Weapon.YB            ← Y+B / △+○（Chord Resolver）
 Input.Weapon.LTY           ← LT+Y（持刀送虫/空中特殊派生）
 Input.Weapon.LTB           ← LT+B（持刀召回/空中操虫斩）
 Input.Weapon.LTRT          ← LT+RT（持刀发射虫印弹）
-Input.Weapon.LTYB          ← LT+Y+B（地面粉尘集约/空中降龙）
+Input.Weapon.LTYB          ← LT+Y+B（仅地面粉尘集约；空中降龙已移出 Demo）
 Input.Weapon.RTYB          ← RT+Y+B（觉虫击）
 Input.Modifier.LT          ← LT/L2 原始修饰输入，按姿态产生 Kinsect/Slinger 上下文
 Input.Modifier.RT          ← RT/R2 原始修饰输入，按姿态产生 Action 上下文或拔刀直飞

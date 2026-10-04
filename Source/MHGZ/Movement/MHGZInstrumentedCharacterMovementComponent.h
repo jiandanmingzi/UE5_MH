@@ -4,7 +4,18 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZInstrumentedCharacterMovementComponent.generated.h"
+
+/** Read-only snapshot of the current/last recorded-trajectory movement lease. */
+struct FMHGZRecordedTrajectoryTelemetry
+{
+	uint64 Lease = 0;
+	float ElapsedSeconds = 0.0f;
+	float CoveredSeconds = 0.0f;
+	bool bActive = false;
+	bool bCompleted = false;
+};
 
 /** One frame-boundary or movement-handoff sample, buffered until runtime telemetry drains it. */
 struct FMHGZAerialMovementPhaseSample
@@ -88,8 +99,10 @@ struct FMHGZAerialMovementPhaseSample
 };
 
 /**
- * Project character CMC. Movement is unchanged; while runtime telemetry is enabled,
- * it records the exact values immediately before and after each PerformMovement call.
+ * Project character CMC. Explicit aerial planar acceleration is integrated during
+ * CMC-owned falling. A leased segmented dash owns Flying only for its measured
+ * phase interval; other movement follows the engine implementation. Runtime
+ * telemetry records the values around movement without changing that behavior.
  */
 UCLASS()
 class MHGZ_API UMHGZInstrumentedCharacterMovementComponent : public UCharacterMovementComponent
@@ -101,13 +114,20 @@ public:
 	virtual void HandleImpact(const FHitResult& Hit, float TimeSlice = 0.0f,
 		const FVector& MoveDelta = FVector::ZeroVector) override;
 
-	// Intra-CMC sub-phases (P1-3). Each one is a pure passthrough unless telemetry is on and
-	// the character is inside the airborne presentation window; movement behaviour is unchanged.
+	// Intra-CMC sub-phases (P1-3). Telemetry brackets the same movement calculation
+	// used when capture is disabled, including the explicit falling acceleration.
 	virtual void RestorePreAdditiveRootMotionVelocity() override;
 	virtual void ApplyRootMotionToVelocity(float deltaTime) override;
 	virtual void CalcVelocity(float DeltaTime, float Friction, bool bFluid,
 		float BrakingDeceleration) override;
 	virtual void PhysFalling(float deltaTime, int32 Iterations) override;
+	virtual void PhysFlying(float DeltaTime, int32 Iterations) override;
+	/**
+	 * 只在 203 那样的**地面**录制相位生效时接管，其余一律原样交给引擎。
+	 * 接管期间曲线是唯一的水平位移来源，胶囊停在 MOVE_Walking 上 —— 它确实站在地上，
+	 * 不是被悬空的 MOVE_Flying 假装成落地。
+	 */
+	virtual void PhysWalking(float deltaTime, int32 Iterations) override;
 	virtual void ApplyAccumulatedForces(float DeltaSeconds) override;
 	virtual bool HandlePendingLaunch() override;
 	virtual void UpdateCharacterStateBeforeMovement(float DeltaSeconds) override;
@@ -123,6 +143,30 @@ public:
 	/** Records every vote, including the ones taken from PerformMovement itself. */
 	virtual FVector ConstrainAnimRootMotionVelocity(const FVector& RootMotionVelocity,
 		const FVector& CurrentVelocity) const override;
+
+	/** Finite world-space XY acceleration for CMC-owned falling; Z is ignored. */
+	void SetAerialPlanarAcceleration(FVector InAcceleration);
+	FVector GetAerialPlanarAcceleration() const { return AerialPlanarAcceleration; }
+
+	/** Returns a task-specific lease; action identity alone cannot distinguish replacements. */
+	uint64 BeginSegmentedDirectionalMovement(const FWeaponMovementRequest& Request);
+	bool IsSegmentedMovementActive(uint64 Lease) const;
+	bool HasSegmentedMovementCompleted(uint64 Lease) const;
+	void RetireSegmentedDirectionalMovement(uint64 Lease);
+
+	/**
+	 * 录制局部轨迹的同类租约。曲线模式生效期间它是该相位**唯一**的位移来源：
+	 * 每个物理子步施加 `Curve(t1)-Curve(t0)`，不叠加惯性、蒙太奇根运动、摇杆加速度，
+	 * 也不额外积分一次重力。返回 0 表示请求被拒（没有拿到租约）。
+	 */
+	uint64 BeginRecordedTrajectoryMovement(const FWeaponMovementRequest& Request);
+	/** Monotonic ProtectedFlight -> LandingAirborne change for one exact trajectory lease. */
+	bool EnableRecordedTrajectoryLanding(uint64 Lease);
+	bool IsRecordedTrajectoryMovementActive(uint64 Lease) const;
+	bool HasRecordedTrajectoryMovementCompleted(uint64 Lease) const;
+	void RetireRecordedTrajectoryMovement(uint64 Lease);
+	void GetRecordedTrajectoryTelemetry(const FWeaponActionToken& ExpectedOwner,
+		FMHGZRecordedTrajectoryTelemetry& OutTelemetry) const;
 
 	/** Re-apply a real landing's authored horizontal speed after the landing CMC tick. */
 	void QueuePostMovementLandingSpeedReset(float Speed, const FVector& PlanarDirection);
@@ -168,6 +212,32 @@ private:
 	/** Dumps every recorded sub-phase of the PerformMovement call that just lost planar speed. */
 	void LogDiscontinuityPhaseTrace(uint64 FirstSampleSerial) const;
 	void ApplyPendingLandingSpeedReset();
+
+	FVector AerialPlanarAcceleration = FVector::ZeroVector;
+	bool IsSegmentedMovementOwnerCurrent(uint64 Lease) const;
+	FWeaponMovementRequest SegmentedMovement;
+	uint64 SegmentedMovementLease = 0;
+	float SegmentedMovementElapsed = 0.0f;
+	bool bSegmentedMovementActive = false;
+	bool bSegmentedMovementCompleted = false;
+	/** Remove only into-contact velocity; keep the phase clock and tangential slide. */
+	TArray<FVector, TInlineAllocator<4>> SegmentedContactNormals;
+
+	bool IsRecordedTrajectoryOwnerCurrent(uint64 Lease) const;
+	/**
+	 * 录制轨迹的物理子步循环。`PhysFlying` 与 `PhysWalking` 都归它，
+	 * 因为同一套曲线模型既跑空中相位也跑 203 的地面相位。
+	 */
+	void PhysRecordedTrajectory(float DeltaTime, int32 Iterations, bool bGrounded);
+	/** 相位是否该在此刻结束（只看曲线本身，不看真实触地）。 */
+	bool IsRecordedTrajectoryDurationElapsed() const;
+
+	FWeaponMovementRequest RecordedTrajectory;
+	uint64 RecordedTrajectoryLease = 0;
+	float RecordedTrajectoryElapsed = 0.0f;
+	bool bRecordedTrajectoryActive = false;
+	bool bRecordedTrajectoryCompleted = false;
+	TArray<FVector, TInlineAllocator<4>> RecordedContactNormals;
 
 	/** Mutable so the const ConstrainAnimRootMotionVelocity probe can append its vote. */
 	mutable TArray<FMHGZAerialMovementPhaseSample> AerialMovementSamples;

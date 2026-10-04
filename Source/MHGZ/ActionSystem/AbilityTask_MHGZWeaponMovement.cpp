@@ -3,12 +3,15 @@
 #include "ActionSystem/AbilityTask_MHGZWeaponMovement.h"
 
 #include "ActionSystem/MHGZGameplayAbility.h"
+#include "ActionSystem/MHGZWeaponMovementCurves.h"
 #include "Components/CapsuleComponent.h"
+#include "Curves/CurveFloat.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/RootMotionSource.h"
 #include "MHGZ.h"
 #include "MHGZCharacter.h"
+#include "Movement/MHGZInstrumentedCharacterMovementComponent.h"
 #include "MotionWarpingComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
@@ -116,6 +119,7 @@ void UAbilityTask_MHGZWeaponMovement::Activate()
 		return;
 	}
 	MovementRequest.WarpTargetName = AllocatedWarpTargetName;
+	bOwnsActionMovement = true;
 
 	if (!ApplyMovementSource())
 	{
@@ -169,9 +173,78 @@ void UAbilityTask_MHGZWeaponMovement::TickTask(const float DeltaTime)
 		FinishMovement(EWeaponMovementEndReason::Interrupted);
 		return;
 	}
+	if (MovementRequest.Mode == EWeaponMovementMode::StationaryHover)
+	{
+		// A superseded vault can leave a deferred finish velocity or a blending
+		// montage root on the next movement frame. The 186 lead owns zero motion
+		// continuously, not just on its activation frame.
+		CMC->Velocity = FVector::ZeroVector;
+		CMC->SetMovementMode(MOVE_Flying);
+	}
 
 	UpdateActionRotation(DeltaTime);
 	LastLocation = AvatarCharacter->GetActorLocation();
+	if (MovementRequest.Mode == EWeaponMovementMode::SegmentedDirectional)
+	{
+		const UMHGZInstrumentedCharacterMovementComponent* InstrumentedCMC =
+			Cast<UMHGZInstrumentedCharacterMovementComponent>(CMC);
+		if (InstrumentedCMC && InstrumentedCMC->HasSegmentedMovementCompleted(SegmentedMovementLease))
+		{
+			FinishMovement(EWeaponMovementEndReason::Completed);
+		}
+		else if (!InstrumentedCMC || !InstrumentedCMC->IsSegmentedMovementActive(SegmentedMovementLease)
+			|| CMC->MovementMode != MOVE_Flying)
+		{
+			FinishMovement(CMC->IsMovingOnGround() ? EWeaponMovementEndReason::Landed
+				: EWeaponMovementEndReason::Interrupted);
+		}
+		return;
+	}
+	if (MovementRequest.Mode == EWeaponMovementMode::RecordedLocalTrajectory)
+	{
+		const UMHGZInstrumentedCharacterMovementComponent* InstrumentedCMC =
+			Cast<UMHGZInstrumentedCharacterMovementComponent>(CMC);
+		// 每个接地策略都有自己的承载模式：空中两段是 MOVE_Flying，203 是 MOVE_Walking。
+		// 两种都要查。CMC 只在模式对得上时才会走进录制轨迹那段物理；模式一歪，相位时钟
+		// 就冻住、永远不报完成，而任务在这里不察觉的话整个动作会挂着锁不放。
+		const EMovementMode ExpectedMode =
+			MovementRequest.TrajectoryGroundPolicy == ERecordedTrajectoryGroundPolicy::Grounded
+			? MOVE_Walking : MOVE_Flying;
+		if (InstrumentedCMC
+			&& InstrumentedCMC->HasRecordedTrajectoryMovementCompleted(RecordedTrajectoryLease))
+		{
+			FinishMovement(EWeaponMovementEndReason::Completed);
+		}
+		else if (!InstrumentedCMC
+			|| !InstrumentedCMC->IsRecordedTrajectoryMovementActive(RecordedTrajectoryLease)
+			|| CMC->MovementMode != ExpectedMode)
+		{
+			// 租约在任务观察之前就被拿掉，或者胶囊已经不在本相位该在的模式里：
+			// 前者是 CMC 认领了真实触地（胶囊已经站住）或别的动作抢了位移所有权，
+			// 后者是模式被第三方改掉（跳跃、击退、蓝图 SetMovementMode）。
+			// 问地面，不拿模式当代理指标。
+			FinishMovement(CMC->IsMovingOnGround() ? EWeaponMovementEndReason::Landed
+				: EWeaponMovementEndReason::Interrupted);
+		}
+		return;
+	}
+	if (MovementRequest.Mode == EWeaponMovementMode::AuthoredAerialPhysics)
+	{
+		if (CMC->MovementMode != MOVE_Falling)
+		{
+			FinishMovement(CMC->IsMovingOnGround()
+				? EWeaponMovementEndReason::Landed
+				: EWeaponMovementEndReason::Interrupted);
+			return;
+		}
+
+		ElapsedMovementTime += FMath::Max(0.0f, DeltaTime);
+		if (ElapsedMovementTime >= ResolvedDuration)
+		{
+			FinishMovement(EWeaponMovementEndReason::Completed);
+		}
+		return;
+	}
 
 	const TSharedPtr<FRootMotionSource> Source =
 		CMC->GetRootMotionSourceByID(RootMotionSourceID);
@@ -180,6 +253,67 @@ void UAbilityTask_MHGZWeaponMovement::TickTask(const float DeltaTime)
 	{
 		FinishMovement(EWeaponMovementEndReason::Completed);
 	}
+}
+
+bool UAbilityTask_MHGZWeaponMovement::EndHoverForImmediateMovementHandoff(
+	const FWeaponActionToken& ActionToken)
+{
+	return MovementRequest.Mode == EWeaponMovementMode::StationaryHover
+		&& EndForImmediateMovementHandoff(ActionToken);
+}
+
+bool UAbilityTask_MHGZWeaponMovement::EndForImmediateMovementHandoff(
+	const FWeaponActionToken& ActionToken)
+{
+	if (!bStarted || bFinished || bPreserveFlyingForImmediateHandoff
+		|| (MovementRequest.Mode != EWeaponMovementMode::StationaryHover
+			&& MovementRequest.Mode != EWeaponMovementMode::CurvedDirectional
+			&& MovementRequest.Mode != EWeaponMovementMode::SegmentedDirectional)
+		|| MovementRequest.OwnerAction != ActionToken
+		|| !RuntimeHost.IsValid()
+		|| !RuntimeHost->IsActionMovementOwnedBy(ActionToken))
+	{
+		return false;
+	}
+
+	// RMS removal is deferred until the next CMC update. Neutralize this exact
+	// retiring source's finish write before installing the new launch; otherwise
+	// the hover's SetVelocity(0) wipes 189's freshly installed 1080 cm/s lift.
+	if (UCharacterMovementComponent* CMC = MovementComponent.Get())
+	{
+		if (TSharedPtr<FRootMotionSource> Source = CMC->GetRootMotionSourceByID(RootMotionSourceID))
+		{
+			Source->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::MaintainLastRootMotionVelocity;
+		}
+	}
+	// Never emit an intermediate Walking/fake landing while replacing this task.
+	bPreserveFlyingForImmediateHandoff = true;
+	EndTask();
+	return true;
+}
+
+bool UAbilityTask_MHGZWeaponMovement::EnableRecordedTrajectoryLanding(
+	const FWeaponActionToken& ActionToken)
+{
+	if (!bStarted || bFinished
+		|| MovementRequest.Mode != EWeaponMovementMode::RecordedLocalTrajectory
+		|| MovementRequest.OwnerAction != ActionToken
+		|| MovementRequest.TrajectoryGroundPolicy
+			!= ERecordedTrajectoryGroundPolicy::ProtectedFlight)
+	{
+		return false;
+	}
+	UMHGZInstrumentedCharacterMovementComponent* CMC =
+		Cast<UMHGZInstrumentedCharacterMovementComponent>(MovementComponent.Get());
+	UMHGZWeaponRuntimeHostComponent* Host = RuntimeHost.Get();
+	if (!CMC || !Host || !Host->IsActionMovementOwnedBy(ActionToken)
+		|| !CMC->EnableRecordedTrajectoryLanding(RecordedTrajectoryLease))
+	{
+		return false;
+	}
+	MovementRequest.TrajectoryGroundPolicy =
+		ERecordedTrajectoryGroundPolicy::LandingAirborne;
+	return true;
 }
 
 void UAbilityTask_MHGZWeaponMovement::OnDestroy(const bool AbilityIsEnding)
@@ -203,7 +337,8 @@ void UAbilityTask_MHGZWeaponMovement::OnDestroy(const bool AbilityIsEnding)
 	bBoundLandedDelegate = false;
 	bBoundCapsuleHit = false;
 
-	if (!bFinished)
+	const bool bStillOwnsMovement = OwnsMovement();
+	if (!bFinished && bStillOwnsMovement && !bPreserveFlyingForImmediateHandoff)
 	{
 		// Ability cancellation, weapon replacement and Runtime shutdown may end a
 		// task without a gameplay result callback. They still obey the request's
@@ -213,6 +348,9 @@ void UAbilityTask_MHGZWeaponMovement::OnDestroy(const bool AbilityIsEnding)
 	// 这条路上没有 FinishMovement，所以兜底要单独走一次：取消掉的舞踏若停在
 	// MOVE_Flying，没有重力会把它带下来。MovementMode == MOVE_Flying 的判断让它
 	// 天然幂等 —— FinishMovement 已经释放过时这里是 no-op。
+	RetireSegmentedMovement();
+	RetireRecordedTrajectory();
+	if (bStillOwnsMovement && !bFinished && !bPreserveFlyingForImmediateHandoff)
 	{
 		bool bWasFlying = false;
 		EnsureVaultFlightReleased(bWasFlying);
@@ -233,9 +371,15 @@ bool UAbilityTask_MHGZWeaponMovement::EnsureVaultFlightReleased(bool& bOutWasFly
 	if (CMC->MovementMode == MOVE_Flying)
 	{
 		bOutWasFlying = true;
-		// 重查地面：站在可行走面上回到 Walking，悬空才进 Falling。
-		// 不写死 MOVE_Falling —— 取消掉的弧可能停在任意高度，也可能压根没离地。
-		CMC->SetDefaultMovementMode();
+		// Decide from a real floor BEFORE changing mode. SetDefaultMovementMode
+		// first enters Walking then falls back, which emits a false grounded event
+		// and restores the Host profile (the recorded Miss188 1g/80 regression).
+		FFindFloorResult Floor;
+		CMC->FindFloor(Character.IsValid() ? Character->GetActorLocation() : LastLocation,
+			Floor, false);
+		const bool bOnFloor = Floor.IsWalkableFloor()
+			&& Floor.FloorDist <= UCharacterMovementComponent::MAX_FLOOR_DIST;
+		CMC->SetMovementMode(bOnFloor ? MOVE_Walking : MOVE_Falling);
 	}
 	// 直接问地面，不拿模式当代理指标 —— 这个项目已经在这上面栽过两次。
 	//
@@ -258,9 +402,17 @@ void UAbilityTask_MHGZWeaponMovement::HandleLanded(const FHitResult& Hit)
 	//
 	// CurvedVault 在弧中段仍由源驱动；此时若发生触地，说明 authored 的路径提前
 	// 够到了地面，如实上报 Landed 比让它继续跑更接近事实。
+	// 录制轨迹只有「空中下潜」那一种接地策略认领触地；起手段的保护飞行段
+	// 明确不接 —— 它脚下的地面不是它的事，等曲线跑完由下一相位接手。
+	const bool bRecordedLanding = MovementRequest.Mode == EWeaponMovementMode::RecordedLocalTrajectory
+		&& MovementRequest.TrajectoryGroundPolicy == ERecordedTrajectoryGroundPolicy::LandingAirborne;
 	if (!bStarted || bFinished
-		|| (MovementRequest.Mode != EWeaponMovementMode::BallisticVault
-			&& MovementRequest.Mode != EWeaponMovementMode::CurvedVault))
+		|| (!bRecordedLanding
+			&& MovementRequest.Mode != EWeaponMovementMode::BallisticVault
+			&& MovementRequest.Mode != EWeaponMovementMode::CurvedVault
+			&& MovementRequest.Mode != EWeaponMovementMode::CurvedDirectional
+			&& MovementRequest.Mode != EWeaponMovementMode::SegmentedDirectional
+			&& MovementRequest.Mode != EWeaponMovementMode::AuthoredAerialPhysics))
 	{
 		return;
 	}
@@ -272,6 +424,29 @@ void UAbilityTask_MHGZWeaponMovement::HandleCapsuleHit(UPrimitiveComponent* HitC
 	AActor* OtherActor, UPrimitiveComponent* OtherComp, FVector NormalImpulse,
 	const FHitResult& Hit)
 {
+	if (MovementRequest.Mode == EWeaponMovementMode::CurvedDirectional
+		&& bStarted && !bFinished && Hit.bBlockingHit)
+	{
+		// Keep the 187 source and probe alive through their authored duration;
+		// the CMC resolves wall contact by sliding, like the air-dodge vault.
+		// Ground contact is owned separately by the Landed delegate.
+		UCharacterMovementComponent* CMC = MovementComponent.Get();
+		if (CMC && !CMC->IsWalkable(Hit))
+		{
+			bDirectionalHitWall = true;
+			DirectionalWallHit = Hit;
+			// A natural RMS expiry can apply FinishVelocity before TickTask sees it.
+			// Do not re-apply the authored into-wall terminal tangent on that frame.
+			if (TSharedPtr<FRootMotionSource> Source =
+				CMC->GetRootMotionSourceByID(RootMotionSourceID))
+			{
+				Source->FinishVelocityParams.Mode = ERootMotionFinishVelocityMode::SetVelocity;
+				Source->FinishVelocityParams.SetVelocity = FVector::ZeroVector;
+			}
+		}
+		return;
+	}
+
 	// Deliberately does nothing.  Sliding along whatever the capsule meets is the
 	// CMC's job, not this task's, and it already does it for every source mode:
 	// PhysFlying and PhysFalling both run
@@ -306,11 +481,32 @@ bool UAbilityTask_MHGZWeaponMovement::ValidateRequest() const
 		return FMath::IsFinite(MovementRequest.Duration) && MovementRequest.Duration > 0.0f
 			&& FMath::IsFinite(MovementRequest.MaxDistance) && MovementRequest.MaxDistance > 0.0f;
 
+	case EWeaponMovementMode::CurvedDirectional:
+	{
+		float TerminalSlope = 0.0f;
+		return FMath::IsFinite(MovementRequest.Duration) && MovementRequest.Duration > 0.0f
+			&& FMath::IsFinite(MovementRequest.MaxDistance) && MovementRequest.MaxDistance > 0.0f
+			&& !MovementRequest.DirectionSnapshot.ContainsNaN()
+			&& !MovementRequest.DirectionSnapshot.IsNearlyZero()
+			&& MHGZWeaponMovementCurves::ValidateNormalizedProgressCurve(
+				MovementRequest.DistanceCurve, TerminalSlope);
+	}
+	case EWeaponMovementMode::StationaryHover:
+		return FMath::IsFinite(MovementRequest.Duration)
+			&& MovementRequest.Duration > 0.0f;
+
 	case EWeaponMovementMode::BallisticVault:
 		return MovementRequest.HasValidBallisticParameters();
 
 	case EWeaponMovementMode::CurvedVault:
 		return MovementRequest.HasValidCurvedVaultParameters();
+
+	case EWeaponMovementMode::AuthoredAerialPhysics:
+		return MovementRequest.HasValidAuthoredAerialPhysicsParameters();
+	case EWeaponMovementMode::SegmentedDirectional:
+		return MovementRequest.HasValidSegmentedDirectionalParameters();
+	case EWeaponMovementMode::RecordedLocalTrajectory:
+		return MovementRequest.HasValidRecordedTrajectoryParameters();
 
 	case EWeaponMovementMode::AdditiveInertia:
 		return FMath::IsFinite(MovementRequest.Duration) && MovementRequest.Duration > 0.0f
@@ -330,12 +526,22 @@ bool UAbilityTask_MHGZWeaponMovement::ApplyMovementSource()
 	{
 	case EWeaponMovementMode::BoundedDirectional:
 		return ApplyBoundedDirectionalSource();
+	case EWeaponMovementMode::CurvedDirectional:
+		return ApplyCurvedDirectionalSource();
+	case EWeaponMovementMode::StationaryHover:
+		return ApplyStationaryHoverSource();
 	case EWeaponMovementMode::BallisticVault:
 		return ApplyBallisticVaultSource();
 	case EWeaponMovementMode::CurvedVault:
 		return ApplyCurvedVaultSource();
 	case EWeaponMovementMode::AdditiveInertia:
 		return ApplyAdditiveInertiaSource();
+	case EWeaponMovementMode::AuthoredAerialPhysics:
+		return ApplyAuthoredAerialPhysics();
+	case EWeaponMovementMode::SegmentedDirectional:
+		return ApplySegmentedDirectionalMovement();
+	case EWeaponMovementMode::RecordedLocalTrajectory:
+		return ApplyRecordedLocalTrajectoryMovement();
 	default:
 		return false;
 	}
@@ -366,6 +572,71 @@ bool UAbilityTask_MHGZWeaponMovement::ApplyBoundedDirectionalSource()
 	Source->bRestrictSpeedToExpected = true;
 	RootMotionSourceID = CMC->ApplyRootMotionSource(Source);
 	return RootMotionSourceID != InvalidRootMotionSourceID;
+}
+
+bool UAbilityTask_MHGZWeaponMovement::ApplyCurvedDirectionalSource()
+{
+	ACharacter* AvatarCharacter = Character.Get();
+	UCharacterMovementComponent* CMC = MovementComponent.Get();
+	UCurveFloat* DistanceCurve = MovementRequest.DistanceCurve;
+	if (!AvatarCharacter || !CMC || !DistanceCurve)
+	{
+		return false;
+	}
+
+	FVector Direction = MovementRequest.DirectionSnapshot.GetSafeNormal();
+	if (Direction.IsNearlyZero() || Direction.ContainsNaN())
+	{
+		return false;
+	}
+
+	ResolvedDuration = MovementRequest.Duration;
+	TSharedPtr<FRootMotionSource_MoveToDynamicForce> Source =
+	MHGZWeaponMovementCurves::MakeCurvedDirectionalSource(
+		StartLocation, Direction, MovementRequest.MaxDistance, ResolvedDuration,
+		DistanceCurve, MovementRequest.WarpTargetName,
+		ResolvedDirectionalHandoffVelocity);
+	if (!Source)
+	{
+		return false;
+	}
+	ExpectedDestination = Source->TargetLocation;
+	bHasResolvedDirectionalHandoffVelocity = true;
+
+	RootMotionSourceID = CMC->ApplyRootMotionSource(Source);
+	if (RootMotionSourceID == InvalidRootMotionSourceID)
+	{
+		return false;
+	}
+
+	// The curve owns the full 3D trajectory. Flying prevents gravity from being
+	// accumulated on top of it; FinishMovement hands the authored terminal
+	// tangent back to the CMC before this task broadcasts completion.
+	CMC->SetMovementMode(MOVE_Flying);
+	return true;
+}
+
+bool UAbilityTask_MHGZWeaponMovement::ApplyStationaryHoverSource()
+{
+	UCharacterMovementComponent* CMC = MovementComponent.Get();
+	if (!CMC)
+	{
+		return false;
+	}
+	ResolvedDuration = MovementRequest.Duration;
+	ExpectedDestination = StartLocation;
+	TSharedPtr<FRootMotionSource_ConstantForce> Source = MakeShared<FRootMotionSource_ConstantForce>();
+	ConfigureCommonSource(*Source, MovementRequest.WarpTargetName, ResolvedDuration,
+		ERootMotionAccumulateMode::Override, EMovementCancelVelocityPolicy::ZeroVelocity);
+	Source->Force = FVector::ZeroVector;
+	RootMotionSourceID = CMC->ApplyRootMotionSource(Source);
+	if (RootMotionSourceID == InvalidRootMotionSourceID)
+	{
+		return false;
+	}
+	CMC->SetMovementMode(MOVE_Flying);
+	CMC->Velocity = FVector::ZeroVector;
+	return true;
 }
 
 bool UAbilityTask_MHGZWeaponMovement::ApplyBallisticVaultSource()
@@ -455,7 +726,8 @@ bool UAbilityTask_MHGZWeaponMovement::ApplyCurvedVaultSource()
 	}
 
 	ResolvedDuration = MovementRequest.Duration;
-	ExpectedDestination = StartLocation + Direction * MovementRequest.MaxDistance;
+	ExpectedDestination = StartLocation + Direction * MovementRequest.MaxDistance
+		+ FVector(0.0f, 0.0f, MovementRequest.CurvedVaultEndHeight);
 	TSharedPtr<FRootMotionSource_MoveToForce> Source =
 		MakeShared<FRootMotionSource_MoveToForce>();
 	ConfigureCommonSource(*Source, MovementRequest.WarpTargetName, ResolvedDuration,
@@ -521,9 +793,74 @@ bool UAbilityTask_MHGZWeaponMovement::ApplyAdditiveInertiaSource()
 	return RootMotionSourceID != InvalidRootMotionSourceID;
 }
 
+bool UAbilityTask_MHGZWeaponMovement::ApplySegmentedDirectionalMovement()
+{
+	UMHGZInstrumentedCharacterMovementComponent* CMC =
+		Cast<UMHGZInstrumentedCharacterMovementComponent>(MovementComponent.Get());
+	if (!CMC || !MovementRequest.HasValidSegmentedDirectionalParameters()) { return false; }
+	ResolvedDuration = MovementRequest.SegmentedProfile.GetDuration();
+	RootMotionSourceID = InvalidRootMotionSourceID;
+	ExpectedDestination = StartLocation + MovementRequest.SegmentedProfile.GetOffset(
+		MovementRequest.DirectionSnapshot, ResolvedDuration);
+	SegmentedMovementLease = CMC->BeginSegmentedDirectionalMovement(MovementRequest);
+	return SegmentedMovementLease != 0;
+}
+
+bool UAbilityTask_MHGZWeaponMovement::ApplyRecordedLocalTrajectoryMovement()
+{
+	UMHGZInstrumentedCharacterMovementComponent* CMC =
+		Cast<UMHGZInstrumentedCharacterMovementComponent>(MovementComponent.Get());
+	if (!CMC || !MovementRequest.HasValidRecordedTrajectoryParameters()) { return false; }
+	ResolvedDuration = MovementRequest.RecordedTrajectory.GetDuration();
+	RootMotionSourceID = InvalidRootMotionSourceID;
+	// 预告落点只是给 MotionWarping 的调试目标；曲线模式的位移完全由 CMC 逐子步施加，
+	// 不经过任何 RMS，所以这里读的是同一份 authored 数据的终值。
+	ExpectedDestination = StartLocation + MHGZRecordedLocalTrajectory::LocalToWorld(
+		MovementRequest.GetRecordedTrajectoryOffset(ResolvedDuration),
+		MovementRequest.DirectionSnapshot);
+	RecordedTrajectoryLease = CMC->BeginRecordedTrajectoryMovement(MovementRequest);
+	return RecordedTrajectoryLease != 0;
+}
+
+bool UAbilityTask_MHGZWeaponMovement::ApplyAuthoredAerialPhysics()
+{
+	UCharacterMovementComponent* CMC = MovementComponent.Get();
+	if (!CMC || !MovementRequest.HasValidAuthoredAerialPhysicsParameters())
+	{
+		return false;
+	}
+
+	ResolvedDuration = MovementRequest.Duration;
+	ElapsedMovementTime = 0.0f;
+	RootMotionSourceID = InvalidRootMotionSourceID;
+	const FVector Acceleration = MovementRequest.PlanarAcceleration
+		+ FVector(0.0, 0.0, -MovementRequest.GravityMagnitude);
+	const double Time = ResolvedDuration;
+	ExpectedDestination = StartLocation + MovementRequest.LaunchVelocity * Time
+		+ 0.5 * Acceleration * Time * Time;
+
+	// Dance is an authored physical arc, not an RMS path. Install Falling first
+	// (the preceding stationary-hold task left CMC in Flying), then its captured
+	// launch tangent. From here CMC owns gravity, planar acceleration, sweeps,
+	// wall sliding, and the real Landed callback without an RMS partial-end tick.
+	if (!FMath::IsNearlyEqual(FMath::Abs(CMC->GetGravityZ()),
+		MovementRequest.GravityMagnitude, 1.0f))
+	{
+		return false;
+	}
+	CMC->SetMovementMode(MOVE_Falling);
+	CMC->Velocity = MovementRequest.LaunchVelocity;
+	return true;
+}
+
 void UAbilityTask_MHGZWeaponMovement::UpdateActionRotation(const float DeltaTime)
 {
 	if (MovementRequest.RotationPolicy == EActionRotationPolicy::Locked)
+	{
+		return;
+	}
+	if (UMHGZWeaponRuntimeHostComponent* Host = RuntimeHost.Get();
+		Host && Host->IsActionRotationOverrideOwnedBy(MovementRequest.OwnerAction))
 	{
 		return;
 	}
@@ -539,7 +876,8 @@ void UAbilityTask_MHGZWeaponMovement::UpdateActionRotation(const float DeltaTime
 	{
 		if (const AMHGZCharacter* MHGZCharacter = Cast<AMHGZCharacter>(AvatarCharacter))
 		{
-			const FVector InputDirection = MHGZCharacter->GetLastMovementInputDir().GetSafeNormal2D();
+			const FVector InputDirection = MHGZCharacter
+				->GetCurrentMoveInputWorldDirection().GetSafeNormal2D();
 			if (!InputDirection.IsNearlyZero()
 				&& FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(
 					FVector::DotProduct(DesiredDirection, InputDirection), -1.0f, 1.0f)))
@@ -581,11 +919,33 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 	// 若胶囊早已离开 Flying（通知切过），那条路上 CMC 自己的 LandedDelegate 才是
 	// 事实来源，这里不去二次猜测 —— 那会重新引入「用代理指标覆盖直接观测」的老毛病。
 	EWeaponMovementEndReason EffectiveReason = Reason;
-	if (Reason == EWeaponMovementEndReason::Completed)
+	const bool bOwnedMovementAtFinish = OwnsMovement();
+	const bool bRecordedTrajectory =
+		MovementRequest.Mode == EWeaponMovementMode::RecordedLocalTrajectory;
+	// Retire before broadcasting, not later in OnDestroy: callbacks can install
+	// another same-action task synchronously. That replacement owns its mode.
+	RetireSegmentedMovement();
+	RetireRecordedTrajectory();
+	if (bOwnedMovementAtFinish && bRecordedTrajectory)
+	{
+		// 曲线模式的触地**只**由 CMC 的真实 `ProcessLanded` 上报 —— 它同步走到
+		// HandleLanded，带着真实 HitResult。这里绝不能把 Completed 翻成 Landed：
+		// 起手段跑完时胶囊本来就在半空，一次 FindFloor 命中地面会把「起手结束」
+		// 误报成「落地」，于是 201 还没开始就被 203 顶掉。
+		//
+		// 取消/中断仍然要放开 MOVE_Flying，否则被取消的动作会把胶囊永久悬停。
+		if (Reason != EWeaponMovementEndReason::Completed
+			&& Reason != EWeaponMovementEndReason::Landed)
+		{
+			bool bWasFlying = false;
+			EnsureVaultFlightReleased(bWasFlying);
+		}
+	}
+	else if (bOwnedMovementAtFinish)
 	{
 		bool bWasFlying = false;
 		const bool bGrounded = EnsureVaultFlightReleased(bWasFlying);
-		if (bWasFlying && bGrounded)
+		if (Reason == EWeaponMovementEndReason::Completed && bWasFlying && bGrounded)
 		{
 			// 弧跑完了、胶囊站在可行走地面上 ⇒ 这就是一次触地，如实上报。
 			EffectiveReason = EWeaponMovementEndReason::Landed;
@@ -595,6 +955,8 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 	Result.EndReason = EffectiveReason;
 	Result.TravelledDistance = FVector::Dist2D(StartLocation,
 		Character.IsValid() ? Character->GetActorLocation() : LastLocation);
+	Result.TravelledDistance3D = FVector::Dist(StartLocation,
+		Character.IsValid() ? Character->GetActorLocation() : LastLocation);
 	if (UCharacterMovementComponent* CMC = MovementComponent.Get())
 	{
 		Result.FinalVelocity = CMC->Velocity;
@@ -603,8 +965,12 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 	{
 		Result.BlockingHit = *BlockingHit;
 	}
+	else if (bDirectionalHitWall)
+	{
+		Result.BlockingHit = DirectionalWallHit;
+	}
 
-	if (Reason != EWeaponMovementEndReason::Completed
+	if (bOwnedMovementAtFinish && Reason != EWeaponMovementEndReason::Completed
 		&& Reason != EWeaponMovementEndReason::Landed)
 	{
 		ApplyFinishVelocityPolicy();
@@ -617,8 +983,11 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 	// 用**原始** Reason 而不是 EffectiveReason：这里的语义是「录下来的那条路径
 	// 跑到了它的终点」，与胶囊最后站在哪里无关 —— 白灯后撑杆跳的路径终点就在
 	// 地面上，它仍然需要把 authored 的弧尾切线装上去，否则落地的最后几帧会脱节。
-	const bool bCompletedCurvedVault = Reason == EWeaponMovementEndReason::Completed
+	const bool bCompletedCurvedVault = bOwnedMovementAtFinish && Reason == EWeaponMovementEndReason::Completed
 		&& MovementRequest.Mode == EWeaponMovementMode::CurvedVault;
+	const bool bCompletedCurvedDirectional = bOwnedMovementAtFinish && Reason == EWeaponMovementEndReason::Completed
+		&& EffectiveReason == EWeaponMovementEndReason::Completed
+		&& MovementRequest.Mode == EWeaponMovementMode::CurvedDirectional;
 	// The authored tangent was resolved when the source was created.  Reading
 	// CMC->Velocity here instead would return the source's final partial-frame
 	// remainder, which is what silently cost the free fall two thirds of its
@@ -668,6 +1037,19 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 			Result.FinalVelocity = CurvedVaultHandoffVelocity;
 		}
 	}
+	if (bCompletedCurvedDirectional && bHasResolvedDirectionalHandoffVelocity)
+	{
+		// A wall hit changes only the terminal handoff, not the dash duration.
+		// Otherwise preserve the authored 187 end speed for MissFall.
+		if (UCharacterMovementComponent* CMC = MovementComponent.Get())
+		{
+			const FVector HandoffVelocity = bDirectionalHitWall
+				? FVector::ZeroVector : ResolvedDirectionalHandoffVelocity;
+			CMC->Velocity = HandoffVelocity;
+			Result.FinalVelocity = HandoffVelocity;
+		}
+	}
+	RetireSegmentedMovement();
 	ReleaseMovementOwnership();
 	if (ShouldBroadcastAbilityTaskDelegates())
 	{
@@ -678,9 +1060,45 @@ void UAbilityTask_MHGZWeaponMovement::FinishMovement(const EWeaponMovementEndRea
 
 void UAbilityTask_MHGZWeaponMovement::ReleaseMovementOwnership()
 {
+	if (!bOwnsActionMovement) { return; }
+	// Clear before callbacks; old OnDestroy must not release a replacement task
+	// started synchronously by OnFinished using the same action token.
+	bOwnsActionMovement = false;
 	if (UMHGZWeaponRuntimeHostComponent* Host = RuntimeHost.Get())
 	{
 		Host->ReleaseActionMovement(MovementRequest.OwnerAction);
+	}
+}
+
+bool UAbilityTask_MHGZWeaponMovement::OwnsMovement() const
+{
+	const UMHGZWeaponRuntimeHostComponent* Host = RuntimeHost.Get();
+	return bOwnsActionMovement && Host && Host->IsActionMovementOwnedBy(MovementRequest.OwnerAction);
+}
+
+void UAbilityTask_MHGZWeaponMovement::RetireSegmentedMovement()
+{
+	if (SegmentedMovementLease != 0)
+	{
+		if (UMHGZInstrumentedCharacterMovementComponent* CMC =
+			Cast<UMHGZInstrumentedCharacterMovementComponent>(MovementComponent.Get()))
+		{
+			CMC->RetireSegmentedDirectionalMovement(SegmentedMovementLease);
+		}
+		SegmentedMovementLease = 0;
+	}
+}
+
+void UAbilityTask_MHGZWeaponMovement::RetireRecordedTrajectory()
+{
+	if (RecordedTrajectoryLease != 0)
+	{
+		if (UMHGZInstrumentedCharacterMovementComponent* CMC =
+			Cast<UMHGZInstrumentedCharacterMovementComponent>(MovementComponent.Get()))
+		{
+			CMC->RetireRecordedTrajectoryMovement(RecordedTrajectoryLease);
+		}
+		RecordedTrajectoryLease = 0;
 	}
 }
 
@@ -690,6 +1108,17 @@ void UAbilityTask_MHGZWeaponMovement::RemoveRootMotionSource()
 	{
 		if (UCharacterMovementComponent* CMC = MovementComponent.Get())
 		{
+			// Removal is deferred until CMC's next movement update. A retired
+			// action must not apply its old SetVelocity/Clamp finish policy to
+			// the replacement owner's launch on that update.
+			if (!OwnsMovement())
+			{
+				if (TSharedPtr<FRootMotionSource> Source = CMC->GetRootMotionSourceByID(RootMotionSourceID))
+				{
+					Source->FinishVelocityParams.Mode =
+						ERootMotionFinishVelocityMode::MaintainLastRootMotionVelocity;
+				}
+			}
 			CMC->RemoveRootMotionSourceByID(RootMotionSourceID);
 		}
 		RootMotionSourceID = InvalidRootMotionSourceID;

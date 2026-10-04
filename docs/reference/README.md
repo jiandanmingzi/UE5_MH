@@ -6,9 +6,9 @@
 
 | 文件 | 是什么 | 谁维护 |
 |---|---|---|
-| `真值表.md` | **生成物**。招式级真值 + 最早可操作帧 + 各后继明细 + 变长招式左尾 | `Scripts/MHRise/build_truth_table.py` |
+| `真值表.md` | **Rise 生成表 + 受标记保护的专项补充**。招式级真值、最早可操作帧、后继明细、变长招式左尾；另含 09-28 操虫斩补充及文末 10-03 MHW 急袭突刺转向实测 | Rise 表由 `build_truth_table.py` 生成；补充块人工维护并由生成器保留 |
 | `撑杆跳曲线.md` | **生成物**。前/左/右 × 无/有白灯的链级真值 + 归一化曲线关键帧 + **撑杆跳最早可操作帧**与**空中回避真值** | `Scripts/MHRise/build_vault_curves.py` |
-| `操虫斩曲线.md` | **生成物**。**两条汇合于 `189` 的链**：空中操虫斩（`186/187/188/189/200/201/203`）与 **觉虫击**（`193/195/199/206`）—— 逐段真值 + **瞄准口径（两条链判据不同）** + 突进曲线 + 最早可操作帧 + 惯性继承 | `Scripts/MHRise/build_kinsect_slash_curves.py` |
+| `操虫斩曲线.md` | **生成物**。两条汇合于189的链、瞄准、突进、操作帧与惯性；09-28补充189准备/后退舞踏、157及188逐样本曲线 | `build_kinsect_slash_curves.py`；专项数据由 `analyze_kinsect_slash_outcomes.py`复算 |
 | `下落物理.md` | **生成物**。每个空中状态的**实测重力**（按状态逐条不同）+ 下落段为何不设重力 + 落地为何是「重设」而非摩擦衰减 | `Scripts/MHRise/build_fall_physics.py` |
 | `资产序号对照.md` | **生成物**。**序号 ↔ 招式表名 ↔ UE 资产**的对照（序号从 `.uasset` 的 `AssetImportData` 里直接读出） | `Scripts/AssetProbe/read_asset_import_ids.py` |
 | `虫棍招式表.md` | 招式清单与 id 对照（**人写的**）。也是招式名的第二个来源 | 人工 |
@@ -18,13 +18,17 @@
 
 **逐帧轨迹不在 `docs/`。** 生成器把它们写到 `Saved/_mhr_frames/<id>_<招式名>.csv`（已入库），每行一帧：`trial, frame, t_s, x_cm, y_cm, z_cm, vx, vy, vz`，坐标相对该段首帧。`Saved/_mhr_curves/` 的逐帧曲线也已入库；`Saved/RuntimeTelemetry/` 等本机调试文件仍被忽略。
 
+**强化操虫穿刺（M5）的规范曲线**在同一目录：`强化操虫穿刺_200/201/203.csv`（120 Hz 相位内秒数网格 + 覆盖数 + 分位区间）、`强化操虫穿刺_生成审计.json`（源哈希、候选、坐标合同、残差、尾段、俯仰独立性）与 `强化操虫穿刺_规范曲线说明.md`。口径是**水平建基**（`forward` 取 201 起始速度的水平分量、`up` 就是世界 `+Y`），与本文档其余曲线用的建基不同；重建与验证记录见[本招计划 §5.4](../using/强化操虫穿刺实现计划.md)。
+
 ## 真值源
 
-```
-C:/apps/steam/steamapps/common/MonsterHunterRise/reframework/data/MHGZ_AerialTrajectoryRecorder/
-```
+**MHW 急袭突刺转向补充**：样本来自 `F:/games/Steam/steamapps/common/Monster Hunter World/Lua/MHGZ_MHW_AerialTrajectoryRecorder_samples_20261003_115232_01.csv`，配套事件文件为同目录下 `MHGZ_MHW_AerialTrajectoryRecorder_events_20261003_115232_01.csv`。这是独立于 MHRise 的本机录制；CSV 未入库，真值表文末标记块保存了本次已验证统计及测量边界。不要把运行时动作 ID 当作 LMT slot 序号。
 
-录制器在 `Scripts/MHRise/MHGZ_AerialTrajectoryRecorder.lua`（只读，F9 起停）。**该目录不入库**。
+录制器在 `Scripts/MHRise/MHGZ_AerialTrajectoryRecorder.lua`（只读，F9 起停），安装位置是本机游戏目录的 `reframework/autorun/`。原始 CSV 写到同一游戏目录下的 `reframework/data/MHGZ_AerialTrajectoryRecorder/`，**该目录不入库**。四个生成器从 Steam 安装路径和库目录寻找游戏；如需显式指定，设置环境变量 `MHGZ_RISE_RECORDER_DIR` 为原始 CSV 目录。
+
+2026-09-26 本机游戏位于 `F:/games/Steam/steamapps/common/MonsterHunterRise/`，已有新录制可用；本机可读录制中 `186→187` 共 47 次，方向时序补充真值已直接记入[真值表](真值表.md)第一节、`186` 条目之后。这些新录制并不包含历史全量原始数据；仓库现有生成表保留了换机前的更大样本，**不要用当前不完整录制重跑生成器覆盖历史统计**。
+
+生成表中的 UE 项目实施状态注释可能停在生成当天；**Rise 数值真值继续有效，当前 P0/P1 验收状态以 [空回方案](../using/空回P0-P1完整修复方案.md) 和 [里程碑表](../design/milestone-gates.md) 为准**。不要为改一行项目状态而手改或在缺原始 CSV 时重跑生成表。
 
 ```bash
 python Scripts/MHRise/build_truth_table.py             # 写真值表 + Saved/_mhr_frames/
@@ -36,7 +40,10 @@ python Scripts/MHRise/build_kinsect_slash_curves.py --print  # 只看，不写�
 python Scripts/MHRise/build_fall_physics.py             # 写 下落物理.md
 python Scripts/MHRise/build_fall_physics.py --print      # 只看，不写文件
 python Scripts/AssetProbe/read_asset_import_ids.py       # 写 资产序号对照.md（**不用开编辑器**）
+python Scripts/MHRise/analyze_kinsect_slash_outcomes.py --latest 2 --write --summary # 仅最新两份操虫斩：导出189/188/后续157曲线与本机报告，不覆盖历史表
 ```
+
+**2026-09-28专项标定**：两个原始文件 `_175533_01`、`_175742_02` 的31次189及7次188已补充到现有真值表和操虫斩曲线，不新建真值文档。189准备期约0.35s后开始后退上抛，飞行g约−1800；自然接157继续同一物理轨迹。188 g约−3100，不能共用普通空中回避重力。完整曲线在 `Saved/_mhr_curves/*20260928_175742_02.csv`，解释及测量限制看补充块。重放请显式传入当次两个CSV路径；`--latest 2`仅用于当前最新录制。两个历史表生成器已加入保留该标记块的逻辑，仍不得因补充此块而重跑缺失原始数据的历史全库统计。
 
 **四个生成器的分工**：`build_truth_table.py` 按**单个 id** 归并（招式级真值 + 最早可操作帧）；
 另外两个按**一条链**归并 —— 撑杆跳是 `141/144/145→142→143`；
@@ -187,6 +194,6 @@ python Scripts/AssetProbe/read_asset_import_ids.py       # 写 资产序号对�
 2. **旋转**是 4 个数（四元数）—— 要 `UCurveQuat`，或拆成欧拉角。
 3. **同一招式的多次录制**：曲线是**单值函数**。真值表的价值恰恰在保留离散（最短的那条 = 最早可操作帧，跑满的那条 = 顶点），所以标量表必须是多行/多值，不能只留一条曲线。
 
-**落点**：曲线是 uasset，属于 `Content/`，不属于 `docs/`。项目现状：`UCurveVector` **只被运行时 `NewObject` 用过**（`MHGZBackVaultAbility.cpp:908`），`Content/` 下**零个曲线资产**，也**没有** JSON→资产的管线。要烘资产，最短路径是照抄 `MHGZWuTaMontageSetupCommandlet` 的骨架（`CreatePackage` + `NewObject` + 现成的 `AddLinearKey` + `SaveAsset`）。
+**落点**：曲线是 uasset，属于 `Content/`，不属于 `docs/`。项目现状：运行时仍会用 `NewObject` 现场造 `UCurveVector`（`MHGZPoleVaultAbility.cpp:1288`，撑杆跳的路径偏移），同时**已经有一条 CSV→曲线资产的命令行管线**：`MHGZM5KinsectSlashCurveSetupCommandlet` 读 `Saved/_mhr_curves/操虫斩_187.csv`，按 `CreatePackage` + `NewObject<UCurveFloat>` + `SaveAsset` 写出 `Content/Weapons/InsectGlaive/Data/Curves/CF_IG_KinsectSlash_Distance.uasset`，并把引用写回 `DA_IG_Combat`（`MHGZM5KinsectSlashCurveSetupCommandlet.cpp:249-333`）。要烘新的曲线资产，照抄这个骨架即可（`CreatePackage` + `NewObject` + `AddLinearKey` + `SaveAsset`，另见 `MHGZWuTaMontageSetupCommandlet`）。
 
 **⚠ 消费方约束**：`FWeaponMovementRequest::PathOffsetCurve`（`MHGZWeaponRuntimeTypes.h:623-629`）要求 X 沿 `DirectionSnapshot`、**起止偏移都为零**。所以**不能把录制原样烘进去**，得先减掉线性分量做归一化（`MHGZBackVaultAbility.cpp:965-971` 就是这套变换）。

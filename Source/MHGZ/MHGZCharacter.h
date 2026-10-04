@@ -7,6 +7,7 @@
 #include "AbilitySystemInterface.h"
 #include "Animation/MHGZMotionMatchingMath.h"
 #include "Logging/LogMacros.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZCharacter.generated.h"
 
 class USpringArmComponent;
@@ -26,6 +27,23 @@ class UEnhancedInputComponent;
 class UPrimitiveComponent;
 struct FInputActionValue;
 struct FHitResult;
+
+/**
+ * One game-frame sample of physical movement input and the orientation used to
+ * interpret it. This is deliberately a plain runtime snapshot: it is not an
+ * asset/replication format and is retained only in the owning Character's ring.
+ */
+struct FActionMoveInputFrameSnapshot
+{
+	uint64 FrameNumber = 0;
+	TWeakObjectPtr<AActor> Pawn;
+	FWeaponRuntimeToken RuntimeToken;
+	FVector2D RawMoveInput = FVector2D::ZeroVector;
+	bool bHasMoveInput = false;
+	FVector WorldDirection = FVector::ZeroVector;
+	float ControlYaw = 0.0f;
+	float ActorYaw = 0.0f;
+};
 
 /** A bounded, read-only history of capsule blocking contacts for runtime CSV telemetry. */
 struct FMHGZCapsuleBlockingHitTelemetry
@@ -197,12 +215,25 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category="Input")
 	bool bHasInput = false;
 
-	/** 摇杆输入的世界方向（每帧更新，不受 BlockMovement 影响）——供 MotionWarping / AttackAbility / AnimBP 读取 */
+	/**
+	 * Last non-zero camera-relative stick direction. Intentionally latched through
+	 * neutral frames for locomotion-facing continuity; not a current-input snapshot.
+	 */
 	UFUNCTION(BlueprintCallable, Category="Input")
 	FVector GetLastMovementInputDir() const;
 
+	/** Current camera-relative stick direction, or zero when neutral/below MoveDeadzone. */
+	FVector GetCurrentMoveInputWorldDirection() const;
+	/** Shared axes-to-world conversion used by action and per-frame input snapshots. */
+	static FVector ResolveMoveInputWorldDirection(const FVector2D& MoveInput,
+		float ControlYaw, float MinimumMagnitude);
+
 	UFUNCTION(BlueprintCallable, Category="Input")
 	FVector2D GetRawMoveInput() const { return RawMoveInput; }
+
+	/** Read one exact game-frame input sample; this never substitutes a last-nonzero direction. */
+	bool GetActionMoveInputFrameSnapshot(uint64 FrameNumber,
+		FActionMoveInputFrameSnapshot& OutSnapshot) const;
 
 	/** Maps a physical stick magnitude to this Character's currently configured locomotion lane. */
 	float GetQuantizedCruiseSpeedForRawMoveInput(float StickMagnitude) const;
@@ -247,6 +278,7 @@ private:
 	float CalcCruiseSpeed(float StickMagnitude) const;
 	bool IsUnsheathedForLocomotion() const;
 	void RefreshDownshiftConfirmDebugState();
+	void CaptureActionMoveInputFrameSnapshot();
 
 	// ── 收刀态巡航速度常量 ─────────────────────────────────────
 
@@ -310,11 +342,15 @@ private:
 	void OnSprintHoldTimerExpired();
 	bool IsSheathedForSprint() const;
 
-	/** 摇杆输入世界方向——每帧 DoMove 更新，不受 BlockMovement 影响 */
+	/** Last non-zero camera-relative stick direction; intentionally retained on neutral. */
 	FVector LastMovementInputDir = FVector::ZeroVector;
 
 	/** 相机相对的原始移动轴，供输入快照冻结方向。 */
 	FVector2D RawMoveInput = FVector2D::ZeroVector;
+
+	/** Exact, bounded per-game-frame samples for action-specific N-1 input reads. */
+	TArray<FActionMoveInputFrameSnapshot> ActionMoveInputFrameHistory;
+	static constexpr int32 ActionMoveInputFrameHistoryLimit = 8;
 
 	/** Stable sheathed locomotion lane and its short downward-confirmation timer. */
 	MHGZMotionMatching::FMHGZDownshiftProbeState LocomotionDownshiftProbe;

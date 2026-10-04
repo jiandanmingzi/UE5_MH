@@ -23,7 +23,9 @@ enum class EKinsectState : uint8
 	Attached  UMETA(DisplayName = "吸附中"),
 	Flying    UMETA(DisplayName = "飞行中"),
 	Hovering  UMETA(DisplayName = "悬停中"),
-	Returning UMETA(DisplayName = "返回中")
+	Returning UMETA(DisplayName = "返回中"),
+	/** 临时挂在招式专用插槽上；追加在末尾以保留旧状态序列化值。 */
+	ActionAttached UMETA(DisplayName = "动作临时附着")
 };
 
 /** 猎虫飞行轨迹模式。 */
@@ -178,10 +180,17 @@ public:
 	void StartReturn();
 
 	/** 强制召回（耐力归零等）；保留 Pending。 */
-	void ForceRecall() { StartReturn(); }
+	void ForceRecall();
 
 	/** 附着到指定组件 Socket，保存组件与 Socket 供返回时实时追踪。 */
 	void AttachToPlayer(USceneComponent* InAttachComponent, FName InSocketName = NAME_None);
+
+	/** 由资源组件持有的动作租约调用；不修改正常手臂返回目标。 */
+	bool BeginActionAttachment(const FWeaponActionToken& ActionToken,
+		USkeletalMeshComponent* WeaponMesh, FName SocketName);
+	bool EndActionAttachmentAndReturn(const FWeaponActionToken& ActionToken,
+		const FWeaponRuntimeToken& RuntimeToken, float ArrivalRadius);
+	bool IsActionAttachmentOwnedBy(const FWeaponActionToken& ActionToken) const;
 
 	// ── 查询 ──
 	EKinsectState GetState() const { return State; }
@@ -196,7 +205,8 @@ public:
 	{
 		return State == EKinsectState::Flying
 			|| State == EKinsectState::Hovering
-			|| State == EKinsectState::Returning;
+			|| State == EKinsectState::Returning
+			|| State == EKinsectState::ActionAttached;
 	}
 
 	// ── 引用（由 URes_InsectGlaive 注入） ──
@@ -248,6 +258,7 @@ private:
 
 	/** 返回 Tick：实时追踪附着 Socket 世界位置；到达后取 Pending → Attach → 回调一次。 */
 	void TickReturn();
+	void StartReturnInternal();
 
 	/** 解析返回目标的世界位置（优先附着 Socket，回退 OwnerActor）。 */
 	bool ResolveAttachSocketLocation(FVector& OutLocation) const;
@@ -257,6 +268,9 @@ private:
 	FVector LastTickLocation = FVector::ZeroVector;
 	FHitResult PendingWorldHit;
 	bool bHasDealtDamage = false;
+	FWeaponActionToken ActionAttachmentToken;
+	FWeaponRuntimeToken ReturnRuntimeToken;
+	float ReturnArrivalRadius = RETURN_ARRIVAL_DISTANCE;
 
 	// 贯穿：每个 Hitzone 组件上次成功伤害的绝对世界时间。
 	TMap<TWeakObjectPtr<UMHGZMonsterHitzoneComponent>, float> HitzoneHitTimers;
@@ -273,6 +287,7 @@ private:
 
 	// 只有附着时记录的美术原始相对旋转会在回到手臂 Socket 后恢复。
 	FRotator AttachedMeshRelativeRotation = FRotator::ZeroRotator;
+	FVector AttachedMeshRelativeScale = FVector::OneVector;
 	bool bHasAttachedMeshRelativeRotation = false;
 
 	static constexpr float RETURN_ARRIVAL_DISTANCE = 50.f; // 无已提交 Request 时的防御回退

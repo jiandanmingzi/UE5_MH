@@ -42,6 +42,15 @@ public:
 	/** 输入解析瞬间执行独立射线并返回不可变快照。 */
 	FWeaponAimSnapshot CaptureAimSnapshot(EWeaponAimSnapshotContext Context) const;
 
+	/**
+	 * Sample the current screen-centre ray for an action's late AimLock point,
+	 * resolve third-person parallax from LaunchOrigin, and clamp the resulting
+	 * launch pitch to the active PlayerCameraManager limits. This is separate
+	 * from CaptureAimSnapshot so existing input-time snapshot consumers retain
+	 * their current semantics.
+	 */
+	bool CaptureAimLockSample(const FVector& LaunchOrigin, FWeaponAimLockSample& OutSample) const;
+
 	// ── ASC 生命周期绑定 ──
 	/** 绑定 ASC 并订阅 Combat.State.Aiming.Kinsect；幂等；切换 ASC 时先解绑并同步当前 tag count。 */
 	void BindToAbilitySystem(UAbilitySystemComponent* InASC);

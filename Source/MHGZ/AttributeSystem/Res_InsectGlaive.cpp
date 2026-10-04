@@ -60,6 +60,21 @@ const FGameplayTag& MarkActiveTag()
 		TEXT("WeaponResource.IG.Mark.Active"));
 	return Tag;
 }
+
+/** 舞踏来源的 ASC 镜像标签。真值仍是 `DanceSource` 字段，这里只是它的对外广播。 */
+const FGameplayTag& DanceSourceTag(const EIGDanceSource Source)
+{
+	static const FGameplayTag KinsectSlashTag = FGameplayTag::RequestGameplayTag(
+		TEXT("Combat.State.Aerial.Dance.Source.KinsectSlash"));
+	static const FGameplayTag AdvancingCounterTag = FGameplayTag::RequestGameplayTag(
+		TEXT("Combat.State.Aerial.Dance.Source.AdvancingCounter"));
+	switch (Source)
+	{
+	case EIGDanceSource::KinsectSlash: return KinsectSlashTag;
+	case EIGDanceSource::AdvancingCounter: return AdvancingCounterTag;
+	default: return FGameplayTag::EmptyTag;
+	}
+}
 }
 
 URes_InsectGlaive::URes_InsectGlaive()
@@ -73,6 +88,9 @@ void URes_InsectGlaive::InitializeRuntime(const FWeaponRuntimeContext& Context)
 {
 	Super::InitializeRuntime(Context);
 	bRuntimeShuttingDown = false;
+	// 初始化也要直接同步一次，不能只靠 OnDanceStateChanged：关闭路径会抑制广播，
+	// 重建 Runtime 时残留的镜像必须在这里对齐（正常情况下它本就是空操作）。
+	RefreshDanceStateTags();
 	CombatConfig = Cast<UInsectGlaiveCombatConfig>(Context.CombatConfig.Get());
 	if (!CombatConfig || !Context.Character.IsValid() || !Context.ASC.IsValid())
 	{
@@ -143,6 +161,12 @@ void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 		KinsectStamina = FMath::Min(MaxKinsectStamina,
 			KinsectStamina + KinsectData->StaminaRegenRate * DeltaTime);
 	}
+	else if (State == EKinsectState::ActionAttached)
+	{
+		// 临时动作附着等同普通 Attached：不消耗飞行耐力，并继续恢复耐力。
+		KinsectStamina = FMath::Min(MaxKinsectStamina,
+			KinsectStamina + KinsectData->StaminaRegenRate * DeltaTime);
+	}
 
 	if (PreviousStamina > 0.f && KinsectStamina <= 0.f
 		&& (State == EKinsectState::Flying || State == EKinsectState::Hovering))
@@ -197,6 +221,7 @@ bool URes_InsectGlaive::OnWeaponEquipped(UInsectGlaiveKinsectData* Data,
 	KinsectData = Data;
 	KinsectAttachComponent = AttachComponent;
 	KinsectAttachSocket = AttachSocket;
+	KinsectActionAttachmentToken = FWeaponActionToken();
 	KinsectActor->KinsectData = Data;
 	KinsectActor->ResourceComponent = this;
 	if (USkeletalMesh* Mesh = Data->KinsectMesh.LoadSynchronous())
@@ -243,6 +268,7 @@ void URes_InsectGlaive::OnWeaponUnequipped()
 	KinsectData = nullptr;
 	KinsectAttachComponent.Reset();
 	KinsectAttachSocket = NAME_None;
+	KinsectActionAttachmentToken = FWeaponActionToken();
 	KinsectStamina = 0.f;
 	MaxKinsectStamina = 0.f;
 	bDepletionEdgeTriggered = false;
@@ -251,6 +277,8 @@ void URes_InsectGlaive::OnWeaponUnequipped()
 bool URes_InsectGlaive::CanDeployKinsect(const FKinsectFlightRequest& Request) const
 {
 	return !bRuntimeShuttingDown && KinsectActor && KinsectData
+		&& KinsectActor->GetState() != EKinsectState::ActionAttached
+		&& !KinsectActionAttachmentToken.IsValid()
 		&& KinsectStamina > 0.f && IsRuntimeRequestCurrent(Request.RuntimeToken)
 		&& Request.MaxDistance > 0.f && Request.FlightSpeed > 0.f
 		&& Request.ArrivalRadius > 0.f;
@@ -268,12 +296,80 @@ bool URes_InsectGlaive::DeployKinsect(const FKinsectFlightRequest& Request)
 
 bool URes_InsectGlaive::RecallKinsect()
 {
-	if (bRuntimeShuttingDown || !KinsectActor
-		|| KinsectActor->GetState() == EKinsectState::Attached)
+	if (bRuntimeShuttingDown || !KinsectActor)
+	{
+		return false;
+	}
+	if (KinsectActor->GetState() == EKinsectState::ActionAttached)
+	{
+		return EndKinsectActionAttachmentAndReturn(KinsectActionAttachmentToken);
+	}
+	if (KinsectActor->GetState() == EKinsectState::Attached)
 	{
 		return false;
 	}
 	KinsectActor->StartReturn();
+	return true;
+}
+
+bool URes_InsectGlaive::BeginKinsectActionAttachment(
+	const FWeaponActionToken& ActionToken,
+	USkeletalMeshComponent* WeaponMesh, const FName SocketName)
+{
+	if (bRuntimeShuttingDown || !ActionToken.IsValid()
+		|| !IsRuntimeRequestCurrent(ActionToken.RuntimeToken)
+		|| !KinsectActor || !KinsectActor->Mesh || !KinsectData
+		|| !KinsectAttachComponent.IsValid()
+		|| (!KinsectAttachSocket.IsNone()
+			&& !KinsectAttachComponent->DoesSocketExist(KinsectAttachSocket))
+		|| KinsectActionAttachmentToken.IsValid()
+		|| !WeaponMesh || SocketName.IsNone()
+		|| !WeaponMesh->DoesSocketExist(SocketName))
+	{
+		return false;
+	}
+
+	if (!KinsectActor->BeginActionAttachment(ActionToken, WeaponMesh, SocketName))
+	{
+		return false;
+	}
+
+	KinsectActionAttachmentToken = ActionToken;
+	SetKinsectActiveTag(true);
+	return true;
+}
+
+bool URes_InsectGlaive::IsKinsectActionAttachmentCurrent(
+	const FWeaponActionToken& ActionToken) const
+{
+	return !bRuntimeShuttingDown && ActionToken.IsValid()
+		&& ActionToken == KinsectActionAttachmentToken
+		&& IsRuntimeRequestCurrent(ActionToken.RuntimeToken)
+		&& KinsectActor
+		&& KinsectActor->IsActionAttachmentOwnedBy(ActionToken);
+}
+
+bool URes_InsectGlaive::EndKinsectActionAttachmentAndReturn(
+	const FWeaponActionToken& ActionToken)
+{
+	if (!IsKinsectActionAttachmentCurrent(ActionToken) || !CombatConfig
+		|| !KinsectAttachComponent.IsValid())
+	{
+		return false;
+	}
+
+	const float ArrivalRadius = CombatConfig->KinsectArrivalRadius;
+	const bool bReturnStarted = KinsectActor->EndActionAttachmentAndReturn(
+		ActionToken, RuntimeContext.RuntimeToken, ArrivalRadius);
+	KinsectActionAttachmentToken = FWeaponActionToken();
+	if (!bReturnStarted)
+	{
+		// Defensive recovery for invalid return tuning/target: restore the original
+		// arm socket immediately and deliver an already pending extract once.
+		KinsectActor->AttachToPlayer(KinsectAttachComponent.Get(), KinsectAttachSocket);
+		OnKinsectReachedPlayer(KinsectActor->TakePendingExtractColor());
+		return true;
+	}
 	return true;
 }
 
@@ -809,6 +905,9 @@ bool URes_InsectGlaive::AddDanceStack(EIGDanceSource Source)
 	const EIGDanceSource PreviousSource = DanceSource;
 	DanceStacks = FMath::Clamp(DanceStacks + 1, 0, CombatConfig->MaxDanceStacks);
 	DanceSource = Source;
+	// 镜像必须早于广播：观察者在回调里读到的标签要与刚写的数值一致。
+	// 层数到顶也要同步 —— 来源与层数是两个字段，上限不改来源。
+	RefreshDanceStateTags();
 	if (DanceStacks != PreviousStacks || DanceSource != PreviousSource)
 	{
 		OnDanceStateChanged.Broadcast(DanceStacks, DanceSource);
@@ -819,14 +918,13 @@ bool URes_InsectGlaive::AddDanceStack(EIGDanceSource Source)
 void URes_InsectGlaive::ClearDanceStacks(EIGDanceClearReason Reason)
 {
 	(void)Reason;
-	if (DanceStacks == 0 && DanceSource == EIGDanceSource::None)
-	{
-		return;
-	}
-
+	const bool bHadState = DanceStacks != 0 || DanceSource != EIGDanceSource::None;
 	DanceStacks = 0;
 	DanceSource = EIGDanceSource::None;
-	if (!bRuntimeShuttingDown)
+	// 释放镜像**不**看 bHadState：旧的早退（数值已是 0/None 就直接返回）会留下一个
+	// 没人认领的来源标签，而它正是下游动作的入招判据。广播才维持原样，只在真有变化时发。
+	RefreshDanceStateTags();
+	if (bHadState && !bRuntimeShuttingDown)
 	{
 		OnDanceStateChanged.Broadcast(DanceStacks, DanceSource);
 	}
@@ -948,6 +1046,46 @@ void URes_InsectGlaive::SetMarkActiveTag(bool bActive)
 		Host->ReleaseTags(MarkActiveTagToken);
 		MarkActiveTagToken = FWeaponOwnedTagToken();
 	}
+}
+
+void URes_InsectGlaive::RefreshDanceStateTags()
+{
+	const FGameplayTag DesiredTag = DanceSourceTag(DanceSource);
+
+	UMHGZWeaponRuntimeHostComponent* Host = RuntimeContext.RuntimeToken.Host.Get();
+	if (!Host && !DanceSourceTagToken.IsValid())
+	{
+		ActiveDanceSourceTag = FGameplayTag();
+		return;
+	}
+
+	// 来源没变就不动 Token：反复释放/重新 Acquire 会让依赖标签计数的观察者看到抖动。
+	if (DanceSourceTagToken.IsValid() && DesiredTag.IsValid()
+		&& ActiveDanceSourceTag == DesiredTag)
+	{
+		return;
+	}
+
+	if (DanceSourceTagToken.IsValid())
+	{
+		if (Host)
+		{
+			Host->ReleaseTags(DanceSourceTagToken);
+		}
+		DanceSourceTagToken = FWeaponOwnedTagToken();
+		ActiveDanceSourceTag = FGameplayTag();
+	}
+
+	if (!Host || !DesiredTag.IsValid())
+	{
+		return;
+	}
+
+	FGameplayTagContainer Tags;
+	Tags.AddTag(DesiredTag);
+	DanceSourceTagToken = Host->AcquireTags(EWeaponTagOwnerKind::Resource,
+		FGameplayAbilitySpecHandle(), 0, TEXT("IG.Dance.Source"), Tags);
+	ActiveDanceSourceTag = DanceSourceTagToken.IsValid() ? DesiredTag : FGameplayTag();
 }
 
 void URes_InsectGlaive::ClearAllResourceGameplayEffects()

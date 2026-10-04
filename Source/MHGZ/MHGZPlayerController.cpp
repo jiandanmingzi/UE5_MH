@@ -1,6 +1,7 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZPlayerController.h"
+#include "MHGZPlayerCameraManager.h"
 #include "Blueprint/UserWidget.h"
 #include "Widgets/Input/SVirtualJoystick.h"
 #include "InputSystem/MHGZInputComponent.h"
@@ -10,6 +11,7 @@
 
 AMHGZPlayerController::AMHGZPlayerController()
 {
+	PlayerCameraManagerClass = AMHGZPlayerCameraManager::StaticClass();
 	InputComponent_MHGZ = CreateDefaultSubobject<UMHGZInputComponent>(TEXT("MHGZInputComponent"));
 	WeaponInputRouterComponent = CreateDefaultSubobject<UMHGZWeaponInputRouterComponent>(TEXT("WeaponInputRouter"));
 	QuickBarComponent = CreateDefaultSubobject<UMHGZQuickBarComponent>(TEXT("QuickBarComponent"));

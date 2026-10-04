@@ -6,6 +6,37 @@ again to stop. A red `[REC]` label stays in the top-left while recording; start
 and stop each show a confirmation bar. Each capture writes samples and events
 CSV files under `reframework/data/MHGZ_AerialTrajectoryRecorder`.
 
+From 1.10.0, keyboard polling uses Monster Hunter Rise's `via.hid.Keyboard`
+device on REFramework's `UpdateHID` callback first, then falls back to REFramework
+Windows virtual-key polling if the game HID device is unavailable. The floating
+`MHGZ Recorder Control` window exposes `BIND CAPTURE KEY`; while binding, release
+all keys and press the desired key. The window displays the selected input
+backend, whether the capture key is down, and the last key detected during
+binding. `F8` remains reserved for the motion probe; the default capture key is
+`F9`.
+
+From 1.11.0, each sample also records read-only controller input from
+`via.hid.GamePad:get_LastInputDevice()`: raw `AxisL`/`AxisR` X/Y/Z values and
+every button exposed by `via.hid.GamePadButton`. The CSV columns are named
+`input_gamepad_axis_*` and `input_gamepad_button_<enum-name>_{down,pressed,released}`.
+`pressed` and `released` mark transitions between HID polls; `down` is the held
+state. Edge flags are retained until the next trajectory row is written, so
+multiple HID polls between rows do not erase a press/release transition.
+`input_gamepad_available` distinguishes no active gamepad device (`0`,
+axis/button cells blank) from a connected device. The event CSV records the
+button enum schema and changes in reader availability. The floating control
+window shows live stick values and currently held button names, so verify these
+before relying on a capture. Button names are RE Engine enum names, not a
+promise of a particular controller's printed glyphs; trigger values are
+recorded as the engine's digital button states, not analog pressure.
+
+The controller source follows REFramework's FreeCam API: `via.hid.GamePad`
+`get_LastInputDevice`, `via.hid.GamePadDevice` `AxisL`/`AxisR`, and
+`isDown(via.hid.GamePadButton)`. Controller input is only sampled and written;
+the recorder never consumes or changes it. Axis reads are best-effort across
+TDB variants, so a live UI status of `Connected: controller axes unavailable`
+means that build needs a runtime accessor adjustment before using the stick data.
+
 Press `F8` once at idle and again in each animation phase to write read-only
 motion-probe snapshots in the same directory. Each report lists the reflected
 motion/animation/frame/time/rate/blend/rotation candidates reachable from the
@@ -88,3 +119,11 @@ actual world Transform every rendered game frame. Timing uses
 `via.Application.get_UpTimeSecond`; it neither changes game state nor
 reads/writes the save file. Monster Hunter Rise's world-up axis is `Y`, so
 `vertical_phase` is derived from `velocity_y`.
+
+The four offline `build_*.py` scripts locate the recorder data through Steam's
+installed game directory and `libraryfolders.vdf`. If the game is elsewhere,
+set `MHGZ_RISE_RECORDER_DIR` to the absolute `reframework/data/MHGZ_AerialTrajectoryRecorder`
+directory before running them. On a newly installed device the data directory
+does not exist until the first F9 capture; the scripts do not copy captures
+from another machine or regenerate the historical reference documents without
+their original input data.

@@ -9,6 +9,7 @@
 #include "InsectGlaiveCombatConfig.generated.h"
 
 class UGameplayEffect;
+class UCurveFloat;
 class UInsectGlaiveKinsectData;
 class USoundBase;
 class AIGMarkProjectile;
@@ -358,9 +359,108 @@ public:
 		return AerialFallMaxSeconds;
 	}
 
-	/** 操虫斩最大飞行距离（cm） */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Movement", meta = (ClampMin = "0.01"))
-	float KinsectSlashMaxDistance = 1200.0f;
+	/** Measured 187 hold/straight/glide; both B and RT+B use this shared profile. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Movement")
+	FSegmentedDirectionalMovementProfile KinsectSlashDashProfile;
+
+	/** Compatibility fallback only; new assets/defaults execute the measured profile. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Legacy")
+	bool bUseCapturedKinsectSlashDash = true;
+
+	/** Legacy scalar-distance path; unused when bUseCapturedKinsectSlashDash is true. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Legacy", meta = (ClampMin = "0.01"))
+	float KinsectSlashMaxDistance = 840.0f;
+
+	/** Legacy sample-span duration; the new profile totals 0.250 game seconds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Legacy", meta = (ClampMin = "0.01"))
+	float KinsectSlashDashDuration = 0.242f;
+
+	/** Captured maximum upward 187 launch pitch; higher RT+B aim is clamped to the Rise data limit. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Aim",
+		meta = (ClampMin = "0.0", ClampMax = "89.0", ForceUnits = "deg"))
+	float KinsectSlashMaxUpwardLaunchPitchDegrees = 53.74f;
+
+	/** Legacy normalized distance curve; not the new pitch-dependent glide trajectory. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Legacy")
+	TObjectPtr<UCurveFloat> KinsectSlashDistanceCurve;
+
+	/** 186/187 临时挂接的武器 Socket；该 Socket Transform 是附着偏移的唯一来源。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Attachment")
+	FName KinsectSlashAttachSocket = TEXT("IG_Kinsect");
+
+	/** Legacy serialized field. Runtime collision is configured by AttackSegments[0].Collision.TraceRegions. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Use AttackSegments[0].Collision.TraceRegions."))
+	float KinsectSlashProbeRadius = 20.0f;
+
+	/** Legacy serialized field; the dedicated attachment Socket owns its position. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Use KinsectSlashAttachSocket."))
+	float KinsectSlashProbeForwardOffset = 60.0f;
+
+	/** Legacy serialized field; socket sampling is configured on AttackSegments[0].Collision. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Use AttackSegments[0].Collision.TraceRegions."))
+	float KinsectSlashProbeMaxStep = 20.0f;
+
+	/** Legacy serialized field; AttackCollision notify source-frame bounds own this timing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectSlash|Legacy", meta = (DeprecatedProperty, DeprecationMessage = "Use the AttackCollision notify-state source-frame range."))
+	float KinsectSlashLateHitWindow = 0.12f;
+
+	// ── 强化操虫穿刺（M5 本招）的三份录制曲线 ─────────────────────────────
+	//
+	// 三份 profile 与 §5.4 的三份规范 CSV 一一对应：200 起手、201 下潜、203 落地。
+	// 曲线本体（UCurveVector）由 M3 的命令行生成器从 CSV 写出，这里只放引用与
+	// 同一模型的尾段参数；数值全部来自 `Saved/_mhr_curves/强化操虫穿刺_生成审计.json`，
+	// 不是手调值。关键阈值、尾段与看门狗都在 `.cpp` 的 IsDataValid 里复核。
+
+	/** 200 起手段：保护飞行，曲线跑完即转 201。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectPiercer|Movement")
+	FRecordedLocalTrajectoryProfile KinsectPiercerStartProfile;
+
+	/**
+	 * 201 下潜段：允许真实触地，覆盖之外按同模型续行。
+	 *
+	 * 它的覆盖时长（实测 0.3665 s）是**被触地截断**的结果，不是动作本身的长度 ——
+	 * 所以这一段永远不会按时长结束，只由真实触地或看门狗结束。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectPiercer|Movement")
+	FRecordedLocalTrajectoryProfile KinsectPiercerDiveProfile;
+
+	/** 203 录制真值对照；运行时落地改用 Montage Root Motion，不读取此 profile。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectPiercer|Reference")
+	FRecordedLocalTrajectoryProfile KinsectPiercerLandingProfile;
+
+	/**
+	 * 201 的独立看门狗（秒）。
+	 *
+	 * 只处理「既没触地、也没结束」的异常会话 —— 正常落地走真实 `ProcessLanded`，
+	 * 一秒都不会用到它。它绝不是 201→203 的定时出口。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectPiercer|Movement",
+		meta = (ClampMin = "0.1", ForceUnits = "s"))
+	float KinsectPiercerDiveWatchdogSeconds = 12.0f;
+
+	/** 203 的初始视觉混入；主 Montage 换 `_Over` 那一下用。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "KinsectPiercer|Presentation",
+		meta = (ClampMin = "0.0", ForceUnits = "s"))
+	float KinsectPiercerLandingBlendInTime = 0.1f;
+
+	// ── 急袭突刺（M2 运行时）──
+
+	/**
+	 * 380 的参数化基曲线：X=水平位移时间积分 H(t)（秒），Y=0，Z=世界竖直位移（cm）。
+	 * 运行时仅按 LockedPlanarVelocity 大小缩放 X；保护飞行转下潜时不重置此曲线时钟。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DescendingThrust|Movement")
+	FRecordedLocalTrajectoryProfile DescendingThrustAirProfile;
+
+	/** 曲线尾段仍未真实接地时的异常看门狗；不作为正常落地出口。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DescendingThrust|Movement",
+		meta = (ClampMin = "0.1", ForceUnits = "s"))
+	float DescendingThrustAirWatchdogSeconds = 12.0f;
+
+	/** 真实落地切到常驻381 Over Montage时的视觉混入。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DescendingThrust|Presentation",
+		meta = (ClampMin = "0.0", ForceUnits = "s"))
+	float DescendingThrustLandingBlendInTime = 0.1f;
 
 	/** 猎虫滑翔追踪虫印的最大距离（cm） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Movement", meta = (ClampMin = "0.01"))

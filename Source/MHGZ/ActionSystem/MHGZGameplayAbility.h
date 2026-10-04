@@ -61,7 +61,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Cooldown")
 	FGameplayTag CooldownTag;
 
-	/** 攻击激活瞬间最大方向修正角度（度） */
+	/** 攻击方向修正的单次旋转上限（度）；超出上限但超出量不超过 90 度时，仍按此上限转向。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Correction")
 	float MaxCorrectionAngle = 30.0f;
 

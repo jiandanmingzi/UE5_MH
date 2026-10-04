@@ -64,10 +64,9 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+from recorder_path import recorder_dir
 
-RECORDER_DIR = Path(
-    r"C:/apps/steam/steamapps/common/MonsterHunterRise/reframework/data/MHGZ_AerialTrajectoryRecorder"
-)
+RECORDER_DIR = recorder_dir()
 PROJECT = Path(__file__).resolve().parents[2]
 OUT_MD = PROJECT / "docs" / "reference" / "真值表.md"
 OUT_FRAMES = PROJECT / "Saved" / "_mhr_frames"
@@ -532,7 +531,7 @@ def render(moves: dict, earliest: list, skipped: list[str], recordings: int) -> 
         "落进同一箱、把自己的后继并进「自然后继」。帧数分箱对此完全免疫。",
         "",
         "| id | 招式 | 长度 | 试验 | 完整观测 | 录制数 | **自然长度 帧** | ≈秒 | 帧范围 | **最长观测 帧** | 最长那次的下一段(语义) | 最高点 cm | 最高点范围 | 水平位移 cm | 起跳竖直速度 cm/s | 自然后继(语义) |",
-        "|---|---|---|---:|---:|---:|---:|---:|---|---:|---|---|---:|---|---:|---:|---|",
+        "|---|---|---|---:|---:|---:|---:|---:|---|---:|---|---|---:|---|---:|---|",
     ]
     for motion_id in sorted(moves, key=lambda k: -moves[k]["trials"]):
         m = moves[motion_id]
@@ -563,6 +562,34 @@ def render(moves: dict, earliest: list, skipped: list[str], recordings: int) -> 
             f"| {m['apex']:.1f} | {m['apex_range'][0]:.1f}–{m['apex_range'][1]:.1f} "
             f"| {m['horiz']:.1f} | {fmt(m['rise'])} | {natural} |"
         )
+
+    # 人工复核的链级方向时序真值，放在 `186` 所在的本表中而非另建文档。
+    # 这是从 2026-09-26 本机补充录制得出的有效时刻估计；完整旧录制暂不可用，
+    # 因此保留当时的样本统计，不要从不完整目录重生成整张表。
+    lines += [
+        "",
+        "### 补充真值：空中操虫斩 `186→187` 的瞄准方向时序（2026-09-26）",
+        "",
+        "- **有效瞄准方向时刻**：按住 RT 瞄准时，`187` 发射相的三维方向（水平偏航 + 上下俯仰）"
+        "最符合进入 `186` 后约 **0.317 s** 的主相机前向／屏幕中心准心方向代理；不是 `186` 起始、末尾或 `187` 起始时的当前镜头方向。",
+        "- **最新单份录制（2026-09-26 16:23:10，15 次 `186→187`）**：逐次比较 `186` 内的相机水平偏航与该次末刻角色面向，"
+        "相机偏航最接近末刻面向的时刻中位数为 **0.316742 s**，范围 **0.316299–0.325317 s**；该处角差小于 **0.00014°**。"
+        "按 60 FPS 换算约为第 **19 帧**。这表示最终水平朝向与约 `0.317 s` 的相机方向相符，"
+        "但不证明游戏恰在该采样点锁存方向。",
+        "- **角色转向与发射方向**：同一批 15 次中，角色偏航最后一次相邻采样变化超过 `0.05°` 的时刻中位数为 **0.333481 s**"
+        "（范围 **0.333008–0.341980 s**，约第 **20 帧**）；在 `0.317 s` 附近角色距离末刻面向仍有 **2.79°** 中位差。"
+        "`187` 前 10 个速度样本的水平发射方位与 `186` 末刻角色面向差值中位数 **0.095°**、最大 **0.373°**。"
+        "因此可观测到的顺序约为：相机方向先到达最终水平朝向，角色再继续转约一帧；不能据此断定二者由同一个内部事件锁存。",
+        "- **前一批 17 次录制**：`187` 水平发射方位与 `186` 末刻角色面向的绝对差中位数 **0.07°**、均值 **0.34°**。",
+        "- **更早的 6 份录制汇总**：共 47 次 `186→187`；其中 37 次镜头方向有明显变化"
+        "（近似 `sqrt(Δyaw² + Δpitch²) > 5°`）且发射仰角非水平（`|pitch| > 1°`）。以 `187` 发射相前 10 个速度采样"
+        "定义发射方向，与 `186` 各时刻的相机前向量比较，固定 `0.317 s` 时夹角均值 **2.06°**、中位数 **2.05°**、"
+        "90 百分位 **2.58°**；`0.250 s` 和 `0.400 s` 的均值误差分别为 **4.63°**、**8.24°**。",
+        "- **边界**：遥测记录的是相机前向量，不是游戏内部准心射线或方向锁存事件；`0.333481 s` 是最新 15 次中"
+        "相邻角色偏航变化超过 `0.05°` 的最后时刻中位数，会受玩家何时停止转动影响，不是固定截止帧。"
+        "帧号是 60 FPS 时间等效帧，不是已确认的游戏动画帧或 AnimNotify 编号。",
+        "",
+    ]
 
     lines += [
         "",
@@ -749,7 +776,15 @@ def main() -> int:
     earliest = earliest_frames(moves)
 
     OUT_MD.parent.mkdir(parents=True, exist_ok=True)
-    OUT_MD.write_text(render(moves, earliest, skipped, used), encoding="utf-8")
+    from analyze_kinsect_slash_outcomes import preserved_supplement, preserved_tail_supplement
+    supplement = preserved_supplement(OUT_MD)
+    tail_supplement = preserved_tail_supplement(OUT_MD)
+    text = render(moves, earliest, skipped, used)
+    if supplement:
+        text = text.replace("## 二、最早可操作帧", supplement + "\n\n## 二、最早可操作帧", 1)
+    if tail_supplement:
+        text = text.rstrip() + "\n\n" + tail_supplement + "\n"
+    OUT_MD.write_text(text, encoding="utf-8")
     print(f"写入 {OUT_MD}（{used} 份录制 / {len(all_segs)} 段 / {len(moves)} 个 id；跳过 {len(skipped)} 份老格式）")
 
     if args.frames:

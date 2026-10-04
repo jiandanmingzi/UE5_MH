@@ -22,6 +22,13 @@ const FGameplayTag& AdvancingCounterOpenTag()
 		TEXT("Combat.State.IG.AdvancingCounterOpen"));
 	return Tag;
 }
+
+const FGameplayTag& AdvancingCounterMovementSourceTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+		TEXT("Combat.State.Aerial.Source.IG_AdvancingCounter"));
+	return Tag;
+}
 }
 
 UMHGZAdvancingCounterAbility::UMHGZAdvancingCounterAbility()
@@ -307,6 +314,17 @@ bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVault()
 	if (!Task->DidStartMovement())
 	{
 		AdvancingCounterVaultTask = nullptr;
+		return false;
+	}
+	if (!Host->SetAerialMovementSource(GetActionToken(),
+		AdvancingCounterMovementSourceTag()))
+	{
+		UE_LOG(LogMHGZ, Warning,
+			TEXT("[AdvancingCounter] RuntimeHost could not publish the aerial source tag; aborting movement."));
+		Task->OnFinished.RemoveDynamic(this,
+			&UMHGZAdvancingCounterAbility::HandleAdvancingCounterVaultFinished);
+		AdvancingCounterVaultTask = nullptr;
+		Task->EndTask();
 		return false;
 	}
 

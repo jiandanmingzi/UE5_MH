@@ -14,6 +14,8 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Equipment/MHGZEquipmentDefinition.h"
+#include "Engine/World.h"
+#include "CoreGlobals.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -92,6 +94,7 @@ void UMHGZWeaponRuntimeHostComponent::InitializePawnRuntime(
 
 	bInitialized = true;
 	bShuttingDown = false;
+	bHandlingLanding = false;
 	bHasDeferredWeaponSnapshot = false;
 	DeferredWeaponSnapshot = FEquippedWeaponSnapshot();
 	NextActivationSequenceID = 1;
@@ -347,6 +350,7 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 
 	// 1) 拒绝新请求：关停/重建窗口内不接受新的输入、注册与资源预留。
 	bShuttingDown = true;
+	ResetActionVisualPitchState();
 
 	// 2) 取消当前武器 Ability 与 ComboCoordinator。
 	if (UMHGZAbilitySystemComponent* ASC = CurrentContext.ASC.Get())
@@ -390,10 +394,14 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 	ClearActionMovementOwner();
 
 	// 7) Ledger ReleaseAll + 注册表清空。
+	AdvanceAerialMovementSourceRevision();
 	TagLedger.ReleaseAll(CurrentToken);
+	AerialMovementSourceToken = FWeaponOwnedTagToken();
+	AerialMovementSourceTag = FGameplayTag();
 	ActiveActions.Reset();
 	MontageRegistrations.Reset();
 	MontageRootMotionOwner = FWeaponActionToken();
+	ActionRotationOverrideOwner = FWeaponActionToken();
 	PendingMotionMatchingHandoff = FWeaponMotionMatchingHandoff();
 	NextMotionMatchingHandoffSerial = 1;
 	NextActionMovementSerial = 1;
@@ -562,6 +570,9 @@ bool UMHGZWeaponRuntimeHostComponent::RegisterAction(const FWeaponActionToken& A
 
 	if (!ActiveActions.Contains(ActionToken))
 	{
+		// A new action takes over the falling body even if it does not use the
+		// Insect Glaive handoff path. Same-token source replacements are idempotent.
+		ClearAerialPlanarAcceleration();
 		ActiveActions.Add(ActionToken);
 	}
 	return true;
@@ -581,6 +592,18 @@ bool UMHGZWeaponRuntimeHostComponent::UnregisterAction(const FWeaponActionToken&
 	if (ActionMovementOwner == ActionToken)
 	{
 		ClearActionMovementOwner();
+	}
+	if (ActionRotationOverrideOwner == ActionToken)
+	{
+		ActionRotationOverrideOwner = FWeaponActionToken();
+	}
+	if (ActionVisualPitchState.bValid
+		&& ActionVisualPitchState.OwnerAction == ActionToken
+		&& !ActionVisualPitchState.bReleasing)
+	{
+		// An action that did not explicitly request a visual fade cannot leave
+		// a stale pose correction behind when its registration is retired.
+		ResetActionVisualPitchState();
 	}
 	return ActiveActions.Remove(ActionToken) > 0;
 }
@@ -780,6 +803,49 @@ FString UMHGZWeaponRuntimeHostComponent::GetActionMovementOwnerDebugString() con
 		ActionMovementOwner.ActivationSequenceID);
 }
 
+bool UMHGZWeaponRuntimeHostComponent::AcquireActionRotationOverride(
+	const FWeaponActionToken& ActionToken)
+{
+	if (!bInitialized || bShuttingDown || !ActionToken.IsValid()
+		|| !IsTokenCurrent(ActionToken.RuntimeToken)
+		|| !ActiveActions.Contains(ActionToken)
+		|| (IsActionMovementOwned() && !IsActionMovementOwnedBy(ActionToken)))
+	{
+		return false;
+	}
+
+	if (ActionRotationOverrideOwner.IsValid()
+		&& ActionRotationOverrideOwner != ActionToken
+		&& IsTokenCurrent(ActionRotationOverrideOwner.RuntimeToken))
+	{
+		return false;
+	}
+
+	ActionRotationOverrideOwner = ActionToken;
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::ReleaseActionRotationOverride(
+	const FWeaponActionToken& ActionToken)
+{
+	if (!bInitialized || !IsTokenCurrent(ActionToken.RuntimeToken)
+		|| ActionRotationOverrideOwner != ActionToken)
+	{
+		return false;
+	}
+
+	ActionRotationOverrideOwner = FWeaponActionToken();
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::IsActionRotationOverrideOwnedBy(
+	const FWeaponActionToken& ActionToken) const
+{
+	return bInitialized && !bShuttingDown && ActionRotationOverrideOwner == ActionToken
+		&& IsTokenCurrent(ActionToken.RuntimeToken)
+		&& ActiveActions.Contains(ActionToken);
+}
+
 // ----------------------------------------------------------------------
 // Motion Matching Handoff
 // ----------------------------------------------------------------------
@@ -906,6 +972,175 @@ bool UMHGZWeaponRuntimeHostComponent::ResolveMontage(
 	return true;
 }
 
+bool UMHGZWeaponRuntimeHostComponent::TrySetActionVisualPitchState(
+	const FWeaponActionToken& ActionToken, const int32 SourceMontageInstanceID,
+	const FVector& LockedDirection, const float BlendInSeconds,
+	const float BlendOutSeconds)
+{
+	if (!bInitialized || bShuttingDown || !ActionToken.IsValid()
+		|| !IsTokenCurrent(ActionToken.RuntimeToken)
+		|| !ActiveActions.Contains(ActionToken)
+		|| SourceMontageInstanceID == INDEX_NONE
+		|| LockedDirection.ContainsNaN() || LockedDirection.IsNearlyZero()
+		|| !FMath::IsFinite(BlendInSeconds) || BlendInSeconds < 0.0f
+		|| !FMath::IsFinite(BlendOutSeconds) || BlendOutSeconds < 0.0f)
+	{
+		return false;
+	}
+
+	const bool bExactMontageRegistered = MontageRegistrations.ContainsByPredicate(
+		[&ActionToken, SourceMontageInstanceID](const FWeaponMontageRegistration& Registration)
+		{
+			return Registration.ActionToken == ActionToken
+				&& Registration.MontageInstanceID == SourceMontageInstanceID
+				&& Registration.Mesh.IsValid();
+		});
+	if (!bExactMontageRegistered)
+	{
+		return false;
+	}
+
+	if (ActionVisualPitchState.bValid
+		&& ActionVisualPitchState.OwnerAction != ActionToken
+		&& !ActionVisualPitchState.bReleasing
+		&& IsTokenCurrent(ActionVisualPitchState.OwnerAction.RuntimeToken)
+		&& ActiveActions.Contains(ActionVisualPitchState.OwnerAction))
+	{
+		return false;
+	}
+
+	FWeaponActionVisualPitchState NewState;
+	NewState.OwnerAction = ActionToken;
+	NewState.SourceMontageInstanceID = SourceMontageInstanceID;
+	NewState.LockedDirection = LockedDirection.GetSafeNormal();
+	NewState.TargetWeight = 1.0f;
+	NewState.BlendInSeconds = BlendInSeconds;
+	NewState.BlendOutSeconds = BlendOutSeconds;
+	NewState.StateRevision = NextActionVisualPitchRevision++;
+	if (NextActionVisualPitchRevision == 0)
+	{
+		NextActionVisualPitchRevision = 1;
+	}
+	NewState.bValid = true;
+	NewState.bReleasing = false;
+	ActionVisualPitchState = MoveTemp(NewState);
+	RecordActionVisualPitchTelemetryEvent(TEXT("Set"), ActionVisualPitchState);
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::ReleaseActionVisualPitch(
+	const FWeaponActionToken& ActionToken, const int32 SourceMontageInstanceID,
+	const EActionVisualPitchReleaseMode ReleaseMode)
+{
+	if (!ActionVisualPitchState.bValid
+		|| ActionVisualPitchState.OwnerAction != ActionToken
+		|| ActionVisualPitchState.SourceMontageInstanceID != SourceMontageInstanceID)
+	{
+		return false;
+	}
+
+	if (ReleaseMode == EActionVisualPitchReleaseMode::ImmediateReset)
+	{
+		ResetActionVisualPitchState();
+		return true;
+	}
+
+	if (ActionVisualPitchState.bReleasing)
+	{
+		return true;
+	}
+
+	ActionVisualPitchState.bReleasing = true;
+	ActionVisualPitchState.TargetWeight = 0.0f;
+	ActionVisualPitchState.StateRevision = NextActionVisualPitchRevision++;
+	if (NextActionVisualPitchRevision == 0)
+	{
+		NextActionVisualPitchRevision = 1;
+	}
+	RecordActionVisualPitchTelemetryEvent(TEXT("ReleaseBlend"), ActionVisualPitchState);
+	return true;
+}
+
+void UMHGZWeaponRuntimeHostComponent::GetActionVisualPitchState(
+	FWeaponActionVisualPitchState& OutState) const
+{
+	OutState = ActionVisualPitchState;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::AcknowledgeActionVisualPitchRetirement(
+	const uint64 ExpectedRevision)
+{
+	if (!ActionVisualPitchState.bValid || !ActionVisualPitchState.bReleasing
+		|| ExpectedRevision == 0
+		|| ActionVisualPitchState.StateRevision != ExpectedRevision)
+	{
+		return false;
+	}
+	ResetActionVisualPitchState();
+	return true;
+}
+
+void UMHGZWeaponRuntimeHostComponent::GetActionVisualPitchTelemetrySince(
+	uint64& InOutLastSerial,
+	TArray<FWeaponActionVisualPitchTelemetryEvent>& OutEvents) const
+{
+	OutEvents.Reset();
+	for (const FWeaponActionVisualPitchTelemetryEvent& Event : ActionVisualPitchTelemetryEvents)
+	{
+		if (Event.Serial > InOutLastSerial)
+		{
+			OutEvents.Add(Event);
+			InOutLastSerial = Event.Serial;
+		}
+	}
+}
+
+void UMHGZWeaponRuntimeHostComponent::RecordActionVisualPitchTelemetryEvent(
+	const FName EventName, const FWeaponActionVisualPitchState& State)
+{
+	FWeaponActionVisualPitchTelemetryEvent Event;
+	Event.Serial = NextActionVisualPitchTelemetrySerial++;
+	if (NextActionVisualPitchTelemetrySerial == 0)
+	{
+		NextActionVisualPitchTelemetrySerial = 1;
+	}
+	Event.Frame = GFrameCounter;
+	Event.WorldTimeSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	Event.EventName = EventName;
+	Event.OwnerAction = State.OwnerAction;
+	Event.SourceMontageInstanceID = State.SourceMontageInstanceID;
+	Event.LockedDirection = State.LockedDirection;
+	Event.TargetWeight = State.TargetWeight;
+	Event.BlendInSeconds = State.BlendInSeconds;
+	Event.BlendOutSeconds = State.BlendOutSeconds;
+	Event.StateRevision = State.StateRevision;
+	Event.bValid = State.bValid;
+	Event.bReleasing = State.bReleasing;
+	ActionVisualPitchTelemetryEvents.Add(MoveTemp(Event));
+	constexpr int32 MaxActionVisualPitchTelemetryEvents = 512;
+	if (ActionVisualPitchTelemetryEvents.Num() > MaxActionVisualPitchTelemetryEvents)
+	{
+		ActionVisualPitchTelemetryEvents.RemoveAt(0,
+			ActionVisualPitchTelemetryEvents.Num() - MaxActionVisualPitchTelemetryEvents,
+			EAllowShrinking::No);
+	}
+}
+
+void UMHGZWeaponRuntimeHostComponent::ResetActionVisualPitchState()
+{
+	if (ActionVisualPitchState.bValid)
+	{
+		RecordActionVisualPitchTelemetryEvent(TEXT("StateReset"), ActionVisualPitchState);
+	}
+	const uint64 Revision = NextActionVisualPitchRevision++;
+	if (NextActionVisualPitchRevision == 0)
+	{
+		NextActionVisualPitchRevision = 1;
+	}
+	ActionVisualPitchState = FWeaponActionVisualPitchState();
+	ActionVisualPitchState.StateRevision = Revision;
+}
+
 // ----------------------------------------------------------------------
 // Pawn 姿态
 // ----------------------------------------------------------------------
@@ -938,7 +1173,116 @@ bool UMHGZWeaponRuntimeHostComponent::SetGrounded(bool bInGrounded)
 	{
 		AcquireAerialFallingState();
 	}
+	else if (bPoseApplied && bInGrounded)
+	{
+		ClearAerialMovementSource();
+	}
 	return bPoseApplied;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::SetAerialMovementSource(
+	const FWeaponActionToken& SourceAction, const FGameplayTag& SourceTag)
+{
+	static const FGameplayTag SourceRoot = FGameplayTag::RequestGameplayTag(
+		TEXT("Combat.State.Aerial.Source"), false);
+	if (!bInitialized || bShuttingDown || bGrounded || bHandlingLanding
+		|| !IsTokenCurrent(SourceAction.RuntimeToken)
+		|| !SourceAction.IsValid() || !ActiveActions.Contains(SourceAction)
+		|| !SourceRoot.IsValid() || !SourceTag.IsValid()
+		|| SourceTag == SourceRoot || !SourceTag.MatchesTag(SourceRoot))
+	{
+		return false;
+	}
+
+	if (AerialMovementSourceTag == SourceTag
+		&& TagLedger.IsActive(AerialMovementSourceToken))
+	{
+		return true;
+	}
+
+	// Publish the new logical source before AddLooseGameplayTag broadcasts tag-change
+	// delegates. Those delegates are synchronous and may re-enter this Host (or land,
+	// supersede, or tear down the runtime). The revision below prevents this outer call
+	// from overwriting a newer nested decision when the delegate stack unwinds.
+	const FWeaponOwnedTagToken PreviousToken = AerialMovementSourceToken;
+	const FGameplayTag PreviousTag = AerialMovementSourceTag;
+	AdvanceAerialMovementSourceRevision();
+	const uint64 RequestRevision = AerialMovementSourceRevision;
+	AerialMovementSourceToken = FWeaponOwnedTagToken();
+	AerialMovementSourceTag = SourceTag;
+
+	FGameplayTagContainer Tags;
+	Tags.AddTag(SourceTag);
+	const FWeaponOwnedTagToken NewToken = AcquireTags(EWeaponTagOwnerKind::Pose,
+		SourceAction.AbilityHandle, SourceAction.ActivationSequenceID,
+		TEXT("Pose.AerialMovementSource"), Tags);
+	if (!NewToken.IsValid())
+	{
+		if (AerialMovementSourceRevision == RequestRevision)
+		{
+			if (TagLedger.IsActive(PreviousToken))
+			{
+				AerialMovementSourceToken = PreviousToken;
+				AerialMovementSourceTag = PreviousTag;
+			}
+			else
+			{
+				AerialMovementSourceToken = FWeaponOwnedTagToken();
+				AerialMovementSourceTag = FGameplayTag();
+			}
+		}
+		else if (PreviousToken.IsValid())
+		{
+			// A nested call took ownership while the new tag was being published. The
+			// nested call could not see this locally held token, so this frame retires it.
+			ReleaseTags(PreviousToken);
+		}
+		return false;
+	}
+
+	if (AerialMovementSourceRevision != RequestRevision
+		|| !bInitialized || bShuttingDown
+		|| !IsTokenCurrent(SourceAction.RuntimeToken))
+	{
+		// A synchronous tag callback superseded or cleared this source. Never let the
+		// older stack frame reclaim it or strand its prior ledger entry.
+		ReleaseTags(NewToken);
+		if (PreviousToken.IsValid())
+		{
+			ReleaseTags(PreviousToken);
+		}
+		return false;
+	}
+
+	AerialMovementSourceToken = NewToken;
+	if (PreviousToken.IsValid())
+	{
+		ReleaseTags(PreviousToken);
+	}
+	return AerialMovementSourceRevision == RequestRevision
+		&& AerialMovementSourceTag == SourceTag
+		&& TagLedger.IsActive(AerialMovementSourceToken);
+}
+
+void UMHGZWeaponRuntimeHostComponent::ClearAerialMovementSource()
+{
+	const FWeaponOwnedTagToken PreviousToken = AerialMovementSourceToken;
+	AdvanceAerialMovementSourceRevision();
+	AerialMovementSourceToken = FWeaponOwnedTagToken();
+	AerialMovementSourceTag = FGameplayTag();
+	if (PreviousToken.IsValid())
+	{
+		ReleaseTags(PreviousToken);
+	}
+}
+
+void UMHGZWeaponRuntimeHostComponent::AdvanceAerialMovementSourceRevision()
+{
+	++AerialMovementSourceRevision;
+	if (AerialMovementSourceRevision == 0)
+	{
+		++AerialMovementSourceRevision;
+	}
 }
 
 bool UMHGZWeaponRuntimeHostComponent::SetSheathed(bool bInSheathed)
@@ -951,12 +1295,18 @@ bool UMHGZWeaponRuntimeHostComponent::SetSheathed(bool bInSheathed)
 	return ApplySheathedPose(bInSheathed);
 }
 
-void UMHGZWeaponRuntimeHostComponent::HandleLanded()
+void UMHGZWeaponRuntimeHostComponent::HandleLanded(
+	const bool bPlaySystemLandingPresentation)
 {
-	if (!bInitialized || bShuttingDown)
+	if (!bInitialized || bShuttingDown || bHandlingLanding)
 	{
 		return;
 	}
+	// Tag removal below broadcasts synchronously. Keep source publication closed for
+	// the whole landing transaction so a listener cannot republish an airborne source
+	// after ClearAerialMovementSource() has retired the prior token.
+	bHandlingLanding = true;
+	ClearAerialMovementSource();
 	ACharacter* Character = CurrentContext.Character.Get();
 	RecordAerialMovementPhase(Character, TEXT("Host.HandleLanded.Pre"));
 
@@ -969,11 +1319,22 @@ void UMHGZWeaponRuntimeHostComponent::HandleLanded()
 	const bool bHadSystemOwnedFreeFall = ActiveAerialFallingMontage.IsValid();
 	RestoreAerialFallingPhysics();
 	StopAerialFallingVisual(0.05f);
-	if (bHadSystemOwnedFreeFall)
+	if (bHadSystemOwnedFreeFall && bPlaySystemLandingPresentation)
 	{
 		PlayAerialLandingVisual();
 	}
-	RecordAerialMovementPhase(Character, TEXT("Host.HandleLanded.PostLandingPresentation"));
+	else if (bHadSystemOwnedFreeFall)
+	{
+		// The landing action owns both its pose and displacement. Do not invoke
+		// PlayAerialLandingVisual here: it installs the generic montage and resets
+		// horizontal speed, which would compete with that action's root motion.
+		RecordAerialMovementPhase(Character,
+			TEXT("Host.HandleLanded.CustomLandingPresentation"));
+	}
+	else
+	{
+		RecordAerialMovementPhase(Character, TEXT("Host.HandleLanded.PostLandingPresentation"));
+	}
 
 	// 仅释放 Host 自身持有的空中姿态 Token；禁止按 Tag 扫描其他所有者。
 	ReleasePoseToken(PoseTokens.AerialFalling);
@@ -992,14 +1353,16 @@ void UMHGZWeaponRuntimeHostComponent::HandleLanded()
 		IGResource->ClearDanceStacks(EIGDanceClearReason::Landed);
 	}
 	RecordAerialMovementPhase(Character, TEXT("Host.HandleLanded.Post"));
+	bHandlingLanding = false;
 }
 
 bool UMHGZWeaponRuntimeHostComponent::BeginAerialFalling(const bool bEnhancedVariant,
-	FGameplayTag StyleTag, UAnimMontage* MontageOverride)
+	FGameplayTag StyleTag, UAnimMontage* MontageOverride, const bool bPreservePhysicsProfile)
 {
 	RecordAerialMovementPhase(CurrentContext.Character.Get(),
 		TEXT("Host.BeginAerialFalling.Pre"));
-	if (!bInitialized || bShuttingDown || bGrounded)
+	if (!bInitialized || bShuttingDown || bGrounded
+		|| (bPreservePhysicsProfile && !bAerialFallingPhysicsOverridden))
 	{
 		return false;
 	}
@@ -1015,7 +1378,10 @@ bool UMHGZWeaponRuntimeHostComponent::BeginAerialFalling(const bool bEnhancedVar
 		return false;
 	}
 
-	ApplyAerialFallingPhysics(bEnhancedVariant);
+	if (!bPreservePhysicsProfile)
+	{
+		ApplyAerialFallingPhysics(bEnhancedVariant);
+	}
 	RecordAerialMovementPhase(Character, TEXT("Host.BeginAerialFalling.PostPhysics"));
 	StopAerialFallingVisual(0.0f);
 	RecordAerialMovementPhase(Character, TEXT("Host.BeginAerialFalling.PostStopOldVisual"));
@@ -1138,11 +1504,14 @@ void UMHGZWeaponRuntimeHostComponent::InitializePoseState(ACharacter* InCharacte
 {
 	bWeaponVisualAttachmentWarningIssued = false;
 	PoseTokens = FPoseTokens();
+	AerialMovementSourceToken = FWeaponOwnedTagToken();
+	AerialMovementSourceTag = FGameplayTag();
 	ActiveAerialFallingMontage = nullptr;
 	ActiveAerialLandingMontage = nullptr;
 	bAerialFallingRootMotionDisabledByHost = false;
 	bAerialLandingRootMotionDisabledByHost = false;
 	bAerialFallingPhysicsOverridden = false;
+	ClearAerialPlanarAcceleration();
 
 	const bool bInGrounded = InCharacter && InCharacter->GetCharacterMovement()
 		? InCharacter->GetCharacterMovement()->IsMovingOnGround()
@@ -1213,6 +1582,7 @@ bool UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingProfile(const bool bEnha
 	{
 		return false;
 	}
+	ClearAerialPlanarAcceleration();
 	ACharacter* Character = CurrentContext.Character.Get();
 	UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
 	UWeaponCombatConfigBase* CombatConfig = CurrentContext.CombatConfig.Get();
@@ -1221,7 +1591,7 @@ bool UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingProfile(const bool bEnha
 		return false;
 	}
 
-	// 写只有 ApplyAerialFallingPhysics 一个来源（含「原值只存一次」的语义），
+	// 普通档位经 ApplyAerialFallingPhysics 写入（与专用档位共用「原值只存一次」），
 	// 这里只多做一次回读：调用方据此**硬失败**，而不是等反算出来的弧长成 2.4 倍。
 	float ExpectedGravityScale = 1.0f;
 	float ExpectedBraking = 0.0f;
@@ -1232,6 +1602,78 @@ bool UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingProfile(const bool bEnha
 	}
 	ApplyAerialFallingPhysics(bEnhancedVariant);
 	return FMath::IsNearlyEqual(CMC->GravityScale, ExpectedGravityScale);
+}
+
+bool UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingPhysicsOverride(
+	const FWeaponActionToken& Owner, const float GravityMagnitude, const float Braking,
+	const FVector PlanarAcceleration)
+{
+	if (!bInitialized || bShuttingDown || !Owner.IsValid()
+		|| !IsTokenCurrent(Owner.RuntimeToken) || !ActiveActions.Contains(Owner)
+		|| !FMath::IsFinite(GravityMagnitude) || GravityMagnitude <= 0.0f
+		|| !FMath::IsFinite(Braking) || Braking < 0.0f
+		|| !FMath::IsFinite(PlanarAcceleration.X)
+		|| !FMath::IsFinite(PlanarAcceleration.Y)
+		|| !FMath::IsFinite(PlanarAcceleration.Z) || PlanarAcceleration.Z != 0.0)
+	{
+		return false;
+	}
+
+	ACharacter* Character = CurrentContext.Character.Get();
+	UMHGZAbilitySystemComponent* ASC = CurrentContext.ASC.Get();
+	UMHGZInstrumentedCharacterMovementComponent* CMC = Character
+		? Cast<UMHGZInstrumentedCharacterMovementComponent>(Character->GetCharacterMovement())
+		: nullptr;
+	UWorld* World = Character ? Character->GetWorld() : nullptr;
+	if (!IsValid(Character) || GetOwner() != Character || !ASC
+		|| ASC->GetAvatarActor() != Character || !CMC || !CMC->HasValidData()
+		|| CMC->GetCharacterOwner() != Character || !World)
+	{
+		return false;
+	}
+
+	// GetGravityZ on the CMC already includes its active GravityScale. Reapplying
+	// a profile must resolve against the unscaled world value, not the old profile.
+	const float WorldGravityMagnitude = FMath::Abs(World->GetGravityZ());
+	if (!FMath::IsFinite(WorldGravityMagnitude) || WorldGravityMagnitude <= SMALL_NUMBER)
+	{
+		return false;
+	}
+	const float GravityScale = GravityMagnitude / WorldGravityMagnitude;
+	if (!FMath::IsFinite(GravityScale) || GravityScale <= 0.0f)
+	{
+		return false;
+	}
+
+	CaptureAerialFallingPhysics(*CMC);
+	CMC->GravityScale = GravityScale;
+	CMC->BrakingDecelerationFalling = Braking;
+	CMC->FallingLateralFriction = 0.0f;
+	CMC->SetAerialPlanarAcceleration(PlanarAcceleration);
+	AerialFallingPhysicsOwner = Owner;
+	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::ClearAerialPlanarAccelerationForAction(
+	const FWeaponActionToken& Owner)
+{
+	if (!Owner.IsValid() || AerialFallingPhysicsOwner != Owner
+		|| !IsTokenCurrent(Owner.RuntimeToken))
+	{
+		return false;
+	}
+
+	ACharacter* Character = CurrentContext.Character.Get();
+	UMHGZInstrumentedCharacterMovementComponent* CMC = Character
+		? Cast<UMHGZInstrumentedCharacterMovementComponent>(Character->GetCharacterMovement())
+		: nullptr;
+	if (!CMC || CMC->GetCharacterOwner() != Character)
+	{
+		return false;
+	}
+
+	CMC->SetAerialPlanarAcceleration(FVector::ZeroVector);
+	return true;
 }
 
 bool UMHGZWeaponRuntimeHostComponent::MarkAerialDodgeUsed()
@@ -1250,6 +1692,44 @@ bool UMHGZWeaponRuntimeHostComponent::MarkAerialDodgeUsed()
 	PoseTokens.AerialCantDodge = AcquireTags(EWeaponTagOwnerKind::Pose,
 		FGameplayAbilitySpecHandle(), 0, TEXT("Pose.AerialCantDodge"), Tags);
 	return PoseTokens.AerialCantDodge.IsValid();
+}
+
+bool UMHGZWeaponRuntimeHostComponent::MarkAerialAttackUsed()
+{
+	if (!bInitialized || bShuttingDown)
+	{
+		return false;
+	}
+	if (PoseTokens.AerialCantAttack.IsValid())
+	{
+		return true;
+	}
+
+	FGameplayTagContainer Tags;
+	Tags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.CantAttack")));
+	PoseTokens.AerialCantAttack = AcquireTags(EWeaponTagOwnerKind::Pose,
+		FGameplayAbilitySpecHandle(), 0, TEXT("Pose.AerialCantAttack"), Tags);
+	return PoseTokens.AerialCantAttack.IsValid();
+}
+
+bool UMHGZWeaponRuntimeHostComponent::ResetAerialActionBudgetOnDance()
+{
+	if (!bInitialized || bShuttingDown)
+	{
+		return false;
+	}
+	// Release only the Host-owned pose slots. Never scan/remove loose tags that
+	// may belong to another ability or system.
+	// Tag removals synchronously broadcast. Clear BOTH slots first so a listener
+	// may spend a fresh budget without seeing a retired token or having that new
+	// token accidentally released by the second half of this reset.
+	const FWeaponOwnedTagToken Attack = PoseTokens.AerialCantAttack;
+	const FWeaponOwnedTagToken Dodge = PoseTokens.AerialCantDodge;
+	PoseTokens.AerialCantAttack = FWeaponOwnedTagToken();
+	PoseTokens.AerialCantDodge = FWeaponOwnedTagToken();
+	if (Attack.IsValid()) { TagLedger.Release(Attack); }
+	if (Dodge.IsValid()) { TagLedger.Release(Dodge); }
+	return true;
 }
 
 bool UMHGZWeaponRuntimeHostComponent::AcquireAerialFallingState()
@@ -1273,6 +1753,7 @@ void UMHGZWeaponRuntimeHostComponent::ReleaseAerialFallingState()
 	// 新动作的 lead 由此开始锁（起播→IG_AerialHandoff）。刻意**不** Restore 物理：
 	// 接管者自己的 profile 会覆写，而空回的 ApplyAerialFallingProfile 必须在建弹道源
 	// 之前写好 2.42g —— 先 Restore 会把源时长/顶点反算打回 1.0g。
+	ClearAerialPlanarAcceleration();
 	StopAerialFallingVisual(0.05f);
 	ReleasePoseToken(PoseTokens.AerialFalling);
 	// 看门狗只属于托管下落段。Invalidate 只丢句柄不撤定时器 —— 必须 ClearTimer，
@@ -1287,6 +1768,7 @@ void UMHGZWeaponRuntimeHostComponent::ReleaseAerialFallingState()
 
 void UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingPhysics(const bool bEnhancedVariant)
 {
+	ClearAerialPlanarAcceleration();
 	ACharacter* Character = CurrentContext.Character.Get();
 	UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
 	UWeaponCombatConfigBase* CombatConfig = CurrentContext.CombatConfig.Get();
@@ -1303,14 +1785,35 @@ void UMHGZWeaponRuntimeHostComponent::ApplyAerialFallingPhysics(const bool bEnha
 		return;
 	}
 
-	if (!bAerialFallingPhysicsOverridden)
-	{
-		SavedGravityScale = CMC->GravityScale;
-		SavedBrakingDecelerationFalling = CMC->BrakingDecelerationFalling;
-		bAerialFallingPhysicsOverridden = true;
-	}
+	CaptureAerialFallingPhysics(*CMC);
 	CMC->GravityScale = GravityScale;
 	CMC->BrakingDecelerationFalling = BrakingDeceleration;
+	// Ordinary profiles never opted into the specialized friction override.
+	CMC->FallingLateralFriction = SavedFallingLateralFriction;
+}
+
+void UMHGZWeaponRuntimeHostComponent::CaptureAerialFallingPhysics(
+	UCharacterMovementComponent& CMC)
+{
+	if (!bAerialFallingPhysicsOverridden)
+	{
+		SavedGravityScale = CMC.GravityScale;
+		SavedBrakingDecelerationFalling = CMC.BrakingDecelerationFalling;
+		SavedFallingLateralFriction = CMC.FallingLateralFriction;
+		bAerialFallingPhysicsOverridden = true;
+	}
+}
+
+void UMHGZWeaponRuntimeHostComponent::ClearAerialPlanarAcceleration()
+{
+	ACharacter* Character = CurrentContext.Character.Get();
+	if (UMHGZInstrumentedCharacterMovementComponent* CMC = Character
+		? Cast<UMHGZInstrumentedCharacterMovementComponent>(Character->GetCharacterMovement())
+		: nullptr)
+	{
+		CMC->SetAerialPlanarAcceleration(FVector::ZeroVector);
+	}
+	AerialFallingPhysicsOwner = FWeaponActionToken();
 }
 
 void UMHGZWeaponRuntimeHostComponent::RestoreAerialFallingPhysics()
@@ -1325,6 +1828,7 @@ void UMHGZWeaponRuntimeHostComponent::RestoreAerialFallingPhysics()
 	}
 	AerialFallingWatchdogTimer.Invalidate();
 	AerialFallingStartedAtSeconds = 0.0;
+	ClearAerialPlanarAcceleration();
 
 	if (!bAerialFallingPhysicsOverridden)
 	{
@@ -1336,6 +1840,7 @@ void UMHGZWeaponRuntimeHostComponent::RestoreAerialFallingPhysics()
 		{
 			CMC->GravityScale = SavedGravityScale;
 			CMC->BrakingDecelerationFalling = SavedBrakingDecelerationFalling;
+			CMC->FallingLateralFriction = SavedFallingLateralFriction;
 		}
 	}
 	bAerialFallingPhysicsOverridden = false;

@@ -66,9 +66,12 @@ void AKinsect::Tick(float DeltaTime)
 		return;
 	}
 
-	// 飞行/返回期间每帧核对 Runtime Token；资源失效则安全停住
+	// 飞行沿用已提交请求身份；返回使用独立 Runtime 身份，因为动作租约
+	// 可能已释放，而最初附着的猎虫也可能从未拥有 ActiveRequest。
+	const FWeaponRuntimeToken& TickRuntimeToken = State == EKinsectState::Returning
+		? ReturnRuntimeToken : ActiveRequest.RuntimeToken;
 	if (!ResourceComponent.IsValid() ||
-		!ResourceComponent->IsRuntimeRequestCurrent(ActiveRequest.RuntimeToken))
+		!ResourceComponent->IsRuntimeRequestCurrent(TickRuntimeToken))
 	{
 		Interrupt();
 		return;
@@ -159,7 +162,7 @@ bool AKinsect::IsFlightRequestValid(const FKinsectFlightRequest& Request) const
 bool AKinsect::BeginFlight(const FKinsectFlightRequest& Request)
 {
 	// 完整校验，全部通过后才提交，保证原子性
-	if (!IsFlightRequestValid(Request))
+	if (State == EKinsectState::ActionAttached || !IsFlightRequestValid(Request))
 	{
 		return false;
 	}
@@ -194,6 +197,7 @@ bool AKinsect::BeginFlight(const FKinsectFlightRequest& Request)
 	Collision->EnableKinsectCollision();
 
 	ActiveRequest = Request;
+	ReturnRuntimeToken = FWeaponRuntimeToken();
 	FlightStartLocation = GetActorLocation();
 	LastTickLocation = GetActorLocation();
 	PendingWorldHit.Reset();
@@ -205,7 +209,7 @@ bool AKinsect::BeginFlight(const FKinsectFlightRequest& Request)
 
 void AKinsect::Interrupt()
 {
-	if (State == EKinsectState::Attached)
+	if (State == EKinsectState::Attached || State == EKinsectState::ActionAttached)
 	{
 		return;
 	}
@@ -225,9 +229,22 @@ void AKinsect::Interrupt()
 
 void AKinsect::StartReturn()
 {
-	if (State == EKinsectState::Attached || State == EKinsectState::Returning)
+	if (State == EKinsectState::Attached || State == EKinsectState::ActionAttached
+		|| State == EKinsectState::Returning)
 	{
 		return; // 幂等
+	}
+	ReturnRuntimeToken = ActiveRequest.RuntimeToken;
+	ReturnArrivalRadius = ActiveRequest.ArrivalRadius > 0.f
+		? ActiveRequest.ArrivalRadius : RETURN_ARRIVAL_DISTANCE;
+	StartReturnInternal();
+}
+
+void AKinsect::StartReturnInternal()
+{
+	if (State == EKinsectState::Returning)
+	{
+		return;
 	}
 
 	const float ReturnSpeed = KinsectData ? KinsectData->ReturnSpeed : FALLBACK_RETURN_SPEED;
@@ -238,6 +255,7 @@ void AKinsect::StartReturn()
 	}
 
 	State = EKinsectState::Returning;
+	SetFlightVisualFacing(true);
 	// 返回不再参与攻击或世界阻挡；否则被墙截停后将永远无法交付 Pending 精华。
 	if (Collision)
 	{
@@ -257,12 +275,24 @@ void AKinsect::StartReturn()
 		return;
 	}
 	const FVector ToTarget = SocketLocation - GetActorLocation();
-	const float ReturnArrivalRadius = ActiveRequest.ArrivalRadius > 0.f
-		? ActiveRequest.ArrivalRadius : RETURN_ARRIVAL_DISTANCE;
 	if (ToTarget.Size() > ReturnArrivalRadius && !ArmMovement(ToTarget, ReturnSpeed))
 	{
 		StopAndHover();
 	}
+}
+
+void AKinsect::ForceRecall()
+{
+	if (State == EKinsectState::ActionAttached)
+	{
+		if (ResourceComponent.IsValid())
+		{
+			ResourceComponent->EndKinsectActionAttachmentAndReturn(
+				ActionAttachmentToken);
+		}
+		return;
+	}
+	StartReturn();
 }
 
 void AKinsect::AttachToPlayer(USceneComponent* InAttachComponent, FName InSocketName)
@@ -270,6 +300,7 @@ void AKinsect::AttachToPlayer(USceneComponent* InAttachComponent, FName InSocket
 	if (Mesh && !bHasAttachedMeshRelativeRotation)
 	{
 		AttachedMeshRelativeRotation = Mesh->GetRelativeRotation();
+		AttachedMeshRelativeScale = Mesh->GetRelativeScale3D();
 		bHasAttachedMeshRelativeRotation = true;
 	}
 
@@ -288,11 +319,82 @@ void AKinsect::AttachToPlayer(USceneComponent* InAttachComponent, FName InSocket
 	Movement->Deactivate();
 	PendingWorldHit.Reset();
 	State = EKinsectState::Attached;
+	ActionAttachmentToken = FWeaponActionToken();
+	ReturnRuntimeToken = FWeaponRuntimeToken();
+	ReturnArrivalRadius = RETURN_ARRIVAL_DISTANCE;
 
 	if (Collision)
 	{
 		Collision->DisableKinsectCollision();
 	}
+}
+
+bool AKinsect::BeginActionAttachment(const FWeaponActionToken& ActionToken,
+	USkeletalMeshComponent* WeaponMesh, const FName SocketName)
+{
+	if (!ActionToken.IsValid() || !ResourceComponent.IsValid()
+		|| !ResourceComponent->IsRuntimeRequestCurrent(ActionToken.RuntimeToken)
+		|| !WeaponMesh || SocketName.IsNone() || !WeaponMesh->DoesSocketExist(SocketName)
+		|| !Collision || !Movement || State == EKinsectState::ActionAttached)
+	{
+		return false;
+	}
+
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Movement->StopMovementImmediately();
+	Movement->Deactivate();
+	if (Movement->UpdatedComponent != Collision)
+	{
+		Movement->SetUpdatedComponent(Collision);
+	}
+	Collision->DisableKinsectCollision();
+	PendingWorldHit.Reset();
+	HitzoneHitTimers.Reset();
+	bHasDealtDamage = false;
+	SetFlightVisualFacing(false);
+
+	if (!bHasAttachedMeshRelativeRotation && Mesh)
+	{
+		AttachedMeshRelativeRotation = Mesh->GetRelativeRotation();
+		AttachedMeshRelativeScale = Mesh->GetRelativeScale3D();
+		bHasAttachedMeshRelativeRotation = true;
+	}
+	AttachToComponent(WeaponMesh,
+		FAttachmentTransformRules::SnapToTargetIncludingScale, SocketName);
+	ActionAttachmentToken = ActionToken;
+	ReturnRuntimeToken = FWeaponRuntimeToken();
+	State = EKinsectState::ActionAttached;
+	return true;
+}
+
+bool AKinsect::EndActionAttachmentAndReturn(
+	const FWeaponActionToken& ActionToken,
+	const FWeaponRuntimeToken& RuntimeToken,
+	const float ArrivalRadius)
+{
+	if (!IsActionAttachmentOwnedBy(ActionToken) || !ResourceComponent.IsValid()
+		|| !RuntimeToken.IsValid()
+		|| RuntimeToken != ActionToken.RuntimeToken
+		|| !ResourceComponent->IsRuntimeRequestCurrent(RuntimeToken)
+		|| !FMath::IsFinite(ArrivalRadius) || ArrivalRadius <= 0.0f)
+	{
+		return false;
+	}
+
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	ActionAttachmentToken = FWeaponActionToken();
+	ReturnRuntimeToken = RuntimeToken;
+	ReturnArrivalRadius = ArrivalRadius;
+	State = EKinsectState::Hovering;
+	StartReturnInternal();
+	return State == EKinsectState::Returning || State == EKinsectState::Attached;
+}
+
+bool AKinsect::IsActionAttachmentOwnedBy(
+	const FWeaponActionToken& ActionToken) const
+{
+	return State == EKinsectState::ActionAttached
+		&& ActionAttachmentToken.IsValid() && ActionAttachmentToken == ActionToken;
 }
 
 FGameplayTag AKinsect::TakePendingExtractColor()
@@ -547,6 +649,7 @@ void AKinsect::SetFlightVisualFacing(bool bInFlight)
 		if (bHasAttachedMeshRelativeRotation)
 		{
 			Mesh->SetRelativeRotation(AttachedMeshRelativeRotation);
+			Mesh->SetRelativeScale3D(AttachedMeshRelativeScale);
 		}
 		return;
 	}
@@ -571,8 +674,6 @@ void AKinsect::TickReturn()
 	const FVector ToTarget = SocketLocation - GetActorLocation();
 	const float Distance = ToTarget.Size();
 
-	const float ReturnArrivalRadius = ActiveRequest.ArrivalRadius > 0.f
-		? ActiveRequest.ArrivalRadius : RETURN_ARRIVAL_DISTANCE;
 	if (Distance <= ReturnArrivalRadius)
 	{
 		if (!ResourceComponent.IsValid())

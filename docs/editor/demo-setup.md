@@ -351,11 +351,11 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 | LTB | B | LT | Kinsect | 地面召回；空中操虫斩 |
 | LTRT | RT | LT | Kinsect | 虫印弹；`RequiredContextTags={Combat.State.Unsheathed, Combat.State.Grounded}`；LT/RT 任意顺序均可成立 |
 | RTY | Y | RT | Action | 猎虫滑翔 |
-| LTYB | Y+B | LT | None | 地面粉尘集约；空中降龙 |
+| LTYB | Y+B | LT | None | 仅地面粉尘集约；空中降龙已移出 Demo，不配置对应 Combo 边 |
 | RTYB | Y+B | RT | Action | 觉虫击 |
-| RT（`Input.Weapon.RT`，收刀地面） | RT | — | None | 拔刀直飞；`RequiredContextTags={Combat.State.Sheathed, Combat.State.Grounded}`，`DispatchPolicy=OnPress`，`ReleaseControlTag=RT` |
-| RT（`Input.Weapon.RT`，持刀地面） | RT | — | None | E4.3/M4.7 时配置虫印斩；`RequiredContextTags={Combat.State.Unsheathed, Combat.State.Grounded}`，`DispatchPolicy=OnReleaseIfUnconsumed`，`ReleaseControlTag` 留空 |
-| RT（`Input.Weapon.RT`，空中） | RT | — | None | M5 接入急袭突刺；`RequiredContextTags={Combat.State.Aerial}`，不要求 Sheathed/Unsheathed，`DispatchPolicy=OnPress` |
+| RT（`Input.Weapon.RT`，收刀地面） | RT | — | None | 拔刀直飞；`RequiredContextTags={Combat.State.Sheathed, Combat.State.Grounded}`，`DispatchPolicy=OnPressAfterChordGrace`，该 Chord 的 `ChordGracePeriodOverrideSeconds=0.05`，`ReleaseControlTag` 留空 |
+| RT（`Input.Weapon.RT`，持刀地面） | RT | — | None | 虫印斩；`RequiredContextTags={Combat.State.Unsheathed, Combat.State.Grounded}`，`DispatchPolicy=OnReleaseWithinMaxDurationIfUnconsumed`，`MaxPressDurationSeconds=0.25`，`ReleaseControlTag` 留空；超过短按时长松开不派发 |
+| RT（`Input.Weapon.RT`，空中） | RT | — | None | 急袭突刺；`RequiredContextTags={Combat.State.Aerial}`，不要求 Sheathed/Unsheathed，`DispatchPolicy=OnPressAfterChordGrace`，该 Chord 的 `ChordGracePeriodOverrideSeconds=0.05` |
 | Sheathe（`Input.Sheathe`） | RB（`Input.Modifier.Sheathed`） | — | None | 纳刀：`RequiredContextTags={Combat.State.Unsheathed, Combat.State.Grounded}`；通用路由（同 `Input.Dodge`）按 InputTag 激活 `GA_Sheathe`，不进入 ComboData；`ReleaseControlTag=RB`；持刀地面按下立即触发 |
 
 设置：
@@ -363,7 +363,7 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 - `bRequireExactModifiers=true`。
 - TriggerControls 必须在 ChordGracePeriod 内；LT/RT 可预先持有或在等待期内最后补齐。
 - DirectionInputThreshold、ForwardConeHalfAngle 和 ChordGracePeriod 使用一个明确 Demo 初值，并保留为 DataAsset 可调参数。
-- `RequiredContextTags/BlockedContextTags` 在 Chord 派发瞬间读取当前 RuntimeHost/ASC 姿态。收刀 RT 必须限定 `Sheathed+Grounded` 且 `OnPress`；E4.3/M4.7 的持刀 RT 必须限定 `Unsheathed+Grounded` 且 `OnReleaseIfUnconsumed`；空中 RT 仅限定 `Aerial` 且 `OnPress`。三条 Chord 的 ContextTags 互斥。`Input.Sheathe` 同样必须限定 `Unsheathed+Grounded`：空中没有收刀 Chord。LTRT 仍限定 `Unsheathed+Grounded`；这样收刀 RT 不等待 LT+RT 的 GracePeriod，而持刀态 RT 可作为 modifier 等待 LT 或 A/B/Y 组成获胜组合。
+- `RequiredContextTags/BlockedContextTags` 在 Chord 派发瞬间读取当前 RuntimeHost/ASC 姿态。RT 的单键路线按各自 `ChordGracePeriodOverrideSeconds=0.05` 等待组合窗口；所有含物理 RT 的组合也设置同一 override，其他组合仍继承 InputProfile 全局宽限期。虫印斩仅在持刀地面、RT 未被获胜组合消费且按住不超过 `0.25s` 后松开时派发；长按松开不触发虫印斩。收刀地面/空中 RT 在 0.05 秒到期后优先发单键；若此后仍按住 RT 再按 Y/B，允许组合再派发一次。若希望本次 RT 只触发组合，Y/B 必须在这 0.05 秒内开始。三条 RT 路线的 ContextTags 互斥。`Input.Sheathe` 同样必须限定 `Unsheathed+Grounded`：空中没有收刀 Chord。LTRT 仍限定 `Unsheathed+Grounded`。
 - 角色面向画面左时，摇杆左必须解析为 Forward。
 - Sheathe 是唯一通用路由输出（同 `Input.Dodge` 按 InputTag 激活 `GA_Sheathe`），不是武器连招输入；Chord 本身要求 `Unsheathed+Grounded`，持刀地面按下立即触发。空中不得产生 Sheathe 快照，空中收刀属于 M5 空中动作范围而不是本 Demo 的隐式兜底；攻击/硬直等再由 `GA_Sheathe` 的原生激活检查拒绝。收刀态不产生 Sheathe 快照，只由 Character 的 `SprintPressed` 分流为奔跑（0.1s 阈值）。
 
@@ -379,7 +379,7 @@ M2 增加了原生组件并删除旧 DataTable/攻击兼容读取。开始删资
 4. 配置精华持续时间、红/白/橙/三灯数值 Buff；这些数值只在此资产维护。
 5. 配置 `MaxDanceStacks` 和逐层伤害倍率数组；数组长度必须覆盖 0～最大层。
 6. 猎虫品种数值（飞行速度、最大距离、RT 直飞距离、耐力池/回复/悬停与飞行耗耐、基础攻击力，以及 M3 新增的召回速度）在 `DA_IG_Kinsect_Speed`（UInsectGlaiveKinsectData）维护；`DA_IG_Combat` 只保留猎虫到达半径这一附着判定常量。
-7. 配置四连/回旋、滑翔、操虫斩、穿刺、跳跃斩、急袭突刺、降龙、觉虫击的位移/修正角度参数。
+7. 配置四连/回旋、滑翔、操虫斩、穿刺、急袭突刺、觉虫击的位移/修正角度参数。
 8. 觉虫击修正角固定支持正前方上下左右 ±60°，猎人飞行距离另设上限。
 9. 引用唯一 Demo 猎虫品种（`DA_IG_Kinsect_Speed`；品种资产只含外观/速度/耐力等品种数值，不写武器机制），并配置虫印弹/粉尘 Class 和粉尘参数。
 10. 指定萃取成功、三灯激活/到期、猎虫耐力归零等资源音效；没有正式资源时可用明确命名的临时音效，但不能留空后再用硬编码路径加载。M3 已在 `DA_IG_Combat` 暴露并接通 `ExtractCollectedSound`、`TripleUpActivatedSound`、`TripleUpExpiredSound`、`KinsectDepletedSound`；E4 创建 `Tmp_SFX_*` 临时音效后回填四个槽位。
@@ -396,8 +396,8 @@ E3 只建立空壳并把它接到 `DA_IG_Combat`；E4 创建最终 GA/Montage �
 3. 四连印斩可从 Idle 起手，也可在窗口内从飞圆斩以外地面动作派生；结束进入 `StarterOnly`。
 4. Forward+YB 的突进回旋斩 Priority 高于普通 YB；未反击时同样进入 `StarterOnly`。
 5. `StarterOnly` 只允许突刺、上捞斩、横扫、飞身跃入斩四个起手。
-6. 粉尘集约、虫印、滑翔、觉虫击、操虫斩、穿刺、急袭突刺和降龙按地面/空中状态分别配置。
-7. 急袭突刺、降龙使用 AbilityOwned Landing；其他空中动作默认 ResetToIdle。
+6. 粉尘集约、虫印、滑翔、觉虫击、操虫斩、穿刺、急袭突刺按地面/空中状态分别配置。
+7. 急袭突刺及已实现的强化操虫穿刺使用 AbilityOwned Landing；其他动作按各自冻结合同，不为已取消的强化跳跃斩/降龙配置资产。
 8. 自动边 InputTag 为空并按确定 TransitionID 触发；StateOnly 不填写 AbilityClass。
 9. 不建立跳跃突进斩（电风扇）转移。
 
@@ -472,7 +472,7 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 1. 打开 `DA_WeaponRuntime_IG`，确认 `WeaponTypeTag=Weapon.InsectGlaive`、`ResourceComponentClass=URes_InsectGlaive`、`InputProfile=DA_IG_InputProfile`、`CombatConfig=DA_IG_Combat`；`ResourceWidgetClass` 必须是 `None`。保存。这里 `Resource` 有值而 Widget 为 `None` 是当前正确状态，不得创建空 Widget。
 2. 逐个打开并 Compile/Save：`GA_Sheathe`、`GA_Dodge`、`GA_IG_Draw`、`GA_IG_DrawSlash`、`GA_IG_DrawAndSendKinsect`、`GA_IG_SendKinsect`、`GA_IG_RecallKinsect`、`BP_PlayerState` 和 `ABP_MH_Character`。Message Log 不得有 Missing Class、Unknown Property、失效 Pin 或编译 Error。`GA_Sheathe`、`GA_Dodge` 只在 `BP_PlayerState.MHGZAbilitySystemComponent.CoreAbilities` 各出现一次；其余虫棍 GA 只由 `DA_IG_Combo` 的 Transition 授予。
 3. 逐个保存 Montage：`AM_IG_SendKinsect` 使用 `IGActionGroup.UpperBody_IGAction`、in-place、无 Root Motion，且 `Draw Commit` 早于 `Kinsect Send Commit` 至少一帧；`AM_IG_RecallKinsect` 同 Slot、in-place、无 Root Motion，仅有 `Kinsect Recall Commit`。不要在这两个 Montage 上放 AttackCollision、ComboWindow、DodgeWindow、SheatheCommit 或 Action Root Motion Phase。
-4. 在 `ABP_MH_Character` 使用固定的上半身方案：先缓存当前 Motion Matching 输出为 `LocomotionBase`；`UpperBody_IGAction` Slot 的 Source 也是该缓存，再缓存为 `KinsectActionPose`。只保留一个 `Layered Blend per Bone`，Base=`LocomotionBase`、Blend=`KinsectActionPose`、Branch Filter=`spine_01` 及所有子骨骼、启用当前已验证的 Mesh Space Rotation Blend；其输出再进入 `DefaultSlot`。删除/绕过 `IsMoving` 和“静止全身、移动上半身”两套遮罩切换。不要把 `UpperBody_IGAction` 改为 `DefaultSlot`。静止时下半身自然来自 Idle，移动时下半身来自 locomotion。
+4. 在 `ABP_MH_Character` 中，保留当前完整 MM 输出作为操虫 Slot 的基础姿势。`UpperBody_IGAction` Slot 从该基础姿势播放，再缓存 Slot 输出；一条 `Layered Blend per Bone` 以基础姿势为 Base、Slot 姿势为 Blend，Branch Filter 从 `Spine_00`（含全部后代）开始。用 `bKinsectUpperBodyOnly` 选择输出：无原始摇杆输入时选完整 Slot 姿势（全身操虫）；有原始摇杆输入时选分层结果（Spine_00 以下继续 MM）。选择器放在原有 `DefaultSlot` 之前，随后仍进入原有 `DefaultSlot` 和动作视觉 Pitch 后处理。不要把 `UpperBody_IGAction` 改成 `DefaultSlot`，也不要让选择器重启 Montage。
 5. 在 Content Browser 只选 E4-A 资产及其直接依赖：`DA_WeaponRuntime_IG`、`DA_IG_InputProfile`、`DA_IG_Combat`、`DA_IG_Combo`、四个 Extract GE、`DA_IG_Kinsect_Speed`、上述 GA 和 Montage。使用 `Tools -> Validate Data`（或资产右键的 Validate Data）验证；这一步不选 `DA_TrainingDummy`，其错误属于 E5-A。修正所选资产的错误后再次保存。
 6. PIE 依 [验证清单](verification.md#e4-a--m4-a-最小纵切) 的 E4-A.1～E4-A.5 逐项验证：收刀 RT 拔刀放虫、持刀 LT+Y 送虫、LT+B 收虫、RB 纳刀，以及收刀 Y 的 DrawOnly/Forward DrawSlash 分流。每个动作至少测试一次 Commit 前中断与 Commit 后中断。旧 Motion Matching 的启停品质不是本门禁项；只确认送虫/收虫动作期间仍能移动、转向且下半身没有被全身 Montage 锁死。
 7. 全部通过后，保存所有 E4-A 资产并提交 M4-A.5 阶段快照；随后才开始 L0。`DA_TrainingDummy` 的三色配置可在这之后或同一轮并行完成，但不是进入 L0 的前置。
@@ -500,8 +500,8 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 - `GA_IG_TetrasealSlash`、`GA_IG_AdvancingRoundslash`。
 - `GA_IG_MarkSlash`（父类 `UMHGZMarkSlashAbility`）、`GA_IG_MarkTarget`（父类 `UMHGZMarkKinsectTargetAbility`，仅 LT+RT 虫印弹）、`GA_IG_PowderVortex`、`GA_IG_KinsectGlide`。
 - `GA_IG_AwakenedKinsectAttack`。
-- `GA_IG_KinsectSlash`、`GA_IG_EnhancedKinsectSpiker`。
-- `GA_IG_StrongJumpingSlash`、`GA_IG_DescendingThrust`、`GA_IG_DivingWyvern`。
+- `GA_IG_KinsectSlash`；强化操虫穿刺最终名为 `GA_IG_KinsectPiercer`，不是旧规划名 `GA_IG_EnhancedKinsectSpiker`。穿刺原生类/生成器/生产资产及 E1 已完成，2026-10-01 E2 本轮平地范围已签收，见[本招计划 §13.5](../using/强化操虫穿刺实现计划.md)；不重建占位 GA 或重置用户判定窗。
+- `GA_IG_DescendingThrust`：M5 唯一剩余新增空中招式，待原生类与详细方案稳定后生成。`GA_IG_StrongJumpingSlash`、`GA_IG_DivingWyvern` 已移出 Demo，不创建对应 GA/Montage/Combo。
 - `GA_Sheathe`（父类 `UMHGZSheatheAbility`；通用路由 `InputTag=Input.Sheathe`；仅 `Grounded+Unsheathed` 可激活，拒绝 Aerial/Dead/攻击/硬直/击倒/收刀中/翻滚中；播放 `AM_Shth_ShouDao`，静止/移动选段；`AnimNotify_SheatheCommit` 时由 RuntimeHost 切 Sheathed）。
 
 每个蓝图只配置数据：Montage、AttackSegments、成本、位移请求和动作特有参数；不要在 Event Graph 复制 Coordinator、资源状态机或直接操作 UI。武器动作必须继承重构后的虫棍动作基类，并保持 native `InstancedPerExecution`。旧拼音 GA 名称不作为最终资产名占位；最终名称按本节动作清单建立。
@@ -543,7 +543,7 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 8. Section 没有 Root Motion 开关。逐个检查其中引用的 AnimSequence 根轨迹：Entry/Recovery 若应 in-place，其根骨骼必须实际静止；真实位移片段保留 Root Motion。不能把有位移的根轨迹仅靠“该 Section 不提取”伪装成 in-place。M4-B.1 编译后，在每段真实 Root Motion 的首帧至末帧放原生 `Action Root Motion Phase` NotifyState；它只按 MontageInstanceID 路由到 GA，由 GA 获取/释放所有权。in-place 片段不放它；没有真实根位移但玩法需要移动的片段由对应 GA 的 MovementTask 驱动。
 9. MotionWarping Notify 只属于经原生代码明确实现了**目标对齐**的特殊动作；普通攻击的入口方向修正是 `MaxCorrectionAngle` 控制的一次 Actor Yaw 瞬转，不添加 MotionWarping Notify。零 Root Motion 位移动作由 MovementTask 驱动。
 10. 特殊动作若确实需要 WarpTarget，不在蓝图写固定共享名，而由该特殊动作的代码按 ActionToken 生成、拥有并清理；普通攻击不生成 `AttackDirection` WarpTarget。
-10a. **单帧招内方向修正（M4-A.5）：** 仅对需要在某一精确帧按实时摇杆补正一次朝向的攻击，添加原生普通 `Action Direction Correction` Notify；它不是 NotifyState。其 `Max Correction Angle Override=-1` 表示使用 GA 的 `MaxCorrectionAngle`，填 `0` 禁用该帧，填正值则覆盖该帧阈值。Notify 前后不添加 MotionWarping Notify、WarpTarget、AttackCollision、ComboWindow 或 Tag；它通过当前 MontageInstanceID 精确找到所属 AttackAbility，读取 `LastMovementInputDir` 后最多 `SetActorRotation` 一次。只把它放在后续根 Yaw 不会抢回朝向的帧；若该段需要扭转根位移轨迹或贴合目标位置，改由专用特殊 GA 实现 MotionWarping/MovementTask。
+10a. **单帧招内方向修正（M4-A.5）：** 仅对需要在某一精确帧按实时摇杆补正一次朝向的攻击，添加原生普通 `Action Direction Correction` Notify；它不是 NotifyState。其 `Max Correction Angle Override=-1` 表示使用 GA 的 `MaxCorrectionAngle`，填 `0` 禁用该帧，填正值则覆盖该帧上限。方向偏差 ≤ 上限时转到目标；偏差超出上限但超出量 ≤90° 时仍执行、但只转上限角度；超出量 >90° 时不修正。Notify 前后不添加 MotionWarping Notify、WarpTarget、AttackCollision、ComboWindow 或 Tag；它通过当前 MontageInstanceID 精确找到所属 AttackAbility，读取 `LastMovementInputDir` 后最多 `SetActorRotation` 一次。只把它放在后续根 Yaw 不会抢回朝向的帧；若该段需要扭转根位移轨迹或贴合目标位置，改由专用特殊 GA 实现 MotionWarping/MovementTask。
 11. 不在 Notify 蓝图保存 Ability 指针、Handle 或 Token。玩家动作 Notify 必须使用重构后的原生类。
 12. 对“固定动作本体、后半段可接移动”的 Montage，按 `LockedRootMotion → SteeringRootMotion → MotionMatching` 配置：分支决定用 Branching Point Notify，实际进入可转向尾段用首帧 Notify；Notify 只经 ActionToken 调 GA，GA 精确释放自己的 BlockMovement Token。Montage 仍含 Root Motion 时不得让 MM 同时拥有根位移。
 13. M4-A.5 的 `AM_IG_SendKinsect`、`AM_IG_RecallKinsect` 是例外的**上半身表现动作**：二者使用 `UpperBody_IGAction` Slot，源序列与 Montage 都不得启用 Root Motion；不含 AttackCollision/ComboWindow/DodgeWindow。共享的 Send Montage 在武器取出帧额外放 `Draw Commit`，并在实际出虫帧放 `Kinsect Send Commit`；Recall Montage 只在实际召回手势帧放 `Kinsect Recall Commit`。不要把它们放进全身攻击 Slot，也不要用 `BlockMovement` 或 Root Motion 所有权“锁住下半身”。
@@ -554,8 +554,8 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 - 突进回旋斩：移动阶段内在 `Counter` 轨道放 `IG Advancing Counter Window`；成功反击后由 GA/Coordinator 分支，不由 Montage 猜结果。
 - 操虫斩：命中窗口和 MovementTask 的结束点分开；只有成功命中增加舞踏。
 - 强化操虫穿刺：只在操虫斩舞踏来源的派生窗口开放。
-- 强化跳跃斩、急袭突刺：校准末速度与惯性交接。
-- 急袭突刺、降龙：落地段 Notify 不得被通用落地 Reset 提前截断。
+- 急袭突刺：校准末速度与惯性交接。
+- 急袭突刺、强化操虫穿刺：落地段 Notify 不得被通用落地 Reset 提前截断。
 - 觉虫击：猎虫贯穿与猎人位移是两个独立运行时请求；Montage 只负责表现时序。
 - 前向翻滚：最终 `GA_Dodge` 只在 CoreAbilities 出现一次，整个 Montage 由原生 GA 持有 `Combat.State.Dodging`，因此不能被攻击、猎虫、收刀或第二次 Dodge 打断；硬直、死亡、换装例外。Montage 至少有 `DodgeCore`、`IdleExit`、`MoveExit` 三个 Section。GA 将 `DodgeCore` 运行时固定接到 `IdleExit`，并在实际进入 `IdleExit` 的 Section 边界读取实时原始输入；只有此刻持续推摇杆的前向翻滚会立即改进 `MoveExit`，同时才释放移动锁。冻结的 Forward/None 都选择同一前向资源；翻滚本体播放中不再按实时摇杆改轨。攻击是否能取消进翻滚只由攻击 Montage 上的 `DodgeAcceptWindow` 决定，不能放在此 Montage 的无敌 `DodgeWindow` 上。
 - 持刀左/右/后翻滚（M4-A.3.1 原生字段编译后再接线）：三个方向各使用自己的 Montage，激活时由冻结 `InputSnapshot.Direction` 选择；它们只有 `DodgeCore` 与 `IdleExit`，原生选择结果强制 IdleExit，不能配置 MoveExit 或移动衔接。收刀左/右/后直接被 GA 拒绝，因此没有对应资产。所有允许变体继续使用 `GA_Dodge` 的同一 Instant 耐力成本。
@@ -650,7 +650,7 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 - `GameplayCue.Hit.DamageNumber`。
 - `GameplayCue.Character.Dodge`。
 - `GameplayCue.IG.ExtractGained`、`TripleUpActivated`、`ExtractExpired`。
-- `GameplayCue.Hit.IG.DivingWyvern`。
+- 不创建已移出 Demo 的 `GameplayCue.Hit.IG.DivingWyvern`；已有保留 Tag 不代表需要制作 Cue。
 
 先使用临时 Niagara/Sound 也可以，但 Cue 必须由 HitFeedbackRouter/资源事件显式执行；不要只把 Tag 放入 DynamicAssetTags。
 
@@ -696,7 +696,7 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 6. 普通猎虫：命中后 Hover，召回到达才交付；交付 Red 后下一次可以取得 White。
 7. 三灯：单灯→三灯、三灯吞灯不刷新、自然到期、Classic/Numeric 切换。
 8. 地面特殊动作：四连、前向回旋、StarterOnly、反击舞踏。
-9. 空中动作：操虫斩、穿刺、惯性、急袭突刺、降龙与落地清理。
+9. 空中动作：操虫斩、穿刺、惯性、急袭突刺与落地清理。
 10. 虫印/滑翔/粉尘/觉虫击：距离、所有权、原子三灯消费和逐击点灯/粉尘一一对应。
 11. UI/反馈：准心颜色、灯/耐力/舞踏、伤害数字与 Cue；Viewport 只有一份 WBP_HUD。
 

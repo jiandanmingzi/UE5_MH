@@ -99,7 +99,7 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 		}
 	}
 
-	TMap<FGameplayTag, int32> ReleaseFallbackTriggerOwners;
+	TMap<FGameplayTag, int32> ReleaseDispatchTriggerOwners;
 	for (int32 Index = 0; Index < Chords.Num(); ++Index)
 	{
 		const FWeaponChordDefinition& Chord = Chords[Index];
@@ -110,6 +110,13 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 			AddError(FText::Format(
 				LOCTEXT("InvalidOutputTag", "Chords[{0}] has an invalid/empty OutputTag."),
 				IndexText));
+		}
+		if (!FMath::IsFinite(Chord.ChordGracePeriodOverrideSeconds)
+			|| Chord.ChordGracePeriodOverrideSeconds < 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("InvalidChordGraceOverride", "Chords[{0}] ChordGracePeriodOverrideSeconds must be 0 (inherit) or greater (current {1})."),
+				IndexText, FText::AsNumber(Chord.ChordGracePeriodOverrideSeconds)));
 		}
 
 		if (Chord.TriggerControls.Num() == 0)
@@ -251,31 +258,42 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 			}
 		}
 
-		if (Chord.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed)
+		const bool bIsReleaseDispatch =
+			Chord.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed
+			|| Chord.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseWithinMaxDurationIfUnconsumed;
+		if (bIsReleaseDispatch)
 		{
 			if (Chord.TriggerControls.Num() != 1)
 			{
 				AddError(FText::Format(
-					LOCTEXT("ReleaseFallbackTriggerCount", "Chords[{0}] OnReleaseIfUnconsumed requires exactly one TriggerControl."),
+				LOCTEXT("ReleaseFallbackTriggerCount", "Chords[{0}] release-fallback policies require exactly one TriggerControl."),
 					IndexText));
 			}
 			if (Chord.RequiredHeldModifiers.Num() != 0)
 			{
 				AddError(FText::Format(
-					LOCTEXT("ReleaseFallbackModifiers", "Chords[{0}] OnReleaseIfUnconsumed cannot declare RequiredHeldModifiers."),
+				LOCTEXT("ReleaseFallbackModifiers", "Chords[{0}] release-fallback policies cannot declare RequiredHeldModifiers."),
 					IndexText));
 			}
 			if (Chord.ReleaseControlTag.IsValid())
 			{
 				AddError(FText::Format(
-					LOCTEXT("ReleaseFallbackReleaseControl", "Chords[{0}] OnReleaseIfUnconsumed must leave ReleaseControlTag empty."),
+				LOCTEXT("ReleaseFallbackReleaseControl", "Chords[{0}] release-fallback policies must leave ReleaseControlTag empty."),
 					IndexText));
 			}
 			if (!Chord.AdditionalReleaseControlTags.IsEmpty())
 			{
 				AddError(FText::Format(
-					LOCTEXT("ReleaseFallbackAdditionalReleaseControls", "Chords[{0}] OnReleaseIfUnconsumed must leave AdditionalReleaseControlTags empty."),
+				LOCTEXT("ReleaseFallbackAdditionalReleaseControls", "Chords[{0}] release-fallback policies must leave AdditionalReleaseControlTags empty."),
 					IndexText));
+			}
+			if (Chord.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseWithinMaxDurationIfUnconsumed
+				&& (!FMath::IsFinite(Chord.MaxPressDurationSeconds)
+					|| Chord.MaxPressDurationSeconds <= 0.f))
+			{
+				AddError(FText::Format(
+					LOCTEXT("InvalidMaxPressDuration", "Chords[{0}] OnReleaseWithinMaxDurationIfUnconsumed requires MaxPressDurationSeconds > 0 (current {1})."),
+					IndexText, FText::AsNumber(Chord.MaxPressDurationSeconds)));
 			}
 
 			if (Chord.TriggerControls.Num() == 1
@@ -285,16 +303,31 @@ EDataValidationResult UWeaponInputProfile::IsDataValid(FDataValidationContext& C
 				&& Chord.AdditionalReleaseControlTags.IsEmpty())
 			{
 				const FGameplayTag Trigger = Chord.TriggerControls[0];
-				if (const int32* OtherIndex = ReleaseFallbackTriggerOwners.Find(Trigger))
+				if (const int32* OtherIndex = ReleaseDispatchTriggerOwners.Find(Trigger))
 				{
 					AddError(FText::Format(
-						LOCTEXT("DuplicateReleaseFallback", "Chords[{0}] and Chords[{1}] both declare OnReleaseIfUnconsumed for TriggerControl '{2}'."),
+						LOCTEXT("DuplicateReleaseFallback", "Chords[{0}] and Chords[{1}] both declare release-fallback policies for TriggerControl '{2}'."),
 						IndexText, FText::AsNumber(*OtherIndex), FText::FromString(Trigger.ToString())));
 				}
 				else
 				{
-					ReleaseFallbackTriggerOwners.Add(Trigger, Index);
+					ReleaseDispatchTriggerOwners.Add(Trigger, Index);
 				}
+			}
+		}
+		else if (Chord.DispatchPolicy == EWeaponChordDispatchPolicy::OnPressAfterChordGrace)
+		{
+			if (Chord.TriggerControls.Num() != 1)
+			{
+				AddError(FText::Format(
+					LOCTEXT("PressAfterGraceTriggerCount", "Chords[{0}] OnPressAfterChordGrace requires exactly one TriggerControl."),
+					IndexText));
+			}
+			if (!Chord.RequiredHeldModifiers.IsEmpty())
+			{
+				AddError(FText::Format(
+					LOCTEXT("PressAfterGraceModifiers", "Chords[{0}] OnPressAfterChordGrace cannot declare RequiredHeldModifiers."),
+					IndexText));
 			}
 		}
 

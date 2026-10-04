@@ -3,6 +3,7 @@
 #include "MHGZTrainingDummy.h"
 #include "MHGZ.h"
 #include "MHGZDummyConfig.h"
+#include "MHGZMonsterHitzoneComponent.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "AbilitySystemComponent.h"
 #include "Components/CapsuleComponent.h"
@@ -19,12 +20,15 @@
 
 namespace
 {
-constexpr float DummyDiameter = 100.0f;
-constexpr float DummySegmentHeight = 75.0f;
+// Keep the body, visual segments, hitzones, and fire-ring gameplay dimensions in
+// lockstep. The previous 1 m x 2.25 m target read too small in the demo arena.
+constexpr float DummySizeMultiplier = 1.5f;
+constexpr float DummyDiameter = 100.0f * DummySizeMultiplier;
+constexpr float DummySegmentHeight = 75.0f * DummySizeMultiplier;
 constexpr float DummyCapsuleHalfHeight = DummySegmentHeight * 1.5f;
-constexpr float FireGuideSegmentLength = 30.0f;
-constexpr float FireGuideRadialThickness = 16.0f;
-constexpr float FireGuideHeight = 5.0f;
+constexpr float FireGuideSegmentLength = 30.0f * DummySizeMultiplier;
+constexpr float FireGuideRadialThickness = 16.0f * DummySizeMultiplier;
+constexpr float FireGuideHeight = 5.0f * DummySizeMultiplier;
 
 FVector ScaleStaticMeshToSize(const UStaticMesh* Mesh, const float DesiredX,
 	const float DesiredY, const float DesiredZ)
@@ -44,8 +48,8 @@ void ConfigureExtractLight(UPointLightComponent& Light, const FLinearColor& Colo
 {
 	Light.SetLightColor(Color);
 	Light.SetIntensity(1600.0f);
-	Light.SetAttenuationRadius(220.0f);
-	Light.SetSourceRadius(8.0f);
+	Light.SetAttenuationRadius(220.0f * DummySizeMultiplier);
+	Light.SetSourceRadius(8.0f * DummySizeMultiplier);
 	Light.SetCastShadows(false);
 }
 }
@@ -149,8 +153,8 @@ AMHGZTrainingDummy::AMHGZTrainingDummy()
 	FireRingLight->SetupAttachment(GetCapsuleComponent());
 	FireRingLight->SetLightColor(FLinearColor(1.0f, 0.14f, 0.01f));
 	FireRingLight->SetIntensity(9000.0f);
-	FireRingLight->SetAttenuationRadius(360.0f);
-	FireRingLight->SetSourceRadius(45.0f);
+	FireRingLight->SetAttenuationRadius(360.0f * DummySizeMultiplier);
+	FireRingLight->SetSourceRadius(45.0f * DummySizeMultiplier);
 	FireRingLight->SetCastShadows(false);
 	FireRingLight->SetVisibility(false, true);
 }
@@ -197,6 +201,20 @@ void AMHGZTrainingDummy::ApplyConfig(UMHGZDummyConfig* Config)
 
 	// 生成部位碰撞体
 	GenerateHitzonesFromConfig(Config);
+	// Hitzone configs stay authored in their original data-asset dimensions. Scale
+	// the generated collision spheres and offsets with the enlarged visual target.
+	TArray<UMHGZMonsterHitzoneComponent*> Hitzones;
+	GetComponents<UMHGZMonsterHitzoneComponent>(Hitzones);
+	for (UMHGZMonsterHitzoneComponent* Hitzone : Hitzones)
+	{
+		if (!Hitzone)
+		{
+			continue;
+		}
+		Hitzone->SetRelativeLocation(Hitzone->GetRelativeLocation() * DummySizeMultiplier);
+		Hitzone->Radius *= DummySizeMultiplier;
+		Hitzone->SetSphereRadius(Hitzone->Radius);
+	}
 	bFireRingRuntimeEnabled = Config->FireRing.bEnabled;
 	RebuildFireRingVisuals();
 	RefreshFireRingSchedule();
@@ -359,13 +377,14 @@ bool AMHGZTrainingDummy::IsCharacterInsideFireRing(const ACharacter& Character) 
 		return false;
 	}
 
-	const FVector Centre = GetActorTransform().TransformPosition(FireConfig->RelativeLocation);
+	const FVector ScaledRelativeLocation = FireConfig->RelativeLocation * DummySizeMultiplier;
+	const FVector Centre = GetActorTransform().TransformPosition(ScaledRelativeLocation);
 	const FVector Delta = Character.GetActorLocation() - Centre;
 	const float Distance2D = FVector(Delta.X, Delta.Y, 0.0f).Size();
-	return FMath::Abs(Distance2D - FireConfig->Radius)
-		<= FireConfig->RingHalfThickness + Capsule->GetScaledCapsuleRadius()
+	return FMath::Abs(Distance2D - FireConfig->Radius * DummySizeMultiplier)
+		<= FireConfig->RingHalfThickness * DummySizeMultiplier + Capsule->GetScaledCapsuleRadius()
 		&& FMath::Abs(Delta.Z)
-		<= FireConfig->VerticalHalfHeight + Capsule->GetScaledCapsuleHalfHeight();
+		<= FireConfig->VerticalHalfHeight * DummySizeMultiplier + Capsule->GetScaledCapsuleHalfHeight();
 }
 
 EIncomingHitSubmitResult AMHGZTrainingDummy::SubmitFireRingHit(
@@ -380,11 +399,12 @@ EIncomingHitSubmitResult AMHGZTrainingDummy::SubmitFireRingHit(
 		return EIncomingHitSubmitResult::Rejected;
 	}
 
-	const FVector Centre = GetActorTransform().TransformPosition(FireConfig->RelativeLocation);
+	const FVector Centre = GetActorTransform().TransformPosition(
+		FireConfig->RelativeLocation * DummySizeMultiplier);
 	FVector Radial = TargetCharacter.GetActorLocation() - Centre;
 	Radial.Z = 0.0f;
 	const FVector Normal = Radial.GetSafeNormal(UE_SMALL_NUMBER, FVector::ForwardVector);
-	const FVector ImpactPoint = Centre + Normal * FireConfig->Radius;
+	const FVector ImpactPoint = Centre + Normal * FireConfig->Radius * DummySizeMultiplier;
 
 	FIncomingHitContext Context;
 	Context.AttackInstanceID = AttackInstanceID;
@@ -436,9 +456,9 @@ void AMHGZTrainingDummy::RebuildFireRingVisuals()
 	}
 	const FDummyFireRingConfig* FireConfig = GetFireRingConfig();
 	const int32 SegmentCount = FireConfig ? FireConfig->VisualSegmentCount : 24;
-	const float Radius = FireConfig ? FireConfig->Radius : 100.0f;
-	const FVector RelativeLocation = FireConfig
-		? FireConfig->RelativeLocation : FVector(0.0f, 0.0f, -37.5f);
+	const float Radius = (FireConfig ? FireConfig->Radius : 100.0f) * DummySizeMultiplier;
+	const FVector RelativeLocation = (FireConfig
+		? FireConfig->RelativeLocation : FVector(0.0f, 0.0f, -37.5f)) * DummySizeMultiplier;
 	const FVector Scale = ScaleStaticMeshToSize(FireRingVisual->GetStaticMesh(),
 		FireGuideSegmentLength, FireGuideRadialThickness, FireGuideHeight);
 
@@ -466,7 +486,8 @@ void AMHGZTrainingDummy::RebuildFireRingVisuals()
 	}
 	if (FireRingLight)
 	{
-		FireRingLight->SetRelativeLocation(RelativeLocation + FVector(0.0f, 0.0f, 22.0f));
+		FireRingLight->SetRelativeLocation(
+			RelativeLocation + FVector(0.0f, 0.0f, 22.0f * DummySizeMultiplier));
 	}
 }
 

@@ -105,6 +105,9 @@ private:
 		bool bSingleEmitted = false;   // fallback single already emitted
 		bool bSingleConsumed = false;  // fallback single suppressed by a chord
 		bool bReleaseFallbackConsumed = false; // this physical press lost its release fallback to an OnPress chord
+		bool bPressAfterGraceConsumed = false; // this physical press lost its delayed single action to a chord
+		int32 PressAfterGraceChordIndex = INDEX_NONE;
+		FWeaponInputSnapshot FrozenPressAfterGraceSnapshot;
 		FWeaponInputSnapshot FrozenSingleSnapshot;
 	};
 
@@ -143,6 +146,8 @@ private:
 
 	void RebuildChordCache();
 	bool IsReleaseFallbackChord(int32 ChordIndex) const;
+	bool IsPressAfterChordGraceChord(int32 ChordIndex) const;
+	double GetChordGracePeriod(int32 ChordIndex) const;
 	void EvaluateChords(double Now);
 	bool IsChordComplete(int32 ChordIndex) const;
 	bool IsPossiblyCompletable(int32 ChordIndex, double Now) const;
@@ -160,6 +165,7 @@ private:
 	TOptional<FWeaponInputSnapshot> BuildReleaseFallbackSnapshot(
 		FGameplayTag PhysicalTag, const FPhysicalInputState& State, double Now) const;
 	void ConsumeReleaseFallbackForMembers(const FChordInfo& Winner);
+	void ConsumePressAfterGraceForMembers(const FChordInfo& Winner);
 	void EmitChord(int32 ChordIndex, double Now);
 	void RegisterRelease(const FWeaponInputSnapshot& Snapshot, const FGameplayTag& ControlTag);
 	void EmitSnapshot(const FWeaponInputSnapshot& Snapshot);
@@ -194,6 +200,8 @@ private:
 	TSet<FGameplayTag> ReleaseFallbackOwnedTags;
 	/** 每个 release-fallback 物理键唯一对应的一条合法 Chord。 */
 	TMap<FGameplayTag, int32> ReleaseFallbackChordByControl;
+	/** After-grace standalone routes; several mutually exclusive context routes may share one physical key. */
+	TMap<FGameplayTag, TArray<int32>> PressAfterGraceChordsByControl;
 	TSet<FGameplayTag> DelayedTags;
 	TMap<FGameplayTag, TArray<FReleaseRegistration>> ReleaseRegistry;
 	TArray<FWeaponInputSnapshot> CapturedSnapshots;

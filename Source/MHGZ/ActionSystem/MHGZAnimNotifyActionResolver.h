@@ -13,11 +13,24 @@
 
 namespace MHGZ::AnimNotify
 {
+	inline bool HasMontageInstanceContext(
+		const FAnimNotifyEventReference& EventReference)
+	{
+		return EventReference.GetContextData<
+			UE::Anim::FAnimNotifyMontageInstanceContext>() != nullptr;
+	}
+
 	inline bool ResolveAction(USkeletalMeshComponent* MeshComp,
 		const FAnimNotifyEventReference& EventReference, FWeaponActionToken& OutAction,
-		UAnimSequenceBase* Animation = nullptr)
+		UAnimSequenceBase* Animation = nullptr,
+		int32* OutMontageInstanceID = nullptr,
+		const bool bRequireMontageInstanceContext = false)
 	{
 		OutAction = FWeaponActionToken();
+		if (OutMontageInstanceID)
+		{
+			*OutMontageInstanceID = INDEX_NONE;
+		}
 		if (!MeshComp)
 		{
 			return false;
@@ -25,6 +38,10 @@ namespace MHGZ::AnimNotify
 
 		const UE::Anim::FAnimNotifyMontageInstanceContext* MontageContext =
 			EventReference.GetContextData<UE::Anim::FAnimNotifyMontageInstanceContext>();
+		if (!MontageContext && bRequireMontageInstanceContext)
+		{
+			return false;
+		}
 		const AMHGZCharacter* Character = Cast<AMHGZCharacter>(MeshComp->GetOwner());
 		UMHGZWeaponRuntimeHostComponent* Host = Character
 			? Character->GetWeaponRuntimeHost() : nullptr;
@@ -38,9 +55,20 @@ namespace MHGZ::AnimNotify
 		// (notably during layered-slot playback), despite still passing the
 		// source montage as Animation. Fall back to the active instance of that
 		// exact montage, then keep the same Host-side Mesh + InstanceID lookup.
-		if (MontageContext
-			&& Host->ResolveMontage(MeshComp, MontageContext->MontageInstanceID, OutAction))
+		if (MontageContext)
 		{
+			// A supplied context is authoritative. Never recover a stale or
+			// unregistered instance by switching to another active instance of the
+			// same Montage asset; that would let an old Notify drive a new Action.
+			if (!Host->ResolveMontage(MeshComp, MontageContext->MontageInstanceID,
+				OutAction))
+			{
+				return false;
+			}
+			if (OutMontageInstanceID)
+			{
+				*OutMontageInstanceID = MontageContext->MontageInstanceID;
+			}
 			return true;
 		}
 
@@ -52,8 +80,16 @@ namespace MHGZ::AnimNotify
 		}
 		FAnimMontageInstance* ActiveInstance =
 			AnimInstance->GetActiveInstanceForMontage(Montage);
-		return ActiveInstance
-			&& Host->ResolveMontage(MeshComp, ActiveInstance->GetInstanceID(), OutAction);
+		if (!ActiveInstance
+			|| !Host->ResolveMontage(MeshComp, ActiveInstance->GetInstanceID(), OutAction))
+		{
+			return false;
+		}
+		if (OutMontageInstanceID)
+		{
+			*OutMontageInstanceID = ActiveInstance->GetInstanceID();
+		}
+		return true;
 	}
 
 	inline FName MakeNotifyEventID(const FAnimNotifyEventReference& EventReference)

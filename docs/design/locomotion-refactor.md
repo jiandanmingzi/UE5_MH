@@ -152,7 +152,7 @@ Root Motion Mode = Root Motion From Montages Only
   -> Output Pose
 ```
 
-`UpperBody_IGAction` 继续从骨盆上方第一根脊椎骨开始混合；Send/Recall 下半身始终来自普通 locomotion。
+`UpperBody_IGAction` 的 Send/Recall 层按原始摇杆输入选择覆盖范围：无移动输入时全身播放操虫动作；有移动输入时从 `Spine_00` 及其后代混入，躯干以上播放操虫动作、下半身继续来自普通 locomotion。该视觉门控不改变移动所有权，也不冻结或重启 Montage。
 
 ## 6. Locomotion 状态与确定性规则
 

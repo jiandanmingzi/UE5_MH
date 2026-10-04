@@ -91,7 +91,7 @@ MotionWarping 不提供类似 CMC 的加速度曲线，但可通过以下参数�
 | **自定义 Warp Curve** | 自定义缓入缓出曲线（Ease-In/Out） | `MotionWarpingComponent` 的 Warp Curves 资产 |
 | **分段 Warp** | 同 Montage 内多个 Warp Notify 覆盖不同时间片段 | 动画师在 Montage 时间轴上分段拖拽 |
 
-> **选择规则：** 有可用根运动且只需有限目标对齐时用 MotionWarping；需要指定距离、最高点、贯通、惯性继承或零根位移动画时用通用位移任务。虫棍觉虫击、猎虫滑翔、操虫斩和降龙按 [虫棍动作设计](insect-glaive-actions.md) 选择后者。
+> **选择规则：** 有可用根运动且只需有限目标对齐时用 MotionWarping；需要指定距离、最高点、贯通、惯性继承或零根位移动画时用通用位移任务。虫棍觉虫击、猎虫滑翔和操虫斩按 [虫棍动作设计](insect-glaive-actions.md) 选择后者。
 
 #### 高速突刺 + 命中分支的 MotionWarping 配合
 
@@ -289,7 +289,7 @@ EnhancedInput → Tag → ASC → GA → Montage → RootMotion 覆盖 CMC 位�
 | **① 动画根运动** | 具有可靠 Root 曲线的空中回避/短动作 | 轨迹主要由动画给出 | Montage RootMotion；MotionWarping 只做有限朝向/落点校正 |
 | **② 受限定向位移** | 操虫斩、猎虫滑翔、觉虫击猎人位移 | 激活时快照方向，具有最大距离和碰撞终止 | RootMotionSource/AbilityTask + Capsule Sweep + 距离/时长上限 |
 | **③ 弹跳/舞踏** | 操虫斩命中、突进回旋斩反击后的舞踏 | 明确初速度或最高点，随后交给重力 | 由统一 Launch/Ballistic Task 计算速度；结束写回 CMC |
-| **④ 惯性叠加攻击** | 强化跳跃斩、急袭突刺 | 保留进入动作时水平惯性并允许受限空中修正 | Additive RootMotionSource/Task；动画位移与惯性合成 |
+| **④ 惯性/入口向量攻击** | 急袭突刺（2026-10-03目标） | 第一段锁定校准水平向量，三次朝向修正不持续改变空中向量；第二段原动画位移 | 空中RecordedLocalTrajectory参数化适配；真实触地后切原Montage Root Motion。详见[急袭计划](../using/急袭突刺实现计划.md)，旧AdditiveInertia模式保留供其他动作使用 |
 | **⑤ 自由下落** | 空中动作结束后的 Falling | 仅重力、空气控制和衰减 | 无 GA 位移，CMC 全权管理 |
 
 任何运行时轨迹都必须输出明确的 Start、EndReason、FinalVelocity，并在碰墙、受击、死亡、落地和换武器时清理。不能在 `EndAbility` 临时读取“最后一帧根位移”猜测整段动作末速度。
@@ -384,8 +384,7 @@ Ability 保存当前位移任务句柄和最近一次有效 `FinalVelocity`。�
 操虫斩命中 → ② 定向位移结束 → ③ 舞踏弹跳 → ⑤ 下落/继续派生
 操虫斩未命中 → ② 输出末速度 → ⑤ 下落
 猎虫滑翔命中 → ② 停止水平位移 → ③ 小弹跳（不加舞踏层）→ 空战
-强化跳跃斩/急袭突刺 → ④ 合成惯性 → ⑤ 下落或显式落地段
-降龙 → ②/③ 组合任务 → 落地段 → Grounded
+急袭突刺 → ④ 校准入口向量/连续空中轨迹与姿势Loop → 真实触地后原381 Montage Root Motion → 地面派生或结束
 ```
 
 ### 空中动作次数限制
@@ -433,12 +432,12 @@ Combat.State.Aerial                               ← 已有
 Combat.State.Aerial.Falling                       ← 下落态
 Combat.State.Aerial.Falling.Default               ← 兜底 Pose
 Combat.State.Aerial.Falling.IG_AirDodge
-Combat.State.Aerial.Falling.IG_StrongJumpingSlash
+Combat.State.Aerial.Falling.IG_StrongJumpingSlash   ← 旧保留名；对应动作已移出 Demo，不配置/验收
 Combat.State.Aerial.Falling.IG_DanceVault
 Combat.State.Aerial.Falling.IG_KinsectGlide
 Combat.State.Aerial.Falling.IG_KinsectSlash
 Combat.State.Aerial.Falling.IG_DescendingThrust
-Combat.State.Aerial.Falling.IG_DivingWyvern
+Combat.State.Aerial.Falling.IG_DivingWyvern         ← 旧保留名；对应动作已移出 Demo，不配置/验收
 Combat.State.Aerial.CantDodge                  ← 空中回避已用
 Combat.State.Aerial.CantAttack                 ← 空中攻击已用
 Combat.State.Aerial.Landing                       ← 落地瞬间过渡
@@ -562,7 +561,7 @@ class UMHGZGameplayAbility : public UGameplayAbility
 | WeaponResourceCosts | TArray\<FWeaponResourceCostSpec\> | "Ability\|Cost" | 空 | 由当前 ResourceProvider 解释并预留的离散/数值武器资源成本 |
 | CooldownDuration | FScalableFloat | "Ability\|Cooldown" | 0 | 大于 0 且 CooldownTag 有效时写入 HasDuration GE Spec |
 | CooldownTag | FGameplayTag | "Ability\|Cooldown" | 空 | 由 Cooldown GE 的 DynamicGrantedTags 持有，不使用 Loose Tag |
-| MaxCorrectionAngle | float | "Ability\|Correction" | 30.0 | 攻击已 Confirm、Montage 播放前的最大入口修正角度（以角色朝向为基准，直接转向冻结摇杆方向）。0=禁止修正 |
+| MaxCorrectionAngle | float | "Ability\|Correction" | 30.0 | 攻击已 Confirm、Montage 播放前的单次入口最大修正角度。目标偏差 ≤ 此值时转到目标；偏差超过此值但余量 ≤90° 时只转此最大角度；余量 >90° 时不修正。0=禁止修正 |
 | AudioIdentityTag | FGameplayTag | "Ability\|Audio" | 空 | 挥刀风声身份标签（如 `Audio.Swing.LS_VerticalSlash`）。GA 蓝图必配——`ActivateAbility` 时以此为 Key 查 `WeaponDef.SwingSoundOverrides`，命中则覆盖 `DamageConfig.SwingSound`。不同招式用不同 GA 蓝图→不同 Tag→不同音效，武器覆盖是可选增量 |
 
 > **FScalableFloat：** 所有 `FScalableFloat` 字段统一关联全局 CurveTable `DT_AbilityScalars`，Ability 只需指定行名（RowName）。`StaminaCost` 是 GA 的实际耐力扣除量；`FComboTransition::StaminaRequired` 是协调器的匹配门槛，不负责扣耐。
@@ -674,7 +673,7 @@ struct FAttackSegmentConfig
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
 | AttackSegments | TArray\<FAttackSegmentConfig\> | "Attack" | 空 | ★ 多段攻击配置——每段独立配置碰撞 + 伤害 + 多跳。替代原来分离的 `CollisionConfigs` + `DamageConfig`，解决非数组成员（Damage/MotionValue/Stagger 等）无法随段变化的问题 |
-| MaxCorrectionAngle | float | "Attack\|Correction" | 30.0 | ★ 攻击已 Confirm、Montage 开始前的最大入口修正角度（度）。只读冻结 `Input.WorldDirection`；偏离 ≤ 此值时直接设置 Actor Yaw。它不读取实时摇杆、不创建普通攻击 WarpTarget。特殊段内 MotionWarping 若未来实现，由该特殊 GA 自己消费 `FAttackSegmentConfig::MaxWarpAngle`。0=禁止修正 |
+| MaxCorrectionAngle | float | "Attack\|Correction" | 30.0 | ★ 攻击已 Confirm、Montage 开始前的单次入口最大修正角度（度）。只读冻结 `Input.WorldDirection`；偏差 ≤ 此值时转到目标；偏差超出此值但超出量 ≤90° 时只转此最大角度；超出量 >90° 时不修正。它不读取实时摇杆、不创建普通攻击 WarpTarget。特殊段内 MotionWarping 若未来实现，由该特殊 GA 自己消费 `FAttackSegmentConfig::MaxWarpAngle`。0=禁止修正 |
 | ActiveCollisionWindows | TMap\<int32, RuntimeState\> | — | 空 | 每个 ConfigIndex 独立保存轨迹区域、已命中目标和多跳 Timer；不同段的 Notify 窗口可以重叠运行 |
 | CurrentSegmentIndex | int32 | — | 0 | 最近开始或结束判定的段索引，仅用于兼容 `ShouldContinueAfterHit()` 覆写 |
 | bHasHitThisActivation | bool | — | false | 本次 GA 激活后是否已有命中。用于首次命中时触发一次性逻辑（通知协调器 + Apply OnHitSelfEffect），避免多段/多怪重复触发 |
@@ -682,7 +681,7 @@ struct FAttackSegmentConfig
 ### 关键方法（覆写/新增）
 
 - `void ActivateAbility(...) override`
-  - 目标作用：从 `FWeaponAbilityActivationContext` 取得 SourceState/InputSnapshot/RuntimeToken/ActivationSequence → 建立 ActionToken 候选 → Resource reservation + `CommitAbility` → 消费 reservation → 回执 Coordinator Confirm。只有 Confirm 接受后才申请 `Combat.State.Attacking` 所有权 Token，并在播放 Montage 前以冻结 `Input.WorldDirection` 执行一次入口方向修正：水平输入有效、`MaxCorrectionAngle>0` 且当前 Actor Yaw 与目标 Yaw 差值不超过阈值时，直接 `SetActorRotation`。普通攻击不创建 `AttackDirection_<...>` WarpTarget，也不读取实时摇杆；Montage 启动后把 Mesh+MontageInstanceID 注册到 RuntimeHost。只有某个特殊 GA 显式拥有目标对齐需求时，才在其自己的合同中创建并清理唯一 WarpTarget。Commit/Confirm 前不改状态、不授予 Tag、不播放动画。
+  - 目标作用：从 `FWeaponAbilityActivationContext` 取得 SourceState/InputSnapshot/RuntimeToken/ActivationSequence → 建立 ActionToken 候选 → Resource reservation + `CommitAbility` → 消费 reservation → 回执 Coordinator Confirm。只有 Confirm 接受后才申请 `Combat.State.Attacking` 所有权 Token，并在播放 Montage 前以冻结 `Input.WorldDirection` 执行一次入口方向修正：水平输入有效且 `MaxCorrectionAngle>0` 时计算最短 Yaw 差；差值 ≤ 配置角度则转到目标，差值超过配置角度但超出量 ≤90° 时只转配置的最大角度，超出量 >90° 时不修正。普通攻击不创建 `AttackDirection_<...>` WarpTarget，也不读取实时摇杆；Montage 启动后把 Mesh+MontageInstanceID 注册到 RuntimeHost。只有某个特殊 GA 显式拥有目标对齐需求时，才在其自己的合同中创建并清理唯一 WarpTarget。Commit/Confirm 前不改状态、不授予 Tag、不播放动画。
 
 - `void EndAbility(...) override`
   - 目标作用：**按本次 ActionToken 幂等清理**：注销 Montage/Notify Registry → 关闭本实例的 Collision/Combo/DodgeAccept/Counter/Movement Token → 若本动作属于显式 MotionWarp 特殊动作则移除其自己拥有的 WarpTarget → 释放自己拥有的 Attacking/临时 Tag → 释放未消费 reservation → 携带 ActionToken 和 EndReason 通知 Coordinator → 清理 Montage/任务。普通攻击没有 WarpTarget 可移除。`Superseded` 只结束精确旧实例；迟到 End 不能重置新状态。
@@ -1291,7 +1290,7 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 |------|------|------|---------------------|
 | 长按修饰+点按 | 持刀 LT+B | LT→Kinsect Aiming 状态；ChordResolver 输出 `Input.Weapon.LTB` | 地面为召回，空中为操虫斩；由 Grounded/Aerial 分流 |
 | 同时按 | Y+B | ChordResolver 在 Grace Period 内合并并抑制 Y、B 单键 | 独立 `Input.Weapon.YB`，可再叠加 DirectionalInput |
-| 三键组合 | LT+Y+B / RT+Y+B | 快照修饰键后输出 `LTYB` / `RTYB` | 不等待三个普通 GA 竞争；状态再区分粉尘集约/降龙 |
+| 三键组合 | LT+Y+B / RT+Y+B | 快照修饰键后输出 `LTYB` / `RTYB` | 不等待三个普通 GA 竞争；地面配置粉尘集约/觉虫击；不配置已移出 Demo 的空中降龙 |
 
 > **核心原则：** EnhancedInput 只采集原始键；通用 ChordResolver 根据当前武器声明的组合表产生稳定 InputTag，并在可配置 Grace Period 内抑制已被组合消费的单键。协调器不硬编码虫棍组合。
 
@@ -1451,7 +1450,7 @@ Montage 内的实现约定如下：
 - **转移匹配排序 + 匹配即停：** InputTag 已精确解析；再按精确 SourceState、具体方向、Priority 排序
 - **死亡处理：** `Combat.Event.Death` 取消武器 GA并 RuntimeHost Shutdown；复用同一 Character 时递增 Generation，新建 Pawn 时更换 Host，二者都生成新 `FWeaponRuntimeToken` 并从当前装备重建，不能复用死亡前运行时对象
 - **打断后瞄准恢复：** Hitstun/Knockdown 移除后由 WeaponInputRouter 根据仍按住的物理键重新计算 Aim Context；不自动激活攻击 GA
-- **着陆分流——`Coordinator→OnLanded(Hit)`：** 默认 `ResetCombo(Landed)`；当前转移为 AbilityOwned 时，只把 Hit 交给匹配 ActionToken 的 GA，急袭突刺/降龙完成落地段后再 StateOnly Auto→Idle
+- **着陆分流——`Coordinator→OnLanded(Hit)`：** 默认 `ResetCombo(Landed)`；当前转移为 AbilityOwned 时，只把 Hit 交给匹配 ActionToken 的 GA，急袭突刺等 AbilityOwned 动作完成落地段后再 StateOnly Auto→Idle
 - **空中次数限制——Cant 权限模型（零交叉逻辑）：** `CantDodge`/`CantAttack` 两个 Tag 各自独立。`GA_AirDodge` 添加 `CantDodge`，`GA_AirAttack_*` 添加 `CantAttack`。无需 `Exhausted` 汇总——两个 Cant 同时存在 = 双阻塞。GAS 原生 `BlockedTags` 处理，GA 零覆写代码
 - **FSM 两条转移路径不冲突：** 输入转移和自动转移共享 `ExecuteTransition(TransitionID)`；自动转移必须引用唯一边 ID，EndAbility 只有在 AbilityHandle 仍拥有 ActiveTransition 时才能回 Idle
 - **GA→GA 自动派生不走 `TryActivateAbilityByTag`：** 必须通过 `OnAutoTransition`——确保协调器感知状态变更、ActivationContext 来源正确、SafetyTimer 更新。绕过协调器直接激活 GA 会导致状态不同步、Entry Section 选错、旧 End 回调误回 Idle

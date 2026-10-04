@@ -55,6 +55,11 @@ public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUninitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+
+	/** Converts a world-facing correction into the current Mesh component basis. */
+	static bool BuildActionVisualPitchComponentRotation(const FVector& FacingWorld,
+		const FVector& TargetWorld, const FQuat& MeshWorldRotation,
+		FQuat& OutComponentRotation);
 	/**
 	 * Captures the graph-proxy Root Motion immediately after AnimGraph evaluation.
 	 * This runs before CMC consumes the generated transform, so it distinguishes
@@ -146,6 +151,10 @@ public:
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	bool bMMHasLocomotionInput = false;
 
+	/** Raw stick gate for insect-glaive Montage layering: true means locomotion continues below Spine_00. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Insect Glaive")
+	bool bKinsectUpperBodyOnly = false;
+
 	/** Stance snapshot used by pre-search routing so only the relevant MM node consumes a Handoff. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	bool bMMUnsheathedLocomotion = false;
@@ -226,6 +235,22 @@ public:
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	FTransformTrajectory MMPredictedTrajectory;
 
+	/** True while an exact action owns the visual pitch, including its read-only release fade. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Action Pitch")
+	bool bActionVisualPitchActive = false;
+
+	/** Locked direction elevation for diagnostics; never connect directly to a local-bone pitch. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Action Pitch")
+	float ActionVisualPitchDegrees = 0.0f;
+
+	/** Smoothed 0..1 action-pitch weight consumed by telemetry and AnimGraph. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Action Pitch")
+	float ActionVisualPitchWeight = 0.0f;
+
+	/** Weighted component-space additive rotation consumed by the final root-bone Modify Bone node. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Action Pitch")
+	FRotator ActionVisualPitchComponentRotation = FRotator::ZeroRotator;
+
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query|Acceleration", meta=(ClampMin="1.0"))
 	float MMStartAccelerationWalk = 950.0f;
 
@@ -273,6 +298,9 @@ public:
 	float MMForceIdleReleaseHoldDuration = 0.05f;
 
 private:
+	void UpdateActionVisualPitch(const AMHGZCharacter* Character, float DeltaSeconds);
+	void ResetActionVisualPitchLocalState();
+
 	enum class EMHGZSheathedStopMode : uint8
 	{
 		None,
@@ -296,6 +324,15 @@ private:
 	};
 
 	TWeakObjectPtr<AMHGZCharacter> CachedCharacter;
+	FWeaponActionVisualPitchState CachedActionVisualPitchState;
+	uint64 LastActionVisualPitchRevision = 0;
+	FQuat ActionVisualPitchTransitionStart = FQuat::Identity;
+	FQuat ActionVisualPitchTransitionTarget = FQuat::Identity;
+	float ActionVisualPitchTransitionElapsed = 0.0f;
+	float ActionVisualPitchTransitionDuration = 0.0f;
+	float ActionVisualPitchTransitionStartWeight = 0.0f;
+	float ActionVisualPitchTransitionTargetWeight = 0.0f;
+	bool bActionVisualPitchTransitionActive = false;
 	FVector PreviousActorLocation = FVector::ZeroVector;
 	bool bHasPreviousActorLocation = false;
 	bool bStartQueryActive = false;
@@ -337,6 +374,7 @@ private:
 	FString RuntimeTelemetryMMQueryFilePath;
 	FString RuntimeTelemetryMMSelectionFilePath;
 	FString RuntimeTelemetryAnimationFilePath;
+	FString RuntimeTelemetryActionVisualPitchEventsFilePath;
 	FString RuntimeTelemetryAnimGraphRootMotionFilePath;
 	FString RuntimeTelemetryMontageInstancesFilePath;
 	FString RuntimeTelemetryPoseSearchTraceFilePath;
@@ -354,11 +392,13 @@ private:
 	TArray<FString> RuntimeTelemetryMMQueryPendingRows;
 	TArray<FString> RuntimeTelemetryMMSelectionPendingRows;
 	TArray<FString> RuntimeTelemetryAnimationPendingRows;
+	TArray<FString> RuntimeTelemetryActionVisualPitchEventsPendingRows;
 	TArray<FString> RuntimeTelemetryAnimGraphRootMotionPendingRows;
 	TArray<FString> RuntimeTelemetryMontageInstancesPendingRows;
 	uint64 RuntimeTelemetryLastObservedInputEventSerial = 0;
 	uint64 RuntimeTelemetryLastObservedCapsuleHitSerial = 0;
 	uint64 RuntimeTelemetryLastObservedMovementPhaseSerial = 0;
+	uint64 RuntimeTelemetryLastObservedActionVisualPitchEventSerial = 0;
 	/**
 	 * Previous frame's CMC velocity, used to derive the Spatial row's acceleration.
 	 *

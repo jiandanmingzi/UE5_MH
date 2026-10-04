@@ -49,6 +49,13 @@ const FGameplayTag& AirDodgeFallingTag()
 	return Tag;
 }
 
+const FGameplayTag& AirDodgeMovementSourceTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+		TEXT("Combat.State.Aerial.Source.IG_AirDodge"));
+	return Tag;
+}
+
 const FGameplayTag& DeadTag()
 {
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
@@ -398,6 +405,16 @@ bool UMHGZAirDodgeAbility::StartAirDodgeMovement()
 			Host->IsActionMovementOwned() ? 1 : 0,
 			Host->IsMontageRootMotionOwned() ? 1 : 0);
 		AirDodgeMovementTask = nullptr;
+		return false;
+	}
+	if (!Host->SetAerialMovementSource(GetActionToken(), AirDodgeMovementSourceTag()))
+	{
+		UE_LOG(LogMHGZ, Warning,
+			TEXT("[AirDodge] RuntimeHost could not publish the aerial source tag; aborting movement."));
+		Task->OnFinished.RemoveDynamic(this,
+			&UMHGZAirDodgeAbility::HandleAirDodgeMovementFinished);
+		AirDodgeMovementTask = nullptr;
+		Task->EndTask();
 		return false;
 	}
 

@@ -1,0 +1,1016 @@
+{
+  "generator": "Scripts/MHRise/build_kinsect_piercer_full_curves.py",
+  "generated_from": {
+    "capture": "f:\\games\\steam\\steamapps\\common\\MonsterHunterRise\\reframework\\data\\MHGZ_AerialTrajectoryRecorder\\mhrise_20260930_163408_01_samples.csv",
+    "capture_id": "mhrise_20260930_163408_01",
+    "sha256": "c7e41f008c48e0e2b66e59dd21efa983f514667018dc7c7664576779027eec82",
+    "rows": 43432,
+    "nominal_hz": 120
+  },
+  "coordinate_contract": {
+    "forward": "normalize(mean velocity 201 samples 1..5 projected to the horizontal plane)",
+    "right": "(forward.z, 0, -forward.x)",
+    "up": "world +Y (plan §5.2 Local.Z = Delta.y)",
+    "units": "centimeters, centimeters per second, seconds",
+    "origin": "each phase curve starts at its own first sample, i.e. (0, 0, 0)",
+    "pitch_policy": "camera pitch never enters the basis, grouping, scaling or curve rotation",
+    "runtime_transform": "WorldOffset(t) = D*Curve.X(t) + (WorldUp x D)*Curve.Y(t) + WorldUp*Curve.Z(t), D = frozen horizontal aim"
+  },
+  "candidate_selection": {
+    "complete_chains": 39,
+    "clean_candidates": 36,
+    "excluded": [
+      {
+        "attempt_index": 8,
+        "reason": "cross-track offset > 25 cm; cross-track speed > 1000 cm/s",
+        "max_cross_track_cm_201": 90.512,
+        "max_cross_track_speed_cm_s_201": 2474.257
+      },
+      {
+        "attempt_index": 23,
+        "reason": "cross-track offset > 25 cm; cross-track speed > 1000 cm/s",
+        "max_cross_track_cm_201": 216.793,
+        "max_cross_track_speed_cm_s_201": 5313.314
+      },
+      {
+        "attempt_index": 31,
+        "reason": "cross-track offset > 25 cm; cross-track speed > 1000 cm/s",
+        "max_cross_track_cm_201": 57.726,
+        "max_cross_track_speed_cm_s_201": 1831.39
+      }
+    ],
+    "early_exit_203": [
+      {
+        "attempt_index": 17,
+        "duration_s": 0.908508,
+        "frames": 109,
+        "left_into_motion": "107",
+        "boundary_duration_s": 0.916687
+      },
+      {
+        "attempt_index": 20,
+        "duration_s": 1.066589,
+        "frames": 128,
+        "left_into_motion": "107",
+        "boundary_duration_s": 1.074707
+      },
+      {
+        "attempt_index": 33,
+        "duration_s": 0.833313,
+        "frames": 100,
+        "left_into_motion": "107",
+        "boundary_duration_s": 0.841888
+      },
+      {
+        "attempt_index": 38,
+        "duration_s": 0.824829,
+        "frames": 99,
+        "left_into_motion": "158",
+        "boundary_duration_s": 0.833374
+      }
+    ],
+    "early_exit_note": "early-exit 203 trials stay in the per-attempt export but are not used for the recovery curve; they are listed with the motion they left into so E1 can place the ground accept windows"
+  },
+  "phases": {
+    "200": {
+      "cohort_trials": 36,
+      "cohort_note": "all clean candidates",
+      "grid_hz": 120,
+      "key_count": 48,
+      "canonical_domain_s": [
+        0.0,
+        0.391327
+      ],
+      "key_last_s": 0.391667,
+      "key_last_note": "the grid is rounded up to cover the recorded domain; trailing keys that no trial still backs are then dropped, so the last key can sit one frame inside it",
+      "source_coverage": {
+        "boundary_duration_s": {
+          "min": 0.391327,
+          "median": 0.391907,
+          "max": 0.400085
+        },
+        "coverage_count_first": 36,
+        "coverage_count_last": 25,
+        "coverage_count_min": 25,
+        "coverage_note": "coverage_count is how many cohort trials still have this phase running at that key; the p05/p50/p95 columns come only from the trials that actually have a recorded sample at or past it, which is a smaller set at the tail (200's last key: 25 live but 9 sampled). Read the pair together."
+      },
+      "model": {
+        "kind": "local quadratic regression (Savitzky-Golay) with MAD re-weighting",
+        "half_window_s": 0.02,
+        "min_points": 12,
+        "robust_iterations": 2,
+        "vertical_policy": "model vertical (world +Y)"
+      },
+      "residuals_cm": {
+        "forward": {
+          "count": 1696,
+          "p50": 0.037,
+          "p95": 0.151,
+          "max": 0.381
+        },
+        "right": {
+          "count": 1696,
+          "p50": 0.004,
+          "p95": 0.013,
+          "max": 0.032
+        },
+        "up": {
+          "count": 1696,
+          "p50": 0.024,
+          "p95": 0.073,
+          "max": 0.177
+        },
+        "euclidean": {
+          "count": 1696,
+          "p50": 0.05,
+          "p95": 0.159,
+          "max": 0.392
+        },
+        "samples_beyond_domain": 9
+      },
+      "velocity_cross_check_cm_s": {
+        "per_axis": {
+          "forward": {
+            "median_abs_difference_cm_s": 5.1,
+            "p95_abs_difference_cm_s": 59.3,
+            "max_abs_difference_cm_s": 141.3
+          },
+          "right": {
+            "median_abs_difference_cm_s": 0.0,
+            "p95_abs_difference_cm_s": 0.0,
+            "max_abs_difference_cm_s": 0.2
+          },
+          "up": {
+            "median_abs_difference_cm_s": 0.8,
+            "p95_abs_difference_cm_s": 2.3,
+            "max_abs_difference_cm_s": 3.0
+          }
+        },
+        "note": "per-key |median of the window's raw velocity samples - the model's velocity|; the raw column is noisy at the launch kick and at the landing impact, so the median and P95 describe the fit and the max marks a transient, not a curve error"
+      },
+      "gate": {
+        "statistic": "3D sample deviation, linearly interpolated between 120 Hz keys",
+        "limit_cm": 5.0,
+        "p95_cm": 0.159,
+        "p99_cm": 0.262,
+        "rmse_cm": 0.081,
+        "max_cm": 0.392,
+        "samples": 1696,
+        "samples_over_limit": 0,
+        "per_trial_max_p95_cm": 0.357,
+        "trials_over_limit": 0,
+        "trials": 36,
+        "p95_pass": true
+      },
+      "outliers": [
+        {
+          "attempt_index": 30,
+          "max_deviation_cm": 0.392,
+          "at_time_s": 0.3754,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 36,
+          "max_deviation_cm": 0.357,
+          "at_time_s": 0.3754,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 39,
+          "max_deviation_cm": 0.332,
+          "at_time_s": 0.3087,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 12,
+          "max_deviation_cm": 0.33,
+          "at_time_s": 0.3753,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 1,
+          "max_deviation_cm": 0.307,
+          "at_time_s": 0.3753,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 20,
+          "max_deviation_cm": 0.295,
+          "at_time_s": 0.3246,
+          "over_threshold": false
+        }
+      ],
+      "outlier_threshold_cm": 10.0,
+      "flagged_trials": []
+    },
+    "201": {
+      "cohort_trials": 36,
+      "cohort_note": "all clean candidates; each trial's last sample is the 201->203 transition frame and is excluded from the fit and the residual statistics (see contact_frames for the measured per-trial classification, and untrimmed_counterfactual for what keeping them would cost)",
+      "grid_hz": 120,
+      "key_count": 44,
+      "canonical_domain_s": [
+        0.0,
+        0.366547
+      ],
+      "key_last_s": 0.358333,
+      "key_last_note": "the grid is rounded up to cover the recorded domain; trailing keys that no trial still backs are then dropped, so the last key can sit one frame inside it",
+      "source_coverage": {
+        "boundary_duration_s": {
+          "min": 0.200012,
+          "median": 0.337517,
+          "max": 0.383209
+        },
+        "coverage_count_first": 36,
+        "coverage_count_last": 4,
+        "coverage_count_min": 4,
+        "coverage_note": "coverage_count is how many cohort trials still have this phase running at that key; the p05/p50/p95 columns come only from the trials that actually have a recorded sample at or past it, which is a smaller set at the tail (200's last key: 25 live but 9 sampled). Read the pair together."
+      },
+      "model": {
+        "kind": "local quadratic regression (Savitzky-Golay) with MAD re-weighting",
+        "half_window_s": 0.02,
+        "min_points": 12,
+        "robust_iterations": 2,
+        "vertical_policy": "model vertical (world +Y)"
+      },
+      "residuals_cm": {
+        "forward": {
+          "count": 1371,
+          "p50": 0.581,
+          "p95": 1.78,
+          "max": 2.839
+        },
+        "right": {
+          "count": 1371,
+          "p50": 0.005,
+          "p95": 0.025,
+          "max": 0.052
+        },
+        "up": {
+          "count": 1371,
+          "p50": 0.349,
+          "p95": 1.264,
+          "max": 2.381
+        },
+        "euclidean": {
+          "count": 1371,
+          "p50": 0.791,
+          "p95": 2.081,
+          "max": 3.583
+        },
+        "samples_beyond_domain": 4
+      },
+      "velocity_cross_check_cm_s": {
+        "per_axis": {
+          "forward": {
+            "median_abs_difference_cm_s": 16.7,
+            "p95_abs_difference_cm_s": 36.7,
+            "max_abs_difference_cm_s": 41.0
+          },
+          "right": {
+            "median_abs_difference_cm_s": 0.0,
+            "p95_abs_difference_cm_s": 0.6,
+            "max_abs_difference_cm_s": 1.4
+          },
+          "up": {
+            "median_abs_difference_cm_s": 51.1,
+            "p95_abs_difference_cm_s": 200.9,
+            "max_abs_difference_cm_s": 247.3
+          }
+        },
+        "note": "per-key |median of the window's raw velocity samples - the model's velocity|; the raw column is noisy at the launch kick and at the landing impact, so the median and P95 describe the fit and the max marks a transient, not a curve error"
+      },
+      "gate": {
+        "statistic": "3D sample deviation, linearly interpolated between 120 Hz keys",
+        "limit_cm": 5.0,
+        "p95_cm": 2.081,
+        "p99_cm": 2.653,
+        "rmse_cm": 1.072,
+        "max_cm": 3.583,
+        "samples": 1371,
+        "samples_over_limit": 0,
+        "per_trial_max_p95_cm": 3.272,
+        "trials_over_limit": 0,
+        "trials": 36,
+        "p95_pass": true
+      },
+      "outliers": [
+        {
+          "attempt_index": 13,
+          "max_deviation_cm": 3.583,
+          "at_time_s": 0.3416,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 35,
+          "max_deviation_cm": 3.272,
+          "at_time_s": 0.2912,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 38,
+          "max_deviation_cm": 3.262,
+          "at_time_s": 0.3252,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 29,
+          "max_deviation_cm": 3.115,
+          "at_time_s": 0.159,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 3,
+          "max_deviation_cm": 2.983,
+          "at_time_s": 0.3089,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 2,
+          "max_deviation_cm": 2.857,
+          "at_time_s": 0.2921,
+          "over_threshold": false
+        }
+      ],
+      "outlier_threshold_cm": 10.0,
+      "flagged_trials": [],
+      "tail": {
+        "time_s": 0.341667,
+        "coverage_trials_at_anchor": 9,
+        "velocity_cm_s": [
+          3134.996,
+          -0.576,
+          -4283.983
+        ],
+        "acceleration_cm_s2": [
+          5426.137,
+          -62.974,
+          -13169.461
+        ],
+        "speed_cm_s": 5308.55,
+        "min_coverage_trials": 4,
+        "fit_window_fully_covered": true,
+        "recorded_data_ends_s": 0.366547,
+        "model": "canonical local-quadratic fit evaluated at the last key that is both well covered and has a fully recorded fit window"
+      },
+      "tail_cross_check": {
+        "at_time_s": 0.341667,
+        "half_window_s": 0.02,
+        "contributing_trials": [
+          12,
+          16,
+          24,
+          26,
+          27,
+          33
+        ],
+        "velocity_cm_s": {
+          "forward": 3144.853,
+          "right": 0.02,
+          "up": -4276.512
+        },
+        "acceleration_cm_s2": {
+          "forward": 3871.854,
+          "right": 0.897,
+          "up": -11184.929
+        },
+        "note": "per-trial median at the canonical tail time; the production tail is the model's own tangent and acceleration, this only checks that they are reachable"
+      },
+      "tail_agreement_profile": {
+        "fully_covered_keys": 41,
+        "velocity_percent": {
+          "count": 41,
+          "p50": 0.112,
+          "p95": 0.399,
+          "max": 0.766
+        },
+        "acceleration_percent": {
+          "count": 41,
+          "p50": 25.124,
+          "p95": 66.268,
+          "max": 85.199
+        },
+        "note": "model vs the per-trial median fit at the same instant, over every key whose fit window is fully recorded; the velocity (the term the continuation is dominated by) holds to well under a percent, while the acceleration is only determined to tens of percent anywhere in this tail — which is why the runtime continuation needs a stop condition"
+      },
+      "contact_frames": {
+        "trials": 36,
+        "resolved_contact_frames": 21,
+        "still_descending_frames": 15,
+        "deviation_cm": {
+          "resolved_contact": {
+            "count": 21,
+            "p50": 19.683,
+            "p95": 34.597,
+            "max": 45.173
+          },
+          "still_descending": {
+            "count": 15,
+            "p50": 2.803,
+            "p95": 13.273,
+            "max": 13.273
+          }
+        },
+        "measurements": [
+          {
+            "attempt_index": 1,
+            "time_s": 0.324921,
+            "deviation_cm": 28.849,
+            "deviation_vertical_cm": 28.764,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 2,
+            "time_s": 0.350281,
+            "deviation_cm": 30.608,
+            "deviation_vertical_cm": 30.602,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 3,
+            "time_s": 0.342148,
+            "deviation_cm": 3.784,
+            "deviation_vertical_cm": 3.422,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 4,
+            "time_s": 0.325211,
+            "deviation_cm": 3.419,
+            "deviation_vertical_cm": 3.384,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 5,
+            "time_s": 0.333115,
+            "deviation_cm": 2.466,
+            "deviation_vertical_cm": 1.812,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 6,
+            "time_s": 0.283493,
+            "deviation_cm": 4.879,
+            "deviation_vertical_cm": 4.63,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 7,
+            "time_s": 0.324982,
+            "deviation_cm": 16.909,
+            "deviation_vertical_cm": 16.635,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 9,
+            "time_s": 0.283569,
+            "deviation_cm": 19.683,
+            "deviation_vertical_cm": 19.509,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 10,
+            "time_s": 0.341949,
+            "deviation_cm": 22.635,
+            "deviation_vertical_cm": 22.503,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 11,
+            "time_s": 0.341614,
+            "deviation_cm": 7.262,
+            "deviation_vertical_cm": 7.101,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 12,
+            "time_s": 0.358643,
+            "deviation_cm": 21.611,
+            "deviation_vertical_cm": 21.601,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 13,
+            "time_s": 0.349915,
+            "deviation_cm": 5.656,
+            "deviation_vertical_cm": 5.561,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 14,
+            "time_s": 0.274963,
+            "deviation_cm": 2.349,
+            "deviation_vertical_cm": 2.106,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 15,
+            "time_s": 0.308197,
+            "deviation_cm": 34.597,
+            "deviation_vertical_cm": 33.35,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 16,
+            "time_s": 0.366699,
+            "deviation_cm": 13.273,
+            "deviation_vertical_cm": 13.259,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 17,
+            "time_s": 0.258636,
+            "deviation_cm": 4.731,
+            "deviation_vertical_cm": 4.707,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 18,
+            "time_s": 0.191589,
+            "deviation_cm": 1.4,
+            "deviation_vertical_cm": 0.889,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 19,
+            "time_s": 0.349945,
+            "deviation_cm": 0.944,
+            "deviation_vertical_cm": 0.774,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 20,
+            "time_s": 0.341492,
+            "deviation_cm": 23.823,
+            "deviation_vertical_cm": 23.815,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 21,
+            "time_s": 0.300018,
+            "deviation_cm": 2.803,
+            "deviation_vertical_cm": 2.752,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 22,
+            "time_s": 0.266846,
+            "deviation_cm": 4.026,
+            "deviation_vertical_cm": 3.647,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 24,
+            "time_s": 0.366638,
+            "deviation_cm": 15.72,
+            "deviation_vertical_cm": 15.706,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 25,
+            "time_s": 0.333405,
+            "deviation_cm": 23.976,
+            "deviation_vertical_cm": 23.889,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 26,
+            "time_s": 0.374817,
+            "deviation_cm": 45.173,
+            "deviation_vertical_cm": 33.902,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 27,
+            "time_s": 0.366791,
+            "deviation_cm": 16.064,
+            "deviation_vertical_cm": 15.849,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 28,
+            "time_s": 0.324982,
+            "deviation_cm": 2.196,
+            "deviation_vertical_cm": 2.156,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 29,
+            "time_s": 0.233429,
+            "deviation_cm": 3.061,
+            "deviation_vertical_cm": 2.587,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 30,
+            "time_s": 0.291931,
+            "deviation_cm": 12.688,
+            "deviation_vertical_cm": 12.511,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 32,
+            "time_s": 0.349915,
+            "deviation_cm": 1.895,
+            "deviation_vertical_cm": 1.369,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 33,
+            "time_s": 0.358398,
+            "deviation_cm": 25.274,
+            "deviation_vertical_cm": 25.195,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 34,
+            "time_s": 0.266724,
+            "deviation_cm": 5.968,
+            "deviation_vertical_cm": 5.926,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 35,
+            "time_s": 0.316528,
+            "deviation_cm": 14.551,
+            "deviation_vertical_cm": 13.867,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 36,
+            "time_s": 0.308105,
+            "deviation_cm": 15.274,
+            "deviation_vertical_cm": 15.157,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 37,
+            "time_s": 0.34137,
+            "deviation_cm": 10.616,
+            "deviation_vertical_cm": 10.209,
+            "still_descending": false
+          },
+          {
+            "attempt_index": 38,
+            "time_s": 0.349976,
+            "deviation_cm": 1.185,
+            "deviation_vertical_cm": 1.168,
+            "still_descending": true
+          },
+          {
+            "attempt_index": 39,
+            "time_s": 0.258484,
+            "deviation_cm": 27.879,
+            "deviation_vertical_cm": 27.712,
+            "still_descending": false
+          }
+        ],
+        "note": "all of these are 201->203 transition frames and all are excluded from the fit and the residual statistics; the split only records how abruptly each one breaks"
+      },
+      "untrimmed_counterfactual": {
+        "last_key_s": 0.366667,
+        "residuals_cm": {
+          "count": 1408,
+          "p50": 0.812,
+          "p95": 2.4,
+          "max": 34.597
+        },
+        "tail": {
+          "time_s": 0.35,
+          "coverage_trials_at_anchor": 7,
+          "velocity_cm_s": [
+            3183.462,
+            0.437,
+            -4308.743
+          ],
+          "acceleration_cm_s2": [
+            3325.633,
+            571.593,
+            4933.45
+          ],
+          "speed_cm_s": 5357.21,
+          "min_coverage_trials": 4,
+          "fit_window_fully_covered": true,
+          "recorded_data_ends_s": 0.374817,
+          "model": "canonical local-quadratic fit evaluated at the last key that is both well covered and has a fully recorded fit window"
+        },
+        "tail_cross_check": {
+          "at_time_s": 0.35,
+          "half_window_s": 0.02,
+          "contributing_trials": [
+            12,
+            16,
+            24,
+            26,
+            27,
+            33
+          ],
+          "velocity_cm_s": {
+            "forward": 3190.027,
+            "right": -3.902,
+            "up": -3573.597
+          },
+          "acceleration_cm_s2": {
+            "forward": 8958.46,
+            "right": -659.805,
+            "up": 125306.186
+          },
+          "note": "per-trial median at the canonical tail time; the production tail is the model's own tangent and acceleration, this only checks that they are reachable"
+        },
+        "velocity_agreement_pct": {
+          "forward": 0.21,
+          "right": 111.2,
+          "up": 20.57
+        },
+        "note": "what the 201 curve and its tail would look like with the transition frames kept; the trim is chosen because this variant disagrees with an independent per-trial fit at its own anchor"
+      }
+    },
+    "203": {
+      "cohort_trials": 32,
+      "cohort_note": "complete candidates only; early-exit trials are not used for the recovery curve",
+      "grid_hz": 120,
+      "key_count": 189,
+      "canonical_domain_s": [
+        0.0,
+        1.56665
+      ],
+      "key_last_s": 1.566667,
+      "key_last_note": "the grid is rounded up to cover the recorded domain; trailing keys that no trial still backs are then dropped, so the last key can sit one frame inside it",
+      "source_coverage": {
+        "boundary_duration_s": {
+          "min": 1.574921,
+          "median": 1.575256,
+          "max": 1.58371
+        },
+        "coverage_count_first": 32,
+        "coverage_count_last": 32,
+        "coverage_count_min": 32,
+        "coverage_note": "coverage_count is how many cohort trials still have this phase running at that key; the p05/p50/p95 columns come only from the trials that actually have a recorded sample at or past it, which is a smaller set at the tail (200's last key: 25 live but 9 sampled). Read the pair together."
+      },
+      "model": {
+        "kind": "local quadratic regression (Savitzky-Golay) with MAD re-weighting",
+        "half_window_s": 0.02,
+        "min_points": 12,
+        "robust_iterations": 2,
+        "vertical_policy": "flat ground: runtime up = 0, measured vertical kept as audit data"
+      },
+      "residuals_cm": {
+        "forward": {
+          "count": 6021,
+          "p50": 0.506,
+          "p95": 1.598,
+          "max": 37.927
+        },
+        "right": {
+          "count": 6021,
+          "p50": 0.011,
+          "p95": 0.052,
+          "max": 8.165
+        },
+        "up": {
+          "count": 6021,
+          "p50": 2.99,
+          "p95": 21.941,
+          "max": 40.175
+        },
+        "euclidean": {
+          "count": 6021,
+          "p50": 3.232,
+          "p95": 23.949,
+          "max": 40.175
+        },
+        "samples_beyond_domain": 34
+      },
+      "velocity_cross_check_cm_s": {
+        "per_axis": {
+          "forward": {
+            "median_abs_difference_cm_s": 2.6,
+            "p95_abs_difference_cm_s": 31.5,
+            "max_abs_difference_cm_s": 129.7
+          },
+          "right": {
+            "median_abs_difference_cm_s": 0.3,
+            "p95_abs_difference_cm_s": 9.1,
+            "max_abs_difference_cm_s": 57.9
+          },
+          "up": {
+            "median_abs_difference_cm_s": 1.8,
+            "p95_abs_difference_cm_s": 11.0,
+            "max_abs_difference_cm_s": 22.2
+          }
+        },
+        "note": "per-key |median of the window's raw velocity samples - the model's velocity|; the raw column is noisy at the launch kick and at the landing impact, so the median and P95 describe the fit and the max marks a transient, not a curve error"
+      },
+      "gate": {
+        "statistic": "horizontal (forward/right) sample deviation, linearly interpolated between 120 Hz keys",
+        "limit_cm": 5.0,
+        "p95_cm": 1.598,
+        "p99_cm": 38.497,
+        "rmse_cm": 6.332,
+        "max_cm": 38.771,
+        "samples": 6021,
+        "samples_over_limit": 170,
+        "per_trial_max_p95_cm": 3.181,
+        "trials_over_limit": 1,
+        "trials": 32,
+        "p95_pass": true
+      },
+      "outliers": [
+        {
+          "attempt_index": 6,
+          "max_deviation_cm": 38.771,
+          "at_time_s": 0.4334,
+          "over_threshold": true
+        },
+        {
+          "attempt_index": 29,
+          "max_deviation_cm": 3.181,
+          "at_time_s": 0.008,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 11,
+          "max_deviation_cm": 3.092,
+          "at_time_s": 0.008,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 5,
+          "max_deviation_cm": 2.875,
+          "at_time_s": 0.0082,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 36,
+          "max_deviation_cm": 2.794,
+          "at_time_s": 0.0081,
+          "over_threshold": false
+        },
+        {
+          "attempt_index": 37,
+          "max_deviation_cm": 2.783,
+          "at_time_s": 0.0082,
+          "over_threshold": false
+        }
+      ],
+      "outlier_threshold_cm": 10.0,
+      "flagged_trials": [
+        6
+      ],
+      "horizontal_residuals_cm": {
+        "count": 6021,
+        "p50": 0.506,
+        "p95": 1.598,
+        "max": 38.771
+      },
+      "vertical_noise_cm": {
+        "measured": {
+          "count": 6021,
+          "p50": 2.99,
+          "p95": 21.941,
+          "max": 40.175
+        },
+        "note": "recorded capsule height above the landing surface; flat-ground runtime uses up = 0, so this is terrain tracking and is deliberately outside the gate"
+      }
+    }
+  },
+  "pitch_independence": {
+    "trials": 36,
+    "camera_pitch_deg": {
+      "min": -38.117,
+      "max": 12.566,
+      "trials_above_zero": 1,
+      "gap_from_second_highest_deg": 13.272
+    },
+    "correlation_pitch_vs_dive_up_component": -0.0709,
+    "correlation_pitch_vs_launch_speed": -0.0181,
+    "acceptance_quantities": {
+      "rise_200_cm": {
+        "correlation_pitch": -0.16,
+        "min": 45.963,
+        "max": 47.029,
+        "spread": 1.067
+      },
+      "distance_201_forward_cm": {
+        "correlation_pitch": -0.2531,
+        "min": 444.445,
+        "max": 981.519,
+        "spread": 537.074
+      },
+      "dive_angle_deg": {
+        "correlation_pitch": 0.0709,
+        "min": 19.906,
+        "max": 20.082,
+        "spread": 0.176
+      }
+    },
+    "strongest_absolute_correlation_acceptance": 0.2531,
+    "matched_time_trajectory": {
+      "201_t_0.10s": {
+        "trials": 36,
+        "correlation_pitch_vs_forward_cm": 0.0395,
+        "correlation_pitch_vs_right_cm": -0.066,
+        "correlation_pitch_vs_up_cm": 0.0871,
+        "forward_cm_spread": 2.64,
+        "right_cm_spread": 0.022,
+        "up_cm_spread": 1.25
+      },
+      "201_t_0.20s": {
+        "trials": 35,
+        "correlation_pitch_vs_forward_cm": 0.1771,
+        "correlation_pitch_vs_right_cm": 0.0067,
+        "correlation_pitch_vs_up_cm": -0.073,
+        "forward_cm_spread": 3.08,
+        "right_cm_spread": 0.044,
+        "up_cm_spread": 2.514
+      },
+      "200_t_0.10s": {
+        "trials": 36,
+        "correlation_pitch_vs_forward_cm": -0.0315,
+        "correlation_pitch_vs_right_cm": 0.2647,
+        "correlation_pitch_vs_up_cm": 0.1005,
+        "forward_cm_spread": 0.127,
+        "right_cm_spread": 0.025,
+        "up_cm_spread": 0.105
+      },
+      "200_t_0.20s": {
+        "trials": 36,
+        "correlation_pitch_vs_forward_cm": -0.2603,
+        "correlation_pitch_vs_right_cm": 0.0486,
+        "correlation_pitch_vs_up_cm": 0.3151,
+        "forward_cm_spread": 0.173,
+        "right_cm_spread": 0.025,
+        "up_cm_spread": 0.16
+      },
+      "200_t_0.30s": {
+        "trials": 36,
+        "correlation_pitch_vs_forward_cm": -0.044,
+        "correlation_pitch_vs_right_cm": 0.0779,
+        "correlation_pitch_vs_up_cm": 0.2093,
+        "forward_cm_spread": 0.235,
+        "right_cm_spread": 0.039,
+        "up_cm_spread": 0.1
+      }
+    },
+    "strongest_absolute_correlation_pointwise": 0.3151,
+    "pointwise_note": "position sampled at a fixed instant; small values here can come from sub-frame timing jitter in the phase boundary and are not by themselves a pitch dependence — compare with acceptance_quantities, where the same motion integrated over the phase is flat",
+    "dive_up_component": {
+      "min": -0.34337,
+      "max": -0.34048,
+      "spread": 0.00289
+    },
+    "dive_angle_deg": 19.987,
+    "dive_angle_spread_deg": 0.1761,
+    "launch_speed_cm_s": {
+      "min": 2283.2,
+      "max": 2365.4
+    },
+    "verdict": "pitch independent within the recorded band: rise, distance and dive angle all have |corr| <= 0.253",
+    "scope": "recorded camera pitch is -38.12 to 12.57 deg with only 1 of 36 trials above 0 deg, so the recorded data cannot test an upward-aim regime; the runtime contract comes from MHRise gameplay, not from this script"
+  },
+  "validation_summary": {
+    "p95_limit_cm": 5.0,
+    "phases": {
+      "200": {
+        "statistic": "3D sample deviation, linearly interpolated between 120 Hz keys",
+        "limit_cm": 5.0,
+        "p95_cm": 0.159,
+        "p99_cm": 0.262,
+        "rmse_cm": 0.081,
+        "max_cm": 0.392,
+        "samples": 1696,
+        "samples_over_limit": 0,
+        "per_trial_max_p95_cm": 0.357,
+        "trials_over_limit": 0,
+        "trials": 36,
+        "p95_pass": true
+      },
+      "201": {
+        "statistic": "3D sample deviation, linearly interpolated between 120 Hz keys",
+        "limit_cm": 5.0,
+        "p95_cm": 2.081,
+        "p99_cm": 2.653,
+        "rmse_cm": 1.072,
+        "max_cm": 3.583,
+        "samples": 1371,
+        "samples_over_limit": 0,
+        "per_trial_max_p95_cm": 3.272,
+        "trials_over_limit": 0,
+        "trials": 36,
+        "p95_pass": true
+      },
+      "203": {
+        "statistic": "horizontal (forward/right) sample deviation, linearly interpolated between 120 Hz keys",
+        "limit_cm": 5.0,
+        "p95_cm": 1.598,
+        "p99_cm": 38.497,
+        "rmse_cm": 6.332,
+        "max_cm": 38.771,
+        "samples": 6021,
+        "samples_over_limit": 170,
+        "per_trial_max_p95_cm": 3.181,
+        "trials_over_limit": 1,
+        "trials": 32,
+        "p95_pass": true
+      }
+    }
+  }
+}

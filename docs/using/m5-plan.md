@@ -1,12 +1,26 @@
 # M5「空中/舞踏/终结」：接缝修复 + 收尾计划
 
+> **2026-10-04 当前执行入口：** 急袭突刺M1/M2/M3/E1已通过，当前进行[实现计划M4](急袭突刺实现计划.md#9-分阶段实施与门禁)：以真实PIE输入/角色状态录制验收输入释放、空中入口、N−1方向快照、Loop→接地Over、四段伤害/落空、Combo派生与结束清理。E1编辑器配置与目视已完成，代码侧只读回读确认4个Attack Collision、Over Combo Window与Montage/GA链接有效；M4构建成功、专项15/15测试退出码0。E2正常速度/慢放PIE仍待M4遥测分析后进行。目标输入为同操虫斩持刀Falling门禁下RT限时松开。主M5未完成，之前已签收动作保持。
+
+> **2026-10-01 范围收缩：** 强化跳跃斩和降龙已移出当前 Demo；已签收的强化操虫穿刺保留。M5 剩余新增招式仅急袭突刺，之后仍须收口与阶段总验收。旧日期记录中的两招不再构成当前待办。
+
+> **历史状态快照（2026-10-01）：强化操虫穿刺 M1/M2/M3/E1/M4 完成，E2 本轮平地可玩范围已签收；当时下一纵切为急袭突刺。** GA、两条常驻Montage、三份CV已存在；200/201曲线驱动，203使用Over `_RM`，旧Landing曲线/IP保留对照。203修订的既有静态成绩为全量 **166/166**（本招 **17/17**）、Python **32/32**、DataValidation **607资产0资产错误**（另有平台SSL警告）、21资产/8次幂等检查；M4回归为全量 **167/167**、本招 **18/18**，见本招§13.3～13.4。最新录制 `20261001-170744-BP_IG_Character_C_0-55632` 与用户目视支持平地签收，见[本招 §13.5](强化操虫穿刺实现计划.md)。碰墙/封顶暂缓；录制没有slomo命令，不宣称慢放采样、全取消矩阵或五条clone全部实机通过。主M5仍实施中；操虫斩E3/P0-2既有签收保持。当前执行状态以本文首段为准。
+
+> **历史签收（2026-09-30，15:19录制）：操虫斩不减速版本招E3通过，空回P0-2缺口关闭。** 该录制有5次空回直接接操虫斩（3次完整落空落地、2次命中舞踏），唯一位移所有者、悬停/前冲与落地清理正常，用户目视无异常。149/149、专项27/27、596资产0错误保留当时操虫斩代码收尾实跑范围；该轮只审查录制/改文档，没重跑或改代码/资产。签收见[§9.7](操虫斩实现计划.md)，强化操虫穿刺的当前执行项看文首；188条件制动、其他招式及普通猎虫回手交付不由本招签收代替。
+
+> **2026-09-29 上轮 M4.6 静态出口快照（历史，早于 §9.5 限域修复）：** 操虫斩本招M4.6运动重建已实施，最终Development Editor编译/只读资产审计通过，独立评审问题已修复并复核通过。187默认走CMC分段直冲/滑行；旧距离曲线仅保留显式兼容路径。189→157保留1800重力与360后向加速度，修正旧悬停RMS延迟清理抹掉舞踏初速度的问题。原三伤/Socket/输入/Combo/Montage不重建。**当轮未运行自动化、未做PIE，这些静态证据不签收E2/E3/M5**；当时下一步为重录正常速度/慢放E2，见[操虫斩计划§9.2、§9.4](操虫斩实现计划.md)。下方旧计数/状态只保留作历史快照，不证明本轮完成。
+
+> **2026-09-28 原E1出口历史快照（非当前计数/待办）：** 当时命中链、`186→187`与碰墙收尾修复已有代码/资产静态证据，用户确认原E1通过；专项12/12与两个Montage定向验证只代表当时范围。此后E2录制暴露的运动学偏差及其修复已由顶部最新裁定取代；不得用本段签收修后E2。
+
 ## Context
 
-项目是 UE 5.6 + GAS 的原创虫棍单机 Demo，走 M0～M7 / E0～E7 的里程碑门禁。每个阶段必须同时有代码、资产接线、PIE 与遥测证据才算签核。
+项目是 UE 5.6 + GAS 的原创虫棍单机 Demo，走 M0～M7 / E0～E7 的里程碑门禁。M5 整阶段签核要求代码、所属资产接线、PIE 与遥测证据；各 M/E 子阶段按自己的退出条件验收，代码底座子阶段（如操虫斩 M1）可由自动化签收，不提前要求尚未开始的编辑器接线。
 
-**阅读状态（2026-09-24）**：M4.7 已签核，M5 实施中。本文件保留 M5 各阶段的实施记录和未完成招式计划；早期测试数量、失败试验与“待办”描述均按所标日期阅读，不代表当前状态。空回 `137→157` 接缝的现行结果和剩余验收只看[空回 P0/P1 方案](空回P0-P1完整修复方案.md)；已决定暂缓的观感问题看[低优先级问题单](项目已知的不重要问题.md)，下落物理的未完成配置看[下落现状与缺口](空中下落实现缺口.md)。
+**历史阅读快照（2026-09-27，已由上方2026-09-28状态更新）**：M4.7 已签核，M5 实施中；空回跑满接缝已通过本机修后 PIE 正常/慢放目视。操虫斩 M1/M2 代码出口已通过；当时 E1 的曲线、主 Montage、独立 Dance Montage、GA 与 B/RT+B Combo 路由已脚本生成并静态验证。用户指定 Dance 从源序列第 0 帧进入，两种来向共用该起点，目标混合 0.1s；188 保持末姿势时 CMC 仍下落。当时尚待 E1 目视核对，当前已由用户确认通过，下一步转 E2 真实 PIE。此前“按不出来”的 PIE 录制早于新资产生成，不能代表当前接线。M5 尚未签收。本文件保留 M5 各阶段的实施记录和未完成招式计划；早期测试数量、失败试验与“待办”描述均按所标日期阅读，不代表当前状态。空回 `137→157` 接缝的现行结果和剩余验收只看[空回 P0/P1 方案](空回P0-P1完整修复方案.md)；已决定暂缓的观感问题看[低优先级问题单](项目已知的不重要问题.md)，下落物理的未完成配置看[下落现状与缺口](空中下落实现缺口.md)。
 
-用户以 Monster Hunter Rise 实机录制为**唯一真值源**（`C:/apps/steam/.../reframework/data/MHGZ_AerialTrajectoryRecorder`）。
+**历史状态补充（2026-09-27，已被上方2026-09-28状态取代）**：操虫斩 M1/M2 代码出口已通过。M2 Production GA/Probe/Notify/Host 预算代码 Development Editor 冷编译成功；当时KinsectSlash专项 **11/11**、全量自动化 **131/131** 通过。E1 距离曲线已从 187 实机 CSV 生成并重读审计；主/舞踏 Montage、GA 与 Combo 路由已生成。Content DataValidation 当时检查 **596 个资产、0 项资产错误**（另有 1 条平台 SSL 根证书存储警告）。`DA_WeaponRuntime_IG` 的 CombatConfig/Profile 引用、B RawAction、RT+B（B trigger + RT modifier）和两条空中 Combo 边已命令行回读。自动化覆盖伤害 GE/精华去重、Hitzone Sweep 失败候选续扫、墙体遮挡钳位、LateHitOpen 跨 Dash→Miss 边界排队，以及 Hitstun/Knockdown/Dead/Runtime token 失效时取消活动能力。当时停在E1；E1现已由用户确认通过，下一步是E2真实PIE。188 不循环重播下坠段，末姿势保持时 CMC 继续下落。旧的“按不出来”录制早于新资产生成，需重测；真实 Montage/Notify 阶段链、空回接管和命中/落空尚未验收。
+
+用户以 Monster Hunter Rise 实机录制为**唯一真值源**（游戏目录下的 `reframework/data/MHGZ_AerialTrajectoryRecorder/`；本机 Steam 安装位置和离线生成器的解析规则见[参考资料导航](../reference/README.md)，不再硬编码旧设备的 `C:/apps/steam`）。
 
 > **本文档 2026-09-18 重排为「已完成 / 未完成」两段。** 此前它按时间顺序堆积，`5.0`/`5.0b`/`5.0c`/`5.0d` 交错（`5.0d` 排在 `5.0c` 之前），已关闭项与未开工项混在一起。
 > **重排只动位置，不动证据** —— 结论、实测数字、教训、被推翻的推断一条未删。真值数字仍以 §3 与 `docs/reference/真值表.md` 为准。
@@ -101,17 +115,17 @@ UnrealEditor-Cmd.exe <绝对路径>/MHGZ.uproject -unattended -nop4 -nosplash -N
       CMC 立刻找到脚下地面 → ProcessLanded → LandedDelegate → 任务 3 帧后收尾
 ```
 
-**新架构**（`vault` = 代码对"一段由根运动源驱动的空中位移"的统称；舞踏 = `BallisticVault`，后撑杆跳 = `CurvedVault`）：
+**当时的新架构（2026-09-18，历史记录）**（`vault` = 代码对"一段由根运动源驱动的空中位移"的统称；舞踏 = `BallisticVault`，后撑杆跳 = `CurvedVault`）： 下表 Actionable 的领取/释放只保留当时机制与 PIE 证据，不是当前操虫斩的 required tag；本轮现行正门控见 §8.2 与[操虫斩计划§9.5](操虫斩实现计划.md)，不在本轮重写基类遗留逻辑。
 
 | 项 | 改动 |
 |---|---|
 | **模式** | 起飞进 **`MOVE_Flying`** —— `PhysFlying` 不跑重力 / `FindFloor` / `ProcessLanded`，override 源活跃时 `CalcVelocity` 也被跳过（无 `MaxFlySpeed` 钳制）。**这是后撑杆跳一直在用的手法** |
 | **通知** | `UAnimNotifyState_IG_AerialWindow`（窗口）→ **`UAnimNotify_IG_AerialHandoff`（点）**。最早可操作帧是一个**帧**；窗口语义（begin/end 配对、窗口期持 tag、按 eventID 记账的 token 表）全部只服务于"窗口还开着吗"这个没人问的问题 |
-| **释放** | `NotifyAerialHandoff()`：锁存 + 切 `MOVE_Falling` + 拿 `Combat.State.Aerial.Actionable`。**动画继续播完**；"空中 idle"只是比喻，切模式只为让落地动画与空中 GA 可触发 |
+| **释放（历史）** | `NotifyAerialHandoff()`：锁存 + 切 `MOVE_Falling` + 拿 `Combat.State.Aerial.Actionable`。**动画继续播完**；"空中 idle"只是比喻，切模式只为让落地动画与空中 GA 可触发 |
 | **兜底** | `EnsureVaultFlightReleased()` —— 通知没走到时（蒙太奇没挂通知 / 释放点前被取消）不让胶囊**悬停**在 Flying。从 `FinishMovement` 与 `OnDestroy` 两条路各调一次 |
 | **收尾** | `ResolveVaultExit` **删掉第二个参数**：`Landed → 落地姿势`，`Completed/BlockingHit → 自由落体`，其余 `None`。两道落地闸门删除 |
 | **真值来源** | 唯一要问的是"弧走完时胶囊在半空吗"，UE 的直接回答是 **`LandedDelegate` 有没有响过**。旧代码拿"CMC 恰好处于什么模式"当代理指标，一直是错的（`ProcessLanded` 先广播再 `SetPostLandedPhysics`） |
-| **tag** | `Combat.State.Aerial.ActionWindow` → **`Combat.State.Aerial.Actionable`**（acquire 在通知、release 在 `EndAbility`） |
+| **tag（历史）** | `Combat.State.Aerial.ActionWindow` → **`Combat.State.Aerial.Actionable`**（acquire 在通知、release 在 `EndAbility`） |
 | **碰撞** | 删掉 `EMovementCollisionPolicy`；`HandleCapsuleHit` 不再在胶囊碰撞上结束移动 —— **滑动是引擎自带的**（`PhysFlying`/`PhysFalling` 在任何 blocking hit 上都 `HandleImpact` + `SlideAlongSurface`，而源自己从不移动组件）。`ResolveVaultExit` 的 `BlockingHit` 从 `None` 改为按空中/地面分流 —— **"被打断"不再等于"身体无主"** |
 | **下落** | `IsFalling()` 换成解析残余量 `(1 − HandoffProgress) × ArcDuration`（白灯 0.0 / 非白灯 0.2347 s）—— 修掉白灯的僵尸 `AM_IG_AerialFall_W`。另加坠落看门狗 `AerialFallMaxSeconds = 4.0`（`InsectGlaiveCombatConfig.h:268`，读点在 `MHGZWeaponRuntimeHostComponent.cpp:1005`）：坠落此前**没有任何生命周期管理**，实测会静默无限循环、掉到 Z = −1939 cm 仍在下降 |
 | **清理** | 删掉 `BackVaultFreeFallHandoffProgress` / `WhiteBackVaultFreeFallHandoffProgress` —— 从不被读、且会撒谎（文件写 0.8734，运行时白灯是 1.0） |
@@ -228,7 +242,7 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 | **阶段 0 资产探针** | `Scripts/AssetProbe/probe_m5_assets.py`（只读，写 JSON 到 `Saved/AssetProbe/`）。**Python 路线读不到骨骼轨道**（`UAnimSequence` 在 5.6 不暴露 data model），需要 DataModel 时必须走 C++ Commandlet |
 | **阶段 C 后撑杆跳设计文档补录** | 已完成 |
 | **遥测** | `Saved/RuntimeTelemetry/` 下的成套 CSV 覆盖 montage / RootMotionSource / MovementMode / 骨骼三个几何层次，2026-09-17 又补上加速度 |
-| **唯一位移执行层** | `UAbilityTask_MHGZWeaponMovement`（四种 `EWeaponMovementMode`：`BoundedDirectional` / `BallisticVault` / `CurvedVault` / `AdditiveInertia`）。已接线：`BallisticVault`（突进回旋斩反击）、`CurvedVault`（后撑杆跳）。**其余两种是按合同预置的基础设施，不是死代码** —— 正好对应未开工的操虫斩与强化跳跃斩/急袭突刺 |
+| **唯一位移执行层（当时基础设施快照，非当前模式穷举或招式状态）** | `UAbilityTask_MHGZWeaponMovement`（四种 `EWeaponMovementMode`：`BoundedDirectional` / `BallisticVault` / `CurvedVault` / `AdditiveInertia`）。当时已接线：`BallisticVault`（突进回旋斩反击）、`CurvedVault`（后撑杆跳）。**其余两种是按合同预置的基础设施，不是死代码** —— 正好对应当时未开工的操虫斩与强化跳跃斩/急袭突刺 |
 | **撑杆跳 / 舞踏 实现** | **2026-09-21 起撑杆跳是四向的**：机制全在基类 `UMHGZPoleVaultAbility`（`Abstract`），四个方向各一个薄子类（`Back`/`Forward`/`Left`/`Right`）只负责灌自己的 `FVaultProfile`；`UMHGZBackVaultAbility` **退化成薄子类**。资产：四向 × 两灯态 × 两半 = **16 条蒙太奇**（起手段沿用 `AM_IG_*ChengGanTiao{,_W}`，弧段 `_Over` 后缀）。舞踏仍是 `UMHGZAdvancingCounterAbility` + `AM_IG_WuTa`。**后撑杆跳曾是无主实现**（F3），设计文档补录后才纳入 M5 |
 | **Rise 真值管线（2026-09-18 新增）** | `docs/reference/`（真值表 + 招式表 + 口径）+ `Scripts/MHRise/build_truth_table.py`（生成器）。逐帧轨迹写到已入库的 `Saved/_mhr_frames/`。详见 §3 |
 | **命令列** | `MHGZAerialHandoffSetupCommandlet`（写点通知，报告 `Saved/_aerial_handoff.json`，**9 条 `validated: true`**）、`MHGZWuTaMontageSetupCommandlet`、**`MHGZPoleVaultMontageSetupCommandlet`**（2026-09-21 新增，烘 16 条单段单节蒙太奇，报告 `Saved/_pole_vault_montage.json`）。<br>**⚠ 2026-09-21 拆双蒙太奇之后，点通知从起手段搬到了弧段**：前/左/右与后 0.783 → **0.133**，白灯后 0.775 → **0.125**（都是减 `JumpDuration = 0.650`）。报告里另有 `takeoff_ordering[*]` 断言「起手段那半边不许带点通知」——**通知要是留在只有 0.650 s 长的起手段上就永远触发不了**，而"有没有通知"的判据却会为真。<br>**⚠ 别"顺手清理" `MHGZAerialHandoffSetupCommandlet.cpp:26` 的 `RetiredStateClassName = TEXT("AnimNotifyState_IG_AerialWindow")`** —— 旧类删掉之后，清理仍然靠**类名字符串**匹配（而不是 `Cast`），这行正是"幂等重跑仍能清掉旧通知"的实现方式，删了它旧蒙太奇就再也清不干净 |
@@ -263,12 +277,12 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 
 | 项 | 症状 / 内容 | 为什么还没修 |
 |---|---|---|
-| **A4c `AbilityOwned` 落地策略空实现** | 急袭突刺与降龙都要用 | **阶段 D 的硬前置**，随那两招一起做 |
+| **A4c 急袭突刺自身的 `AbilityOwned` 落地响应待实现** | 通用 Coordinator 路由及强化操虫穿刺 203 接管已经存在；旧“整个策略空实现”已过时，通用 GA 默认响应仍为 No-Op | 随急袭突刺补齐其自身落地阶段，不重新阻塞已签收强化操虫穿刺 |
 | **F1 舞踏倍率断开** | `URes_InsectGlaive::GetDanceDamageMultiplier()`（`Res_InsectGlaive.cpp:835`）**全树零调用方**；`MHGZDamageExecCalc.cpp:86-87` 读 `Damage.DanceMultiplier`，但 `MakeDamageSpec`（`MHGZAttackAbility.cpp:1282-1295`）只写 `MotionValue` 与 `BaseStagger`，全树无写入点。`MaxDanceStacks` 类默认 `0`，`AddDanceStack` 被 clamp 到 0。→ **层数能加、能观测，但不影响任何伤害**；M5 退出条件「倍率封顶且按段快照」当前不可验证 | 阶段 B 的三步：**B1[代码]** `MakeDamageSpec` 里写 `Damage.DanceMultiplier = Resource->GetDanceDamageMultiplier()`，**每个 AttackSegment 创建 Spec 时快照**；**B2[编辑器]** 设 `MaxDanceStacks > 0` 与 `DanceDamageMultipliers[]`（`Num == MaxDanceStacks + 1` 且 `[0] == 1.0f`）；**B3[决策]** `MHGZDamageExecCalc.cpp:107` 的 `FMath::Max(1.0f, DanceMultiplier)` 兜底会让 <1.0 的倍率被静默忽略，确定是否只允许 ≥1.0 |
 | **「落到木桩上动不了」(wu13)** | 木桩圆顶的法线 Z 是 **0.715–0.756**，刚好高于 UE 的可行走坡度阈值（cos 44.765° ≈ 0.71），于是 `PhysFalling` 认定它可站立、CMC 自己落地、`HandleLanded` 报 `Landed`，而胶囊在那么小的曲面上无法稳定接触，陷入每 ~0.5 s 一次的穿透极限环，`MovementMode` 一直是 Falling。**这是关卡碰撞几何形状的问题**（圆顶通过了坡度测试却撑不住胶囊），不是纯逻辑缺陷 | 修法二选一：改木桩的碰撞（坡面覆盖 / 不可行走），或加"声称有地面但连续 N 帧无法稳定接触"的出口。**看门狗（4.0 s）也晚于那 3.2 s，不是它。**<br>**我曾写"窗口闸门直接修掉它"—— 那是错的**：假落地发生在 montage 时间 ~1.449 s，远在 0.317 s 窗口之后，闸门会放行 |
 | **起手段阶段没有任何根运动源**（旧录制中的“空中顿一下”） | 接缝**之前**那 3~5 帧里水平速度从 13.7 cm/帧衰减到 0.68 cm/帧，个别帧正好 0.00。29 次撑杆跳里 26 次至少一帧 < 2 cm。**位置在接缝之前，所以交叉淡入改不了它** | **机制只查了一半**，见 §6.1。`VaultHandoffLeadSeconds` 不能在未查清来源前盲调；该旧录制不等于最新 PIE 已复现。 |
 | **顶点/距离相对 Rise 的既有偏差**（**不是本次回归**） | 距离 `有白灯·向左` **−7.3%**；顶点 `有白灯·向前` **−5.6%**、`无白灯·向左` **−5.3%**、`有白灯·向左` −4.7%、两个「向右」−3.7%。计划判据是 ±4% | 拆分前后**逐组中位数完全相同**（`Saved/_mhr_scratch/apex_old_vs_new.py` 对拆分前两份录制跑同一判据）⇒ 与接缝工作无关。`有白灯·向左` 的 Rise 真值只有 **2 次可用试次**，偏差更可能在参照那一侧。**接受 / 补录 / 调表，待裁决** |
-| **最早可操作帧晚约一帧** | 设计 0.783（链上），实测 `Combat.State.Aerial.Actionable` 出现在链上 **0.825**（弧段局部 0.175）。差 0.042 s ≈ 1.7 帧 | 可能只是 notify 要等下一个 tick 才反映的固有量化。**未确认是否算问题** |
+| **最早可操作帧晚约一帧（历史观测）** | 设计 0.783（链上），实测 `Combat.State.Aerial.Actionable` 出现在链上 **0.825**（弧段局部 0.175）。差 0.042 s ≈ 1.7 帧 | 可能只是 notify 要等下一个 tick 才反映的固有量化。**当时未确认是否算问题**；保留时间证据，当前操虫斩门控检查 Falling gameplay Tag，不以 Actionable 是否在场验收 |
 | **三条 PIE 路径从未走到过** | ①空摇杆 RT+A → 前推的兜底边；②撑杆跳**中途被打断**；③**落地打断**。后两条会走 `EndAbility` 里「先停弧段再停起手段」那条清理，该路径只过了编译与单测 | 需要用户跑；`EndAbility` 的清理顺序是拆双蒙太奇时新写的 |
 | **空气墙** | `L_DemoArena` 四面墙原本只有 **300 cm** 高，而撑杆跳顶点 558~749 cm ⇒ 一跳就越过去（用户「老是掉下去」） | **已修**：四面墙 `scale.z 3 → 30`（Z ∈ [0, 3000]），内侧面与 X/Y 跨度未动，`git diff` 只有 `L_DemoArena.umap`。**但未在 PIE 里真的跳一次撞上去验证** |
 | **空中回避** | `20260922-224312` 的第 4 轮 PIE 中，22 次跑满弹道的标量进入真值允差；2026-09-23 23:57 的接缝录制也已通过。前几轮失败、输入门禁和看门狗修复过程在 §8.1 留作历史。 | 代码与资产已入库；P0/P1 的生产链路自动化和最终可视验收以[空回方案](空回P0-P1完整修复方案.md)为准。 |
@@ -315,18 +329,20 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 | 项 | 卡在哪 |
 |---|---|
 | **`186` 的 id 语义** | `147`/`159` 被取消的 4 条（各 0.425 s）后继是 `186`。**用户 2026-09-18：长时间无位移肯定不是受击**（受击不会长时间无位移），但**不记得何时录过操虫斩** ⇒ 等补录操虫斩后定案。真值表里**单列为「存疑」，不静默剔除**。注意 **id 是按表分配的、不同表都从 0 开始**，所以「不在虫棍招式表里」**不能**作为剔除依据 |
-| **`CantAttack` / `CantDodge` 预算接线**（**一半已接，2026-09-22**） | 这两个 tag 的语义是「空中动作**已用**」。**`CantDodge` 已接**：`Host->MarkAerialDodgeUsed()` 在空中回避激活时领、**只在落地（`HandleLanded`）释放** —— 中途取消进别的空中招式**不退款**，所以 Token 由 Host 持有而不是能力持有。**仍待**：`CantAttack` 那一半（空中攻击招式还不存在），以及**舞踏重置两个 Cant**（操虫斩命中/突进回旋斩反击是舞踏入口，留到操虫斩那轮） |
+| **`CantAttack` / `CantDodge` 预算接线**（2026-09-22历史，当时一半已接） | 两Tag表示空中动作已用，由Host持有，不随能力中途取消退款；落地释放。操虫斩现已复用 `MarkAerialAttackUsed()` / `ResetAerialActionBudgetOnDance()`：未命中仍花CantAttack、189成功起播才重置预算，不能靠补Actionable放行。2026-09-30专项27/27已通过，三项旧失败关闭；现行生产空回接管也已通过，见[§9.7](操虫斩实现计划.md)。 |
 | **顶点/距离既有偏差怎么处置**（2026-09-21 新增） | 三组超计划的 ±4%（距离 `有白灯·向左` −7.3%；顶点 `有白灯·向前` −5.6% / `无白灯·向左` −5.3%）。**拆分前后逐组同值 ⇒ 不是接缝工作引入的。** 接受 / 补录 Rise 白灯左 / 调表，三选一，**要用户定**。见 §6 |
 | **三条 PIE 路径需要用户跑**（2026-09-21 新增） | ①**空摇杆 RT+A → 前推**的兜底边；②撑杆跳**中途被打断**；③**落地打断**。后两条会走 `EndAbility` 里「先停弧段再停起手段」这条清理 —— 拆双蒙太奇时新写的，实跑里一次都没触发过。另外空气墙的实际拦截（跳一次撞上去）也一并看。见 §6 |
 | **接缝的观感**（2026-09-21 新增） | 遥测里**没有逐骨姿势**，所以「淡入之后还顿不顿」只有用户的眼睛能判。数字面：硬切 2.24× → 0.1334 s 后 1.58×。见 §2.3、§5 第 6 条 |
 
 已暂缓的受击、反击观感和移动接缝问题集中在[低优先级问题单](项目已知的不重要问题.md)，不作为本表的 M5 当前阻塞项。
 
-## 8. 阶段 D — 六个空中招式（第 1 招已实现；最终验收见 P0/P1 方案）
+## 8. 阶段 D — 四个空中招式（空回、操虫斩及强化操虫穿刺已按各自范围签收；M5整体未签）
 
-2026-09-22 用户确认将空中回避（Rise `137`）纳入阶段 D 并排在第一招；旧计划的“五招”计数不再适用。空回的实现与下落现状见[空中下落实现缺口](空中下落实现缺口.md)，交棒的现行验收见[空回 P0/P1 方案](空回P0-P1完整修复方案.md)。
+2026-09-22 用户确认将空中回避（Rise `137`）纳入阶段 D 并排在第一招，当时从五招增为六招；2026-10-01 移除强化跳跃斩和降龙后，当前共四招：空回、操虫斩、强化操虫穿刺、急袭突刺。空回的实现与下落现状见[空中下落实现缺口](空中下落实现缺口.md)，交棒的现行验收见[空回 P0/P1 方案](空回P0-P1完整修复方案.md)。
 
-### 8.1 空中回避 —— 已实现（2026-09-22；交棒仍待最终可视验收）
+### 8.1 空中回避 —— 已实现（2026-09-22；接缝正常/慢放可视验收已通过）
+
+2026-09-25 本机修后 PIE `20260925-191256` 与用户目视确认了跑满空回接缝；平地 Demo 不要求人工复现抬升动作中的提前触地，该分支由自动化防回归。真实新空中 GA 接管的集成验收随 §8.2 首招完成后补做，不阻塞「操虫斩」开工；详见[空回 P0/P1 方案](空回P0-P1完整修复方案.md)。
 
 | 要素 | 落点 |
 |---|---|
@@ -393,7 +409,9 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 
 **表现层**（整包）：`BeginAerialFalling` 时机一字不动（GA 结束的 `bStartFreeFall` 分支），单槽 re-acquire `[Falling, Style]`。`IsAerialFalling()` 语义**保持**「托管下落表现会话」（改看 `ActiveAerialFallingMontage`）—— 摇杆屏蔽（`MHGZCharacter` 的 `bAerialPresentationLocked`）与落地收尾判据不受裸 tag 影响。
 
-**查闸两处（全正向）**：空回 GA **`ActivationRequiredTags` = [Falling]**（`ActivationBlockedTags` 只留 `CantDodge` 预算）；`DA_IG_Combo` 撑杆跳 10 行 **`RequiredTags` = [Grounded]**（原 `[Unsheathed]` 保留合并，回读 10/10；撑杆跳只能地面起手）——**未来空中攻击行**进来时 `RequiredTags` 带 `Combat.State.Aerial.Falling`。`InputLocked` 整套退役（ini / token / 行 block tag / e2e 项）。
+**2026-09-22 查闸记录（历史，全正向）**：空回 GA **`ActivationRequiredTags` = [Falling]**（`ActivationBlockedTags` 只留 `CantDodge` 预算）；`DA_IG_Combo` 撑杆跳 10 行 **`RequiredTags` = [Grounded]**（原 `[Unsheathed]` 保留合并，回读 10/10；撑杆跳只能地面起手）——**未来空中攻击行**进来时 `RequiredTags` 带 `Combat.State.Aerial.Falling`。`InputLocked` 整套退役（ini / token / 行 block tag / e2e 项）。
+
+**当前操虫斩闸门（2026-09-30，静态/自动化通过，生产复验边界见§8.2）**：GA及保存的 `Air_KinsectSlash_B` / `Air_KinsectSlash_RTB` 两行检查Falling gameplay Tag + Unsheathed + 实际空中，CantAttack和Grounded/Dead/Hitstun/Knockdown仍阻止。lead由Falling Tag缺席锁住，CMC模式不能单独放行；本招不再依赖RequiredActionable，不新增Actionable授予，也不重写Host/虫棍基类遗留全局行为。
 
 **输入行为表**（统一语义，无策略开关。**空回没有预输入** —— 2026-09-23 用户拍板取消，锁定期按下直接作废）：
 
@@ -450,33 +468,49 @@ AM_IG_TuJinHuiXuan（MontageHasRootMotion=1, RootMotionDisabled=0）正在淡出
 `Unbind` 日志与 P1-3 记录层保留）。**当时的下一版（窄门控）已实现并在 22:50 删除**。`MHGZ.M5.Aerial.AnimRootMotionShield` 与 `PresentationClipsHaveNoRootMotion` 只能作辅助钉，不能代替真实交棒回归。
 取证、排除与回退记录见附录 A.1 第 25/26/27/28 条，以及[空回 P0/P1 方案](空回P0-P1完整修复方案.md)的历史执行记录。
 
-### 8.2 其余五招（未开始）
+### 8.2 其余三招（操虫斩、强化操虫穿刺已签收，只剩急袭突刺）
 
-除空中回避外，另五招的 C++ 类、GA 蓝图、蒙太奇、Combo 边、空中输入 chord —— **一个都不存在**。
-源序列已导入，但序列 ≠ 蒙太奇。按项目规则**逐个纵切**，不要一次写完：
+**历史签收快照（2026-09-30，15:19录制已验收）：** 本招不减速版E3及空回P0-2通过，见[§9.7](操虫斩实现计划.md)。新录制17次操虫斩、8次空回，5次直接接操虫斩：3次完整落空→落地、2次命中舞踏，所有权/清理正常，用户确认目视正常。旧204402无空回的缺口已补齐；149/149、27/27及596资产0错误是此前实跑成绩，不伪称本次又跑。当时下一招为强化操虫穿刺；现行下一步见下段。
 
-1. **操虫斩**（空中 `B` / `LT+B`，两种 AimSource、命中点灯、`AddDanceStack(KinsectSlash)`、走 `BoundedDirectional`）。
-2. **强化操虫穿刺**（`LT+Y`，**只**允许从 `Combat.State.Aerial.Dance.Source.KinsectSlash` 派生）。
-3. **强化跳跃斩**（空中 `Y`，`AdditiveInertia`）+ **急袭突刺**（空中 `RT`，`LandingPolicy = AbilityOwned`，依赖 A4c）。
-4. **降龙**（`LT+Y+B`，`AbilityOwned` Landing，Commit 时先快照倍率再清层）。
+其余空中招式仍按**逐个纵切**实现。操虫斩不减速版及真实空回后继接管已签收；强化操虫穿刺 **M1/M2/M3/E1/M4完成，E2本轮平地可玩范围已签收**，见[本招§13.5](强化操虫穿刺实现计划.md)。碰墙/封顶暂缓，未发现已确认bug；慢放采样、全取消矩阵和五条clone全覆盖实机测试均不在本轮已验证声明内。**急袭突刺M1/M2/M3/E1已通过；当前为M4真实PIE输入/状态遥测验收**。E1后资产只读回读、构建及M2专项15/15回归通过；完成M4矩阵分析后进入E2正常速度/慢放验收，随后才做M5收口，主M5未签收。
+
+**历史实施快照（2026-09-27，已由上方2026-09-28状态更新）**：M2 Development Editor 冷编译成功、KinsectSlash 专项 **11/11**、全量自动化 **131/131**。187 距离曲线、主 Montage、独立 Dance Montage、GA 与两条 Combo 边均已生成；用户已确定 Dance 使用源帧 0。RuntimeDefinition/Profile/Combo 的命令行审计通过，全 Content DataValidation 为 **596 个资产、0 资产错误**（1 条平台 SSL 根证书警告）。当时只待编辑器目视确认，现E1已通过；真实 MontageInstance Notify 阶段链、生产空回接管与命中/落空仍待E2 PIE，不能把自动化结果误作可玩验收。
+
+真实空回→操虫斩生产接管已由20260930-151905录制及用户目视通过，不再等后继GA或重做测试双验收；事件、唯一所有权和清理边界见[§9.7](操虫斩实现计划.md)。
+
+本招详细设计与历史修复见[操虫斩实现计划](操虫斩实现计划.md)。§9.6保存149/149、27/27和点灯证据，§9.7记录生产接管及E3/P0-2签收。188不减速版为当前范围，原作条件制动不列门禁；M5其他招式和普通猎虫回手交付不被本招签收吞并。
+
+1. **操虫斩（不减速版本招E3已签收，2026-09-30）**（空中 `B` / `RT+B`，两种AimSource、命中点灯、`AddDanceStack(KinsectSlash)`；187默认走 `SegmentedDirectional`，189走 `AuthoredAerialPhysics`）。方向时序参照[真值表](../reference/真值表.md)：RT整体三维前冲方向最符合186开始后0.317s的镜头方向（60FPS等效19帧）；末次角色偏航变化中位0.333s（约20帧）。这是遥测推断，不证明同一内部锁存事件。
+2. **强化操虫穿刺**（`RT+Y` / `Input.Weapon.RTY`）。**只**允许操虫斩有效猎虫命中提交的当前 `KinsectSlash` 舞踏来源，且同空回/操虫斩一样等待 `Combat.State.Aerial.Falling` 开放。三段独立武器判定的窗口由用户放置；准心仅影响水平朝向，俯仰不改轨迹。完整链为200→201→真实触地→203，202仅为循环表现。200/201使用录制曲线，203使用原Over动画的直接Montage Root Motion；旧Landing曲线只保留真值对照，不再执行。**M1/M2/M3/E1/M4完成，E2本轮平地可玩范围已签收（2026-10-01）**，最新证据见[本招计划§13.5](强化操虫穿刺实现计划.md)，静态/回归见§13.3～13.4，旧版见§12；碰墙/封顶暂缓，主M5尚未签收。
+3. **急袭突刺（唯一剩余新增空中招式；当前M4遥测验收）**：同当前操虫斩的持刀/Falling/预算门禁，RT限定时间内松开触发，`LandingPolicy=AbilityOwned`。第一段380自动查找进入/loop区并用校准运动模型，第二段381直接用原Montage Root Motion；三次180°/180°/60°前帧快照修正、四个用户判定窗、二连/后撤/飞圆派生按[独立实施计划](急袭突刺实现计划.md)。M1/M2/M3/E1已通过，E1静态回读、构建及专项15/15回归通过；当前按该计划M4矩阵进行真实PIE录制，之后E2正常速度/慢放目视验收，再进入M5收口。飞圆入口同二连来源，常驻Montage不允许动态拼接。A4c随本招实现/复核。
+
+**2026-10-01 范围变更：强化跳跃斩与降龙移出本 Demo，不再生成 GA、Montage、Combo 边或列入 M5 门禁。** 空中 Y 与空中 LT+Y+B 不配置这两招，也不新增替代动作；地面 Y 与粉尘集约不受影响。保留原游戏资源/录制、已有序列化枚举和预置参数，不因取消计划直接删除它们。
 
 每招之后立刻做对应 **[E] 编辑器装配**。
 
-**遗留待确认**：急袭突刺的源序列归属（`AS_Unsh_Fall_TuJin` / `AS_Unsh_Fall_R_TuJin` 命名上像空中突进，需确认根运动与归属）。
+**当前M1待核对**：用户已确认源380/381；本轮实际包为 `AS_Unsh_JiXiTuCi_StartAndFalling` / `AS_Unsh_JiXiTuCi_Over`。需回读其内容、查找380循环区、映射真值转向时间并校准入口向量；旧 `AS_Unsh_Fall_TuJin/Fall_R_TuJin` 猜测不再作为急袭突刺资源依据。
 
-## 9. 阶段 E — 收口项（未完成）
+## 9. 阶段 E — 收口核对（2026-10-01，按现状分类）
 
-- 补 `EIGDanceClearReason`（`AttributeSystem/Res_InsectGlaive.h:38-47`，现有枚举 `Landed / Hit / Sheathed / Unequipped / DescendingThrust / DivingWyvern / RuntimeShutdown`）的 `Hit` / `Sheathed` / `DescendingThrust` / `DivingWyvern` 调用点；该枚举**缺 `Death`**。
-- AnimBP 读取 `Combat.State.Aerial.Falling.*` / `.Landing` 选 pose。
-- 修 F5 的文档过时点：`demo-implementation-plan.md:496` 与 `actions.md:338` 写 `UAbilityTask_MHGZMovement`，实为 `UAbilityTask_MHGZWeaponMovement`；`actions.md:351` 的 `EMovementCollisionPolicy` 词汇与代码不符（该类已删）；`milestone-gates.md:117` 的 54/54 与 `:77` 的 M4 27/27 是过期数字。
-- **交棒仍是墙钟**：`UAbilityTask_WaitDelay(JumpDuration)`（`MHGZPoleVaultAbility.cpp:795/:826`）。拆成两条蒙太奇之后蒙太奇里已无段边界，所以只剩这半条（见 §6）。
-- **舞踏回退蒙太奇（可选整洁项，2026-09-21 复核后判定「不必做」）**：`StartAdvancingCounterVaultVisual`（`MHGZAdvancingCounterAbility.cpp:342`）在 `DanceVaultMontage` 加载失败时走 `UAnimMontage::CreateSlotAnimationAsDynamicMontage`，而该函数在 UE 5.6 **声明了 `InPlayRate` 却从不引用**，所以回退路径**无法改速率**、姿势会与 `DanceVaultDuration` 脱钩。后撑杆跳已示范正确写法（`NewObject<UAnimMontage>(this, NAME_None, RF_Transient)` + 手工填 `FAnimSegment`，`MHGZPoleVaultAbility.cpp:746`）。**结论：不照抄。** ①这条回退只在资产丢失时才会走，而 `/Game/Weapons/InsectGlaive` 已在 `DirectoriesToAlwaysCook`（`Config/DefaultGame.ini:42`），录制里一次都没走过；②头文件注释（`MHGZAdvancingCounterAbility.h:66-84`）已经把「这条路不能改速率」写明并引了引擎行号，陷阱已被文档堵住；③照抄等于把一份手工建蒙太奇的代码复制成第二份。**真要做，该做的是删掉回退、让缺资产变成硬报错**（连只喂它的 `DanceVaultSequence` / `DanceVaultAnimationPlayRate` 一起删）。
-- **自动化空缺**：`MHGZ.M5.Movement.OwnershipAndCleanup` 从未实例化过 Task 本体。
+**新增招式只剩急袭突刺，不等于 M5 只剩一项即可总签收。** 旧收口清单曾混合真正缺口、已覆盖项和非阻塞整洁项；本轮只核对并更新分类，不实施这些运行时修改，也不重开已签收动作。
+
+| 收口项 | 当前事实 | 后续处置/门禁 |
+|---|---|---|
+| 舞踏清层调用 | `Res_InsectGlaive` 已有 RuntimeShutdown/Unequipped 清层，Host 已有真实落地清层；本轮代码检索未见生产 `Hit/Sheathed/DescendingThrust` 清层调用。取消 GA 不等于 Resource 清层。 | 受击/收刀需补齐或证明已有等效路径；急袭突刺 Commit 必须先快照倍率、再清层，随本招实现。死亡需验证是否完整走 RuntimeShutdown，不能仅因枚举没有 Death 就强制新增枚举，也不能据现有枚举名宣称死亡清层已测。 |
+| 降龙清层入口 | `DivingWyvern` 仍是已有枚举/参数，但该招已移出 Demo。 | 不再实现或验收此入口；不为缩减范围破坏现有序列化字段。 |
+| AbilityOwned 落地 | Coordinator 已向当前 Action 的 GA 分发，强化操虫穿刺已有 201→203 生产接管；通用 `HandleLanded` 默认 No-Op。 | 只补急袭突刺自己的触地阶段与结束/取消清理，不重复实现全局路由。 |
+| 下落/落地表现 | Host 当前直接选择并播放下落/落地 Montage；已签收空回/操虫斩/穿刺使用各自明确所有权。 | 保留现行路径，按动作验收表现与 Tag/所有权一致；不强制为旧“AnimBP 按 Tag 选 pose”描述另建一套状态机。本轮未读取新蓝图图表，不伪称新图接线已验证。 |
+| 文档接口一致性 | 通用动作/冻结计划仍有旧 `UAbilityTask_MHGZMovement` 名及旧 `CollisionPolicy/EMovementCollisionPolicy` 描述；54/54、M4 27/27 已标为历史成绩。 | M5 收口时按实际接口修正文档并重新核对计数；不得把历史成绩当最终总验收。 |
+| 撑杆跳墙钟交棒 | `ScheduleJumpOverMovementHandoff` 仍使用 `WaitDelay(JumpDuration-HandoffLeadSeconds)`，属于既有路径。 | 保留旧非阻塞记录；不因尚未改成 Notify 而重开已签动作。新增急袭突刺不能借用不匹配的旧计时假设，若回归发现问题再定向修复。 |
+| 反击舞踏动态 Montage 回退 | `StartAdvancingCounterVaultVisual` 在常驻资产加载失败时仍有旧动态回退；此前已判“可选、不必做”。 | 不新增、复制或依赖该回退实现急袭突刺；原回退整洁改造不是本轮 M5 的新增硬前置。 |
+| Task 本体自动化 | 原 `OwnershipAndCleanup` 单项仍主要测 Host；但后续操虫斩 FoundationTests 已实例化并 Tick 真实 MovementTask，检查取消释放所有权与退出 Flying。 | 关闭“全项目从未实例化 Task”的旧总括缺口；不因此宣称所有模式/取消情形均覆盖。急袭突刺需补自己的位移和落地生产路径测试。 |
+
+证据范围：`Source/MHGZ/AttributeSystem/Res_InsectGlaive.h/.cpp`、`WeaponRuntime/MHGZWeaponRuntimeHostComponent.cpp`、`ActionSystem/MHGZComboCoordinatorAbility.cpp`、`MHGZGameplayAbility.cpp`、`MHGZKinsectPiercerAbility.cpp`、`Tests/MHGZM5KinsectSlashFoundationTests.cpp`。本轮未运行构建或 UE，以上是代码检索/阅读结论，不是新增实机通过声明。§10 的最终编译、自动化、资产审计、DataValidation 与 PIE 总验收仍必需；普通猎虫回手交付精华继续是 M7 前独立欠项，不额外扩大为急袭突刺的入招前置。
 
 ## 10. 阶段 F — M5 签核
 
 Development Editor 全量编译（新增反射字段**不得用 Live Coding 验证**）→ 命名自动化套件带硬计数 → commandlet 资产审计带计数 → DataValidation 冷启动资产数 → `Saved/RuntimeTelemetry/<timestamp>` 录制 → **用户 PIE 目视确认** → 文档状态行回写。
-**必须重新计数 `MHGZ.M4` / `MHGZ.M5`，不得复用过期数字** —— 全量最近一次是 **2026-09-18（98 / 97 通过 / 1 失败）**；**2026-09-21 只重跑过 `MHGZ.M5`（11/11）；2026-09-23/24 又重跑过 `MHGZ.M5`（28/28）**，全量仍未跑，所以签核时必须重跑。
+**签核时必须重新计数 `MHGZ.M4` / `MHGZ.M5`，不得复用过期数字。** 2026-09-30操虫斩收尾最终全量149/149、专项27/27、596资产0错误，日志路径见[§9.6](操虫斩实现计划.md)。仅证明本轮代码/静态验证全绿，不等于M5所有招式完成。操虫斩E3/P0-2已由[§9.7](操虫斩实现计划.md)新生产录制与目视通过；其余招式与本节收口项仍各自验收。2026-09-27的11/11、131/131及09-29的24/27保留为历史结果，不再作为现行成绩。
 
 ---
 
@@ -554,7 +588,7 @@ Development Editor 全量编译（新增反射字段**不得用 Live Coding 验�
 
 - 不断言舞踏影响伤害（F1 已证断开）；也不反过来说「舞踏完全不可观察」。
 - 不在反击 GA / 蓝图 Tick / `MHGZCharacter` 里直接写 CMC 或 `LaunchCharacter` 绕过位移所有权。
-- 不删 `BoundedDirectional` / `AdditiveInertia` / `DistanceCurve` / `AirControlScale` / `DescendingThrustAirControl` / `DivingWyvern*` —— 它们是阶段 D 要消费的合同。
+- 不因本轮范围调整删除通用 `BoundedDirectional` / `AdditiveInertia` / `DistanceCurve` / `AirControlScale` 或急袭突刺预置 `DescendingThrustAirControl`。旧 `DivingWyvern*` 仅为兼容性保留字段，降龙取消后没有本阶段实现/验收要求，不再视为阶段 D 必须消费的合同。
 - 不做 M6 的觉虫击、逐击点灯、粉尘、HUD。
 - **不做空中回避的无敌帧**：真值源里没有任何 i-frame 数据，无从对齐，不能用「地面翻滚有、所以空中也有」去补。
 - 不用自动化测试替代 PIE 视觉验收。

@@ -13,6 +13,7 @@ class AKinsect;
 class UInsectGlaiveCombatConfig;
 class UInsectGlaiveKinsectData;
 class UMHGZMonsterHitzoneComponent;
+class USkeletalMeshComponent;
 class UParticleSystemComponent;
 struct FGameplayEffectRemovalInfo;
 struct FKinsectFlightRequest;
@@ -80,6 +81,11 @@ public:
 	bool CanDeployKinsect(const FKinsectFlightRequest& Request) const;
 	bool DeployKinsect(const FKinsectFlightRequest& Request);
 	bool RecallKinsect();
+	/** 招式临时占用真实猎虫；租约由精确 ActionToken 所有。 */
+	bool BeginKinsectActionAttachment(const FWeaponActionToken& ActionToken,
+		USkeletalMeshComponent* WeaponMesh, FName SocketName);
+	bool IsKinsectActionAttachmentCurrent(const FWeaponActionToken& ActionToken) const;
+	bool EndKinsectActionAttachmentAndReturn(const FWeaponActionToken& ActionToken);
 	void OnKinsectReachedPlayer(FGameplayTag ExtractColor);
 	bool IsRuntimeRequestCurrent(const FWeaponRuntimeToken& Token) const;
 
@@ -197,6 +203,14 @@ private:
 	void SetMarkActiveTag(bool bActive);
 	void ClearAllResourceGameplayEffects();
 	bool AreTripleCostSpecs(const TArray<FWeaponResourceCostSpec>& Specs) const;
+	/**
+	 * 把 `DanceSource` 同步成 Resource 所有的 GameplayTag 镜像。
+	 *
+	 * 真值永远是 `DanceSource` 字段，标签只是给下游（Combo RequiredTags、GA 闸门）读的
+	 * 对外广播。数值写入与标签同步都必须在 `OnDanceStateChanged` 广播之前完成，
+	 * 且清空时**不看**数值是否已经为零 —— 早退会留下没人认领的镜像。
+	 */
+	void RefreshDanceStateTags();
 	bool SetKinsectMarkInternal(UMHGZMonsterHitzoneComponent* Hitzone,
 		const FVector& ImpactPoint, AIGMarkProjectile* Projectile);
 	/** 表现只由 Resource 的成功虫印生命周期驱动，不由武器 Sweep 预触发。 */
@@ -216,6 +230,7 @@ private:
 	TWeakObjectPtr<USceneComponent> KinsectAttachComponent;
 
 	FName KinsectAttachSocket = NAME_None;
+	FWeaponActionToken KinsectActionAttachmentToken;
 	float KinsectStamina = 0.f;
 	float MaxKinsectStamina = 0.f;
 	bool bDepletionEdgeTriggered = false;
@@ -248,6 +263,9 @@ private:
 
 	FWeaponOwnedTagToken KinsectActiveTagToken;
 	FWeaponOwnedTagToken MarkActiveTagToken;
+	/** 来源镜像的所有权 Token；`ActiveDanceSourceTag` 记它当前镜像的是哪一条标签。 */
+	FWeaponOwnedTagToken DanceSourceTagToken;
+	FGameplayTag ActiveDanceSourceTag;
 
 	uint64 NextReservationID = 1;
 	TMap<uint64, FActiveGameplayEffectHandle> TripleReservations;

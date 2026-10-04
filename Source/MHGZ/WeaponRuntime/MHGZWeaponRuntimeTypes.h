@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "ActionSystem/MHGZRecordedLocalTrajectory.h"
+#include "ActionSystem/MHGZSegmentedDirectionalMovement.h"
 #include "Engine/HitResult.h"
 #include "GameplayAbilitySpecHandle.h"
 #include "GameplayTagContainer.h"
@@ -73,6 +75,14 @@ enum class EMHGZMotionMatchingHandoffType : uint8
 	AttackExit UMETA(DisplayName = "Attack Exit")
 };
 
+/** Normal release blends the visual correction back to identity; exceptional cleanup snaps it off. */
+UENUM(BlueprintType)
+enum class EActionVisualPitchReleaseMode : uint8
+{
+	BlendOut UMETA(DisplayName = "Blend Out"),
+	ImmediateReset UMETA(DisplayName = "Immediate Reset")
+};
+
 /** 临时 Loose Tag 的所有权来源种类 */
 UENUM(BlueprintType)
 enum class EWeaponTagOwnerKind : uint8
@@ -121,7 +131,24 @@ enum class EWeaponMovementMode : uint8
 	BallisticVault,
 	/** A recorded, collision-aware path: MoveToForce supplies planar target while a vector curve supplies the local offset. */
 	CurvedVault,
-	AdditiveInertia
+	AdditiveInertia,
+	/** A 3D bounded dash whose normalized progress is driven by DistanceCurve. */
+	CurvedDirectional,
+	/** Owns a stationary aerial lead until the authored movement begins. */
+	StationaryHover,
+	/** CMC Falling integrates an authored launch velocity and planar acceleration for a bounded interval. */
+	AuthoredAerialPhysics,
+	/** CMC-owned hold/straight/glide, then Falling in the same physics update. */
+	SegmentedDirectional,
+	/**
+	 * CMC owns the capsule from an authored local CurveVector: every physics
+	 * substep applies Curve(t1)-Curve(t0) in the frozen yaw frame. The curve is
+	 * the phase's *only* displacement source — no inherited inertia, no Montage
+	 * root motion, no stick acceleration, and no second helping of gravity.
+	 *
+	 * Appended last on purpose: the enum's earlier values are serialized.
+	 */
+	RecordedLocalTrajectory
 };
 
 /** BallisticVault 的弹道参数来源；两者必须且只能选择其一 */
@@ -284,6 +311,58 @@ struct FWeaponMontageRegistration
 
 	UPROPERTY()
 	int32 MontageInstanceID = INDEX_NONE;
+};
+
+/** Host-owned, exact-action state consumed read-only by the character AnimInstance. */
+USTRUCT(BlueprintType)
+struct FWeaponActionVisualPitchState
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	FWeaponActionToken OwnerAction;
+
+	UPROPERTY()
+	int32 SourceMontageInstanceID = INDEX_NONE;
+
+	UPROPERTY()
+	FVector LockedDirection = FVector::ForwardVector;
+
+	UPROPERTY()
+	float TargetWeight = 0.0f;
+
+	UPROPERTY()
+	float BlendInSeconds = 0.1f;
+
+	UPROPERTY()
+	float BlendOutSeconds = 0.1f;
+
+	UPROPERTY()
+	uint64 StateRevision = 0;
+
+	UPROPERTY()
+	bool bValid = false;
+
+	UPROPERTY()
+	bool bReleasing = false;
+};
+
+/** Sparse action-pitch lifecycle event copied into the active RuntimeTelemetry session. */
+struct FWeaponActionVisualPitchTelemetryEvent
+{
+	uint64 Serial = 0;
+	uint64 Frame = 0;
+	double WorldTimeSeconds = 0.0;
+	FName EventName = NAME_None;
+	FWeaponActionToken OwnerAction;
+	int32 SourceMontageInstanceID = INDEX_NONE;
+	FVector LockedDirection = FVector::ForwardVector;
+	float TargetWeight = 0.0f;
+	float BlendInSeconds = 0.0f;
+	float BlendOutSeconds = 0.0f;
+	uint64 StateRevision = 0;
+	bool bValid = false;
+	bool bReleasing = false;
 };
 
 /**
@@ -472,6 +551,36 @@ struct FWeaponAimSnapshot
 	FHitResult HitResult;
 };
 
+/** A fresh screen-centre sample resolved for a late action-direction lock. */
+USTRUCT(BlueprintType)
+struct FWeaponAimLockSample
+{
+	GENERATED_BODY()
+
+	UPROPERTY(BlueprintReadOnly)
+	FVector CameraOrigin = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly)
+	FVector CameraDirection = FVector::ForwardVector;
+
+	UPROPERTY(BlueprintReadOnly)
+	FVector TargetPoint = FVector::ZeroVector;
+
+	UPROPERTY(BlueprintReadOnly)
+	FVector LaunchDirection = FVector::ForwardVector;
+
+	/** Any first blocking hit, including a wall; aim direction is never traced through it. */
+	UPROPERTY(BlueprintReadOnly)
+	bool bHasBlockingHit = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	FHitResult BlockingHit;
+
+	/** True when no usable local PlayerController viewpoint was available. */
+	UPROPERTY(BlueprintReadOnly)
+	bool bUsedActorForwardFallback = false;
+};
+
 /** 路由器输出的不可变输入快照；GA 激活后不得重新读取摇杆/相机 */
 USTRUCT(BlueprintType)
 struct FWeaponInputSnapshot
@@ -494,8 +603,13 @@ struct FWeaponInputSnapshot
 	UPROPERTY(BlueprintReadOnly)
 	FVector2D RawMoveInput = FVector2D::ZeroVector;
 
+	/**
+	 * Current camera-relative world direction at snapshot time. Zero when the
+	 * sampled raw axes are neutral/below the profile direction threshold or no
+	 * controller yaw is available; never a last-nonzero movement cache.
+	 */
 	UPROPERTY(BlueprintReadOnly)
-	FVector WorldDirection = FVector::ForwardVector;
+	FVector WorldDirection = FVector::ZeroVector;
 
 	/** 输入解析瞬间的角色 Forward；收刀拔刀等动作不得在 GA 激活后重新采样。 */
 	UPROPERTY(BlueprintReadOnly)
@@ -512,6 +626,17 @@ struct FWeaponInputSnapshot
 
 	UPROPERTY(BlueprintReadOnly)
 	double Timestamp = 0.0;
+
+	/** Physical press start in router world seconds, when SourceControlTag has a tracked hold. */
+	UPROPERTY(BlueprintReadOnly)
+	double PhysicalPressStartedAtSeconds = 0.0;
+
+	/** Actual Started -> release duration; valid on Completed and release-fallback snapshots. */
+	UPROPERTY(BlueprintReadOnly)
+	float PhysicalPressDurationSeconds = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly)
+	bool bHasPhysicalPressDuration = false;
 
 	UPROPERTY()
 	uint32 SequenceID = 0;
@@ -617,6 +742,37 @@ struct FWeaponMovementRequest
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float Duration = 0.f;
 
+	/** SegmentedDirectional only; world gravity is independent of launch pitch. */
+	UPROPERTY(BlueprintReadOnly)
+	FSegmentedDirectionalMovementProfile SegmentedProfile;
+
+	/**
+	 * RecordedLocalTrajectory only. `DirectionSnapshot` is the frozen horizontal
+	 * aim direction D; the curve's local X/Y/Z resolve against D, `WorldUp × D`
+	 * and world up respectively (see MHGZRecordedLocalTrajectory.h).
+	 */
+	UPROPERTY(BlueprintReadOnly)
+	FRecordedLocalTrajectoryProfile RecordedTrajectory;
+
+	/**
+	 * Component-wise scale applied to the authored RecordedTrajectory result.
+	 * Unit scale preserves all existing movement requests. Descending Thrust uses
+	 * X as the locked planar speed while the source curve's X remains seconds.
+	 */
+	UPROPERTY(BlueprintReadOnly)
+	FVector RecordedTrajectoryScale = FVector::OneVector;
+
+	/** RecordedLocalTrajectory only: how this phase treats the floor. */
+	UPROPERTY(BlueprintReadOnly)
+	ERecordedTrajectoryGroundPolicy TrajectoryGroundPolicy
+		= ERecordedTrajectoryGroundPolicy::ProtectedFlight;
+
+	/** RecordedLocalTrajectory only: what happens past the recorded range. */
+	UPROPERTY(BlueprintReadOnly)
+	ERecordedTrajectoryTailPolicy TrajectoryTailPolicy
+		= ERecordedTrajectoryTailPolicy::HoldLastKey;
+
+	/** Normalized [0,1] progress for CurvedDirectional; unused by existing modes. */
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<UCurveFloat> DistanceCurve;
 
@@ -627,6 +783,10 @@ struct FWeaponMovementRequest
 	 */
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<UCurveVector> PathOffsetCurve;
+
+	/** CurvedVault endpoint height in cm; zero preserves every existing vault. */
+	UPROPERTY(BlueprintReadOnly)
+	float CurvedVaultEndHeight = 0.0f;
 
 	/**
 	 * CurvedVault only: the analytic tangent of the authored path at the exact
@@ -661,6 +821,14 @@ struct FWeaponMovementRequest
 
 	UPROPERTY(BlueprintReadOnly)
 	FVector LaunchVelocity = FVector::ZeroVector;
+
+	/** AuthoredAerialPhysics only: constant planar acceleration used by the active aerial profile. */
+	UPROPERTY(BlueprintReadOnly)
+	FVector PlanarAcceleration = FVector::ZeroVector;
+
+	/** AuthoredAerialPhysics only: positive gravity magnitude already installed in CMC/Host. */
+	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	float GravityMagnitude = 0.0f;
 
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float AirControlScale = 0.f;
@@ -715,8 +883,65 @@ struct FWeaponMovementRequest
 		return PathOffsetCurve != nullptr
 			&& FMath::IsFinite(Duration) && Duration > 0.f
 			&& FMath::IsFinite(MaxDistance) && MaxDistance > 0.f
+			&& FMath::IsFinite(CurvedVaultEndHeight)
 			&& !CurvedVaultHandoffVelocityLocal.ContainsNaN()
 			&& !CurvedVaultHandoffVelocityLocal.IsNearlyZero();
+	}
+
+	bool HasValidSegmentedDirectionalParameters() const
+	{
+		return Mode != EWeaponMovementMode::SegmentedDirectional
+			|| (SegmentedProfile.IsValid() && !DirectionSnapshot.ContainsNaN()
+				&& !DirectionSnapshot.IsNearlyZero());
+	}
+
+	bool HasValidRecordedTrajectoryParameters() const
+	{
+		if (Mode != EWeaponMovementMode::RecordedLocalTrajectory)
+		{
+			return true;
+		}
+
+		// 方向是局部基的一半，缺了它整条曲线就没有落点；尾段策略在 HoldLastKey 下
+		// 可以没有速度模型（200/203 本就录到了全程），所以不在这里要求它非零。
+		return RecordedTrajectory.IsValid()
+			&& FMath::IsFinite(RecordedTrajectoryScale.X)
+			&& FMath::IsFinite(RecordedTrajectoryScale.Y)
+			&& FMath::IsFinite(RecordedTrajectoryScale.Z)
+			&& RecordedTrajectoryScale.X >= 0.0
+			&& RecordedTrajectoryScale.Y >= 0.0
+			&& RecordedTrajectoryScale.Z >= 0.0
+			&& !DirectionSnapshot.ContainsNaN()
+			&& !DirectionSnapshot.IsNearlyZero();
+	}
+
+	FVector GetRecordedTrajectoryOffset(float Seconds) const
+	{
+		return RecordedTrajectory.GetOffset(Seconds, TrajectoryTailPolicy)
+			* RecordedTrajectoryScale;
+	}
+
+	FVector GetRecordedTrajectoryVelocity(float Seconds) const
+	{
+		return RecordedTrajectory.GetVelocity(Seconds, TrajectoryTailPolicy)
+			* RecordedTrajectoryScale;
+	}
+
+	bool HasValidAuthoredAerialPhysicsParameters() const
+	{
+		if (Mode != EWeaponMovementMode::AuthoredAerialPhysics)
+		{
+			return true;
+		}
+
+		return FMath::IsFinite(Duration) && Duration > 0.f
+			&& FMath::IsFinite(LaunchVelocity.X) && FMath::IsFinite(LaunchVelocity.Y)
+			&& FMath::IsFinite(LaunchVelocity.Z) && LaunchVelocity.Z > KINDA_SMALL_NUMBER
+			&& FMath::IsFinite(GravityMagnitude) && GravityMagnitude > 0.f
+			&& FMath::IsFinite(PlanarAcceleration.X)
+			&& FMath::IsFinite(PlanarAcceleration.Y)
+			&& FMath::IsFinite(PlanarAcceleration.Z)
+			&& FMath::IsNearlyZero(PlanarAcceleration.Z);
 	}
 };
 
@@ -731,6 +956,10 @@ struct FWeaponMovementResult
 
 	UPROPERTY(BlueprintReadOnly)
 	float TravelledDistance = 0.f;
+
+	/** Full 3D displacement; TravelledDistance retains its established planar meaning. */
+	UPROPERTY(BlueprintReadOnly)
+	float TravelledDistance3D = 0.f;
 
 	UPROPERTY(BlueprintReadOnly)
 	FVector FinalVelocity = FVector::ZeroVector;

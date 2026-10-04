@@ -2,6 +2,8 @@
 
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
 
+#include "ActionSystem/MHGZWeaponMovementCurves.h"
+#include "Curves/CurveFloat.h"
 #include "GameplayEffect.h"
 #include "Generated/MHGZVaultCurveTables.h"
 #include "Misc/DataValidation.h"
@@ -140,6 +142,11 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	{
 		AddError(LOCTEXT("MissingKinsectAttachSocket", "KinsectAttachSocket must be assigned."));
 	}
+	if (KinsectSlashAttachSocket.IsNone())
+	{
+		AddError(LOCTEXT("MissingKinsectSlashAttachSocket",
+			"KinsectSlashAttachSocket must be assigned to the temporary weapon attachment socket."));
+	}
 	if (KinsectData == nullptr)
 	{
 		AddError(LOCTEXT("MissingKinsectData", "KinsectData must be assigned."));
@@ -156,7 +163,37 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckPositive(TEXT("TripleUpDuration"), TripleUpDuration);
 	CheckPositive(TEXT("AwakenedPierceHitInterval"), AwakenedPierceHitInterval);
 	CheckPositive(TEXT("KinsectArrivalRadius"), KinsectArrivalRadius);
-	CheckPositive(TEXT("KinsectSlashMaxDistance"), KinsectSlashMaxDistance);
+	if (bUseCapturedKinsectSlashDash)
+	{
+		if (!KinsectSlashDashProfile.IsValid())
+		{
+			AddError(LOCTEXT("InvalidKinsectSlashDashProfile",
+				"KinsectSlashDashProfile must contain finite, valid phase durations, speeds, gravity and acceleration."));
+		}
+	}
+	else
+	{
+		CheckPositive(TEXT("KinsectSlashMaxDistance"), KinsectSlashMaxDistance);
+		CheckPositive(TEXT("KinsectSlashDashDuration"), KinsectSlashDashDuration);
+	}
+	if (!FMath::IsFinite(KinsectSlashMaxUpwardLaunchPitchDegrees)
+		|| KinsectSlashMaxUpwardLaunchPitchDegrees <= 0.0f
+		|| KinsectSlashMaxUpwardLaunchPitchDegrees >= 90.0f)
+	{
+		AddError(LOCTEXT("InvalidKinsectSlashMaxUpwardLaunchPitch",
+			"KinsectSlashMaxUpwardLaunchPitchDegrees must be finite and between 0 and 90 degrees."));
+	}
+	if (!bUseCapturedKinsectSlashDash && KinsectSlashDistanceCurve)
+	{
+		float TerminalSlope = 0.0f;
+		const bool bCurveValid = MHGZWeaponMovementCurves::ValidateNormalizedProgressCurve(
+			KinsectSlashDistanceCurve, TerminalSlope);
+		if (!bCurveValid)
+		{
+			AddError(LOCTEXT("InvalidKinsectSlashDistanceCurve",
+			"KinsectSlashDistanceCurve must use finite, monotonic linear keys on [0,1] and map 0 to 0 and 1 to 1 with positive terminal progress."));
+		}
+	}
 	CheckPositive(TEXT("KinsectGlideMarkMaxDistance"), KinsectGlideMarkMaxDistance);
 	CheckPositive(TEXT("KinsectMarkMaxDistance"), KinsectMarkMaxDistance);
 	CheckPositive(TEXT("KinsectMarkDuration"), KinsectMarkDuration);
@@ -317,6 +354,39 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 			"InvalidDanceVaultBallisticParameters",
 			"DanceVault ballistic tuning must enable exactly the parameter group selected by DanceVaultBallisticMode."));
 	}
+
+	// 强化操虫穿刺的三份录制曲线。
+	//
+	// **只在赋了曲线之后**才要求自洽：M2 交付的是运行时代码，三条 CV 由 M3 的
+	// 命令行生成器写出，在这之前「曲线为空」是正常中间态，不是资产错误。
+	// 「曲线缺失」由 GA 的 ValidateActionDependencies 拒绝激活来兜底 ——
+	// 那条规则和操虫斩/空回的「缺资产即拒」是同一条。
+	auto CheckTrajectoryProfile = [&AddError](const TCHAR* FieldName,
+		const FRecordedLocalTrajectoryProfile& Profile)
+	{
+		if (!Profile.Curve)
+		{
+			return;
+		}
+		if (!Profile.IsValid())
+		{
+			AddError(FText::Format(
+				LOCTEXT("InvalidPiercerTrajectory",
+					"{0} is assigned but not self-consistent: it needs strictly increasing finite keys starting at the origin, a positive CoveredSeconds no later than its last key, and finite terminal velocity/acceleration."),
+				FText::FromString(FieldName)));
+		}
+	};
+	CheckTrajectoryProfile(TEXT("KinsectPiercerStartProfile"), KinsectPiercerStartProfile);
+	CheckTrajectoryProfile(TEXT("KinsectPiercerDiveProfile"), KinsectPiercerDiveProfile);
+	CheckTrajectoryProfile(TEXT("KinsectPiercerLandingProfile"), KinsectPiercerLandingProfile);
+	CheckTrajectoryProfile(TEXT("DescendingThrustAirProfile"), DescendingThrustAirProfile);
+
+	CheckPositive(TEXT("KinsectPiercerDiveWatchdogSeconds"), KinsectPiercerDiveWatchdogSeconds);
+	CheckNonNegative(TEXT("KinsectPiercerLandingBlendInTime"), KinsectPiercerLandingBlendInTime);
+	CheckPositive(TEXT("DescendingThrustAirWatchdogSeconds"),
+		DescendingThrustAirWatchdogSeconds);
+	CheckNonNegative(TEXT("DescendingThrustLandingBlendInTime"),
+		DescendingThrustLandingBlendInTime);
 
 	return bInvalid ? EDataValidationResult::Invalid
 		: (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);

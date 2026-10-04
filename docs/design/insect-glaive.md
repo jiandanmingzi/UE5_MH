@@ -4,6 +4,8 @@
 
 > **目标口径：** 项目以《世界》的猎虫与地面虫棍为基底，吸收并改造《崛起》的部分动作，形成原创连招。不是《崛起》逐项复刻；不使用翔虫资源、集中模式或钩爪。
 
+> **2026-10-03 Demo/M5目标规则更新：** 强化跳跃斩与降龙已移出当前范围，不再配置其动作、输入派生或功能验收。已签空回、操虫斩和强化操虫穿刺保留；剩余新增空中招式仅急袭突刺（同操虫斩持刀Falling门禁，RT限时松开）。[详细方案](../using/急袭突刺实现计划.md)已写，本招M1待验收，目标规则不表示已经实现。舞踏、取消清理、M5收口与总验收仍保留，M5整体尚未签收。
+
 ## 当前实现
 
 | 模块 | 当前状态 |
@@ -585,7 +587,7 @@ ApplyExtract(Color)
 - `AddDanceStack(Source)` / `ClearDanceStacks(Reason)`：仅接受本文定义的来源和清空原因。
 - `SpawnPowder(HitResult)` / `ReservePowdersInRadius(...)`：觉虫击和粉尘集约共享的粉尘所有权接口。
 
-降龙不消耗精华；Demo 唯一消耗三灯的动作是觉虫击。旧的 `Extract Surge`、`Triple Burst` 和“降龙消耗红灯”方案不再属于目标设计。
+Demo 唯一消耗三灯的动作是觉虫击。降龙已于2026-10-01移出当前Demo/M5范围；旧的 `Extract Surge`、`Triple Burst` 和“降龙消耗红灯”方案均不属于当前目标设计。
 
 ---
 
@@ -707,16 +709,16 @@ Combat.Branch.TripleUp                ← 三灯连招分支
 | 虫印斩 | `Input.Weapon.RT` | `RequiredTags={Unsheathed,Grounded}` | 持刀地面 RT 未被 A/B/Y/LT 等获胜组合消费时，松开 RT 后近战命中 Hitzone 建立/替换唯一虫印 |
 | 虫印弹 | `Input.Weapon.LTRT` | `RequiredTags={Unsheathed,Aiming.Kinsect}` | 持刀 LT+RT；命中 Hitzone 后建立/替换唯一虫印 |
 | 拔刀直飞 | `Input.Weapon.RT` | `RequiredTags={Combat.State.Sheathed,Grounded}` | 收刀地面按下 RT → 拔刀并沿角色 Forward 放虫；姿态/奔跑只在 DrawCommit 时改变 |
-| 急袭突刺 | `Input.Weapon.RT` | `RequiredTags={Aerial}` | 空中无论收/拔刀，按下 RT 立即发动；不使用松开回退 |
+| 急袭突刺 | `Input.Weapon.RT` | `RequiredTags={Unsheathed,Aerial.Falling}`，无CantAttack且未接地 | RT限定时间内松开、未被组合消费；同当前操虫斩入招时机，不要求其舞踏来源 |
 | 纳刀 | `Input.Sheathe` | 通用路由（非连招表） | 仅持刀地面态按 RB 立即触发；空中不派发，攻击/硬直/击倒/死亡/动作锁中无效；只在 `SheatheCommit` 切 `Combat.State.Sheathed`，动作尾帧仍持有 `Sheathing` |
 | 奔跑 | `Input.Sprint` | — | 收刀态按住 RB ≥0.1s 进入奔跑；点按不闪跑；拔刀/攻击中不产生奔跑 |
 | 四连印斩 | `Input.Weapon.YB` | 地面动作节点 | 无方向 Y+B |
 | 突进回旋斩 | `Input.Weapon.YB` + `Forward` | 地面方向节点，Priority 高于四连印斩 | 前+Y+B |
-| 粉尘集约/降龙 | `Input.Weapon.LTYB` | 地面/空中状态分流 | 地面为粉尘集约，空中为降龙 |
+| 粉尘集约 | `Input.Weapon.LTYB` | 地面动作节点 | 持刀地面LT+Y+B；降龙已移出Demo，空中不配置该动作派生 |
 | 猎虫滑翔 | `Input.Weapon.RTY` | 地面动作节点 | 有虫印追虫印，否则短距前飞 |
 | 觉虫击 | `Input.Weapon.RTYB` | 地面且 TripleUp | 原子消耗三灯 |
 
-> **输入规则：** 收刀状态一般不能进行猎虫瞄准送/收虫，唯一例外是地面 RT 的“拔刀并正前方放虫”；空中 RT 始终为急袭突刺。持刀地面单 RT 在松开时才成为虫印斩，且只在不存在已消费 RT 的获胜组合时成立。收刀态按住 RB 奔跑；仅持刀地面按 RB 才立即纳刀，空中 RB 不派发 `Input.Sheathe`，攻击/硬直/击倒/死亡/动作锁中无效。所有组合键先形成唯一 InputTag，再由状态、修饰键、方向和 Priority 分流；完整动作表见 [insect-glaive-actions.md §3](insect-glaive-actions.md#3-输入与方向判定)。
+> **输入目标规则（2026-10-03）：** 收刀状态一般不能进行猎虫瞄准送/收虫，唯一例外是地面RT“拔刀并正前方放虫”。持刀单RT在限定时间内松开且未被获胜组合消费时才输出；地面进入虫印斩，空中合法Falling阶段进入急袭突刺，其余上下文拒绝。两者共用一个物理RT释放所有者，不保留旧空中按下单键条目；现状/迁移见[急袭突刺方案§4](../using/急袭突刺实现计划.md#4-输入与-combo)。收刀态按住RB奔跑；仅持刀地面按RB才立即纳刀，空中不派发Input.Sheathe。所有组合先形成唯一InputTag，再由状态、方向和Priority分流；完整动作表见[insect-glaive-actions.md §3](insect-glaive-actions.md#3-输入与方向判定)。
 
 ### 猎虫伤害
 
@@ -729,7 +731,6 @@ Damage.AttackPower                   ← 猎虫攻击力覆写（SetByCaller）
 
 ```
 GameplayCue.Hit.Kinsect              ← 猎虫命中反馈（小号火花+音效——与武器攻击共用 GC 管道）
-GameplayCue.Hit.IG.DivingWyvern       ← 降龙命中特效
 GameplayCue.IG.ExtractGained          ← 萃取成功视觉反馈（颜色=灯色）
 GameplayCue.IG.TripleUpActivated      ← 三灯齐聚瞬间特效
 GameplayCue.IG.ExtractExpired         ← 灯到期消散特效
@@ -771,17 +772,14 @@ Content/
 │   ├── GA_IG_KinsectGlide.uasset            ← 猎虫滑翔
 │   ├── GA_IG_AwakenedKinsectAttack.uasset   ← 觉虫击（消耗三灯）
 │   ├── GA_IG_KinsectSlash.uasset            ← 操虫斩
-│   ├── GA_IG_EnhancedKinsectSpiker.uasset   ← 强化操虫穿刺
-│   ├── GA_IG_StrongJumpingSlash.uasset      ← 强化跳跃斩
-│   ├── GA_IG_DescendingThrust.uasset        ← 急袭突刺
-│   └── GA_IG_DivingWyvern.uasset            ← 降龙（无翔虫/精华消费）
+│   ├── GA_IG_KinsectPiercer.uasset         ← 强化操虫穿刺（已生成，本轮平地可玩范围已签收；旧规划名EnhancedKinsectSpiker不再使用）
+│   └── GA_IG_DescendingThrust.uasset        ← 拟新增急袭突刺（持刀Falling，RT限时松开；M1待验收）
 ├── UI/InsectGlaive/
 │   ├── WBP_IG_ResourcePanel.uasset          ← 虫棍资源面板（耐力条+三灯圆盘）
 │   ├── WBP_IG_KinsectStamina.uasset         ← 猎虫耐力条
 │   └── WBP_IG_ExtractDisplay.uasset         ← 三灯圆盘
 ├── GameplayCues/Hit/
-│   ├── GC_Hit_Kinsect.uasset               ← 猎虫命中反馈（小号火花+音效——复用 GC_HitBase 基类）
-│   └── GC_Hit_IG_DivingWyvern.uasset        ← 降龙命中特效
+│   └── GC_Hit_Kinsect.uasset               ← 猎虫命中反馈（小号火花+音效——复用 GC_HitBase 基类）
 ├── GameplayCues/InsectGlaive/
 │   ├── GC_IG_ExtractGained.uasset           ← 萃取成功
 │   ├── GC_IG_TripleUpActivated.uasset       ← 三灯齐聚瞬间
@@ -830,7 +828,7 @@ Content/
 | IG-5 | 红灯支持 ClassicMovesetGate 与 NumericOnly，默认 Classic；两者共用一个 CombatConfig/ComboData | RuntimeHost 只拥有一个互斥 Mode Tag；经典行再按红灯分流，Numeric 正常行不检查红灯，不污染通用协调器 |
 | IG-6 | 三灯攻击音效在 GA 激活时播放（非命中时） | 挥刀音效跟随招式而非命中判定——无论空挥还是命中都播放。通过 `UMHGZInsectGlaiveAbility::ActivateAbility` 覆写中 `PlaySound2D` 实现，不经过 GameplayCue |
 | IG-7 | 萃取颜色直接配置在怪物 Hitzone 数据上 | 不同怪物同名部位可以有不同颜色；Aim、猎虫和操虫斩共享同一数据源，猎虫品种不能改写怪物颜色 |
-| IG-8 | Demo 只有觉虫击原子消耗三灯；降龙不消耗精华 | 移植动作不继承翔虫成本，也不沿用旧的原创消耗灯技能 |
+| IG-8 | Demo 只有觉虫击原子消耗三灯；降龙已移出当前Demo/M5范围 | 2026-10-01取消降龙动作需求与门禁，不沿用旧的原创消耗灯技能 |
 | IG-9 | 三灯期间所有吸收路径统一吞掉单色精华 | `ApplyExtract` 在入口直接返回；不创建单灯 GE、不缓存颜色、不刷新 TripleUp |
 | IG-10 | 普通猎虫回手时原子取出、清空并交付一次 PendingExtract | 主动召回和耐力归零不使已取得颜色失败；清空后下一次 Flight 能获取新颜色，迟到回调不能重复交付 |
 | IG-11 | 猎虫飞行结束条件统一为三种（撞墙/极限距离/普通命中）——贯穿放虫碰怪不终止 | 贯穿伤害需要猎虫完整穿过怪物身体；普通放虫命中后停止并 Hover，只有主动召回或耐力归零才回手；贯穿放虫只有墙或距离能让它停下 |
@@ -841,7 +839,7 @@ Content/
 | IG-15 | Demo 不设贯穿颜色优先级；普通送虫固定 FirstHitOnly，觉虫击固定 ApplyPerValidHit | 每次觉虫击有效贯通伤害立即走普通点灯；Actor 不按颜色排序或缓存最后颜色 |
 | IG-16 | SingleHit/Piercing 统一使用前后帧 Hitzone Object Capsule Sweep | Overlap 在高速飞行下可能漏判，且全局冷却会让不同部位互相阻塞；Sweep 保留真实 HitResult，Piercing 按 Hitzone 组件记录间隔 |
 | IG-17 | 猎虫移动用 `UProjectileMovementComponent`（`bAutoActivate=false`），不继承 APawn | 当前回归由 Returning Tick 手动追踪 OwnerActor 并更新 Velocity；不使用 HomingTargetComponent |
-| IG-18 | 猎虫输入与攻击输入都经同一协调器，但使用 LT/RT 组合 Tag 和显式取消窗口 | 收刀 RT 是唯一收刀放虫入口；持刀 LT+Y/LT+B 不与普通 Y/B 争抢。地面/空中上下文解决 LT+B 和 LT+Y+B 的动作复用 |
+| IG-18 | 猎虫输入与攻击输入都经同一协调器，但使用 LT/RT 组合 Tag 和显式取消窗口 | 收刀RT是唯一收刀放虫入口；持刀LT+Y/LT+B不与普通Y/B争抢。粉尘集约仅在地面配置LT+Y+B；急袭突刺目标为持刀Falling阶段RT限时松开，组合消费优先 |
 | IG-19 | 虫棍动作详情独立维护在 insect-glaive-actions.md | 资源文档只定义稳定接口；位移、反击、舞踏和粉尘不再散落于多个章节 |
 
 ---
@@ -885,7 +883,7 @@ Content/
 | 12 | 觉虫击：三灯存在→Commit→原子消耗 | 旧三灯与三个单灯状态一次性归零；猎虫每次成功贯通伤害立即 ApplyExtract 并留下粉尘，三色可在本次飞行中重新形成三灯 |
 | 13 | 觉虫击：无三灯→激活被拒 | 资源不变化，猎虫和猎人位移都不启动 |
 | 14 | 操虫斩在三灯期间命中橙色部位 | 走统一 ApplyExtract；Orange 被吞，三灯剩余时间和状态完全不变 |
-| 15 | 降龙任意精华状态均可激活 | 不消耗红灯/三灯；只使用并清空当前舞踏层数 |
+| 15 | 降龙验收项取消（2026-10-01） | 已移出当前Demo，不再作为M5门禁 |
 | 16 | Demo 配置引用 WeaponResource 词条 | Data Validation/内容审计拒绝；本轮不得依赖未修复的 ApplyEntryModifier |
 | 17 | 卸下虫棍→ResourceComponent 销毁→所有灯清除 | ASC 失去所有 IG Tag；UI 复位 |
 | 18 | 虫棍连招表 DA_IG_ComboData 异步加载→加载期间输入静默忽略 | 遵循决策 #94——加载期间 StateIndex 为空 |

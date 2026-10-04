@@ -3,6 +3,7 @@
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
+#include "GameFramework/Controller.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformTime.h"
 #include "InputAction.h"
@@ -208,14 +209,16 @@ void UMHGZWeaponInputRouterComponent::SetInputProfile(UWeaponInputProfile* InPro
 	// Existing formations belong to the previous profile; keep held keys but reset
 	// their single-obligation flags and refresh the frozen snapshots with the new
 	// profile's modifier set (identity: same SequenceID/StartedTime). A physical
-	// press that began under the old profile must never release into a newly added
-	// OnReleaseIfUnconsumed chord.
+	// press that began under the old profile must never dispatch into a newly added
+	// release-fallback or after-grace chord.
 	for (TPair<FGameplayTag, FPhysicalInputState>& Pair : HeldControls)
 	{
 		FPhysicalInputState& State = Pair.Value;
 		State.bSingleEmitted = false;
 		State.bSingleConsumed = false;
 		State.bReleaseFallbackConsumed = true;
+		State.bPressAfterGraceConsumed = true;
+		State.PressAfterGraceChordIndex = INDEX_NONE;
 		State.FrozenSingleSnapshot = BuildSnapshot(
 			Pair.Key, Pair.Key, State.SequenceID,
 			EWeaponInputPhase::Started, State.StartedTime, EWeaponAimSnapshotContext::None);
@@ -232,6 +235,7 @@ void UMHGZWeaponInputRouterComponent::RebuildChordCache()
 	SingleChordOwnedTags.Reset();
 	ReleaseFallbackOwnedTags.Reset();
 	ReleaseFallbackChordByControl.Reset();
+	PressAfterGraceChordsByControl.Reset();
 	DelayedTags.Reset();
 	DeferredChords.Reset();
 
@@ -251,7 +255,8 @@ void UMHGZWeaponInputRouterComponent::RebuildChordCache()
 		Info.ModifierCount = Definition.RequiredHeldModifiers.Num();
 		Info.bMultiMember = (Info.TriggerCount + Info.ModifierCount) > 1;
 
-		if (Definition.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed)
+		if (Definition.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed
+			|| Definition.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseWithinMaxDurationIfUnconsumed)
 		{
 			// Data Validation rejects malformed declarations. Keep the runtime cache
 			// defensive so an unsaved/bad asset cannot create ambiguous release output.
@@ -270,6 +275,23 @@ void UMHGZWeaponInputRouterComponent::RebuildChordCache()
 				Info.TriggerSet.Add(Trigger);
 				ReleaseFallbackChordByControl.Add(Trigger, Chords.Num());
 				ReleaseFallbackOwnedTags.Add(Trigger);
+			}
+			Chords.Add(MoveTemp(Info));
+			continue;
+		}
+		if (Definition.DispatchPolicy == EWeaponChordDispatchPolicy::OnPressAfterChordGrace)
+		{
+			// A standalone route waits out the chord grace window. Context variants
+			// (for example sheathed-ground and aerial RT) may own the same physical key.
+			if (Definition.TriggerControls.Num() == 1
+				&& Definition.TriggerControls[0].IsValid()
+				&& Definition.RequiredHeldModifiers.IsEmpty())
+			{
+				const FGameplayTag Trigger = Definition.TriggerControls[0];
+				Info.Members.Add(Trigger);
+				Info.TriggerSet.Add(Trigger);
+				SingleChordOwnedTags.Add(Trigger);
+				PressAfterGraceChordsByControl.FindOrAdd(Trigger).Add(Chords.Num());
 			}
 			Chords.Add(MoveTemp(Info));
 			continue;
@@ -312,8 +334,32 @@ bool UMHGZWeaponInputRouterComponent::IsReleaseFallbackChord(int32 ChordIndex) c
 {
 	return Chords.IsValidIndex(ChordIndex)
 		&& Chords[ChordIndex].Definition
+		&& (Chords[ChordIndex].Definition->DispatchPolicy
+			== EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed
+			|| Chords[ChordIndex].Definition->DispatchPolicy
+			== EWeaponChordDispatchPolicy::OnReleaseWithinMaxDurationIfUnconsumed);
+}
+
+bool UMHGZWeaponInputRouterComponent::IsPressAfterChordGraceChord(int32 ChordIndex) const
+{
+	return Chords.IsValidIndex(ChordIndex)
+		&& Chords[ChordIndex].Definition
 		&& Chords[ChordIndex].Definition->DispatchPolicy
-			== EWeaponChordDispatchPolicy::OnReleaseIfUnconsumed;
+			== EWeaponChordDispatchPolicy::OnPressAfterChordGrace;
+}
+
+double UMHGZWeaponInputRouterComponent::GetChordGracePeriod(int32 ChordIndex) const
+{
+	if (!CurrentProfile)
+	{
+		return 0.0;
+	}
+	if (Chords.IsValidIndex(ChordIndex) && Chords[ChordIndex].Definition
+		&& Chords[ChordIndex].Definition->ChordGracePeriodOverrideSeconds > 0.0f)
+	{
+		return static_cast<double>(Chords[ChordIndex].Definition->ChordGracePeriodOverrideSeconds);
+	}
+	return FMath::Max(0.0, static_cast<double>(CurrentProfile->ChordGracePeriod));
 }
 
 bool UMHGZWeaponInputRouterComponent::IsBetterChord(const FChordInfo& A, const FChordInfo& B)
@@ -382,7 +428,7 @@ bool UMHGZWeaponInputRouterComponent::IsChordComplete(int32 ChordIndex) const
 	}
 
 	const FChordInfo& Chord = Chords[ChordIndex];
-	const double Grace = FMath::Max(0.0, static_cast<double>(CurrentProfile->ChordGracePeriod));
+	const double Grace = GetChordGracePeriod(ChordIndex);
 
 	double FirstTriggerTime = DBL_MAX;
 	double LastTriggerTime = -DBL_MAX;
@@ -481,13 +527,14 @@ bool UMHGZWeaponInputRouterComponent::DoChordContextRequirementsPass(int32 Chord
 bool UMHGZWeaponInputRouterComponent::IsPossiblyCompletable(int32 ChordIndex, double Now) const
 {
 	if (!CurrentProfile || !Chords.IsValidIndex(ChordIndex)
-		|| IsReleaseFallbackChord(ChordIndex))
+		|| IsReleaseFallbackChord(ChordIndex)
+		|| IsPressAfterChordGraceChord(ChordIndex))
 	{
 		return false;
 	}
 
 	const FChordInfo& Chord = Chords[ChordIndex];
-	const double Grace = FMath::Max(0.0, static_cast<double>(CurrentProfile->ChordGracePeriod));
+	const double Grace = GetChordGracePeriod(ChordIndex);
 
 	double FirstTriggerTime = DBL_MAX;
 	double LastTriggerTime = -DBL_MAX;
@@ -562,7 +609,8 @@ void UMHGZWeaponInputRouterComponent::EvaluateChords(double Now)
 	int32 BestIndex = INDEX_NONE;
 	for (int32 Index = 0; Index < Chords.Num(); ++Index)
 	{
-		if (ResolvedChords[Index] || IsReleaseFallbackChord(Index))
+		if (ResolvedChords[Index] || IsReleaseFallbackChord(Index)
+			|| IsPressAfterChordGraceChord(Index))
 		{
 			continue;
 		}
@@ -586,7 +634,8 @@ void UMHGZWeaponInputRouterComponent::EvaluateChords(double Now)
 	bool bDefer = false;
 	for (int32 Index = 0; Index < Chords.Num(); ++Index)
 	{
-		if (Index == BestIndex || ResolvedChords[Index] || IsReleaseFallbackChord(Index))
+		if (Index == BestIndex || ResolvedChords[Index] || IsReleaseFallbackChord(Index)
+			|| IsPressAfterChordGraceChord(Index))
 		{
 			continue;
 		}
@@ -645,7 +694,18 @@ void UMHGZWeaponInputRouterComponent::EmitChord(int32 ChordIndex, double Now)
 
 	const FChordInfo& Chord = Chords[ChordIndex];
 	FWeaponInputSnapshot Snapshot;
-	if (const FDeferredChord* Deferred = DeferredChords.Find(ChordIndex))
+	if (IsPressAfterChordGraceChord(ChordIndex))
+	{
+		const FGameplayTag Trigger = Chord.Definition->TriggerControls[0];
+		const FPhysicalInputState* State = HeldControls.Find(Trigger);
+		if (!State || State->PressAfterGraceChordIndex != ChordIndex
+			|| State->bPressAfterGraceConsumed)
+		{
+			return;
+		}
+		Snapshot = State->FrozenPressAfterGraceSnapshot;
+	}
+	else if (const FDeferredChord* Deferred = DeferredChords.Find(ChordIndex))
 	{
 		Snapshot = Deferred->FrozenSnapshot; // frozen at the completion moment, not now
 		DeferredChords.Remove(ChordIndex);
@@ -656,6 +716,7 @@ void UMHGZWeaponInputRouterComponent::EmitChord(int32 ChordIndex, double Now)
 	}
 	ResolvedChords[ChordIndex] = true;
 	ConsumeReleaseFallbackForMembers(Chord);
+	ConsumePressAfterGraceForMembers(Chord);
 
 	// Consume TriggerControls only when configured; modifiers used by a chord are
 	// always suppressed as single outputs.
@@ -720,9 +781,19 @@ TOptional<FWeaponInputSnapshot> UMHGZWeaponInputRouterComponent::BuildReleaseFal
 	}
 
 	const FWeaponChordDefinition& Definition = *Chords[*ChordIndex].Definition;
-	return BuildSnapshot(
+	if (Definition.DispatchPolicy == EWeaponChordDispatchPolicy::OnReleaseWithinMaxDurationIfUnconsumed
+		&& (Now < State.StartedTime
+			|| Now - State.StartedTime > static_cast<double>(Definition.MaxPressDurationSeconds)))
+	{
+		return {};
+	}
+	FWeaponInputSnapshot Snapshot = BuildSnapshot(
 		Definition.OutputTag, PhysicalTag, State.SequenceID,
 		EWeaponInputPhase::Started, Now, Definition.AimSnapshotContext);
+	Snapshot.PhysicalPressStartedAtSeconds = State.StartedTime;
+	Snapshot.PhysicalPressDurationSeconds = static_cast<float>(Now - State.StartedTime);
+	Snapshot.bHasPhysicalPressDuration = true;
+	return Snapshot;
 }
 
 void UMHGZWeaponInputRouterComponent::ConsumeReleaseFallbackForMembers(const FChordInfo& Winner)
@@ -734,6 +805,20 @@ void UMHGZWeaponInputRouterComponent::ConsumeReleaseFallbackForMembers(const FCh
 			if (FPhysicalInputState* State = HeldControls.Find(Member))
 			{
 				State->bReleaseFallbackConsumed = true;
+			}
+		}
+	}
+}
+
+void UMHGZWeaponInputRouterComponent::ConsumePressAfterGraceForMembers(const FChordInfo& Winner)
+{
+	for (const FGameplayTag& Member : Winner.Members)
+	{
+		if (PressAfterGraceChordsByControl.Contains(Member))
+		{
+			if (FPhysicalInputState* State = HeldControls.Find(Member))
+			{
+				State->bPressAfterGraceConsumed = true;
 			}
 		}
 	}
@@ -757,7 +842,7 @@ void UMHGZWeaponInputRouterComponent::FlushExpiredInputs(double Now)
 			continue; // already emitted (or discarded) for this formation
 		}
 		const FDeferredChord& Deferred = Pair.Value;
-		if (Now < Deferred.FirstTriggerTime + Grace)
+		if (Now < Deferred.FirstTriggerTime + GetChordGracePeriod(Pair.Key))
 		{
 			continue;
 		}
@@ -802,7 +887,43 @@ void UMHGZWeaponInputRouterComponent::FlushExpiredInputs(double Now)
 		DeferredChords.Remove(Index);
 	}
 
-	// 2. Pending fallback singles whose grace window expired. The snapshot was
+	// 2. A standalone chord whose policy explicitly waits for its own grace window
+	// fires only if that route was valid when the physical press began and remains
+	// valid now. A winning chord marks its physical members consumed, so RT+Y/A/B
+	// cannot leak standalone RT. Do not fall back while a completed larger chord
+	// is still waiting for its arbitration window to close.
+	for (const TPair<FGameplayTag, TArray<int32>>& Pair : PressAfterGraceChordsByControl)
+	{
+		FPhysicalInputState* State = HeldControls.Find(Pair.Key);
+		if (!State || State->bPressAfterGraceConsumed
+			|| !Pair.Value.Contains(State->PressAfterGraceChordIndex))
+		{
+			continue;
+		}
+
+		const int32 Index = State->PressAfterGraceChordIndex;
+		if (Now < State->StartedTime + GetChordGracePeriod(Index))
+		{
+			continue;
+		}
+
+		bool bWaitingForLargerChord = false;
+		for (const TPair<int32, FDeferredChord>& Deferred : DeferredChords)
+		{
+			if (!ResolvedChords[Deferred.Key]
+				&& Chords[Deferred.Key].Members.Contains(Pair.Key))
+			{
+				bWaitingForLargerChord = true;
+				break;
+			}
+		}
+		if (!bWaitingForLargerChord && !ResolvedChords[Index] && IsChordComplete(Index))
+		{
+			EmitChord(Index, Now);
+		}
+	}
+
+	// 3. Pending fallback singles whose grace window expired. The snapshot was
 	// frozen at the physical Started; timeout never re-samples direction/context.
 	for (TPair<FGameplayTag, FPhysicalInputState>& Pair : HeldControls)
 	{
@@ -860,6 +981,24 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalStarted(FGameplayTag Physica
 	// 修饰键可能是最后补齐的成员；必须先建立 Aim 子标签，再冻结 Chord 的
 	// ContextTags/AimSnapshot 并让 Coordinator 检查 RequiredTags。
 	RecomputeAimChildTags();
+	if (const TArray<int32>* PressRoutes = PressAfterGraceChordsByControl.Find(PhysicalTag))
+	{
+		if (FPhysicalInputState* Held = HeldControls.Find(PhysicalTag))
+		{
+			for (const int32 Index : *PressRoutes)
+			{
+				if (!ResolvedChords[Index] && IsChordComplete(Index))
+				{
+					const FWeaponChordDefinition& Definition = *Chords[Index].Definition;
+					Held->PressAfterGraceChordIndex = Index;
+					Held->FrozenPressAfterGraceSnapshot = BuildSnapshot(
+						Definition.OutputTag, PhysicalTag, Held->SequenceID,
+						EWeaponInputPhase::Started, Now, Definition.AimSnapshotContext);
+					break;
+				}
+			}
+		}
+	}
 	EvaluateChords(Now);
 
 	// Keys that cannot participate in any multi-member chord dispatch immediately;
@@ -900,6 +1039,16 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalCompleted(FGameplayTag Physi
 			|| !IsChordComplete(Index))
 		{
 			continue;
+		}
+		if (IsPressAfterChordGraceChord(Index))
+		{
+			const FGameplayTag Trigger = Chords[Index].Definition->TriggerControls[0];
+			const FPhysicalInputState* TriggerState = HeldControls.Find(Trigger);
+			if (!TriggerState || TriggerState->bPressAfterGraceConsumed
+				|| TriggerState->PressAfterGraceChordIndex != Index)
+			{
+				continue;
+			}
 		}
 		if (BestComplete == INDEX_NONE || IsBetterChord(Chords[Index], Chords[BestComplete]))
 		{
@@ -952,6 +1101,14 @@ void UMHGZWeaponInputRouterComponent::HandlePhysicalCompleted(FGameplayTag Physi
 			FWeaponInputSnapshot ReleaseSnapshot = Registration.Snapshot;
 			ReleaseSnapshot.Phase = EWeaponInputPhase::Completed;
 			ReleaseSnapshot.Timestamp = Now;
+			if (const FPhysicalInputState* State = HeldControls.Find(PhysicalTag);
+				State && Now >= State->StartedTime)
+			{
+				ReleaseSnapshot.PhysicalPressStartedAtSeconds = State->StartedTime;
+				ReleaseSnapshot.PhysicalPressDurationSeconds =
+					static_cast<float>(Now - State->StartedTime);
+				ReleaseSnapshot.bHasPhysicalPressDuration = true;
+			}
 			EmitSnapshot(ReleaseSnapshot);
 		}
 	}
@@ -1076,6 +1233,10 @@ FWeaponInputSnapshot UMHGZWeaponInputRouterComponent::BuildSnapshot(
 	Snapshot.SequenceID = SequenceID;
 	Snapshot.Phase = Phase;
 	Snapshot.Timestamp = Timestamp;
+	if (const FPhysicalInputState* State = HeldControls.Find(SourceTag))
+	{
+		Snapshot.PhysicalPressStartedAtSeconds = State->StartedTime;
+	}
 
 	// Held modifiers: any currently held control that the profile declares as a
 	// required modifier anywhere.
@@ -1120,21 +1281,26 @@ FWeaponInputSnapshot UMHGZWeaponInputRouterComponent::BuildSnapshot(
 		}
 	}
 
-	// Movement: world direction comes from the character's cached world input;
-	// classification is relative to the character's forward/right.
+	// Freeze the current physical stick sample, transformed using the current
+	// control yaw. Never read LastMovementInputDir here: that is a deliberately
+	// latched locomotion-facing cache and remains non-zero after stick neutral.
 	FVector CharacterForward = FVector::ForwardVector;
 	FVector CharacterRight = FVector::RightVector;
+	const float Threshold = CurrentProfile ? CurrentProfile->DirectionInputThreshold : 0.5f;
+	const float ConeHalfAngle = CurrentProfile ? CurrentProfile->ForwardConeHalfAngle : 45.0f;
 	if (AMHGZCharacter* Character = CachedCharacter.Get())
 	{
 		Snapshot.RawMoveInput = Character->GetRawMoveInput();
-		Snapshot.WorldDirection = Character->GetLastMovementInputDir();
 		CharacterForward = Character->GetActorForwardVector();
 		CharacterRight = Character->GetActorRightVector();
 		Snapshot.ActorForward = CharacterForward;
+		if (const AController* InputController = Character->GetController())
+		{
+			Snapshot.WorldDirection = AMHGZCharacter::ResolveMoveInputWorldDirection(
+				Snapshot.RawMoveInput, InputController->GetControlRotation().Yaw, Threshold);
+		}
 	}
 
-	const float Threshold = CurrentProfile ? CurrentProfile->DirectionInputThreshold : 0.0f;
-	const float ConeHalfAngle = CurrentProfile ? CurrentProfile->ForwardConeHalfAngle : 45.0f;
 	Snapshot.Direction = ClassifyDirection(
 		Snapshot.WorldDirection, CharacterForward, CharacterRight,
 		Snapshot.RawMoveInput.Size(), Threshold, ConeHalfAngle);

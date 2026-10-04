@@ -2,7 +2,7 @@
 
 > **状态：历史备选，禁止按本文接线。** 2026-08-25 已改用 [纯 Motion Matching 普通移动实施指南](../design/pure-motion-matching-locomotion-guide.md)。本文只保留 CMC + 状态机回退步骤；除非用户明确撤销纯 MM 决策，否则不得执行下面的 L0～L5 编辑器操作。
 >
-> **最终目标：** 普通移动由 CMC 位移，AnimBP 状态机只表现 Idle/Start/Loop/Stop；全身动作继续走 `DefaultSlot`，送虫/收虫继续走一个固定的 `UpperBody_IGAction` 上半身层。不要重新加入按 `IsMoving` 切换两套骨骼遮罩的图。
+> **历史目标（不再描述操虫层）：** 普通移动由 CMC 位移，AnimBP 状态机只表现 Idle/Start/Loop/Stop；全身动作继续走 `DefaultSlot`。操虫 GA 的 Slot 覆盖范围现由原始摇杆输入选择：静止全身播放，移动时仅混入 `Spine_00` 及其后代；以当前实现和 [虫棍动作设计](../design/insect-glaive-actions.md) 为准。
 
 ## 1. 阶段顺序与职责
 

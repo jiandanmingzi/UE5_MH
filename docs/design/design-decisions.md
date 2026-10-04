@@ -134,7 +134,7 @@
 | 112 | 红灯支持 ClassicMovesetGate 与 NumericOnly，默认 Classic | 模式保存在虫棍 CombatConfig；经典模式用 Required/BlockedTags 分流弱化/完整动作，数值模式动作不分流 |
 | 113 | 三灯特殊命中音效走 GameplayCue Tag 注入（非 AnimNotify） | 遵循决策 #100——命中反馈统一走 GameplayCue；UMHGZInsectGlaiveAbility 覆写 MakeDamageSpec 额外注入 Tag |
 | 114 | 萃取颜色由怪物 Hitzone 的 ExtractColorTag 决定 | 不同怪物同名部位可以有不同颜色；猎虫品种不能改写怪物部位颜色 |
-| 115 | Demo 只有觉虫击原子消耗三灯；降龙不消耗精华 | 旧 Extract Surge/Triple Burst 和“降龙消耗红灯”方案废弃 |
+| 115 | Demo 只有觉虫击原子消耗三灯；降龙已移出 Demo（2026-10-01） | 旧 Extract Surge/Triple Burst 和“降龙消耗红灯”方案废弃 |
 | 116 | 三灯期间所有吸收路径统一吞掉单色精华 | 不创建单灯 GE、不缓存颜色、不刷新三灯；操虫斩和普通猎虫使用同一 ApplyExtract |
 | 117 | 普通猎虫回手时交付 PendingExtract，主动召回/耐力归零不使其失败 | 飞行命中记录颜色；从未命中有效颜色才是萃取失败 |
 | 118 | 空中位移按动画根运动、受限定向、弹跳、惯性叠加、自由下落分类 | 零根位移动画不用 MotionWarping 生成任意距离；运行时位移由统一 Task 输出 FinalVelocity |
@@ -162,7 +162,7 @@
 | 135 | 项目以《世界》地面/猎虫为基底，选择性改造三部曲动作 | 不逐项复刻单作；动作来源与最终玩法规则分离 |
 | 136 | Demo 不包含翔虫资源、集中模式或钩爪 | 移植动作不自动继承原作资源系统；当前只实现木桩战斗闭环 |
 | 137 | 虫棍专属 CombatConfig 保存红灯模式、舞踏和特殊动作参数 | 通用 GA/协调器不增加虫棍分支，便于以后添加其他武器 |
-| 138 | 舞踏只由操虫斩命中和突进回旋斩反击触发 | 层数和倍率可调；落地、受击、急袭突刺、降龙等统一清空 |
+| 138 | 舞踏只由操虫斩命中和突进回旋斩反击触发 | 层数和倍率可调；落地、受击、急袭突刺等统一清空 |
 | 139 | 虫棍特殊/位移动作单独维护在 insect-glaive-actions.md | 普通地面招式继续用 ComboData；避免在资源与通用动作文档重复规则 |
 | 140 | 持刀地面单 RT 松开后的虫印斩与 LT+RT 虫印弹均可创建虫印；每名玩家只维护一个虫印 | 两条路径共用 Resource 所有权：虫印附着 Hitzone、时长可调，新印替换旧印；目标失效/卸装清除，收刀不清除 |
 | 141 | 动代码前先冻结 [Demo 实施计划](demo-implementation-plan.md)，按 M0～M7 逐阶段验收 | 防止公共接口未定时批量创建 GA/蓝图，造成重复迁移和遗留清理路径 |
@@ -201,3 +201,4 @@
 | 174 | 所有拔刀路径都在实际视觉 DrawCommit 切姿态 | `GA_IG_Draw`、`GA_IG_DrawSlash`、`GA_IG_DrawAndSendKinsect` 由原生 Notify 按 ActionToken 回调 Ability 后 `SetSheathed(false)` + 清奔跑；不在激活或 Blueprint Event Graph 提前改姿态 |
 | 175 | 连招上下文只路由到目标 GA；目标 GA 决定 Montage Entry Section | `FComboTransition` 不引用 Montage/Section。M4-B.1 由 `UMHGZAttackAbility` 按 `TransitionID → SourceState → Default → Montage 开头` 选择并在 Montage Task 创建时传 StartSection；连接动画归目标招式的 Entry Section，上一招只保留未派生 Recovery |
 | 176 | 根运动所有权按实际动画阶段持有，不按 Montage Section 开关 | Section 只决定播放路径，Root Motion 由当前 AnimSequence 决定。真实根位移片段由精确 ActionToken 的 `ActionRootMotionPhase` 获取/释放所有权；in-place 片段不持有；无根位移却需移动的动作使用 MovementTask，MM 与 Montage 不得同时输出 Root Motion |
+| 177 | 2026-10-01：强化跳跃斩与降龙移出本 Demo/M5，剩余新增空中招式仅急袭突刺 | 保留已签收空回、操虫斩和强化操虫穿刺；不新增空中 Y/LTYB 替代招式；旧资源/序列化字段不随范围调整删除，M5 仍需收口与总验收 |

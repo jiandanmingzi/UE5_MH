@@ -1,6 +1,18 @@
 # 虫棍木桩 Demo：阶段门禁、顺序与当前状态
 
-> **唯一状态真相源（2026-08-29）。** 本文定义 M（C++/运行时）与 E（编辑器资产）的顺序、进入条件、退出条件及当前状态。阶段状态必须同时有本文的验收项、可复核的验证证据和阶段快照；Git 提交本身只能证明快照，不可替代 PIE 或编辑器验证。其他文档中的日期型“当前状态”只作为当时记录；与本文冲突时，以本文为准。玩法规则仍以动作/资源设计文档为准，接口仍以冻结实施计划为准。
+> **2026-10-04 最新入口：急袭突刺M1/M2/M3/E1已通过，当前进入本招M4生产回归与遥测验收；主M5仍实施中。** 按[急袭突刺计划§9](../using/急袭突刺实现计划.md#9-分阶段实施与门禁)依序执行M3→E1→M4→E2。M3常驻资产/路由已生成和回读，二次Apply `changed=0`、受管包哈希不变；本招定向DataValidation有效。E1用户目视确认完成；只读审计报告核实四个Attack Collision索引0–3、Over Combo Window、Section和GA引用。Development Editor本地构建成功；M2专项15/15、全量`MHGZ`自动化182/182均有退出码0证据，E1之后专项回归再次15/15且退出码0。M2专项覆盖逐事件N−1方向快照、180°/180°/60°修正与容错边界、真实InputRouter/ComboCoordinator的RT释放与组合消费、目标端拒绝GE、自然Montage结束、真实落地Over Root Motion、四段GameplayEffect/同段去重及生命周期清理。**当前剩余为M4固定实机输入/状态遥测矩阵；之后才进入E2正常速度与慢放PIE签收。**此前已签收动作保持。
+
+> **2026-10-01 范围收缩：** 强化跳跃斩和降龙已移出当前 Demo；已签收的强化操虫穿刺保留。M5 剩余新增招式仅急袭突刺，之后仍须收口与阶段总验收。旧日期记录中的两招不再构成当前待办。
+
+> **2026-10-01 最新门禁：强化操虫穿刺 M1/M2/M3/E1/M4 完成，E2 本轮平地可玩范围已签收；M5整体仍实施中。** 200/201保留录制曲线，203使用Over `_RM`；旧Landing曲线与Over_IP保留对照。203修订的既有静态成绩为全量 **166/166**（本招 **17/17**）、Python **32/32**、DataValidation **607资产0资产错误**（另有1条平台SSL警告）、21资产/8次幂等检查；M4回归为全量 **167/167**、本招 **18/18**，见本招§13.3～13.4。本轮录制 `20261001-170744-BP_IG_Character_C_0-55632` 与用户目视支持平地签收，最新证据见[本招 §13.5](../using/强化操虫穿刺实现计划.md)。碰墙/封顶暂缓，未发现已确认bug；不宣称慢放采样、全取消矩阵或五条clone全部实机通过。下一纵切急袭突刺，先资源/真值核对与独立详细实施方案；操虫斩E3/空回P0-2既有签收保持。
+
+> **2026-09-30 15:19历史签收：操虫斩不减速版本招E3通过，空回P0-2已关闭。** 新生产录制覆盖5次空回直接接操虫斩（3次完整落空→落地、2次命中舞踏），唯一位移所有者、起手悬停与落地清理正常，用户确认无可见异常。此前全量149/149、操虫斩27/27、596资产0资产错误保留当时范围；此快照仅审查录制/改文档，不代表随后强化操虫穿刺的构建和资产生成计数。不要求188条件制动，不关闭普通猎虫回手交付精华的独立欠项；见[操虫斩§9.7](../using/操虫斩实现计划.md)。
+
+> **2026-09-29 上轮 M4.6 静态出口快照（历史，早于 §9.5 限域修复）：** 操虫斩当轮运动重建的代码、最终 Development Editor 编译和只读资产审计已通过，独立评审问题已修复并复核通过。 187默认使用分段直冲/滑行，189→157保留重力和后向加速度；三伤窗口、Socket、输入、Montage不重建。当时待修后 E2 正常速度/慢放录制；**当轮未运行自动化测试，这些静态证据不签收E2/E3/M5**。实施合同和精确操作见[操虫斩计划§9.2、§9.4](../using/操虫斩实现计划.md)。下方2026-09-28及更早计数/状态只保留作历史证据，不代表当前验收；“本招M4.6”不等于主线地面Entry Section阶段M4.6。
+
+> **E1出口快照（2026-09-28，E2录制前；非当前待办）：** M2/M3静态工作完成、E1由用户确认通过。Development Editor冷编译成功、KinsectSlash专项12/12通过，三窗/Socket/轨道已回读；两个相关Montage定向DataValidation均VALID、0错误/警告。此前全量DataValidation为596资产0资产错误，轨道整理后未重跑全量。这些证据保留其当时范围，不签收本轮运动轨迹。
+
+> **唯一状态真相源（2026-10-03 更新）。** 本文定义M（C++/运行时）与E（编辑器资产）的顺序、进入条件、退出条件及当前状态。阶段状态必须同时有本文的验收项、可复核的验证证据和阶段快照；Git提交本身只能证明快照，不可替代PIE或编辑器验证。其他文档中的日期型“当前状态”只作为当时记录；与本文冲突时，以本文为准。玩法规则仍以动作/资源设计文档为准，接口仍以冻结实施计划为准。
 
 > **编号规则：** `M4.x` 是运行时/代码及其 PIE 验收，`E4.x` 是仅需编辑器可视化操作的资产工作包。字母后缀（如 `M4-B.1A`、`E4-A.6`）和 `PMM-x` 均为历史记录，不再作为可执行阶段名；旧 PMM 工作的已完成证据统一归入 M4.2 的前置基础。
 
@@ -76,7 +88,7 @@ E0/E1  E2    E3    E5.1（木桩三色部位与猎虫物理）
 | M4.2.1 收刀 Run/Sprint Loop 候选库重路由 | M4.5；M4.2 的 Stop 生命周期保持已签收。 | 已进入 Run/Sprint Loop 的持续输入改挡，只通过候选数据库成员变化触发一次合法搜索；目标 Loop 库不得暴露 Start/Stop；真实松杆仍回既有 FullMove 并保持一次正确 Stop。节点 Blend 配置保持基线。 | **已完成并签收（2026-09-03）：** Development Editor 编译通过；`MHGZ.PMM` 11/11（资产 5/5、查询 6/6）通过；LoopOnly commandlet `-AuditOnly` 为 2/2。PIE Telemetry `Saved/RuntimeTelemetry/20260903-211806-BP_IG_Character_C_0-53906` 已确认：`RunLoopOnly` 与 `SprintLoopOnly` 会在至多两个动画更新内双向切换，目标候选库不含 Start/Stop；Start 期间保持 FullMove；真实松杆仍只产生一次正确 Stop。用户已完成目视回归且未发现问题。**允许进入 M4.6。** |
 | M4.6 攻击 Entry Section | M4.5、M4.2.1。 | Section 在播放前选择；拆分攻击的 Root Motion Phase 与 MovementTask 所有权可验证。 | **代码完成（2026-09-04；2026-09-05 两次复验）：** `UMHGZAttackAbility` 已按 `TransitionID → SourceState → DefaultEntrySection → Montage 开头` 在播放前选择并校验入口，非法配置在 Commit/Confirm 前拒绝；Development Editor 编译通过，`MHGZ.M4` 27/27（含 `MHGZ.M4.6.Attack.EntrySection` 2/2、精确 `bRequiresDodgeAcceptWindow` 门槛与扩展后的旧序列化字段/Notify 缺失断言）通过。第二轮清理已删除 Dummy `HalfExtent`、Combo `CoreRedirects`、两个旧 Dodge Notify 类及两个 Montage 中的四个实例。DataValidation 冷启动加载 519 资产，未见本次清理导致的 Missing Property/Class 或蓝图编译错误；全项目仍有既知 G-002 `DA_TrainingDummy` Hitzone 配置错误。实际拆分招式的资产接线、Root Motion Phase/MovementTask 目视验收由已开放的 E4.3 完成。 |
 | M4.7 地面招式 / 虫印 | M4.6 完成、E4.3 的最终 Combo 壳有效。 | 地面连段、虫印、反击/舞踏入口符合动作设计。 | **已完成并签收（2026-09-11）：** 地面虫印、四连印斩与突进回旋斩的 GA、Montage、Combo 和精确窗口均已完成 PIE；`bCounterable` 火圈命中已验证反击消费与 `AdvancingCounter` 舞踏层入口。实际弹跳位移明确移交 M5。 |
-| M5 空中/舞踏/终结 | M4.7 与 M4.5 最终回归完成。 | 空中位移、舞踏、落地和取消只保留一个位移所有者。 | **实施中（2026-09-12）：** `UAbilityTask_MHGZWeaponMovement` 已建立并按精确 `ActionToken` 独占 CMC RootMotion、动作旋转与唯一 WarpTarget；支持 `BoundedDirectional`、`BallisticVault`、`AdditiveInertia` 三种 Source。`MHGZ.M5.Movement.OwnershipAndCleanup` 已通过。突进回旋斩反击已接入 BallisticVault，待 PIE 验收实际弹跳与落地。 |
+| M5 空中/舞踏/终结 | M4.7 与 M4.5 最终回归完成。 | 空中位移、舞踏、落地和取消只保留一个位移所有者。 | **实施中（2026-10-04）：操虫斩不减速版E3、空回P0-2与强化操虫穿刺本轮平地范围已签收；急袭突刺M1/M2/M3/E1已通过，当前为本招M4遥测验收。** M3资产/路由静态检查和幂等复跑通过；E1用户目视确认及只读回读通过，四个Attack Collision索引0–3、Over Combo Window、Section/GA引用符合约定；Development Editor构建成功，E1后M2专项15/15、退出码0，M2此前全量182/182，证据见[急袭突刺计划§9](../using/急袭突刺实现计划.md#9-分阶段实施与门禁)。剩余M4输入/状态PIE遥测矩阵尚未录制；其后进入E2。此前强化操虫穿刺167/167、专项18/18及平地签收证据见[§13.4～13.5](../using/强化操虫穿刺实现计划.md)，不作为急袭突刺成绩。碰墙/封顶暂缓，未覆盖矩阵不宣称通过；收口项仍保留，M5整体未签收。 |
 | M6 觉虫击/粉尘/UI | M5、觉虫击规则和表现接口已冻结。 | HUD 唯一所有权、Resource Widget、Cue、粉尘和觉虫击闭环。 | 未开始。 |
 | M7 集成/打包 | M0～M6 与 E0～E6 均完成。 | 全项目验证、反复 PIE、压力测试、Win64 Development 打包通过。 | 未开始。 |
 
@@ -114,7 +126,7 @@ M4.2 的唯一退出条件仍是普通 Idle、Start、Loop、真实松杆 Stop�
 
 ## 6. 当前门禁清单
 
-**最近验证证据：** 2026-08-24 的全 Content Data Validation 扫描 464 个资产。修正 G-001 前有 G-001、G-002 两项错误；修正后复跑仅余 G-002（`DA_TrainingDummy` 三色 Hitzone），说明 `DA_WeaponRuntime_IG` 已使用新的可选 Widget 合同。完整 `MHGZ` 自动化为 54/54。全项目验收当前仍未满足；这不把 E5.1 的木桩资产错误改写成 E4.1 的 UI/动作需求。
+**历史验证证据（非本轮成绩）：** 2026-08-24 的全 Content Data Validation 扫描 464 个资产。修正 G-001 前有 G-001、G-002 两项错误；修正后复跑仅余 G-002（`DA_TrainingDummy` 三色 Hitzone），说明 `DA_WeaponRuntime_IG` 已使用新的可选 Widget 合同。完整 `MHGZ` 自动化为 54/54。全项目验收当前仍未满足；这不把 E5.1 的木桩资产错误改写成 E4.1 的 UI/动作需求。
 
 | ID | 所属阶段 | 当前事实 | 解除条件 | 阻塞范围 |
 |---|---|---|---|---|
@@ -126,8 +138,22 @@ M4.2 的唯一退出条件仍是普通 Idle、Start、Loop、真实松杆 Stop�
 
 ## 7. 当前项目位置与唯一允许的下一步
 
-**当前阶段：M5 舞踏、空中位移与终结动作实施中（2026-09-12）。** M4.7 已签收：地面虫印、四连印斩、突进回旋斩、其派生与精确窗口均完成 PIE；突进回旋斩的反击窗口已经在 `bCounterable` 火圈命中中验证成功，能够消费该次 IncomingHit 并增加 `AdvancingCounter` 舞踏层。E5.1 的木桩三色 Hitzone、水平火圈、受击和反击也已验收；仅猎虫采集精华的人工验收保留为 M7 前必须补齐的欠项。
+**当前执行入口（2026-10-04）：急袭突刺本招M1/M2/M3/E1已通过，当前进入M4实机输入/状态遥测矩阵。** [独立实施计划](../using/急袭突刺实现计划.md)记录冻结参数、M2/M3/E1回读证据和M4录制矩阵。E1只读报告 `Saved/AssetProbe/DescendingThrust/E1/asset_readback.json` 成功；Development Editor构建成功，E1后M2专项15/15、退出码0，M2此前全量182/182。本招受影响资产的DataValidation有效，但全库扫描受默认DDC错误影响，未签为全绿。M4遥测矩阵通过后进入E2正常速度/慢放PIE。此前强化操虫穿刺M1/M2/M3/E1/M4/E2平地范围签收保持，证据见[§13.5](../using/强化操虫穿刺实现计划.md)及 `Saved/AssetProbe/KinsectPiercer_E2_20261001-170744.json`；碰墙/封顶暂缓，不宣称慢放采样、全取消矩阵或五条clone全覆盖。操虫斩E3/P0-2既有签收保持，主M5尚未签收。
 
-M5 的唯一动作位移执行层已落地：`UAbilityTask_MHGZWeaponMovement` 由绑定当前 `ActionToken` 的 RuntimeHost ownership 仲裁平移、旋转、转向、碰撞与唯一 WarpTarget 生命周期，并用 CMC RootMotionSource 实现 `BoundedDirectional`、`BallisticVault`、`AdditiveInertia`。Character 的普通 locomotion/MM 与 Montage Root Motion 都不得与它并行拥有位移或旋转。首个纵切已把突进回旋斩成功反击从“增加舞踏层后结束地面 GA”改为“停止地面 Montage、增加一层后执行 BallisticVault，并由落地统一清层”；反击成功时还会播一段纯表现的舞踏起跳（首选常驻蒙太奇 `AM_IG_WuTa`，由 `AS_Unsh_TuJinHuiXuanWuTa` 经 `MHGZWuTaMontageSetupCommandlet` 烘出；该序列本身退居回退路径，只在蒙太奇加载失败时用来现拼一个仅本次存活的 in-place 动态 Montage），它不参与 Root Motion 或 Action 结束。现待 PIE 验收实际弹跳。不得在反击 GA、蓝图 Tick 或 Character 中直接写 CMC/`LaunchCharacter` 来跳过该所有权。
+**E2 录制后历史更新（2026-09-28，已由本轮 §9.5 入口取代）：** 用户已完成本版PIE，动作可触发但运动轨迹验收未通过。当前已完成原游戏专项数据提取；下一实施项为本招M4运动学修复，不是再次要求用户录同一未修版本。E1配置不重做，修改到的运动参数/Montage时序需重新回读并重验E2/E3。下方“下一步E2”仅为录制前快照。
+
+**M5 原 E1 出口历史快照（2026-09-28，非本轮成绩/待办）：** 操虫斩 M2 C++ 已冷编译，专项自动化 12/12 通过；M3 Socket/三碰撞窗迁移已完成并回读。当前主 Montage 窗口为 `[0]` 0.718537–1.016839s、`[1]` 0.718732–1.016741s；Dance Montage `[2]` 0.050000–0.250000s；索引独立，主 `[0]/[1]`重叠。通知轨道已按语义保存为主 Montage `Attack`（武器 `[1]`）、`Kinsect`（猎虫 `[0]`）、`Action`（阶段点通知）；Dance Montage `Attack`（武器 `[2]`）、`Action`（DanceBegin）、`IGAerialHandoff`。GA TraceRegion 为 `[0] None→IG_Kinsect (R20cm)`、`[1] IG_RearTip→Root`、`[2] Root→IG_FrontTip`，CombatConfig Socket=`IG_Kinsect`；LateHitOpen/Close已移除。此前DataValidation为596资产0错误（1条平台SSL根证书警告）；通知轨道整理后全量DataValidation未重跑。**E1可视核对已由用户于2026-09-28确认通过；当前下一步为E2 PIE**，真实验证输入、命中/未命中、Dance、碰墙和落地接管。E2、M4、E3及M5均未签收。
+
+**M5 进度快照（2026-09-26，历史）**：操虫斩 M1 代码出口已通过。最终整目标 Development Editor 构建成功；`MHGZ.M5.KinsectSlash` 专项 3/3、完整自动化 123/123；全 Content DataValidation 592 个资产通过且没有资产错误，另有 1 条平台 SSL 根证书存储警告。该数字仅是当时 M1 快照，不代表生产 GA、E1 编辑器资产或 M5 整阶段完成。
+
+**2026-09-27 历史执行说明（E1已于2026-09-28确认通过）：** 当时操虫斩静态资产已生成，等待目视核对后进入 E2 PIE。M2 代码出口已通过；187 距离曲线、主 Montage（186→187→188）、独立 189 Dance Montage、GA 和 B/RT+B Combo 行均已脚本生成。用户已指定 189 使用源帧 0；两条来向共用该帧，Dance Montage Blend In/Out 为 0.1s。RuntimeDefinition/Profile/Combo 静态审计已通过，DataValidation 为 596 资产、0 资产错误（另有平台 SSL 根证书警告）。随后需以真实 B 与 RT+B 验证 GA 激活；早期 PIE 未触发录制发生于资产生成前，不代表当前配置。
+
+**历史验证快照（2026-09-27，仅保留当时范围）**：M2冷编译成功，KinsectSlash专项11/11、全量131/131；当时596资产0资产错误，输入/Combo静态接线与旧LateHitOpen链路已验证。后续已迁移为三段AttackCollision并修复运动学，本段不描述当前生产链路或计数；当前只看顶部与[操虫斩计划§9.1–9.2](../using/操虫斩实现计划.md)。
+
+**当前阶段：M5舞踏、空中位移与终结动作实施中（2026-10-04）。** 已签动作与M4.7/E5.1保持；急袭突刺[本招M1/M2/M3/E1已通过](../using/急袭突刺实现计划.md)，当前唯一入口是M4实机输入/状态遥测矩阵，随后E2正常速度/慢放PIE。普通放虫回手交付精华仍为M7前独立欠项，主M5整体未签。既有签收证据见[强化操虫穿刺§13.5](../using/强化操虫穿刺实现计划.md)和[操虫斩§9.7](../using/操虫斩实现计划.md)，历史待录制不作现行待办。
+
+M5 的唯一动作位移执行层已落地：`UAbilityTask_MHGZWeaponMovement` 由绑定当前 `ActionToken` 的 RuntimeHost ownership 仲裁平移、旋转、转向、碰撞与唯一 WarpTarget 生命周期，并用 CMC RootMotionSource 实现 `BoundedDirectional`、`BallisticVault`、`AdditiveInertia`。Character 的普通 locomotion/MM 与 Montage Root Motion 都不得与它并行拥有位移或旋转。首个纵切已把突进回旋斩成功反击从“增加舞踏层后结束地面 GA”改为“停止地面 Montage、增加一层后执行 BallisticVault，并由落地统一清层”；反击成功时还会播一段纯表现的舞踏起跳（首选常驻蒙太奇 `AM_IG_WuTa`，由 `AS_Unsh_TuJinHuiXuanWuTa` 经 `MHGZWuTaMontageSetupCommandlet` 烘出；该序列本身退居回退路径，只在蒙太奇加载失败时用来现拼一个仅本次存活的 in-place 动态 Montage），它不参与 Root Motion 或 Action 结束。该反击弹跳的架构修复已有 2026-09-18 PIE 证据，见 [M5 计划 §2.1](../using/m5-plan.md)；不能把旧句「现待 PIE 验收」当作当前空回门禁。不得在反击 GA、蓝图 Tick 或 Character 中直接写 CMC/`LaunchCharacter` 来跳过该所有权。
 
 M4.6 固定优先级为 `TransitionID → SourceState → DefaultEntrySection → Montage 开头`；`StartSection` 必须在创建 Montage Task 时传入，禁止先播放再 Jump。无效入口在 Resource Reserve、GAS Commit 和 Coordinator Confirm 前拒绝，因此不会把来源动作错误地以 Superseded 结束。若今后出现动作退出回归，回归归属仍为 E4.2/M4.5。
+
+**本招当前下一步（2026-10-04）：急袭突刺M4固定实机输入/状态遥测矩阵。** M1/M2/M3/E1均已通过；E1报告 `Saved/AssetProbe/DescendingThrust/E1/asset_readback.json`，构建与E1后15/15专项回归证据见[独立计划§9](../using/急袭突刺实现计划.md#9-分阶段实施与门禁)。现在不需要再改编辑器资产；需按该计划M4矩阵录制真实RT短按/组合、不同合法空中入口、三段方向快照与容错、Loop→接地Over、四段伤害/落空、后续Combo派生和结束清理，再用分类Telemetry核验。M4分析通过后进入E2正常速度/慢放目视验收。强化操虫穿刺M1/M2/M3/E1/M4完成，E2本轮平地可玩范围已按[计划 §13.5](../using/强化操虫穿刺实现计划.md)签收；碰墙/封顶暂缓。普通猎虫回手交付欠项继续保留；操虫斩E3/P0-2既有签收保持，主M5尚未签收。

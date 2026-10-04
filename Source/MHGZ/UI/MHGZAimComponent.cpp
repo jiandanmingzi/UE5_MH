@@ -214,6 +214,104 @@ FWeaponAimSnapshot UMHGZAimComponent::CaptureAimSnapshot(EWeaponAimSnapshotConte
 	return Snapshot;
 }
 
+bool UMHGZAimComponent::CaptureAimLockSample(
+	const FVector& LaunchOrigin, FWeaponAimLockSample& OutSample) const
+{
+	OutSample = FWeaponAimLockSample();
+	if (LaunchOrigin.ContainsNaN()
+		|| !FMath::IsFinite(AimMaxDistance) || AimMaxDistance <= 0.0f)
+	{
+		return false;
+	}
+
+	const ACharacter* Character = Cast<ACharacter>(GetOwner());
+	if (!Character)
+	{
+		return false;
+	}
+
+	const FVector ActorForward = Character->GetActorForwardVector().GetSafeNormal();
+	APlayerController* PC = Cast<APlayerController>(Character->GetController());
+	if (!PC)
+	{
+		if (ActorForward.IsNearlyZero())
+		{
+			return false;
+		}
+
+		OutSample.CameraOrigin = LaunchOrigin;
+		OutSample.CameraDirection = ActorForward;
+		OutSample.TargetPoint = LaunchOrigin + ActorForward * AimMaxDistance;
+		OutSample.LaunchDirection = ActorForward;
+		OutSample.bUsedActorForwardFallback = true;
+		return true;
+	}
+
+	FRotator CameraRotation = FRotator::ZeroRotator;
+	PC->GetPlayerViewPoint(OutSample.CameraOrigin, CameraRotation);
+	OutSample.CameraDirection = CameraRotation.Vector().GetSafeNormal();
+	if (OutSample.CameraDirection.IsNearlyZero())
+	{
+		if (ActorForward.IsNearlyZero())
+		{
+			return false;
+		}
+
+		OutSample.CameraOrigin = LaunchOrigin;
+		OutSample.CameraDirection = ActorForward;
+		OutSample.TargetPoint = LaunchOrigin + ActorForward * AimMaxDistance;
+		OutSample.LaunchDirection = ActorForward;
+		OutSample.bUsedActorForwardFallback = true;
+		return true;
+	}
+
+	OutSample.TargetPoint = OutSample.CameraOrigin
+		+ OutSample.CameraDirection * AimMaxDistance;
+	if (UWorld* World = GetWorld())
+	{
+		FHitResult BlockingHit;
+		FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MHGZAimLock), false, Character);
+		if (World->LineTraceSingleByChannel(BlockingHit, OutSample.CameraOrigin,
+			OutSample.TargetPoint, AimChannel, QueryParams) && BlockingHit.bBlockingHit)
+		{
+			// Keep the first blocker, whether it is a hitzone, wall, or other world
+			// geometry. Resolving from its impact point prevents aiming through walls.
+			OutSample.bHasBlockingHit = true;
+			OutSample.BlockingHit = BlockingHit;
+			OutSample.TargetPoint = BlockingHit.ImpactPoint;
+		}
+	}
+
+	FVector LaunchDirection = (OutSample.TargetPoint - LaunchOrigin).GetSafeNormal();
+	if (LaunchDirection.IsNearlyZero())
+	{
+		LaunchDirection = OutSample.CameraDirection;
+	}
+	if (LaunchDirection.IsNearlyZero())
+	{
+		LaunchDirection = ActorForward;
+		OutSample.bUsedActorForwardFallback = true;
+	}
+	if (LaunchDirection.IsNearlyZero())
+	{
+		return false;
+	}
+
+	// Third-person parallax can make the hunter-to-target vector steeper than
+	// the camera ray. Reuse the active camera manager's own pitch limits so the
+	// final 3D dash direction cannot exceed the view's authored up/down range.
+	FRotator LaunchRotation = LaunchDirection.Rotation();
+	if (APlayerCameraManager* CameraManager = PC->PlayerCameraManager)
+	{
+		CameraManager->LimitViewPitch(LaunchRotation,
+			CameraManager->ViewPitchMin, CameraManager->ViewPitchMax);
+	}
+
+	OutSample.LaunchDirection = LaunchRotation.Vector().GetSafeNormal();
+	return !OutSample.LaunchDirection.IsNearlyZero()
+		&& !OutSample.LaunchDirection.ContainsNaN();
+}
+
 void UMHGZAimComponent::ClearTargetDisplay()
 {
 	// 无显示内容时静默，避免重复广播空目标

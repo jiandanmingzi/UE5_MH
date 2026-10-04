@@ -175,6 +175,11 @@ public:
 	/** Current Action Movement owner, including its activation sequence, or an empty string. */
 	FString GetActionMovementOwnerDebugString() const;
 
+	/** Temporarily make one Action the sole yaw writer while its timed correction is active. */
+	bool AcquireActionRotationOverride(const FWeaponActionToken& ActionToken);
+	bool ReleaseActionRotationOverride(const FWeaponActionToken& ActionToken);
+	bool IsActionRotationOverrideOwnedBy(const FWeaponActionToken& ActionToken) const;
+
 	// ----------------------------------------------------------------------
 	// Motion Matching Handoff (M4.4)
 	// ----------------------------------------------------------------------
@@ -213,6 +218,32 @@ public:
 		FWeaponActionToken& OutActionToken) const;
 
 	// ----------------------------------------------------------------------
+	// Action-owned visual pitch
+	// ----------------------------------------------------------------------
+	/** Publish one locked-direction pose correction for an exact live Action/Montage pair. */
+	bool TrySetActionVisualPitchState(const FWeaponActionToken& ActionToken,
+		int32 SourceMontageInstanceID, const FVector& LockedDirection,
+		float BlendInSeconds, float BlendOutSeconds);
+
+	/** Release only the matching Action's visual state; BlendOut leaves a read-only retirement snapshot. */
+	bool ReleaseActionVisualPitch(const FWeaponActionToken& ActionToken,
+		int32 SourceMontageInstanceID, EActionVisualPitchReleaseMode ReleaseMode);
+
+	/** Game-thread snapshot read by NativeUpdateAnimation; no ability or montage ownership is granted. */
+	void GetActionVisualPitchState(FWeaponActionVisualPitchState& OutState) const;
+
+	/** AnimInstance acknowledges a completed fade; a stale revision cannot clear a newer owner. */
+	bool AcknowledgeActionVisualPitchRetirement(uint64 ExpectedRevision);
+
+	/** Sparse lifecycle events read by the active RuntimeTelemetry writer. */
+	void GetActionVisualPitchTelemetrySince(uint64& InOutLastSerial,
+		TArray<FWeaponActionVisualPitchTelemetryEvent>& OutEvents) const;
+	uint64 GetLatestActionVisualPitchTelemetrySerial() const
+	{
+		return NextActionVisualPitchTelemetrySerial - 1;
+	}
+
+	// ----------------------------------------------------------------------
 	// Pawn 姿态（经 Ledger 拥有）
 	// ----------------------------------------------------------------------
 	bool SetGrounded(bool bInGrounded);
@@ -226,9 +257,11 @@ public:
 	 *
 	 * `MontageOverride`：调用方指定下落 clip（空回走 `GetAerialDodgeFallMontage` =
 	 * 157 的 clip），重力档仍由 `bEnhancedVariant` 独立决定 —— 两者刻意解耦。
+	 * `bPreservePhysicsProfile` requires an existing Host physics override and keeps
+	 * its gravity, planar acceleration and velocity through the presentation handoff.
 	 */
 	bool BeginAerialFalling(bool bEnhancedVariant, FGameplayTag StyleTag = FGameplayTag(),
-		UAnimMontage* MontageOverride = nullptr);
+		UAnimMontage* MontageOverride = nullptr, bool bPreservePhysicsProfile = false);
 
 	/**
 	 * 领「空中可操作」状态 tag（裸 `Combat.State.Aerial.Falling`，无 Style、不播表现）。
@@ -271,6 +304,20 @@ public:
 	bool ApplyAerialFallingProfile(bool bEnhancedVariant);
 
 	/**
+	 * Installs a registered action's CMC-owned fall profile without changing velocity,
+	 * presentation or movement ownership. GravityMagnitude is unscaled cm/s^2;
+	 * PlanarAcceleration must be finite world-space XY with Z == 0.
+	 * The original CMC values are saved once and survive action retirement until the
+	 * Host restores them on landing, runtime teardown or the fall watchdog.
+	 */
+	bool ApplyAerialFallingPhysicsOverride(const FWeaponActionToken& Owner,
+		float GravityMagnitude, float Braking,
+		FVector PlanarAcceleration = FVector::ZeroVector);
+
+	/** Stops an owner's temporary planar falling acceleration without changing gravity or velocity. */
+	bool ClearAerialPlanarAccelerationForAction(const FWeaponActionToken& Owner);
+
+	/**
 	 * 记一次「空中回避已用」（`Combat.State.Aerial.CantDodge`）。
 	 *
 	 * 语义是**本次滞空已消耗**，所以 Token 由 Host 持有（Pose 槽）、**不由能力持有** ——
@@ -279,8 +326,21 @@ public:
 	 */
 	bool MarkAerialDodgeUsed();
 
-	/** 清除全部空中 Cant/Falling 拥有状态并落回 Grounded。 */
-	void HandleLanded();
+	/** Mark this airborne action budget as spent; owned by Host until landing. Idempotent. */
+	bool MarkAerialAttackUsed();
+	bool IsAerialAttackBudgetSpent() const { return PoseTokens.AerialCantAttack.IsValid(); }
+
+	/** Successful Kinsect Slash Dance entry releases only Host-owned attack/dodge budgets. */
+	bool ResetAerialActionBudgetOnDance();
+
+	/**
+	 * Clear Host-owned airborne pose/resource state after a confirmed landing.
+	 * Actions with their own landing montage/root motion pass false so the Host
+	 * does not also reset speed or start its generic landing presentation. In all
+	 * cases the Host releases its own airborne Cant/Falling tokens and returns to
+	 * Grounded.
+	 */
+	void HandleLanded(bool bPlaySystemLandingPresentation = true);
 
 	/**
 	 * 为「以自己的弧线抵达地面、因而从未有过系统托管自由落体」的动作播放落地表现。
@@ -296,6 +356,17 @@ public:
 	bool PlayAerialLandingPresentation();
 
 	bool IsGrounded() const { return bGrounded; }
+
+	/**
+	 * Records which committed aerial action most recently supplied the airborne
+	 * movement.  RuntimeHost owns this tag past the source GA's EndAbility and
+	 * clears it only on landing/runtime teardown, so a follow-up aerial action can
+	 * query the actual source instead of inferring it from the generic Falling tag.
+	 * SourceTag must be a child of Combat.State.Aerial.Source.
+	 */
+	bool SetAerialMovementSource(const FWeaponActionToken& SourceAction,
+		const FGameplayTag& SourceTag);
+	FGameplayTag GetAerialMovementSource() const { return AerialMovementSourceTag; }
 
 	/**
 	 * True only while the **system-owned free-fall presentation** is open
@@ -366,6 +437,10 @@ private:
 	/** Applies/restores the optional current-weapon CMC profile for free fall. */
 	void ApplyAerialFallingPhysics(bool bEnhancedVariant);
 	void RestoreAerialFallingPhysics();
+	void CaptureAerialFallingPhysics(UCharacterMovementComponent& CMC);
+	void ClearAerialMovementSource();
+	void AdvanceAerialMovementSourceRevision();
+	void ClearAerialPlanarAcceleration();
 
 	/**
 	 * 空中动画根盾（挂在 CMC 的 ProcessRootMotionPostConvertToWorld，初始化期绑定）：
@@ -388,6 +463,9 @@ private:
 
 	/** 清理当前 MovementTask 所有权；调用者已完成其精确身份校验。 */
 	void ClearActionMovementOwner();
+	void ResetActionVisualPitchState();
+	void RecordActionVisualPitchTelemetryEvent(FName EventName,
+		const FWeaponActionVisualPitchState& State);
 
 	// ----------------------------------------------------------------------
 	// M2 装备差分生命周期
@@ -435,19 +513,29 @@ private:
 	bool bInitialized = false;
 	/** 关停/重建窗口：拒绝新的输入、注册与资源预留请求。 */
 	bool bShuttingDown = false;
+	/** Prevents synchronous tag callbacks from reopening aerial state during landing cleanup. */
+	bool bHandlingLanding = false;
 	bool bGrounded = true;
 	bool bSheathed = true;
 	bool bWeaponVisualAttachmentWarningIssued = false;
 
 	FWeaponRuntimeTagLedger TagLedger;
+	FWeaponOwnedTagToken AerialMovementSourceToken;
+	FGameplayTag AerialMovementSourceTag;
+	uint64 AerialMovementSourceRevision = 0;
 	TArray<FWeaponActionToken> ActiveActions;
 	TArray<FWeaponMontageRegistration> MontageRegistrations;
 	FWeaponActionToken MontageRootMotionOwner;
 	FWeaponActionToken ActionMovementOwner;
+	FWeaponActionToken ActionRotationOverrideOwner;
 	FName ActionMovementWarpTargetName;
 	uint32 NextActionMovementSerial = 1;
 	FWeaponMotionMatchingHandoff PendingMotionMatchingHandoff;
 	int64 NextMotionMatchingHandoffSerial = 1;
+	FWeaponActionVisualPitchState ActionVisualPitchState;
+	uint64 NextActionVisualPitchRevision = 1;
+	TArray<FWeaponActionVisualPitchTelemetryEvent> ActionVisualPitchTelemetryEvents;
+	uint64 NextActionVisualPitchTelemetrySerial = 1;
 	FPoseTokens PoseTokens;
 
 	/** Presentation owned by BeginAerialFalling and stopped only on landing/runtime teardown. */
@@ -471,10 +559,13 @@ private:
 	TWeakObjectPtr<UAnimMontage> ActiveAerialLandingMontage;
 	bool bAerialLandingRootMotionDisabledByHost = false;
 
-	/** Saved only while the current weapon opted into ResolveAerialFallingPhysics. */
+	/** Original values shared by ordinary and action-specific Host fall profiles. */
 	bool bAerialFallingPhysicsOverridden = false;
 	float SavedGravityScale = 1.0f;
 	float SavedBrakingDecelerationFalling = 0.0f;
+	float SavedFallingLateralFriction = 0.0f;
+	/** Audit identity only: normal action retirement does not release the fall profile. */
+	FWeaponActionToken AerialFallingPhysicsOwner;
 
 	/** 资源预留透传目标（可由 SetResourceProvider 测试入口注入）。 */
 	TObjectPtr<UMHGZWeaponResourceComponent> ResourceProvider;

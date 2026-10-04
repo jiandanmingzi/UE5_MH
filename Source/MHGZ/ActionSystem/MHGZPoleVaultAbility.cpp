@@ -29,6 +29,13 @@ const FGameplayTag& WhiteExtractTag()
 	return Tag;
 }
 
+const FGameplayTag& BackVaultMovementSourceTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+		TEXT("Combat.State.Aerial.Source.IG_BackVault"));
+	return Tag;
+}
+
 float RequiredSegmentPlayRate(const UAnimSequenceBase& Sequence,
 	const float DesiredDuration)
 {
@@ -1054,6 +1061,16 @@ bool UMHGZPoleVaultAbility::StartBackVaultMovement()
 	if (!Task->DidStartMovement())
 	{
 		BackVaultMovementTask = nullptr;
+		return false;
+	}
+	if (!Host->SetAerialMovementSource(GetActionToken(), BackVaultMovementSourceTag()))
+	{
+		UE_LOG(LogMHGZ, Warning,
+			TEXT("[PoleVault] RuntimeHost could not publish the aerial source tag; aborting movement."));
+		Task->OnFinished.RemoveDynamic(this,
+			&UMHGZPoleVaultAbility::HandleBackVaultMovementFinished);
+		BackVaultMovementTask = nullptr;
+		Task->EndTask();
 		return false;
 	}
 	return true;

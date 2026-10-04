@@ -45,7 +45,7 @@ public:
 	UPROPERTY(BlueprintAssignable, Category = "MHGZ|Dummy|Fire Ring")
 	FOnDummyFireRingStateChanged OnFireRingStateChanged;
 
-	/** The requested 1 m diameter / 2.25 m high white-orange-red cylinder. */
+	/** 1.5 m diameter / 3.375 m high white-orange-red target cylinder. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Visual")
 	TObjectPtr<UStaticMeshComponent> WhiteSegmentVisual;
 

@@ -146,12 +146,549 @@ void UMHGZInstrumentedCharacterMovementComponent::ApplyRootMotionToVelocity(cons
 	ActiveMovementSubPhase = PreviousSite;
 }
 
+void UMHGZInstrumentedCharacterMovementComponent::SetAerialPlanarAcceleration(
+	const FVector InAcceleration)
+{
+	AerialPlanarAcceleration = FMath::IsFinite(InAcceleration.X)
+		&& FMath::IsFinite(InAcceleration.Y) && FMath::IsFinite(InAcceleration.Z)
+		? FVector(InAcceleration.X, InAcceleration.Y, 0.0) : FVector::ZeroVector;
+}
+
+uint64 UMHGZInstrumentedCharacterMovementComponent::BeginSegmentedDirectionalMovement(
+	const FWeaponMovementRequest& Request)
+{
+	const AMHGZCharacter* Avatar = Cast<AMHGZCharacter>(CharacterOwner);
+	const UMHGZWeaponRuntimeHostComponent* Host = Avatar ? Avatar->GetWeaponRuntimeHost() : nullptr;
+	if (!HasValidData() || !Host || bSegmentedMovementActive
+		|| Request.Mode != EWeaponMovementMode::SegmentedDirectional
+		|| !Request.HasValidSegmentedDirectionalParameters()
+		|| !Host->IsActionMovementOwnedBy(Request.OwnerAction))
+	{
+		return 0;
+	}
+
+	SegmentedMovement = Request;
+	SegmentedMovement.DirectionSnapshot.Normalize();
+	++SegmentedMovementLease;
+	if (SegmentedMovementLease == 0) { ++SegmentedMovementLease; }
+	SegmentedMovementElapsed = 0.0f;
+	bSegmentedMovementCompleted = false;
+	bSegmentedMovementActive = true;
+	SegmentedContactNormals.Reset();
+	SetMovementMode(MOVE_Flying);
+	Velocity = SegmentedMovement.SegmentedProfile.GetVelocity(
+		SegmentedMovement.DirectionSnapshot, 0.0f);
+	RecordAerialMovementEvent(TEXT("SegmentedDash.Begin"));
+	return SegmentedMovementLease;
+}
+
+bool UMHGZInstrumentedCharacterMovementComponent::IsSegmentedMovementActive(const uint64 Lease) const
+{
+	return Lease != 0 && Lease == SegmentedMovementLease && bSegmentedMovementActive;
+}
+
+bool UMHGZInstrumentedCharacterMovementComponent::HasSegmentedMovementCompleted(const uint64 Lease) const
+{
+	return Lease != 0 && Lease == SegmentedMovementLease && bSegmentedMovementCompleted;
+}
+
+void UMHGZInstrumentedCharacterMovementComponent::RetireSegmentedDirectionalMovement(const uint64 Lease)
+{
+	if (Lease != 0 && Lease == SegmentedMovementLease)
+	{
+		bSegmentedMovementActive = false;
+		bSegmentedMovementCompleted = false;
+		SegmentedContactNormals.Reset();
+	}
+}
+
+bool UMHGZInstrumentedCharacterMovementComponent::IsSegmentedMovementOwnerCurrent(const uint64 Lease) const
+{
+	const AMHGZCharacter* Avatar = Cast<AMHGZCharacter>(CharacterOwner);
+	const UMHGZWeaponRuntimeHostComponent* Host = Avatar ? Avatar->GetWeaponRuntimeHost() : nullptr;
+	return IsSegmentedMovementActive(Lease) && HasValidData() && Host
+		&& Host->IsActionMovementOwnedBy(SegmentedMovement.OwnerAction)
+		&& Host->IsTokenCurrent(SegmentedMovement.OwnerAction.RuntimeToken);
+}
+
+uint64 UMHGZInstrumentedCharacterMovementComponent::BeginRecordedTrajectoryMovement(
+	const FWeaponMovementRequest& Request)
+{
+	const AMHGZCharacter* Avatar = Cast<AMHGZCharacter>(CharacterOwner);
+	const UMHGZWeaponRuntimeHostComponent* Host = Avatar ? Avatar->GetWeaponRuntimeHost() : nullptr;
+	if (!HasValidData() || !Host || bRecordedTrajectoryActive
+		|| Request.Mode != EWeaponMovementMode::RecordedLocalTrajectory
+		|| !Request.HasValidRecordedTrajectoryParameters()
+		|| !Host->IsActionMovementOwnedBy(Request.OwnerAction))
+	{
+		return 0;
+	}
+
+	const bool bGrounded =
+		Request.TrajectoryGroundPolicy == ERecordedTrajectoryGroundPolicy::Grounded;
+	// 地面相位要求胶囊真的站在可行走地面上。半空启动一条地面曲线会让整段动作悬空滑行 ——
+	// 那是拒绝配置，不是退化运行。
+	//
+	// **问地面，不问模式**：201→203 的切换发生在 `ProcessLanded` 内部，
+	// 那一刻 `SetPostLandedPhysics` 还没跑，`MovementMode` 仍是 MOVE_Flying，
+	// 但胶囊确实已经踩在可行走地面上。拿模式当代理指标会把每一次正常落地都拒掉。
+	if (bGrounded)
+	{
+		FFindFloorResult Floor;
+		FindFloor(UpdatedComponent ? UpdatedComponent->GetComponentLocation()
+			: FVector::ZeroVector, Floor, false);
+		if (!Floor.IsWalkableFloor() || Floor.FloorDist > MAX_FLOOR_DIST)
+		{
+			return 0;
+		}
+	}
+
+	RecordedTrajectory = Request;
+	RecordedTrajectory.DirectionSnapshot = FVector(Request.DirectionSnapshot.X,
+		Request.DirectionSnapshot.Y, 0.0).GetSafeNormal();
+	if (RecordedTrajectory.DirectionSnapshot.IsNearlyZero())
+	{
+		return 0;
+	}
+	++RecordedTrajectoryLease;
+	if (RecordedTrajectoryLease == 0) { ++RecordedTrajectoryLease; }
+	RecordedTrajectoryElapsed = 0.0f;
+	bRecordedTrajectoryCompleted = false;
+	bRecordedTrajectoryActive = true;
+	RecordedContactNormals.Reset();
+
+	if (bGrounded)
+	{
+		SetMovementMode(MOVE_Walking);
+	}
+	else
+	{
+		SetMovementMode(MOVE_Flying);
+	}
+	// 相位起点速度取自同一条曲线，而不是回读上一相位被源移除顺序影响的尾帧速度。
+	FVector StartVelocity = MHGZRecordedLocalTrajectory::LocalToWorld(
+		RecordedTrajectory.GetRecordedTrajectoryVelocity(0.0f),
+		RecordedTrajectory.DirectionSnapshot);
+	if (bGrounded)
+	{
+		StartVelocity.Z = 0.0;
+	}
+	Velocity = StartVelocity;
+	RecordAerialMovementEvent(bGrounded
+		? FName(TEXT("RecordedTrajectory.BeginGrounded"))
+		: FName(TEXT("RecordedTrajectory.Begin")));
+	return RecordedTrajectoryLease;
+}
+
+bool UMHGZInstrumentedCharacterMovementComponent::EnableRecordedTrajectoryLanding(
+	const uint64 Lease)
+{
+	if (!IsRecordedTrajectoryOwnerCurrent(Lease))
+	{
+		return false;
+	}
+	if (RecordedTrajectory.TrajectoryGroundPolicy
+		== ERecordedTrajectoryGroundPolicy::LandingAirborne)
+	{
+		return true;
+	}
+	if (RecordedTrajectory.TrajectoryGroundPolicy
+		!= ERecordedTrajectoryGroundPolicy::ProtectedFlight
+		|| MovementMode != MOVE_Flying)
+	{
+		return false;
+	}
+
+	// This changes only floor/ProcessLanded eligibility. The existing lease,
+	// elapsed seconds, curve origin and terminal model stay untouched.
+	RecordedTrajectory.TrajectoryGroundPolicy =
+		ERecordedTrajectoryGroundPolicy::LandingAirborne;
+	RecordAerialMovementEvent(TEXT("RecordedTrajectory.LandingEnabled"));
+	return true;
+}
+
+bool UMHGZInstrumentedCharacterMovementComponent::IsRecordedTrajectoryMovementActive(
+	const uint64 Lease) const
+{
+	return Lease != 0 && Lease == RecordedTrajectoryLease && bRecordedTrajectoryActive;
+}
+
+bool UMHGZInstrumentedCharacterMovementComponent::HasRecordedTrajectoryMovementCompleted(
+	const uint64 Lease) const
+{
+	return Lease != 0 && Lease == RecordedTrajectoryLease && bRecordedTrajectoryCompleted;
+}
+
+void UMHGZInstrumentedCharacterMovementComponent::GetRecordedTrajectoryTelemetry(
+	const FWeaponActionToken& ExpectedOwner,
+	FMHGZRecordedTrajectoryTelemetry& OutTelemetry) const
+{
+	OutTelemetry = FMHGZRecordedTrajectoryTelemetry();
+	if (!ExpectedOwner.IsValid() || RecordedTrajectory.OwnerAction != ExpectedOwner)
+	{
+		return;
+	}
+	OutTelemetry.Lease = RecordedTrajectoryLease;
+	OutTelemetry.ElapsedSeconds = RecordedTrajectoryElapsed;
+	OutTelemetry.CoveredSeconds = RecordedTrajectory.RecordedTrajectory.GetDuration();
+	OutTelemetry.bActive = bRecordedTrajectoryActive;
+	OutTelemetry.bCompleted = bRecordedTrajectoryCompleted;
+}
+
+void UMHGZInstrumentedCharacterMovementComponent::RetireRecordedTrajectoryMovement(
+	const uint64 Lease)
+{
+	if (Lease != 0 && Lease == RecordedTrajectoryLease)
+	{
+		bRecordedTrajectoryActive = false;
+		bRecordedTrajectoryCompleted = false;
+		RecordedContactNormals.Reset();
+	}
+}
+
+bool UMHGZInstrumentedCharacterMovementComponent::IsRecordedTrajectoryOwnerCurrent(
+	const uint64 Lease) const
+{
+	const AMHGZCharacter* Avatar = Cast<AMHGZCharacter>(CharacterOwner);
+	const UMHGZWeaponRuntimeHostComponent* Host = Avatar ? Avatar->GetWeaponRuntimeHost() : nullptr;
+	return IsRecordedTrajectoryMovementActive(Lease) && HasValidData() && Host
+		&& Host->IsActionMovementOwnedBy(RecordedTrajectory.OwnerAction)
+		&& Host->IsTokenCurrent(RecordedTrajectory.OwnerAction.RuntimeToken);
+}
+
+bool UMHGZInstrumentedCharacterMovementComponent::IsRecordedTrajectoryDurationElapsed() const
+{
+	const float Duration = RecordedTrajectory.RecordedTrajectory.GetDuration();
+	if (Duration <= 0.0f)
+	{
+		return true;
+	}
+	// 覆盖外续行（201）**没有**曲线上限：它只由真实触地或独立看门狗结束，
+	// 这里如果按时长收尾，飞得比录制更高时胶囊会在半空被冻住。
+	if (RecordedTrajectory.TrajectoryTailPolicy
+		== ERecordedTrajectoryTailPolicy::IntegrateTerminalModel
+		&& RecordedTrajectory.TrajectoryGroundPolicy
+			!= ERecordedTrajectoryGroundPolicy::Grounded)
+	{
+		return false;
+	}
+	return RecordedTrajectoryElapsed >= Duration - SMALL_NUMBER;
+}
+
+void UMHGZInstrumentedCharacterMovementComponent::PhysWalking(const float deltaTime,
+	const int32 Iterations)
+{
+	if (!bRecordedTrajectoryActive
+		|| RecordedTrajectory.TrajectoryGroundPolicy
+			!= ERecordedTrajectoryGroundPolicy::Grounded)
+	{
+		Super::PhysWalking(deltaTime, Iterations);
+		return;
+	}
+
+	PhysRecordedTrajectory(deltaTime, Iterations, true);
+}
+
+void UMHGZInstrumentedCharacterMovementComponent::PhysRecordedTrajectory(
+	const float DeltaTime, int32 Iterations, const bool bGrounded)
+{
+	const uint64 Lease = RecordedTrajectoryLease;
+	if (!IsRecordedTrajectoryOwnerCurrent(Lease))
+	{
+		RetireRecordedTrajectoryMovement(Lease);
+		const AMHGZCharacter* Avatar = Cast<AMHGZCharacter>(CharacterOwner);
+		const UMHGZWeaponRuntimeHostComponent* Host = Avatar
+			? Avatar->GetWeaponRuntimeHost() : nullptr;
+		if (Host && (Host->IsActionMovementOwned() || Host->IsMontageRootMotionOwned()))
+		{
+			// 租约过期但胶囊已经有新主人：不改它的模式，也不替它起步。
+			if (bGrounded) { Super::PhysWalking(DeltaTime, Iterations); }
+			else { Super::PhysFlying(DeltaTime, Iterations); }
+			return;
+		}
+		if (bGrounded)
+		{
+			Super::PhysWalking(DeltaTime, Iterations);
+			return;
+		}
+		SetMovementMode(MOVE_Falling);
+		StartNewPhysics(DeltaTime, Iterations);
+		return;
+	}
+
+	const FRecordedLocalTrajectoryProfile& Profile = RecordedTrajectory.RecordedTrajectory;
+	const bool bLandingAllowed =
+		RecordedTrajectory.TrajectoryGroundPolicy == ERecordedTrajectoryGroundPolicy::LandingAirborne;
+
+	float RemainingTime = DeltaTime;
+	while (RemainingTime >= MIN_TICK_TIME && Iterations < MaxSimulationIterations
+		&& IsRecordedTrajectoryOwnerCurrent(Lease))
+	{
+		const float Step = GetSimulationTimeStep(RemainingTime, Iterations);
+		++Iterations;
+		const float StepEnd = RecordedTrajectoryElapsed + Step;
+
+		// 本子步位移 = Curve(t1) - Curve(t0)。绝不向「起点 + 累计目标位置」追赶：
+		// 蹭墙掉下来的位移一旦在下一帧补回去，就是穿墙或蹭墙上升。
+		const FVector LocalDelta = RecordedTrajectory.GetRecordedTrajectoryOffset(StepEnd)
+			- RecordedTrajectory.GetRecordedTrajectoryOffset(RecordedTrajectoryElapsed);
+		const FVector LocalEndVelocity = RecordedTrajectory.GetRecordedTrajectoryVelocity(StepEnd);
+		FVector Delta = MHGZRecordedLocalTrajectory::LocalToWorld(LocalDelta,
+			RecordedTrajectory.DirectionSnapshot);
+		FVector EndVelocity = MHGZRecordedLocalTrajectory::LocalToWorld(LocalEndVelocity,
+			RecordedTrajectory.DirectionSnapshot);
+		if (bGrounded)
+		{
+			// §5.3：203 的竖直记录是胶囊跟随落地地形的抖动，不还原成升降。
+			Delta.Z = 0.0;
+			EndVelocity.Z = 0.0;
+		}
+
+		// 只去掉指向已接触面的分量；切向分量与相位时钟都保留。
+		for (const FVector& Normal : RecordedContactNormals)
+		{
+			Delta -= Normal * FMath::Min(0.0, FVector::DotProduct(Delta, Normal));
+			EndVelocity -= Normal * FMath::Min(0.0, FVector::DotProduct(EndVelocity, Normal));
+		}
+		Velocity = EndVelocity;
+		bJustTeleported = false;
+
+		FHitResult Hit(1.0f);
+		const auto LandAtContact = [&](const float UsedStepFraction)
+		{
+			if (!bLandingAllowed || Delta.Z >= 0.0
+				|| !IsValidLandingSpot(UpdatedComponent->GetComponentLocation(), Hit))
+			{
+				return false;
+			}
+			bRecordedTrajectoryActive = false;
+			RecordAerialMovementEvent(TEXT("RecordedTrajectory.Landed"));
+			ProcessLanded(Hit, RemainingTime - Step * UsedStepFraction, Iterations);
+			return true;
+		};
+
+		SafeMoveUpdatedComponent(Delta, UpdatedComponent->GetComponentQuat(), true, Hit);
+		// 碰撞回调可能取消本动作或装上另一条租约。
+		if (!IsRecordedTrajectoryOwnerCurrent(Lease)) { return; }
+		if (!bGrounded && MovementMode != MOVE_Flying) { return; }
+		if (Hit.IsValidBlockingHit())
+		{
+			if (LandAtContact(Hit.Time)) { return; }
+			const FVector Normal = Hit.Normal.GetSafeNormal();
+			RecordedContactNormals.AddUnique(Normal);
+			HandleImpact(Hit, Step, Delta);
+			if (!IsRecordedTrajectoryOwnerCurrent(Lease)) { return; }
+			if (!bGrounded && MovementMode != MOVE_Flying) { return; }
+			float UsedFraction = Hit.Time;
+			float SlideFraction = 1.0f - Hit.Time;
+			FVector SlideDelta = ComputeSlideVector(Delta, SlideFraction, Normal, Hit);
+			for (int32 SlideIndex = 0; SlideIndex < 2 && !SlideDelta.IsNearlyZero(1.e-3f)
+				&& FVector::DotProduct(SlideDelta, Delta) > 0.0; ++SlideIndex)
+			{
+				SafeMoveUpdatedComponent(SlideDelta, UpdatedComponent->GetComponentQuat(),
+					true, Hit);
+				if (!IsRecordedTrajectoryOwnerCurrent(Lease)) { return; }
+				if (!bGrounded && MovementMode != MOVE_Flying) { return; }
+				UsedFraction += SlideFraction * Hit.Time;
+				const float AppliedSlice = Step * SlideFraction * Hit.Time;
+				SlideFraction *= 1.0f - Hit.Time;
+				if (!Hit.IsValidBlockingHit()) { break; }
+				if (LandAtContact(FMath::Clamp(UsedFraction, 0.0f, 1.0f))) { return; }
+				RecordedContactNormals.AddUnique(Hit.Normal.GetSafeNormal());
+				HandleImpact(Hit, AppliedSlice, SlideDelta);
+				if (!IsRecordedTrajectoryOwnerCurrent(Lease)) { return; }
+				if (!bGrounded && MovementMode != MOVE_Flying) { return; }
+				if (SlideIndex == 0) { TwoWallAdjust(SlideDelta, Hit, Normal); }
+			}
+			for (const FVector& ContactNormal : RecordedContactNormals)
+			{
+				EndVelocity -= ContactNormal * FMath::Min(0.0,
+					FVector::DotProduct(EndVelocity, ContactNormal));
+			}
+			Velocity = EndVelocity;
+		}
+
+		RecordedTrajectoryElapsed = StepEnd;
+		RemainingTime -= Step;
+	}
+
+	if (IsRecordedTrajectoryDurationElapsed() && !bRecordedTrajectoryCompleted)
+	{
+		bRecordedTrajectoryCompleted = true;
+		RecordAerialMovementEvent(TEXT("RecordedTrajectory.Completed"), nullptr, RemainingTime);
+		if (bGrounded)
+		{
+			// 地面相位跑完就停在地上，剩余的 dt 交给引擎的 Walking 去跑摩擦。
+			Velocity = FVector(0.0, 0.0, Velocity.Z);
+		}
+		// 空中相位跑完时**不动模式、也不撤租约**：胶囊停在 MOVE_Flying，一直等到租约的
+		// 下一个持有者接手，或由任务收尾时真正归还。
+		//
+		// 速度在覆盖终点是**零**（HoldLastKey 的语义就是「路走完了」），不是曲线的终末切线；
+		// 曲线上真正的终末切线由尾段模型另给，只在 IntegrateTerminalModel 下参与积分。
+		//
+		// 这两件事都不能在这里做。改回 Falling 会让起手段与下潜段的交界空出一帧自由
+		// 落体 —— 任务观察到「已完成」必然晚于本次物理更新，那一帧就没有人驱动胶囊。
+		// 撤掉租约同样糟：同一帧剩余的物理更新会落回 `Super::PhysFlying`，白送一帧重力。
+	}
+}
+
+void UMHGZInstrumentedCharacterMovementComponent::PhysFlying(float DeltaTime, int32 Iterations)
+{
+	if (bRecordedTrajectoryActive
+		&& RecordedTrajectory.TrajectoryGroundPolicy
+			!= ERecordedTrajectoryGroundPolicy::Grounded)
+	{
+		PhysRecordedTrajectory(DeltaTime, Iterations, false);
+		return;
+	}
+
+	if (!bSegmentedMovementActive)
+	{
+		Super::PhysFlying(DeltaTime, Iterations);
+		return;
+	}
+
+	const uint64 Lease = SegmentedMovementLease;
+	if (!IsSegmentedMovementOwnerCurrent(Lease))
+	{
+		RetireSegmentedDirectionalMovement(Lease);
+		const AMHGZCharacter* Avatar = Cast<AMHGZCharacter>(CharacterOwner);
+		const UMHGZWeaponRuntimeHostComponent* Host = Avatar ? Avatar->GetWeaponRuntimeHost() : nullptr;
+		if (Host && (Host->IsActionMovementOwned() || Host->IsMontageRootMotionOwned()))
+		{
+			// The lease is stale but another action owns Flying now. Do not
+			// change its mode or launch; its RMS/ordinary physics remains authority.
+			Super::PhysFlying(DeltaTime, Iterations);
+			return;
+		}
+		SetMovementMode(MOVE_Falling);
+		StartNewPhysics(DeltaTime, Iterations);
+		return;
+	}
+
+	float RemainingTime = DeltaTime;
+	while (RemainingTime >= MIN_TICK_TIME && Iterations < MaxSimulationIterations
+		&& IsSegmentedMovementOwnerCurrent(Lease) && MovementMode == MOVE_Flying)
+	{
+		const FSegmentedDirectionalMovementProfile& Profile = SegmentedMovement.SegmentedProfile;
+		const float Boundary = Profile.GetNextBoundarySeconds(SegmentedMovementElapsed);
+		const float Step = FMath::Min(GetSimulationTimeStep(RemainingTime, Iterations),
+			Boundary - SegmentedMovementElapsed);
+		if (Step <= SMALL_NUMBER)
+		{
+			SegmentedMovementElapsed = Boundary;
+		}
+		else
+		{
+			++Iterations;
+			const float StepEnd = SegmentedMovementElapsed + Step;
+			const FVector Direction = SegmentedMovement.DirectionSnapshot;
+			FVector Delta = Profile.GetOffset(Direction, StepEnd)
+				- Profile.GetOffset(Direction, SegmentedMovementElapsed);
+			FVector EndVelocity = Profile.GetVelocity(Direction, StepEnd);
+			// A blocking plane removes only the into-wall component. Do not reset
+			// the phase clock, step up the wall, or relaunch into it at 188 entry.
+			for (const FVector& Normal : SegmentedContactNormals)
+			{
+				Delta -= Normal * FMath::Min(0.0, FVector::DotProduct(Delta, Normal));
+				EndVelocity -= Normal * FMath::Min(0.0, FVector::DotProduct(EndVelocity, Normal));
+			}
+			Velocity = EndVelocity;
+			bJustTeleported = false;
+			FHitResult Hit(1.0f);
+			const auto LandAtContact = [&](const float UsedStepFraction)
+			{
+				if (Delta.Z >= 0.0 || !IsValidLandingSpot(UpdatedComponent->GetComponentLocation(), Hit))
+				{
+					return false;
+				}
+				bSegmentedMovementActive = false;
+				RecordAerialMovementEvent(TEXT("SegmentedDash.Landed"));
+				ProcessLanded(Hit, RemainingTime - Step * UsedStepFraction, Iterations);
+				return true;
+			};
+			SafeMoveUpdatedComponent(Delta, UpdatedComponent->GetComponentQuat(), true, Hit);
+			// Collision callbacks can cancel this action or install another task.
+			if (!IsSegmentedMovementOwnerCurrent(Lease) || MovementMode != MOVE_Flying) { return; }
+			if (Hit.IsValidBlockingHit())
+			{
+				if (LandAtContact(Hit.Time)) { return; }
+				const FVector Normal = Hit.Normal.GetSafeNormal();
+				SegmentedContactNormals.AddUnique(Normal);
+				HandleImpact(Hit, Step, Delta);
+				if (!IsSegmentedMovementOwnerCurrent(Lease) || MovementMode != MOVE_Flying) { return; }
+				float UsedFraction = Hit.Time;
+				float SlideFraction = 1.0f - Hit.Time;
+				FVector SlideDelta = ComputeSlideVector(Delta, SlideFraction, Normal, Hit);
+				// Same slide/two-wall geometry as the engine, but inspect EVERY
+				// secondary sweep before it can overwrite a floor hit. The stock
+				// Flying slide does not call ProcessLanded on these contacts.
+				for (int32 SlideIndex = 0; SlideIndex < 2 && !SlideDelta.IsNearlyZero(1.e-3f)
+					&& FVector::DotProduct(SlideDelta, Delta) > 0.0; ++SlideIndex)
+				{
+					SafeMoveUpdatedComponent(SlideDelta, UpdatedComponent->GetComponentQuat(), true, Hit);
+					if (!IsSegmentedMovementOwnerCurrent(Lease) || MovementMode != MOVE_Flying) { return; }
+					UsedFraction += SlideFraction * Hit.Time;
+					const float AppliedSlice = Step * SlideFraction * Hit.Time;
+					SlideFraction *= 1.0f - Hit.Time;
+					if (!Hit.IsValidBlockingHit()) { break; }
+					if (LandAtContact(FMath::Clamp(UsedFraction, 0.0f, 1.0f))) { return; }
+					SegmentedContactNormals.AddUnique(Hit.Normal.GetSafeNormal());
+					HandleImpact(Hit, AppliedSlice, SlideDelta);
+					if (!IsSegmentedMovementOwnerCurrent(Lease) || MovementMode != MOVE_Flying) { return; }
+					if (SlideIndex == 0) { TwoWallAdjust(SlideDelta, Hit, Normal); }
+				}
+				for (const FVector& ContactNormal : SegmentedContactNormals)
+				{
+					EndVelocity -= ContactNormal * FMath::Min(0.0,
+						FVector::DotProduct(EndVelocity, ContactNormal));
+				}
+				Velocity = EndVelocity;
+			}
+			SegmentedMovementElapsed = StepEnd;
+			RemainingTime -= Step;
+		}
+
+		if (SegmentedMovementElapsed >= Profile.GetDuration() - SMALL_NUMBER)
+		{
+			// Host installed 188's physical profile before 186. Keep the analytic
+			// terminal tangent and consume any leftover dt as Falling RIGHT NOW.
+			// Task ticks only observe completion; they never rewind this velocity.
+			bSegmentedMovementActive = false;
+			bSegmentedMovementCompleted = true;
+			RecordAerialMovementEvent(TEXT("SegmentedDash.ToFalling"), nullptr, RemainingTime);
+			SetMovementMode(MOVE_Falling);
+			StartNewPhysics(RemainingTime, Iterations);
+			return;
+		}
+	}
+}
+
 void UMHGZInstrumentedCharacterMovementComponent::CalcVelocity(const float DeltaTime,
 	const float Friction, const bool bFluid, const float BrakingDeceleration)
 {
+	const auto CalculateVelocity = [&]()
+	{
+		if (MovementMode == MOVE_Falling && !AerialPlanarAcceleration.IsZero()
+			&& !CurrentRootMotion.HasOverrideVelocity() && DeltaTime >= MIN_TICK_TIME
+			&& HasValidData()
+			&& !(CharacterOwner->GetLocalRole() == ROLE_SimulatedProxy
+				&& !bWasSimulatingRootMotion))
+		{
+			// This authored acceleration replaces planar input/drag and is not
+			// constrained by locomotion's speed cap. PhysFalling owns gravity and
+			// midpoint position integration. Its wall/no-air-control recomputation
+			// restores OldVelocity first, so this same branch must run there too:
+			// it computes a second baseline rather than adding twice to live velocity.
+			Velocity += AerialPlanarAcceleration * DeltaTime;
+			return;
+		}
+		Super::CalcVelocity(DeltaTime, Friction, bFluid, BrakingDeceleration);
+	};
 	if (!ShouldCaptureMovementSubPhase())
 	{
-		Super::CalcVelocity(DeltaTime, Friction, bFluid, BrakingDeceleration);
+		CalculateVelocity();
 		return;
 	}
 
@@ -159,7 +696,7 @@ void UMHGZInstrumentedCharacterMovementComponent::CalcVelocity(const float Delta
 	const FName PreviousSite = ActiveMovementSubPhase;
 	ActiveMovementSubPhase = FName(TEXT("CMC.CalcVelocity"));
 	CaptureSubPhaseSample(FName(TEXT("CMC.CalcVelocity.Pre")), DeltaTime, EntryVelocity);
-	Super::CalcVelocity(DeltaTime, Friction, bFluid, BrakingDeceleration);
+	CalculateVelocity();
 	FMHGZAerialMovementPhaseSample& PostSample =
 		CaptureSubPhaseSample(FName(TEXT("CMC.CalcVelocity.Post")), DeltaTime, EntryVelocity);
 	PostSample.SubPhaseFriction = Friction;

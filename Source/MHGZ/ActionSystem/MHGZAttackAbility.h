@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Engine/HitResult.h"
+#include "ActionSystem/MHGZActionDirectionCorrectionTypes.h"
 #include "MHGZGameplayAbility.h"
 #include "GameplayTagContainer.h"
 #include "Misc/DataValidation.h"
@@ -13,8 +14,10 @@ class USoundBase;
 class UCameraShakeBase;
 class UAnimMontage;
 class UAbilityTask_PlayMontageAndWait;
+class UAbilityTask_MHGZActionDirectionCorrection;
 class UMHGZMonsterHitzoneComponent;
 class USkeletalMeshComponent;
+struct FActionMoveInputFrameSnapshot;
 
 /** 多段伤害默认只能来自真实接触；离散复击必须显式选择并逐跳重验。 */
 UENUM(BlueprintType)
@@ -298,8 +301,8 @@ public:
 	virtual FGameplayEffectSpecHandle MakeDamageSpec(
 		const FHitResult& Hit, int32 SegmentIndex);
 
-	/** Apply 伤害到目标；真实 Sweep HitResult 全程不降级。 */
-	void ApplyDamage(const FHitResult& Hit, int32 SegmentIndex);
+	/** Apply 伤害到目标；返回GE是否成功提交，真实 Sweep HitResult 全程不降级。 */
+	bool ApplyDamage(const FHitResult& Hit, int32 SegmentIndex);
 
 	// ═══════════════════════════════════════════
 	// 命中/派生判断
@@ -312,6 +315,13 @@ public:
 
 protected:
 	virtual bool ValidateActionDependencies() const override;
+
+	/**
+	 * Per-action activation direction policy. Ordinary attacks correct to the
+	 * frozen input direction; late-aim actions may override this without
+	 * changing the shared attack activation path.
+	 */
+	virtual void ApplyActivationDirectionCorrection();
 
 	/** Runs after ActionToken registration and before the attack montage starts. */
 	virtual bool PrepareAttackMontage() { return true; }
@@ -347,12 +357,29 @@ protected:
 
 public:
 	/**
-	 * 原生单帧 Notify 的精确回调：只在当前已 Confirm 的 Action 上读取实时摇杆，
-	 * 按 Override 或本 GA 的 MaxCorrectionAngle 直接修正一次 Actor Yaw。
-	 * 返回 true 表示本次实际改变了朝向。
+	 * 精确 Notify 回调：只在当前已 Confirm 的 Action 上读取一次摇杆方向，
+	 * 按角度上限决定目标修正量；Duration 为 0 时瞬时完成，正值时按指定速度/缓动插值。
+	 * 返回 true 表示修正请求已被接受（插值模式尚未必在当前帧改变朝向）。
 	 */
 	bool ApplyInActionDirectionCorrection(const FWeaponActionToken& ActionToken,
-		float MaxCorrectionAngleOverride = -1.0f);
+		float MaxCorrectionAngleOverride = -1.0f,
+		float CorrectionDuration = 0.0f,
+		float MaxYawSpeedDegreesPerSecond = 0.0f,
+		EActionDirectionCorrectionEasing Easing = EActionDirectionCorrectionEasing::Linear);
+
+	/**
+	 * Same correction task/ownership path, but the target comes from the exact
+	 * immediately preceding game-frame snapshot (N-1). Missing, stale-frame,
+	 * neutral, stale-runtime, or other-Pawn snapshots are rejected; this never
+	 * falls back to live/last-nonzero input.
+	 */
+	bool ApplyInActionDirectionCorrectionFromSnapshot(
+		const FWeaponActionToken& ActionToken,
+		const FActionMoveInputFrameSnapshot& InputSnapshot,
+		float MaxCorrectionAngleOverride = -1.0f,
+		float CorrectionDuration = 0.0f,
+		float MaxYawSpeedDegreesPerSecond = 0.0f,
+		EActionDirectionCorrectionEasing Easing = EActionDirectionCorrectionEasing::Linear);
 
 protected:
 	/** 通知协调器首次命中 */
@@ -367,12 +394,35 @@ protected:
 	 * Ability 使用；它不发布 MM Handoff，也不允许来源攻击恢复播放。
 	 */
 	bool SuspendAttackMontageForFollowup();
+	bool ApplyInActionDirectionCorrectionWithDirection(
+		const FWeaponActionToken& ActionToken, const FVector& WorldDirection,
+		float MaxCorrectionAngleOverride, float CorrectionDuration,
+		float MaxYawSpeedDegreesPerSecond, EActionDirectionCorrectionEasing Easing);
 
 	/**
 	 * 每一次 Damage GE 成功提交后的扩展点。真实 HitResult 与段索引保持原样；
 	 * 派生招式可以在这里接入命中后的专属资源效果，不能在 Sweep 发现接触时提前结算。
 	 */
 	virtual void HandleSuccessfulAttackDamage(const FHitResult& Hit, int32 SegmentIndex) {}
+
+	/** Special attacks may gate a configured collision segment by action ownership/phase. */
+	virtual bool CanApplyCollisionHit(const FHitResult& Hit, int32 SegmentIndex) const
+	{
+		return true;
+	}
+
+	/** Preserve legacy count-on-contact behavior unless an action opts into retrying failed GEs. */
+	virtual bool ShouldConsumeCollisionOnDamageFailure(int32 SegmentIndex) const
+	{
+		return true;
+	}
+
+	/** Notifies a derived action after its exact AttackCollision window is removed. */
+	virtual void OnAttackCollisionWindowClosed(int32 SegmentIndex) {}
+
+	/** Montage task completion hook for attacks with multi-phase lifetimes. */
+	UFUNCTION()
+	virtual void OnMontageCompleted();
 
 	// ═══════════════════════════════════════════
 	// 运行时状态
@@ -427,6 +477,7 @@ private:
 	/** GAS Montage 任务——统一处理完成、取消和被其他 Montage 打断 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
+	TWeakObjectPtr<UAbilityTask_MHGZActionDirectionCorrection> ActiveDirectionCorrectionTask;
 
 	/** 每个 ConfigIndex 独立保存轨迹、命中和多跳状态，允许窗口重叠。 */
 	TMap<int32, FCollisionWindowRuntimeState> ActiveCollisionWindows;
@@ -463,9 +514,6 @@ private:
 	/** 检查 Mesh 是否包含当前配置要求的所有轨迹 Socket/骨骼。 */
 	bool HasRequiredTraceSockets(const USkeletalMeshComponent* Mesh,
 		const FAttackCollisionConfig& Collision) const;
-
-	UFUNCTION()
-	void OnMontageCompleted();
 
 	UFUNCTION()
 	void OnMontageInterrupted();

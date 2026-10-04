@@ -15,7 +15,9 @@ UENUM(BlueprintType)
 enum class EWeaponChordDispatchPolicy : uint8
 {
 	OnPress UMETA(DisplayName = "On Press"),
-	OnReleaseIfUnconsumed UMETA(DisplayName = "On Release If Unconsumed")
+	OnReleaseIfUnconsumed UMETA(DisplayName = "On Release If Unconsumed"),
+	OnPressAfterChordGrace UMETA(DisplayName = "On Press After Chord Grace"),
+	OnReleaseWithinMaxDurationIfUnconsumed UMETA(DisplayName = "On Release Within Max Duration If Unconsumed")
 };
 
 /**
@@ -71,13 +73,24 @@ struct FWeaponChordDefinition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	int32 Priority = 0;
 
+	/** 可选的本 Chord 宽限期（秒）；0 表示继承 InputProfile.ChordGracePeriod。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord|Timing", meta = (ClampMin = "0.0", UIMin = "0.0"))
+	float ChordGracePeriodOverrideSeconds = 0.0f;
+
 	/** 形成组合后是否消费 TriggerControls */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	bool bConsumeTriggerControls = true;
 
-	/** OnPress 立即派发；OnReleaseIfUnconsumed 只在本次物理按压未被 OnPress Chord 消费时于松开派发。 */
+	/**
+	 * OnPress 立即派发；OnPressAfterChordGrace 在组合键判定窗口结束且未被组合消费后派发；
+	 * OnReleaseIfUnconsumed 在未消费时于松开派发；OnReleaseWithinMaxDurationIfUnconsumed 仅短按松开派发。
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")
 	EWeaponChordDispatchPolicy DispatchPolicy = EWeaponChordDispatchPolicy::OnPress;
+
+	/** 短按松开策略允许的最大物理按住时长（秒）；仅 OnReleaseWithinMaxDurationIfUnconsumed 使用。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord|Release", meta = (ClampMin = "0.01", UIMin = "0.01"))
+	float MaxPressDurationSeconds = 0.25f;
 
 	/** 需要释放身份的动作显式指定的释放键；必须是本 Chord 的 Trigger 或 Modifier */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Chord")

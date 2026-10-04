@@ -54,10 +54,9 @@ import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from recorder_path import recorder_dir
 
-RECORDER_DIR = Path(
-    r"C:/apps/steam/steamapps/common/MonsterHunterRise/reframework/data/MHGZ_AerialTrajectoryRecorder"
-)
+RECORDER_DIR = recorder_dir()
 PROJECT = Path(__file__).resolve().parents[2]
 OUT_MD = PROJECT / "docs" / "reference" / "撑杆跳曲线.md"
 OUT_CSV = PROJECT / "Saved" / "_mhr_curves"

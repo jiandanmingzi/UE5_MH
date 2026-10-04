@@ -14,10 +14,24 @@
 -- time scale.
 
 local SCRIPT_NAME = "MHGZ Aerial Trajectory Recorder"
-local SCRIPT_VERSION = "1.7.1"
+local SCRIPT_VERSION = "1.11.0"
 local OUTPUT_DIRECTORY = "MHGZ_AerialTrajectoryRecorder"
+local HOTKEY_CONFIG_FILE = "MHGZ_AerialTrajectoryRecorder_hotkey.txt"
 local VK_F9 = 0x78
 local VK_F8 = 0x77
+local VK_ESCAPE = 0x1B
+local VK_INSERT = 0x2D
+local VK_SHIFT = 0x10
+local VK_CONTROL = 0x11
+local VK_MENU = 0x12
+local VK_LWIN = 0x5B
+local VK_RWIN = 0x5C
+local VK_LSHIFT = 0xA0
+local VK_RSHIFT = 0xA1
+local VK_LCONTROL = 0xA2
+local VK_RCONTROL = 0xA3
+local VK_LMENU = 0xA4
+local VK_RMENU = 0xA5
 -- RE Engine / Monster Hunter Rise uses Y as the world-up axis.
 local VERTICAL_AXIS = "Y"
 local PHASE_SPEED_THRESHOLD = 0.02
@@ -45,8 +59,38 @@ local state = {
     camera_rotation_accessor = nil,
     camera_resolved_logged = false,
     camera_logged_error = nil,
-    previous_f9_down = false,
     previous_f8_down = false,
+    previous_capture_key_down = false,
+    f9_key_down = false,
+    f8_key_down = false,
+    capture_key_down = false,
+    capture_vk = VK_F9,
+    capture_key_name = "F9",
+    binding_capture_key = false,
+    capture_key_binding_armed = false,
+    rejected_binding_vk = nil,
+    keyboard_backend = "initializing",
+    keyboard_backend_logged = nil,
+    last_keyboard_key = "none",
+    native_keyboard_ready = false,
+    native_keyboard_device = nil,
+    native_key_previous = {},
+    gamepad_backend = "initializing",
+    gamepad_backend_logged = nil,
+    gamepad_device_type_name = nil,
+    gamepad_snapshot = {
+        available = nil,
+        axis_l_x = nil, axis_l_y = nil, axis_l_z = nil,
+        axis_r_x = nil, axis_r_y = nil, axis_r_z = nil,
+        buttons = {}, pressed = {}, released = {},
+    },
+    gamepad_previous_buttons = {},
+    gamepad_pending_pressed = {},
+    gamepad_pending_released = {},
+    gamepad_status_logged = nil,
+    frame_callback_seen = false,
+    frame_callback_count = 0,
+    last_frame_error = nil,
     previous_clock = os.clock(),
     previous_uptime_second = nil,
     toast_text = nil,
@@ -80,6 +124,398 @@ local MOTION_KEYWORDS = {
 
 local application_type = sdk.find_type_definition("via.Application")
 local get_uptime_second = application_type ~= nil and application_type:get_method("get_UpTimeSecond") or nil
+local keyboard_singleton_ok, keyboard_singleton = pcall(sdk.get_native_singleton, "via.hid.Keyboard")
+local keyboard_type_ok, keyboard_type = pcall(sdk.find_type_definition, "via.hid.Keyboard")
+local keyboard_key_type_ok, keyboard_key_type = pcall(sdk.find_type_definition, "via.hid.KeyboardKey")
+if not keyboard_singleton_ok then keyboard_singleton = nil end
+if not keyboard_type_ok then keyboard_type = nil end
+if not keyboard_key_type_ok then keyboard_key_type = nil end
+local keyboard_key_values = {}
+local keyboard_key_names = {}
+local bindable_keyboard_key_names = {}
+
+local function is_bindable_hid_key(name)
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+
+    local normalized = name:upper():gsub("[^A-Z0-9]", "")
+    return normalized ~= "F8"
+        and normalized ~= "ESC"
+        and normalized ~= "ESCAPE"
+        and normalized ~= "INSERT"
+        and normalized ~= "SHIFT"
+        and normalized ~= "LSHIFT"
+        and normalized ~= "RSHIFT"
+        and normalized ~= "CONTROL"
+        and normalized ~= "CTRL"
+        and normalized ~= "LCONTROL"
+        and normalized ~= "RCONTROL"
+        and normalized ~= "MENU"
+        and normalized ~= "ALT"
+        and normalized ~= "LMENU"
+        and normalized ~= "RMENU"
+        and normalized ~= "LWIN"
+        and normalized ~= "RWIN"
+        and normalized ~= "NONE"
+        and normalized ~= "INVALID"
+        and normalized ~= "UNKNOWN"
+end
+
+local function initialize_keyboard_key_map()
+    if keyboard_key_type == nil then
+        state.keyboard_backend = "via.hid enum unavailable"
+        return
+    end
+
+    local ok, fields = pcall(function()
+        return keyboard_key_type:get_fields()
+    end)
+    if not ok or fields == nil then
+        state.keyboard_backend = "via.hid enum unreadable"
+        return
+    end
+
+    for _, field in ipairs(fields) do
+        local field_ok, is_static = pcall(function() return field:is_static() end)
+        if field_ok and is_static then
+            local value_ok, value = pcall(function() return field:get_data(nil) end)
+            local name_ok, name = pcall(function() return field:get_name() end)
+            if value_ok and type(value) == "number" and name_ok and type(name) == "string" then
+                keyboard_key_values[name] = value
+                if keyboard_key_names[value] == nil then
+                    keyboard_key_names[value] = name
+                end
+                if is_bindable_hid_key(name) then
+                    table.insert(bindable_keyboard_key_names, name)
+                end
+            end
+        end
+    end
+
+    table.sort(bindable_keyboard_key_names)
+end
+
+initialize_keyboard_key_map()
+
+-- REFramework's own FreeCam reads controller state through
+-- via.hid.GamePad:get_LastInputDevice(), GamePadDevice.AxisL/AxisR and
+-- GamePadDevice:isDown(via.hid.GamePadButton). Keep this recorder read-only and
+-- resolve the button enum dynamically so the CSV captures the enum names
+-- available in this game's RE Engine build instead of assuming a layout.
+local gamepad_singleton_ok, gamepad_singleton = pcall(sdk.get_native_singleton, "via.hid.GamePad")
+local gamepad_type_ok, gamepad_type = pcall(sdk.find_type_definition, "via.hid.GamePad")
+local gamepad_device_type_ok, gamepad_device_type = pcall(sdk.find_type_definition, "via.hid.GamePadDevice")
+local gamepad_button_type_ok, gamepad_button_type = pcall(sdk.find_type_definition, "via.hid.GamePadButton")
+if not gamepad_singleton_ok then gamepad_singleton = nil end
+if not gamepad_type_ok then gamepad_type = nil end
+if not gamepad_device_type_ok then gamepad_device_type = nil end
+if not gamepad_button_type_ok then gamepad_button_type = nil end
+
+local gamepad_button_values = {}
+local gamepad_button_names = {}
+local gamepad_is_down_method = nil
+if gamepad_device_type ~= nil then
+    local method_ok, method = pcall(function()
+        return gamepad_device_type:get_method("isDown(via.hid.GamePadButton)")
+    end)
+    if method_ok then
+        gamepad_is_down_method = method
+    end
+end
+
+local function initialize_gamepad_button_map()
+    if gamepad_button_type == nil then
+        state.gamepad_backend = "via.hid.GamePadButton enum unavailable"
+        return
+    end
+
+    local ok, fields = pcall(function()
+        return gamepad_button_type:get_fields()
+    end)
+    if not ok or fields == nil then
+        state.gamepad_backend = "via.hid.GamePadButton enum unreadable"
+        return
+    end
+
+    for _, field in ipairs(fields) do
+        local field_ok, is_static = pcall(function() return field:is_static() end)
+        if field_ok and is_static then
+            local value_ok, value = pcall(function() return field:get_data(nil) end)
+            local name_ok, name = pcall(function() return field:get_name() end)
+            if value_ok and type(value) == "number" and name_ok and type(name) == "string" then
+                gamepad_button_values[name] = value
+                table.insert(gamepad_button_names, name)
+            end
+        end
+    end
+
+    table.sort(gamepad_button_names)
+    if gamepad_singleton == nil or gamepad_type == nil then
+        state.gamepad_backend = "via.hid.GamePad singleton unavailable"
+    elseif gamepad_device_type == nil then
+        state.gamepad_backend = "via.hid.GamePadDevice type unavailable"
+    else
+        state.gamepad_backend = "Waiting for controller input device"
+    end
+end
+
+initialize_gamepad_button_map()
+
+local function gamepad_button_column_name(name)
+    return tostring(name):gsub("[^A-Za-z0-9_]", "_")
+end
+
+local function read_gamepad_axis(device, axis_name)
+    -- AxisL/AxisR are exposed as properties in the native FreeCam API. Try the
+    -- property getter first, then the backing field for RE Engine builds that
+    -- surface them directly in the TDB.
+    local ok, value = pcall(function()
+        return device:call("get_" .. axis_name)
+    end)
+    if ok and value ~= nil then
+        local vector_ok, x, y, z = pcall(function()
+            return value.x, value.y, value.z
+        end)
+        if vector_ok and type(x) == "number" and type(y) == "number" then
+            return { x = x, y = y, z = type(z) == "number" and z or nil }
+        end
+    end
+
+    ok, value = pcall(function()
+        return device:get_field(axis_name)
+    end)
+    if ok and value ~= nil then
+        local vector_ok, x, y, z = pcall(function()
+            return value.x, value.y, value.z
+        end)
+        if vector_ok and type(x) == "number" and type(y) == "number" then
+            return { x = x, y = y, z = type(z) == "number" and z or nil }
+        end
+    end
+
+    return nil
+end
+
+local function read_gamepad_button(device, button_value)
+    local ok, down = false, false
+    if gamepad_is_down_method ~= nil then
+        ok, down = pcall(function()
+            return gamepad_is_down_method:call(device, button_value)
+        end)
+    end
+    if not ok then
+        ok, down = pcall(function()
+            return device:call("isDown", button_value)
+        end)
+    end
+    return ok, ok and not not down or false
+end
+
+local function poll_native_gamepad()
+    if gamepad_singleton == nil or gamepad_type == nil or gamepad_device_type == nil then
+        state.gamepad_backend = "GamePad API unavailable"
+        state.gamepad_snapshot = {
+            available = false,
+            buttons = {},
+            pressed = state.gamepad_pending_pressed,
+            released = state.gamepad_pending_released,
+        }
+        state.gamepad_previous_buttons = {}
+        return false
+    end
+
+    local device_ok, device = pcall(function()
+        return sdk.call_native_func(gamepad_singleton, gamepad_type, "get_LastInputDevice")
+    end)
+    if not device_ok then
+        device_ok, device = pcall(function()
+            return gamepad_singleton:call("get_LastInputDevice")
+        end)
+    end
+    if not device_ok then
+        state.gamepad_backend = "get_LastInputDevice read failed"
+        state.gamepad_snapshot = {
+            available = false,
+            buttons = {},
+            pressed = state.gamepad_pending_pressed,
+            released = state.gamepad_pending_released,
+        }
+        state.gamepad_previous_buttons = {}
+        return false
+    end
+    if device == nil then
+        state.gamepad_backend = "No active gamepad input device"
+        state.gamepad_device_type_name = nil
+        state.gamepad_snapshot = {
+            available = false,
+            buttons = {},
+            pressed = state.gamepad_pending_pressed,
+            released = state.gamepad_pending_released,
+        }
+        state.gamepad_previous_buttons = {}
+        return true
+    end
+
+    local device_type_ok, device_type = pcall(function()
+        return device:get_type_definition()
+    end)
+    if device_type_ok and device_type ~= nil then
+        local name_ok, type_name = pcall(function()
+            return device_type:get_full_name()
+        end)
+        state.gamepad_device_type_name = name_ok and type_name or "unknown gamepad device"
+    else
+        state.gamepad_device_type_name = "unknown gamepad device"
+    end
+
+    local axis_l = read_gamepad_axis(device, "AxisL")
+    local axis_r = read_gamepad_axis(device, "AxisR")
+    local buttons, pressed, released = {}, {}, {}
+    local states_by_value = {}
+    local successful_button_reads = 0
+
+    for _, name in ipairs(gamepad_button_names) do
+        local value = gamepad_button_values[name]
+        if states_by_value[value] == nil then
+            local button_ok, is_down = read_gamepad_button(device, value)
+            if button_ok then
+                states_by_value[value] = not not is_down
+            else
+                states_by_value[value] = "unavailable"
+            end
+        end
+
+        local is_down = states_by_value[value]
+        if is_down ~= "unavailable" then
+            successful_button_reads = successful_button_reads + 1
+            buttons[name] = is_down
+            local previous = state.gamepad_previous_buttons[name]
+            if previous ~= nil and is_down and not previous then
+                state.gamepad_pending_pressed[name] = true
+            elseif previous ~= nil and previous and not is_down then
+                state.gamepad_pending_released[name] = true
+            end
+            pressed[name] = state.gamepad_pending_pressed[name] or false
+            released[name] = state.gamepad_pending_released[name] or false
+        else
+            buttons[name] = nil
+            pressed[name] = nil
+            released[name] = nil
+        end
+    end
+
+    state.gamepad_previous_buttons = buttons
+    state.gamepad_snapshot = {
+        available = true,
+        axis_l_x = axis_l and axis_l.x or nil,
+        axis_l_y = axis_l and axis_l.y or nil,
+        axis_l_z = axis_l and axis_l.z or nil,
+        axis_r_x = axis_r and axis_r.x or nil,
+        axis_r_y = axis_r and axis_r.y or nil,
+        axis_r_z = axis_r and axis_r.z or nil,
+        buttons = buttons,
+        pressed = state.gamepad_pending_pressed,
+        released = state.gamepad_pending_released,
+    }
+
+    if axis_l ~= nil and axis_r ~= nil and successful_button_reads > 0 then
+        state.gamepad_backend = "Connected: axes + " .. tostring(successful_button_reads) .. " button states"
+    elseif axis_l ~= nil or axis_r ~= nil then
+        state.gamepad_backend = "Connected: partial axis/button reads"
+    elseif successful_button_reads > 0 then
+        state.gamepad_backend = "Connected: button states; axes unavailable"
+    else
+        state.gamepad_backend = "Connected: controller input fields unavailable"
+    end
+    return true
+end
+
+local function key_name(vk)
+    if type(vk) == "string" then
+        return vk
+    end
+
+    if vk >= 0x70 and vk <= 0x7B then
+        return "F" .. tostring(vk - 0x6F)
+    end
+    if vk >= 0x41 and vk <= 0x5A then
+        return string.char(vk)
+    end
+    if vk >= 0x30 and vk <= 0x39 then
+        return string.char(vk)
+    end
+    if vk >= 0x60 and vk <= 0x69 then
+        return "Numpad" .. tostring(vk - 0x60)
+    end
+
+    local names = {
+        [0x20] = "Space",
+        [0x21] = "PageUp",
+        [0x22] = "PageDown",
+        [0x23] = "End",
+        [0x24] = "Home",
+        [0x25] = "Left",
+        [0x26] = "Up",
+        [0x27] = "Right",
+        [0x28] = "Down",
+        [0x2E] = "Delete",
+        [0x6A] = "Numpad*",
+        [0x6B] = "Numpad+",
+        [0x6D] = "Numpad-",
+        [0x6E] = "Numpad.",
+        [0x6F] = "Numpad/",
+    }
+    return names[vk] or ("VK " .. tostring(vk))
+end
+
+local function key_vk_from_name(name)
+    if type(name) ~= "string" then
+        return nil
+    end
+    if #name == 1 then
+        local byte = string.byte(name:upper())
+        if (byte >= 0x30 and byte <= 0x39) or (byte >= 0x41 and byte <= 0x5A) then
+            return byte
+        end
+    end
+    local f_number = tonumber(name:match("^[Ff](%d+)$"))
+    if f_number ~= nil and f_number >= 1 and f_number <= 24 then
+        return 0x6F + f_number
+    end
+    local name_to_vk = {
+        Space = 0x20, PageUp = 0x21, PageDown = 0x22, End = 0x23, Home = 0x24,
+        Left = 0x25, Up = 0x26, Right = 0x27, Down = 0x28, Delete = 0x2E,
+        Numpad0 = 0x60, Numpad1 = 0x61, Numpad2 = 0x62, Numpad3 = 0x63,
+        Numpad4 = 0x64, Numpad5 = 0x65, Numpad6 = 0x66, Numpad7 = 0x67,
+        Numpad8 = 0x68, Numpad9 = 0x69,
+    }
+    return name_to_vk[name]
+end
+
+local function load_capture_key()
+    local handle = io.open(HOTKEY_CONFIG_FILE, "r")
+    if handle == nil then
+        return "F9"
+    end
+
+    local value = handle:read("*l")
+    handle:close()
+    if value ~= nil then
+        value = value:match("^%s*(.-)%s*$")
+        local legacy_vk = tonumber(value)
+        if legacy_vk ~= nil and legacy_vk >= 1 and legacy_vk <= 255 and legacy_vk ~= VK_F8 then
+            return key_name(math.floor(legacy_vk))
+        end
+        if keyboard_key_values[value] ~= nil and is_bindable_hid_key(value) then
+            return value
+        end
+    end
+    return "F9"
+end
+
+state.capture_key_name = load_capture_key()
+state.capture_vk = key_vk_from_name(state.capture_key_name)
 
 local function report_status(message)
     state.last_status = message
@@ -88,16 +524,252 @@ local function report_status(message)
     end
 end
 
-local function set_error(message)
-    state.last_error = message
-    report_status("Error: " .. message)
-end
-
 local function show_toast(text, seconds, color)
     state.toast_text = text
     state.toast_until = os.clock() + (seconds or 2.0)
     state.toast_color = color or 0xFFFFFFFF
 end
+
+local function set_error(message)
+    state.last_error = message
+    report_status("Error: " .. message)
+    show_toast("[REC ERROR] " .. tostring(message), 5.0, 0xFF0000FF)
+end
+
+local function handle_callback_error(context, err)
+    local message = context .. ": " .. tostring(err)
+    if state.last_frame_error ~= message then
+        state.last_frame_error = message
+        set_error(message)
+    end
+end
+
+local function is_bindable_key(vk)
+    if type(vk) ~= "number" or vk < 0x30 or vk > 0xFF then
+        return false
+    end
+
+    return vk ~= VK_F8
+        and vk ~= VK_ESCAPE
+        and vk ~= VK_INSERT
+        and vk ~= VK_SHIFT
+        and vk ~= VK_CONTROL
+        and vk ~= VK_MENU
+        and vk ~= VK_LWIN
+        and vk ~= VK_RWIN
+        and vk ~= VK_LSHIFT
+        and vk ~= VK_RSHIFT
+        and vk ~= VK_LCONTROL
+        and vk ~= VK_RCONTROL
+        and vk ~= VK_LMENU
+        and vk ~= VK_RMENU
+end
+
+local function save_capture_key(key)
+    local key_label = key_name(key)
+    local vk = type(key) == "number" and key or key_vk_from_name(key)
+    local hid_value = type(key) == "string" and keyboard_key_values[key] or nil
+    if hid_value == nil and vk == nil then
+        report_status("Cannot bind " .. key_label .. ": this key is not supported by either keyboard reader.")
+        show_toast("Unsupported key. Press another key.", 3.0, 0xFFFFAA00)
+        return false
+    end
+
+    local handle, open_error = io.open(HOTKEY_CONFIG_FILE, "w")
+    if handle == nil then
+        set_error("Cannot save capture hotkey: " .. tostring(open_error))
+        return false
+    end
+
+    local write_ok, write_error = handle:write(key_label, "\n")
+    handle:close()
+    if write_ok == nil then
+        set_error("Cannot write capture hotkey: " .. tostring(write_error))
+        return false
+    end
+
+    state.capture_key_name = key_label
+    state.capture_vk = vk
+    state.capture_key_down = true
+    state.previous_capture_key_down = true
+    state.binding_capture_key = false
+    state.capture_key_binding_armed = false
+    state.rejected_binding_vk = nil
+    local description = key_label .. (vk ~= nil and (" (VK " .. tostring(vk) .. ")") or " (game HID)")
+    report_status("Capture hotkey saved as " .. description .. ".")
+    show_toast("[HOTKEY SAVED] " .. description, 4.0, 0xFF00FFFF)
+    return true
+end
+
+local function begin_capture_key_binding()
+    if state.recording then
+        report_status("Stop the current capture before changing its hotkey.")
+        show_toast("Stop capture before rebinding the key.", 3.0, 0xFFFFAA00)
+        return
+    end
+
+    state.binding_capture_key = true
+    state.capture_key_binding_armed = false
+    state.rejected_binding_vk = nil
+    report_status("Hotkey binding: release all keys, then press one unused key.")
+    show_toast("[HOTKEY] Release all keys, then press an unused key", 8.0, 0xFF00FFFF)
+end
+
+local function cancel_capture_key_binding()
+    state.binding_capture_key = false
+    state.capture_key_binding_armed = false
+    state.rejected_binding_vk = nil
+    report_status("Hotkey binding cancelled. Current key: " .. key_name(state.capture_key_name) .. ".")
+end
+
+local function update_capture_key_binding_win32()
+    if not state.binding_capture_key then
+        return false
+    end
+
+    local ok, key = pcall(function()
+        return reframework:get_first_key_down()
+    end)
+    if not ok then
+        handle_callback_error("Hotkey binding input read failed", key)
+        return true
+    end
+
+    if key == nil then
+        state.capture_key_binding_armed = true
+        state.rejected_binding_vk = nil
+        return true
+    end
+
+    if not state.capture_key_binding_armed then
+        return true
+    end
+
+    if is_bindable_key(key) then
+        state.last_keyboard_key = key_name(key)
+        save_capture_key(key_name(key))
+    elseif state.rejected_binding_vk ~= key then
+        state.rejected_binding_vk = key
+        report_status("That key is reserved; press a different unused key.")
+        show_toast("Reserved key. Press a different unused key.", 3.0, 0xFFFFAA00)
+        state.capture_key_binding_armed = false
+    end
+    return true
+end
+
+local function read_hid_key(device, key_name_to_read)
+    local key_value = keyboard_key_values[key_name_to_read]
+    if device == nil or key_value == nil then
+        return false, false
+    end
+
+    local ok, down = pcall(function()
+        return device:call("isDown", key_value)
+    end)
+    return ok, ok and not not down or false
+end
+
+local function poll_native_keyboard()
+    if keyboard_singleton == nil or keyboard_type == nil or keyboard_key_type == nil then
+        state.keyboard_backend = "Win32 fallback (game HID unavailable)"
+        state.native_keyboard_ready = false
+        return false
+    end
+
+    local device_ok, device = pcall(function()
+        return sdk.call_native_func(keyboard_singleton, keyboard_type, "get_Device")
+    end)
+    if not device_ok or device == nil then
+        state.keyboard_backend = "Win32 fallback (no game keyboard device)"
+        state.native_keyboard_ready = false
+        return false
+    end
+
+    local capture_ok, capture_down = read_hid_key(device, state.capture_key_name)
+    local f8_ok, f8_down = read_hid_key(device, "F8")
+    if not capture_ok or not f8_ok then
+        state.keyboard_backend = "Win32 fallback (game HID key read failed)"
+        state.native_keyboard_ready = false
+        return false
+    end
+
+    state.native_keyboard_device = device
+    state.keyboard_backend = "via.hid.Keyboard + Win32"
+    state.native_keyboard_ready = true
+    state.f9_key_down = select(2, read_hid_key(device, "F9"))
+    state.f8_key_down = f8_down
+    state.capture_key_down = capture_down
+
+    if state.binding_capture_key then
+        local any_key_down = false
+        local newly_pressed_key = nil
+        for _, candidate_name in ipairs(bindable_keyboard_key_names) do
+            local key_ok, key_down = read_hid_key(device, candidate_name)
+            if key_ok then
+                local was_down = state.native_key_previous[candidate_name] or false
+                if key_down then
+                    any_key_down = true
+                    if not was_down and newly_pressed_key == nil then
+                        newly_pressed_key = candidate_name
+                    end
+                end
+                state.native_key_previous[candidate_name] = key_down
+            end
+        end
+
+        if not any_key_down then
+            state.capture_key_binding_armed = true
+            state.rejected_binding_vk = nil
+            state.last_keyboard_key = "waiting for key"
+        elseif state.capture_key_binding_armed and newly_pressed_key ~= nil then
+            state.last_keyboard_key = newly_pressed_key
+            if is_bindable_hid_key(newly_pressed_key) then
+                save_capture_key(newly_pressed_key)
+            else
+                state.rejected_binding_vk = keyboard_key_values[newly_pressed_key]
+                state.capture_key_binding_armed = false
+                report_status("That key is reserved; press a different unused key.")
+                show_toast("Reserved key. Press a different unused key.", 3.0, 0xFFFFAA00)
+            end
+        end
+    end
+
+    return true
+end
+
+re.on_application_entry("UpdateHID", function()
+    local ok, err = pcall(poll_native_keyboard)
+    if not ok then
+        state.keyboard_backend = "Win32 fallback (game HID error)"
+        state.native_keyboard_ready = false
+        if tostring(err) ~= "nil" then
+            state.last_keyboard_key = "HID error: " .. tostring(err)
+        end
+    end
+    if state.keyboard_backend_logged ~= state.keyboard_backend then
+        state.keyboard_backend_logged = state.keyboard_backend
+        report_status("Keyboard input source: " .. state.keyboard_backend .. ".")
+    end
+
+    local gamepad_ok, gamepad_error = pcall(poll_native_gamepad)
+    if not gamepad_ok then
+        state.gamepad_backend = "Gamepad polling error"
+        state.gamepad_snapshot = {
+            available = false,
+            buttons = {},
+            pressed = state.gamepad_pending_pressed,
+            released = state.gamepad_pending_released,
+        }
+        state.gamepad_previous_buttons = {}
+        if tostring(gamepad_error) ~= "nil" then
+            state.gamepad_backend = state.gamepad_backend .. ": " .. tostring(gamepad_error)
+        end
+    end
+    if state.gamepad_backend_logged ~= state.gamepad_backend then
+        state.gamepad_backend_logged = state.gamepad_backend
+        report_status("Controller input source: " .. state.gamepad_backend .. ".")
+    end
+end)
 
 local function csv_text(value)
     if value == nil then
@@ -114,6 +786,13 @@ local function csv_number(value)
     end
 
     return string.format("%.8f", value)
+end
+
+local function csv_bool_number(value)
+    if value == nil then
+        return nil
+    end
+    return value and 1 or 0
 end
 
 local function write_event(event_name, details)
@@ -972,7 +1651,7 @@ local function stop_capture(reason)
     show_toast("[SAVED] " .. tostring(state.sample_count) .. " SAMPLES WRITTEN", 2.5, 0xFF00FF00)
 end
 
-local function start_capture()
+local function start_capture(trigger)
     if state.recording then
         return
     end
@@ -1011,6 +1690,11 @@ local function start_capture()
     state.camera_rotation_accessor = nil
     state.camera_resolved_logged = false
     state.camera_logged_error = nil
+    state.gamepad_status_logged = nil
+    state.gamepad_pending_pressed = {}
+    state.gamepad_pending_released = {}
+    state.gamepad_snapshot.pressed = state.gamepad_pending_pressed
+    state.gamepad_snapshot.released = state.gamepad_pending_released
 
     local sample_header = {
         "sample_index", "capture_time_s", "delta_time_s", "time_source",
@@ -1023,9 +1707,18 @@ local function start_capture()
         "cam_qx", "cam_qy", "cam_qz", "cam_qw",
         "cam_forward_x", "cam_forward_y", "cam_forward_z",
         "cam_yaw_deg", "cam_pitch_deg",
+        "input_gamepad_available",
+        "input_gamepad_axis_l_x", "input_gamepad_axis_l_y", "input_gamepad_axis_l_z",
+        "input_gamepad_axis_r_x", "input_gamepad_axis_r_y", "input_gamepad_axis_r_z",
         "motion_layer_count",
         "player_motion_old_id",
     }
+    for _, button_name in ipairs(gamepad_button_names) do
+        local column_name = "input_gamepad_button_" .. gamepad_button_column_name(button_name)
+        table.insert(sample_header, column_name .. "_down")
+        table.insert(sample_header, column_name .. "_pressed")
+        table.insert(sample_header, column_name .. "_released")
+    end
     for layer = 0, MOTION_LAYER_CAPTURE_COUNT - 1 do
         local prefix = "motion_l" .. tostring(layer) .. "_"
         table.insert(sample_header, prefix .. "bank_id")
@@ -1038,16 +1731,17 @@ local function start_capture()
     end
     samples_file:write(table.concat(sample_header, ",") .. "\n")
     events_file:write("event_index,capture_time_s,event,vertical_phase,details\n")
-    write_event("capture_started", "F9; raw hunter + primary camera world Transform capture")
-    report_status("Capture started: " .. samples_path)
+    write_event("capture_started", (trigger or "unknown trigger") .. "; raw hunter + primary camera world Transform capture")
+    write_event("gamepad_input_schema", state.gamepad_backend .. "; buttons=" .. table.concat(gamepad_button_names, ","))
+    report_status("Capture started by " .. (trigger or "unknown trigger") .. ": " .. samples_path)
     show_toast("[REC] TRAJECTORY CAPTURE STARTED", 2.5, 0xFF00FFFF)
 end
 
-local function toggle_capture()
+local function toggle_capture(trigger)
     if state.recording then
-        stop_capture("F9")
+        stop_capture(trigger or "unknown trigger")
     else
-        start_capture()
+        start_capture(trigger)
     end
 end
 
@@ -1064,6 +1758,11 @@ local function record_sample()
 
     local delta_time, time_source = read_delta_time()
     state.capture_time = state.capture_time + delta_time
+
+    if state.gamepad_status_logged ~= state.gamepad_backend then
+        state.gamepad_status_logged = state.gamepad_backend
+        write_event("gamepad_input_status", state.gamepad_backend)
+    end
 
     local velocity_x, velocity_y, velocity_z = nil, nil, nil
     local acceleration_x, acceleration_y, acceleration_z = nil, nil, nil
@@ -1145,9 +1844,21 @@ local function record_sample()
         csv_number(camera and camera.forward and camera.forward.z),
         csv_number(camera and camera.yaw),
         csv_number(camera and camera.pitch),
+        csv_bool_number(state.gamepad_snapshot.available),
+        csv_number(state.gamepad_snapshot.axis_l_x),
+        csv_number(state.gamepad_snapshot.axis_l_y),
+        csv_number(state.gamepad_snapshot.axis_l_z),
+        csv_number(state.gamepad_snapshot.axis_r_x),
+        csv_number(state.gamepad_snapshot.axis_r_y),
+        csv_number(state.gamepad_snapshot.axis_r_z),
         csv_number(motion_layers.layer_count),
         csv_number(captured_motion_value(motion_layers.player_motion_old_id_ok, motion_layers.player_motion_old_id)),
     }
+    for _, button_name in ipairs(gamepad_button_names) do
+        table.insert(row, csv_bool_number(state.gamepad_snapshot.buttons[button_name]))
+        table.insert(row, csv_bool_number(state.gamepad_snapshot.pressed[button_name]))
+        table.insert(row, csv_bool_number(state.gamepad_snapshot.released[button_name]))
+    end
     for layer = 1, MOTION_LAYER_CAPTURE_COUNT do
         local layer_data = motion_layers.layers[layer] or {}
         table.insert(row, csv_number(captured_motion_value(layer_data.bank_ok, layer_data.bank_id)))
@@ -1159,6 +1870,13 @@ local function record_sample()
         table.insert(row, csv_text(layer_data.highest_node))
     end
     state.samples_file:write(table.concat(row, ",") .. "\n")
+
+    -- Preserve HID edges if UpdateHID ran more than once between rendered
+    -- samples, then consume them exactly once in this CSV row.
+    state.gamepad_pending_pressed = {}
+    state.gamepad_pending_released = {}
+    state.gamepad_snapshot.pressed = state.gamepad_pending_pressed
+    state.gamepad_snapshot.released = state.gamepad_pending_released
 
     if state.sample_count % 120 == 0 then
         state.samples_file:flush()
@@ -1179,58 +1897,185 @@ local function record_sample()
 end
 
 local function draw_capture_feedback()
+    local capture_key = key_name(state.capture_key_name)
     if state.recording then
-        draw.filled_rect(20, 20, 420, 46, 0xB0000000)
-        draw.outline_rect(20, 20, 420, 46, 0xFF0000FF)
+        draw.filled_rect(20, 20, 560, 46, 0xB0000000)
+        draw.outline_rect(20, 20, 560, 46, 0xFF0000FF)
         draw.text(
-            "[REC] TRAJECTORY CAPTURE  |  F9: STOP  |  Samples: " .. tostring(state.sample_count),
+            "[REC] TRAJECTORY CAPTURE  |  " .. capture_key .. ": STOP  |  Samples: " .. tostring(state.sample_count),
             32,
             34,
             0xFF0000FF
         )
+    elseif state.binding_capture_key then
+        draw.filled_rect(20, 20, 530, 34, 0xA0000000)
+        draw.outline_rect(20, 20, 530, 34, 0xFFFFAA00)
+        local binding_hint = state.capture_key_binding_armed and "Press a key" or "Release all keys"
+        draw.text("[HOTKEY] " .. binding_hint .. " | Detected: " .. state.last_keyboard_key, 30, 29, 0xFFFFAA00)
+    else
+        -- Keep a small ready indicator on screen after the startup toast fades.
+        -- This distinguishes "script loaded" from "frame/draw callbacks alive".
+        draw.filled_rect(20, 20, 500, 34, 0xA0000000)
+        draw.outline_rect(20, 20, 500, 34, 0xFF00FFFF)
+        draw.text("[REC READY] " .. capture_key .. ": " .. (state.capture_key_down and "DOWN" or "UP") ..
+            " | Press key or click Recorder window", 30, 29, 0xFF00FFFF)
     end
 
     if state.toast_text ~= nil and os.clock() < state.toast_until then
-        draw.filled_rect(20, 78, 420, 38, 0xC0000000)
-        draw.outline_rect(20, 78, 420, 38, state.toast_color)
+        draw.filled_rect(20, 78, 560, 48, 0xC0000000)
+        draw.outline_rect(20, 78, 560, 48, state.toast_color)
         draw.text(state.toast_text, 32, 89, state.toast_color)
     end
 end
 
-re.on_frame(function()
-    local ok, f9_down = pcall(function()
+local function draw_quick_control_widget()
+    -- REFramework permits standalone ImGui windows from on_frame when wrapped
+    -- in begin_window/end_window. Keep this small control visible even while
+    -- the main REFramework menu is closed, so recording never depends on a key.
+    imgui.set_next_window_pos({ 20, 66 }, 4)
+    imgui.set_next_window_size({ 360, 194 }, 4)
+    local contents_visible = imgui.begin_window("MHGZ Recorder Control", nil, nil)
+    if contents_visible then
+        if state.recording then
+            imgui.text("Recording: " .. tostring(state.sample_count) .. " samples")
+            if imgui.button("STOP AND SAVE") then
+                toggle_capture("quick recorder window")
+            end
+        else
+            imgui.text("Ready - click below to record")
+            if imgui.button("START RECORDING") then
+                toggle_capture("quick recorder window")
+            end
+            if state.binding_capture_key then
+                if imgui.button("CANCEL KEY BINDING") then
+                    cancel_capture_key_binding()
+                end
+                imgui.text("Binding: release all keys, then press one")
+                imgui.text("Last detected: " .. state.last_keyboard_key)
+            elseif imgui.button("BIND CAPTURE KEY") then
+                begin_capture_key_binding()
+            end
+        end
+        imgui.text("Keyboard: " .. state.keyboard_backend)
+        imgui.text("Controller: " .. state.gamepad_backend)
+        local input = state.gamepad_snapshot
+        if input ~= nil and input.available then
+            imgui.text(string.format("LS %.2f, %.2f | RS %.2f, %.2f",
+                input.axis_l_x or 0.0, input.axis_l_y or 0.0,
+                input.axis_r_x or 0.0, input.axis_r_y or 0.0))
+            local down_names = {}
+            for _, button_name in ipairs(gamepad_button_names) do
+                if input.buttons[button_name] then
+                    table.insert(down_names, button_name)
+                end
+            end
+            imgui.text("Buttons down: " .. (#down_names > 0 and table.concat(down_names, ",") or "none"))
+        end
+        imgui.text("Capture key: " .. key_name(state.capture_key_name) ..
+            (state.capture_key_down and " [DOWN]" or " [UP]"))
+        if not state.binding_capture_key then
+            imgui.text("F9 remains optional; no main menu needed.")
+        end
+    end
+    imgui.end_window()
+end
+
+local function on_frame_update()
+    state.frame_callback_seen = true
+    state.frame_callback_count = state.frame_callback_count + 1
+
+    local is_binding_key = state.binding_capture_key and update_capture_key_binding_win32() or false
+
+    local f9_ok, f9_down = pcall(function()
         return reframework:is_key_down(VK_F9)
     end)
-
-    if ok and f9_down and not state.previous_f9_down then
-        toggle_capture()
-    end
-    state.previous_f9_down = ok and f9_down or false
-
-    local probe_ok, f8_down = pcall(function()
+    local f8_ok, f8_down = pcall(function()
         return reframework:is_key_down(VK_F8)
     end)
-    if probe_ok and f8_down and not state.previous_f8_down then
+    local win32_capture_ok, win32_capture_down = false, false
+    if state.capture_vk ~= nil then
+        win32_capture_ok, win32_capture_down = pcall(function()
+            return reframework:is_key_down(state.capture_vk)
+        end)
+    end
+
+    state.f9_key_down = (state.native_keyboard_ready and state.f9_key_down) or (f9_ok and not not f9_down) or false
+    local combined_f8_down = (state.native_keyboard_ready and state.f8_key_down) or (f8_ok and not not f8_down) or false
+    local combined_capture_down = (state.native_keyboard_ready and state.capture_key_down) or
+        (win32_capture_ok and not not win32_capture_down) or false
+    local f8_pressed = not is_binding_key and combined_f8_down and not state.previous_f8_down
+    local capture_pressed = not is_binding_key and combined_capture_down and not state.previous_capture_key_down
+    state.previous_f8_down = combined_f8_down
+    state.previous_capture_key_down = combined_capture_down
+    state.capture_key_down = combined_capture_down
+
+    if f8_pressed then
         write_motion_probe()
     end
-    state.previous_f8_down = probe_ok and f8_down or false
+    if capture_pressed and not is_binding_key then
+        toggle_capture("hotkey " .. key_name(state.capture_key_name))
+    end
 
     if state.recording then
         record_sample()
     end
 
     draw_capture_feedback()
+    draw_quick_control_widget()
+end
+
+re.on_frame(function()
+    local ok, err = pcall(on_frame_update)
+    if not ok then
+        handle_callback_error("Frame callback failed", err)
+    else
+        state.last_frame_error = nil
+    end
 end)
 
 re.on_draw_ui(function()
+    local capture_key = key_name(state.capture_key_name)
     imgui.text(SCRIPT_NAME .. " v" .. SCRIPT_VERSION)
     imgui.text(state.recording and "Status: RECORDING" or "Status: idle")
+    imgui.text("Frame callback: " .. (state.frame_callback_seen and "RUNNING" or "NOT SEEN") ..
+        " (" .. tostring(state.frame_callback_count) .. " frames)")
+    imgui.text("Keyboard input source: " .. state.keyboard_backend)
+    imgui.text("Controller input source: " .. state.gamepad_backend)
+    imgui.text("Last detected key: " .. state.last_keyboard_key)
+    imgui.text("F9 key state: " .. (state.f9_key_down and "DOWN" or "UP") ..
+        " (Windows VK 0x78); F8: " .. (state.f8_key_down and "DOWN" or "UP"))
+    local capture_key_code = state.capture_vk ~= nil and ("VK " .. tostring(state.capture_vk)) or "game HID"
+    imgui.text("Capture key: " .. capture_key .. " (" .. capture_key_code .. ") - " ..
+        (state.capture_key_down and "DOWN" or "UP"))
+    imgui.text("If F9 is not detected, rebind the capture key here or use the button.")
 
-    if imgui.button(state.recording and "Stop capture (F9)" or "Start capture (F9)") then
-        toggle_capture()
+    if imgui.button(state.recording and ("Stop capture (" .. capture_key .. ")") or
+        ("Start capture (" .. capture_key .. ")")) then
+        if state.binding_capture_key then
+            cancel_capture_key_binding()
+        end
+        local ok, err = pcall(toggle_capture, "REFramework script UI button")
+        if not ok then
+            handle_callback_error("Capture button failed", err)
+        end
+    end
+    if not state.recording then
+        if state.binding_capture_key then
+            imgui.text("Hotkey binding is active.")
+            imgui.text("Release all keys, then press one unused key (F8, Escape and Insert are reserved).")
+            imgui.text("Keyboard source: " .. state.keyboard_backend .. " | Last detected: " .. state.last_keyboard_key)
+            if imgui.button("Cancel hotkey binding") then
+                cancel_capture_key_binding()
+            end
+        elseif imgui.button("Bind capture hotkey") then
+            begin_capture_key_binding()
+        end
     end
     if imgui.button("Write motion probe (F8)") then
-        write_motion_probe()
+        local ok, err = pcall(write_motion_probe)
+        if not ok then
+            handle_callback_error("Probe button failed", err)
+        end
     end
 
     imgui.text("Output: reframework/data/" .. OUTPUT_DIRECTORY)
@@ -1252,5 +2097,5 @@ re.on_script_reset(function()
     stop_capture("REFramework script reset")
 end)
 
-show_toast("Trajectory recorder ready: F9 records trajectory + motion state.", 3.0, 0xFFFFFFFF)
-report_status("Loaded. F9 records trajectory plus motion-layer state; F8 writes a verbose motion probe.")
+show_toast("Recorder ready. Click the floating Recorder window or press " .. key_name(state.capture_key_name) .. ".", 7.0, 0xFFFFFFFF)
+report_status("Loaded. Click the floating Recorder window or press " .. key_name(state.capture_key_name) .. "; F8 writes a verbose motion probe.")

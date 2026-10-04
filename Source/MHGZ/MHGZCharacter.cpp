@@ -129,7 +129,11 @@ AMHGZCharacter::AMHGZCharacter(const FObjectInitializer& ObjectInitializer)
 	// CameraBoom
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
-	CameraBoom->TargetArmLength = 400.0f;
+	// Rise training-area reference: keep the hunter low-centre, without a
+	// shoulder-side offset. The 16:9, 90-degree-FOV starting values can be
+	// fine-tuned on the Blueprint component.
+	CameraBoom->TargetArmLength = 650.0f;
+	CameraBoom->TargetOffset = FVector(0.0f, 0.0f, 115.0f);
 	CameraBoom->bUsePawnControlRotation = true;
 
 	// FollowCamera
@@ -383,6 +387,10 @@ void AMHGZCharacter::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+	// Preserve the physical axes and their exact game-frame world interpretation
+	// before this Tick can clear locomotion intent for BlockMovement/aerial locks.
+	CaptureActionMoveInputFrameSnapshot();
+
 	// 每帧更新拔刀态标记——AnimBP 读此值切换 Database_Armed / Database_Unarmed
 	{
 		AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
@@ -442,6 +450,72 @@ void AMHGZCharacter::Tick(float DeltaTime)
 		SetActorRotation(FRotator(0.0, NewYaw, 0.0));
 	}
 
+}
+
+void AMHGZCharacter::CaptureActionMoveInputFrameSnapshot()
+{
+	const uint64 FrameNumber = GFrameCounter;
+	if (ActionMoveInputFrameHistory.Num() > 0
+		&& ActionMoveInputFrameHistory.Last().FrameNumber > FrameNumber)
+	{
+		// PIE/world reset or frame-counter wrap: do not let an old frame alias a
+		// new action's N-1 request.
+		ActionMoveInputFrameHistory.Reset();
+	}
+
+	FActionMoveInputFrameSnapshot Snapshot;
+	Snapshot.FrameNumber = FrameNumber;
+	Snapshot.Pawn = this;
+	Snapshot.RawMoveInput = RawMoveInput;
+	Snapshot.ActorYaw = GetActorRotation().Yaw;
+	if (const AController* InputController = GetController())
+	{
+		Snapshot.ControlYaw = InputController->GetControlRotation().Yaw;
+		Snapshot.WorldDirection = ResolveMoveInputWorldDirection(
+			Snapshot.RawMoveInput, Snapshot.ControlYaw, MoveDeadzone);
+		Snapshot.bHasMoveInput = !Snapshot.WorldDirection.IsNearlyZero();
+	}
+	if (const UMHGZWeaponRuntimeHostComponent* RuntimeHost = GetWeaponRuntimeHost())
+	{
+		Snapshot.RuntimeToken = RuntimeHost->GetCurrentToken();
+	}
+
+	if (ActionMoveInputFrameHistory.Num() > 0
+		&& ActionMoveInputFrameHistory.Last().FrameNumber == FrameNumber)
+	{
+		// Multiple producers may run in one engine frame; the last complete sample
+		// is authoritative, but the history still contains one row per game frame.
+		ActionMoveInputFrameHistory.Last() = Snapshot;
+	}
+	else
+	{
+		ActionMoveInputFrameHistory.Add(MoveTemp(Snapshot));
+	}
+	if (ActionMoveInputFrameHistory.Num() > ActionMoveInputFrameHistoryLimit)
+	{
+		ActionMoveInputFrameHistory.RemoveAt(0,
+			ActionMoveInputFrameHistory.Num() - ActionMoveInputFrameHistoryLimit,
+			EAllowShrinking::No);
+	}
+}
+
+bool AMHGZCharacter::GetActionMoveInputFrameSnapshot(const uint64 FrameNumber,
+	FActionMoveInputFrameSnapshot& OutSnapshot) const
+{
+	for (int32 Index = ActionMoveInputFrameHistory.Num() - 1; Index >= 0; --Index)
+	{
+		const FActionMoveInputFrameSnapshot& Snapshot = ActionMoveInputFrameHistory[Index];
+		if (Snapshot.FrameNumber < FrameNumber)
+		{
+			return false;
+		}
+		if (Snapshot.FrameNumber == FrameNumber && Snapshot.Pawn.Get() == this)
+		{
+			OutSnapshot = Snapshot;
+			return true;
+		}
+	}
+	return false;
 }
 
 // ── 巡航速度计算 ──────────────────────────────────────────────
@@ -612,6 +686,43 @@ FVector AMHGZCharacter::GetLastMovementInputDir() const
 	return LastMovementInputDir;
 }
 
+FVector AMHGZCharacter::GetCurrentMoveInputWorldDirection() const
+{
+	const AController* InputController = GetController();
+	return InputController
+		? ResolveMoveInputWorldDirection(RawMoveInput,
+			InputController->GetControlRotation().Yaw, MoveDeadzone)
+		: FVector::ZeroVector;
+}
+
+FVector AMHGZCharacter::ResolveMoveInputWorldDirection(const FVector2D& MoveInput,
+	const float ControlYaw, const float MinimumMagnitude)
+{
+	if (!FMath::IsFinite(MoveInput.X) || !FMath::IsFinite(MoveInput.Y)
+		|| !FMath::IsFinite(ControlYaw) || !FMath::IsFinite(MinimumMagnitude))
+	{
+		return FVector::ZeroVector;
+	}
+
+	const float Magnitude = MoveInput.Size();
+	if (!FMath::IsFinite(Magnitude)
+		|| Magnitude < FMath::Max(0.0f, MinimumMagnitude))
+	{
+		return FVector::ZeroVector;
+	}
+
+	const FRotator YawRotation(0.0f, ControlYaw, 0.0f);
+	const FVector Forward = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	const FVector Right = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+	const FVector InputVector = Forward * MoveInput.Y + Right * MoveInput.X;
+	if (InputVector.ContainsNaN() || InputVector.IsNearlyZero())
+	{
+		return FVector::ZeroVector;
+	}
+
+	return InputVector.GetSafeNormal2D();
+}
+
 bool AMHGZCharacter::ShouldBlockMovement() const
 {
 	AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
@@ -630,15 +741,13 @@ void AMHGZCharacter::DoMove(float Right, float Forward)
 	RawMoveInput = FVector2D(Right, Forward);
 	if (!Controller) return;
 
-	// 1. 计算世界方向 + 存储 LastMovementInputDir
-	const FRotator YawRotation(0, Controller->GetControlRotation().Yaw, 0);
-	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-	const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
-
-	const FVector InputVector = ForwardDirection * Forward + RightDirection * Right;
+	// 1. 计算世界方向 + 存储 LastMovementInputDir。缓存故意保留最后有效方向；
+	//    输入快照必须从 RawMoveInput 重新计算，不能读取这个缓存。
+	const FVector InputVector = ResolveMoveInputWorldDirection(
+		RawMoveInput, Controller->GetControlRotation().Yaw, 0.0f);
 	if (!InputVector.IsNearlyZero())
 	{
-		LastMovementInputDir = InputVector.GetSafeNormal();
+		LastMovementInputDir = InputVector;
 	}
 
 	// 2. 计算本帧原始摇杆幅度。RawMoveInput/LastMovementInputDir 始终保留，

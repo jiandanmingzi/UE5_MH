@@ -8,7 +8,7 @@
 
 ## 1. 目标与边界
 
-虫棍以《怪物猎人：世界》的地面招式、基础猎虫操作和三色精华为骨架，吸收《怪物猎人：崛起》的四连印斩、突进回旋斩、操虫斩、强化操虫穿刺、猎虫滑翔、觉虫击、粉尘集约与降龙等动作，并按本项目规则重新组织输入和派生。
+虫棍以《怪物猎人：世界》的地面招式、基础猎虫操作和三色精华为骨架，吸收《怪物猎人：崛起》的四连印斩、突进回旋斩、操虫斩、强化操虫穿刺、猎虫滑翔、觉虫击与粉尘集约等动作，并按本项目规则重新组织输入和派生。
 
 Demo 明确不实现：
 
@@ -16,7 +16,10 @@ Demo 明确不实现：
 - 集中模式及集中弱点攻击。
 - 钩爪及软化系统。
 - 跳跃突进斩（空中“电风扇”）。
+- 强化跳跃斩与降龙（2026-10-01移出当前Demo/M5范围，不再作为动作需求或M5门禁）。
 - 完整斩味、元素、异常和怪物生态；Demo 伤害沿用简化公式。
+
+**2026-10-04 当前M5范围：** 已签收的空回、操虫斩和强化操虫穿刺保留；剩余新增空中招式仅急袭突刺（同操虫斩持刀/Falling门禁，RT限时松开）。[急袭突刺计划](../using/急袭突刺实现计划.md)的M1/M2/M3/E1已通过；E1资产回读、构建及M2专项15/15回归通过。当前唯一入口为本招M4真实PIE输入/状态遥测矩阵，随后仍须E2正常速度/慢放验收以及舞踏、取消清理、阶段收口和总验收，M5整体尚未签收。
 
 ## 2. 通用武器架构约束
 
@@ -51,11 +54,9 @@ Demo 明确不实现：
 | 持刀地面 | `RT+Y` | 猎虫滑翔 |
 | 持刀地面 | `RT+Y+B` | 觉虫击 |
 | 空中 | `B` | 操虫斩，沿角色面朝方向 |
-| 空中 | `LT+B` | 操虫斩，沿猎虫准心方向 |
-| 操虫斩触发的舞踏中 | `LT+Y` | 强化操虫穿刺 |
-| 空中 | `Y` | 强化跳跃斩，继承现有惯性 |
-| 空中 | `RT` | 《世界》急袭突刺；不区分收刀/拔刀，按下立即触发 |
-| 空中 | `LT+Y+B` | 降龙 |
+| 空中 | `RT+B` | 操虫斩，沿猎虫准心方向 |
+| 操虫斩触发舞踏后的 Falling 可出手阶段 | `RT+Y` | 强化操虫穿刺 |
+| 持刀、Falling且空中攻击预算可用 | `RT` 限定时间内松开，未被组合消费 | 《世界》急袭突刺；条件同当前操虫斩，按下不立即触发 |
 
 `LT` 是持刀状态的猎虫瞄准；`RT` 是动作瞄准/特殊动作修饰键。两者是不同的输入上下文，不能共用一个 `Combat.State.Aiming` 标签。建议使用：
 
@@ -65,7 +66,7 @@ Combat.State.Aiming.Action    // 持刀 RT 特殊动作上下文
 Combat.State.Aiming.Slinger   // 收刀 LT，Demo 无消费方
 ```
 
-`Input.Weapon.RT` 可以由三个互斥的 Chord 输出：收刀地面 `Sheathed+Grounded` 在按下时拔刀直飞；持刀地面 `Unsheathed+Grounded` 在 RT 未被 A/B/Y/LT 等获胜组合消费时于松开时触发虫印斩；空中 `Aerial` 不区分收/拔刀并在按下时触发急袭突刺。只有中间一条使用 Router 的 `OnReleaseIfUnconsumed`，其余均使用默认 `OnPress`。
+`Input.Weapon.RT` 可以由三个互斥的 Chord 输出：收刀地面 `Sheathed+Grounded` 与空中 `Aerial` 路线在各自 0.05 秒 Chord 窗口结束后派发；持刀地面 `Unsheathed+Grounded` 路线只在 RT 未被组合消费、且物理按住时长不超过 0.25 秒时于松开派发虫印斩。每个包含物理 RT 的 Chord 都单独设置 `ChordGracePeriodOverrideSeconds=0.05`，不改变 Y+B 等其他组合的全局宽限期。虫印斩使用 `OnReleaseWithinMaxDurationIfUnconsumed`；不再使用无限时长的 `OnReleaseIfUnconsumed`。超时长按松开不产生虫印斩输入。
 
 #### 收刀 Y 的拔刀分流与姿态 Commit
 
@@ -78,7 +79,7 @@ InputProfile 只配置一条普通 Y Chord，输出 `Input.Weapon.Y`；它不需
 
 `GA_IG_Draw` 与 `GA_IG_DrawSlash` 都继承 `UMHGZDrawAttackAbility`（M4-A.4），并使用 Montage 中原生 `AnimNotify_DrawCommit`。Notify 只负责以 Mesh+MontageInstanceID 找到当前 ActionToken 并转发；Ability 才调用 `RuntimeHost->SetSheathed(false)` 与清 `bSprintHeld`。因此 Commit 前取消仍是 Sheathed，Commit 后取消仍是 Unsheathed，不能在 Blueprint Event Graph 或 Ability 激活时提前写姿态。收刀 RT 的 `GA_IG_DrawAndSendKinsect` 也复用这一视觉 Commit 合同，但它直接继承 `UMHGZGameplayAbility`：它使用无 Root Motion 的 `UpperBody_IGAction` `ActionMontage`，不获得 `Attacking`、`BlockMovement` 或 MontageRootMotionOwner；`DrawCommit` 只切姿态，后续 `KinsectSendCommit` 才部署冻结的猎虫请求。
 
-持刀 `LT+Y` 送虫和 `LT+B` 收虫同样需要角色动作，但它们不是近战攻击。M4-A.5 直接扩展现有的 `UMHGZSendKinsectAbility`、`UMHGZRecallKinsectAbility`：各自新增 `ActionMontage`，在 `AnimNotify_KinsectSendCommit`、`AnimNotify_KinsectRecallCommit` 才调用 Resource；不新建通用 Montage GA 父类。`AM_IG_SendKinsect` 也可以由收刀 RT 的 `UMHGZDrawAndSendKinsectAbility` 复用：同一 Montage 同时存在 `DrawCommit` 和 `KinsectSendCommit`，两个 Notify 都按精确 ActionToken 仅路由给匹配的 Ability 类型。共享资产中 DrawCommit 必须至少早于 KinsectSendCommit 一帧，保证 DrawAndSend 先提交姿态再允许出虫。两条 Montage 都使用 `UpperBody_IGAction` Slot、in-place 且无 Root Motion；上半身与武器挂点播放动作，下半身保持当前姿态对应的 Motion Matching，因此动作途中摇杆仍可正常移动和转向。三种路径都不使用 `UMHGZAttackAbility`、`AttackSegment`、`AttackCollision`、`Attacking`、`BlockMovement`、攻击方向修正或 MontageRootMotionOwner；Notify 前中断不改变猎虫状态，Notify 后中断不撤销已开始的 Flight/Return。
+持刀 `LT+Y` 送虫和 `RT+B` 收虫同样需要角色动作，但它们不是近战攻击。M4-A.5 直接扩展现有的 `UMHGZSendKinsectAbility`、`UMHGZRecallKinsectAbility`：各自新增 `ActionMontage`，在 `AnimNotify_KinsectSendCommit`、`AnimNotify_KinsectRecallCommit` 才调用 Resource；不新建通用 Montage GA 父类。`AM_IG_SendKinsect` 也可以由收刀 RT 的 `UMHGZDrawAndSendKinsectAbility` 复用：同一 Montage 同时存在 `DrawCommit` 和 `KinsectSendCommit`，两个 Notify 都按精确 ActionToken 仅路由给匹配的 Ability 类型。共享资产中 DrawCommit 必须至少早于 KinsectSendCommit 一帧，保证 DrawAndSend 先提交姿态再允许出虫。三条路径仍使用 `UpperBody_IGAction` Slot、in-place 且无 Root Motion；AnimGraph 根据角色原始摇杆输入选择呈现范围：无移动输入时，Slot 动作全身覆盖；有移动输入时，以当前 MM 姿势为底，仅从 `Spine_00`（含其后代）混入 Slot 动作，让下半身继续由 MM 移动/转向。该选择只改变姿势呈现，不改变 Montage、GA、Commit 或输入逻辑。三种路径都不使用 `UMHGZAttackAbility`、`AttackSegment`、`AttackCollision`、`Attacking`、`BlockMovement`、攻击方向修正或 MontageRootMotionOwner；Notify 前中断不改变猎虫状态，Notify 后中断不撤销已开始的 Flight/Return。
 
 ### 3.2 虫棍连招到拆分动画片段的数据流（M4-B.1 起）
 
@@ -183,7 +184,6 @@ AwakenedKinsectMaxDistance
 AwakenedHunterFlightMaxDistance
 AwakenedHunterFlightStartTime
 AwakenedAimCorrectionAngle = 60°
-DivingWyvernDistance/Height/Duration
 DescendingThrustAirControl
 PowderGatherRadius/Duration/MaxCount
 ```
@@ -227,7 +227,7 @@ Demo 只实现一种通用粉尘，不区分爆破、回复、麻痹等正式品
 
 ### 5.4 虫印——持刀虫印斩与 `LT+RT` 虫印弹
 
-**近战虫印斩：** 持刀地面按住 RT 后，若未形成 RT+A/B/Y、LT+RT 等获胜组合，松开 RT 时才激活 `GA_IG_MarkSlash`。它是带普通 AttackSegment 的近战攻击；首次有效 Hitzone 命中通过 `URes_InsectGlaive` 建立/替换唯一虫印。攻击落空、无有效 Hitzone 或被中断均不改变旧虫印。
+**近战虫印斩：** 持刀地面短按 RT，若未形成 RT+A/B/Y、LT+RT 等获胜组合，且 RT 在 0.25 秒内松开，才派发 `Input.Weapon.RT` 并激活 `GA_IG_MarkSlash`。超过该最大按住时长后松开不派发虫印斩。它是带普通 AttackSegment 的近战攻击；首次有效 Hitzone 命中通过 `URes_InsectGlaive` 建立/替换唯一虫印。攻击落空、无有效 Hitzone 或被中断均不改变旧虫印。
 
 **远程虫印弹：**
 
@@ -282,50 +282,48 @@ AerialDamageMultiplier = DanceDamageMultipliers[DanceStacks]
 
 倍率只作用于猎人的后续空中攻击段，不作用于猎虫独立伤害、粉尘爆炸、地面攻击或环境伤害。每个 AttackSegment 创建伤害 Spec 时快照倍率。
 
-落地、受到有效攻击、急袭突刺 Commit、降龙 Commit、死亡、收刀或卸下虫棍时清空舞踏。急袭突刺和降龙应先把当前倍率快照进本次攻击，再清空层数，保证当前终结动作能吃到已积累增伤。
+落地、受到有效攻击、急袭突刺 Commit、死亡、收刀或卸下虫棍时清空舞踏。急袭突刺应先把当前倍率快照进本次攻击，再清空层数，保证当前终结动作能吃到已积累增伤。
 
-### 6.2 操虫斩——空中 `B` / `LT+B`
+### 6.2 操虫斩——空中 `B` / `RT+B`
 
-- `LT+B`：按本次输入快照中的猎虫准心方向飞行。
+- `RT+B`：输入只冻结瞄准路径；到 186 的 AimLock 帧才采样当前准心并冻结三维前冲方向。
 - 直接 `B`：按角色面朝方向飞行。
 - 两种路径使用同一 GA 和位移参数，只改变 AimSource。
 - 方向受 `KinsectSlashMaxDistance` 和碰撞 Sweep 限制，不追踪激活后移动的准心或目标。
-- 命中有效 Hitzone 时立即按该部位取得红/白/橙精华，即使角色当前已经处于三灯状态；该次提取不要求猎虫先返回。
-- 命中后触发舞踏、增加层数，并写入 `Combat.State.Aerial.Dance.Source.KinsectSlash`；未命中则保留末速度进入 Falling，不增加层数。
+- 本招有三个独立伤害机会，均由 GA 的 `Attack Collision` 窗口结算：`[0]` 猎虫附着点判定、`[1]` 棍尾至Root的第一下武器判定、`[2]` Root至棍尖的第二下武器判定。三个判定各有一次伤害额度，不能用单个 Segment 的 `MultiHitCount=3` 代替；旧独立Probe不参与生产判定。
+- **仅猎虫段[0]真实伤害GE成功提交**到有效 Hitzone 后按该部位取得红/白/橙精华，即使角色当前已经处于三灯状态；该次提取不要求猎虫先返回。武器的两次命中只造成武器伤害，不点灯。
+- 猎虫命中后触发舞踏、增加层数，并将 Resource 的 `DanceSource` 写为 `KinsectSlash`；只有武器命中或完全未命中时不进入该舞踏分支，保留末速度进入 Falling。对应来源标签由 `URes_InsectGlaive::RefreshDanceStateTags()` 在 `AddDanceStack`/`ClearDanceStacks` 广播前镜像到 ASC（M2，2026-09-30）；真值始终是 Resource 的 `DanceSource` 字段，标签只是它的对外广播。
+- 运动使用本招专用档。**现行范围为不减速版**：188继承真实前冲末速度、重力3096cm/s²、水平制动/摩擦0；用户不要求还原原作条件制动。189两来向共用源帧0与0.1s混合，可调0.35s准备后使用实录后退上抛轨迹，随后157延续1800cm/s²重力与后向360cm/s²加速度。准备不是骨架冻结/卡肉。当前不减速运动、点灯与真实空回接管已签本招E3（2026-09-30），M5整体未完成；数据和边界见[操虫斩曲线](../reference/操虫斩曲线.md)，当前验收见[实施计划§9.7](../using/操虫斩实现计划.md)。
 
 操虫斩与普通猎虫回手调用同一个 `ApplyExtract(Color)`。三灯持续期间，玩家吸收的任何单色精华都直接被吞掉：不创建单灯 GE、不缓存待恢复颜色，也不刷新三灯持续时间；仍可播放一次“吸收但未改变状态”的轻量反馈。
 
-### 6.3 强化操虫穿刺——操虫斩舞踏中 `LT+Y`
+### 6.3 强化操虫穿刺——操虫斩命中舞踏后的 `RT+Y`
 
-- 只允许从 `Combat.State.Aerial.Dance.Source.KinsectSlash` 派生；突进回旋斩产生的舞踏不能进入该动作。
-- 激活时快照 LT 准心方向，在修正角和最大距离内执行定向穿刺。
-- 命中使用标准空中舞踏倍率，但不再次增加舞踏层数，避免自循环刷层。
-- 结束后继承穿刺末速度进入 Falling；是否继续派生其他空中动作由 ComboData 决定。
+**2026-10-01：强化操虫穿刺 M1/M2/M3/E1/M4完成，E2本轮平地可玩范围已签收。** 最新证据见[强化操虫穿刺实现计划§13.5](../using/强化操虫穿刺实现计划.md)，静态/回归证据见§13.3～13.4，§11～12保留历史。碰墙/封顶暂缓；不宣称慢放采样、全取消矩阵或五条clone全部实机通过。主M5尚未签收；强化跳跃斩与降龙已移出当前Demo/M5范围，剩余新增空中招式仅急袭突刺，先资源/真值核对与独立详细实施方案，再完成M5收口与总验收。
 
-### 6.4 强化跳跃斩——空中 `Y`
+- 输入为现有 `Input.Weapon.RTY`。仅允许当前 Resource 来源为 `EIGDanceSource::KinsectSlash`，且 `Combat.State.Aerial.Falling` 在场时派生；与空回、操虫斩的可出手时机相同。舞踏保护前段、落空、仅武器命中、突进回旋斩舞踏均不能进入。
+- Resource 来源是真值，M2 将它同步为 `Combat.State.Aerial.Dance.Source.KinsectSlash` 标签供 Combo 匹配，GA 激活时再核验真实来源；不要求层数必须大于零，也不用旧 `Aerial.Actionable`。
+- 本次 RTY 输入解析冻结准心射线，入招只采用水平 Yaw。准心俯仰不改变位移、速度、高度或时长；之后不追踪镜头、摇杆或目标。
+- 沿实录完整链执行 `200` 起手→`201` 空中穿刺→真实触地→`203` 落地攻击/后摇；`202` 只循环空中姿势，曲线时间不循环。不再沿用旧的“穿刺结束回 Falling”设计。
+- 三个独立武器伤害段，`AttackSegments[0/1/2]` 各有一次对同目标的成功伤害额度；用户在主/落地 Montage 放现有 Attack Collision 窗口，不预设时间或强行拆为空中两击、落地一击。
+- 空中段显式接入舞踏倍率，触地后的地面段按地面规则结算；本招不增舞踏、不点灯、不重置空中预算。触地由 Host 清舞踏，一份 Action 身份继续完成 203，`LandingPolicy=AbilityOwned`。
+- 类继承、GA/AM/CV 命名、共享伤害 GE、MovementTask/CMC 所有权与幂等清理均按详细计划；不新增 ForceIdle 输入死区、不重建已签收的空回/操虫斩。
 
-移除跳跃突进斩后，`Y` 保留强化跳跃斩。该动作不把水平速度重置为动画固定方向，而是：
+### 6.4 强化跳跃斩（已移出Demo）
 
-1. 激活时快照当前 `AerialVelocity`。
-2. 动画根运动以 Additive 方式叠加在惯性上。
-3. 允许摇杆在 `AirControl` 上限内修正水平惯性。
-4. 结束时把合成后的末速度交还 CMC。
+2026-10-01移出当前Demo，不再作为动作需求或M5门禁。
 
-强化跳跃斩不触发舞踏，只消费当前空中攻击许可。
+### 6.5 急袭突刺——持刀 Falling 阶段 `RT` 限时松开
 
-### 6.5 急袭突刺——空中 `RT`
+保留《世界》的急袭突刺；它是当前M5剩余唯一新增空中招式。2026-10-03目标规则为同当前操虫斩的 `Unsheathed + Aerial.Falling`、未被CantAttack锁住及Host尚未接地；不要求操虫斩舞踏来源。RT在配置上限内松开且未被获胜组合消费才派发（初始沿用0.25s）。空中按下单RT不再提前触发，地面虫印斩与空中本招共用一个release-fallback所有者，Combo按状态分流。
 
-保留《世界》的急袭突刺。它继承进入动作时的水平惯性，并在 Commit 时快照、随后清空舞踏层数。下落、着地攻击和落地后摇属于同一个 Ability 的显式阶段；只有着地攻击完成或 Ability 被取消后才向协调器报告结束。
+第一段380有一次性进入和待查找的循环区，采用校准的锁定水平向量/竖直曲线，姿势循环不重置物理时间。第二段381真实触地后直接播放原动画Montage Root Motion，不叠加空中惯性。三次修正最大角180°/180°/60°，依真值时钟渐进转向；前两次各取序列入口前一游戏帧、第三次取转向开始前一游戏帧的摇杆快照。四个独立武器伤害窗口由用户放置；地面接受窗可派生二连、后撤、飞圆，飞圆入口同二连来源。
 
-### 6.6 降龙——空中 `LT+Y+B`
+成功Commit先快照舞踏终结倍率再清层，四段用冻结倍率；下落、着地攻击/后摇属于同一Ability，`LandingPolicy=AbilityOwned`。只在地面段完成、成功派生或取消后报告结束。两条Montage均为常驻资产，禁止运行时动态拼接。详细生成、未知参数和M/E顺序见[急袭突刺实现计划](../using/急袭突刺实现计划.md)；本招M1/M2/M3/E1门禁已通过，当前待M4 PIE输入/状态遥测矩阵、E2可视验收与M5总验收。
 
-降龙不消耗翔虫，也不消耗红灯或三灯。它使用当前舞踏倍率，Commit 后清空舞踏：
+### 6.6 降龙（已移出Demo）
 
-- 激活时快照方向、层数和当前位置。
-- 按配置执行短暂上升/定向准备后进入下砸；不能依靠零位移动画的 Motion Warping 凭空生成全程位移。
-- 下砸使用连续 Capsule/Weapon Sweep，按配置决定单次或多跳伤害。
-- 碰到有效地面或怪物后进入落地段；碰墙、顶棚或超时走失败收尾。
-- 整个动作只允许一个根运动/位移所有者，结束时清理 RootMotionSource、Falling 子状态和攻击窗口。
+2026-10-01移出当前Demo，不再作为动作需求或M5门禁。
 
 ## 7. 连招状态约束
 
@@ -351,7 +349,6 @@ IG.Aerial.Free
 IG.Aerial.Dance.KinsectSlash
 IG.Aerial.Dance.AdvancingCounter
 IG.Aerial.DescendingThrust
-IG.Aerial.DivingWyvern
 ```
 
 取消、受击、落地、死亡和换武器必须通过统一出口清除当前动作实例拥有的窗口 Tag，并把协调器恢复到与角色实际姿态一致的状态。
@@ -362,10 +359,10 @@ IG.Aerial.DivingWyvern
 2. 切换到 NumericOnly 配置后，红灯不再改变动作匹配，只改变可调数值。
 3. `Y+B` 和 `前+Y+B` 按角色相对方向稳定分流；四连印斩/未反击回旋斩后只能接四种起手招。
 4. 突进回旋斩窗口内受到可反击攻击时免除该次命中并触发舞踏；窗口外正常受击。
-5. 操虫斩按 LT 准心或角色 Forward 飞行，命中任意颜色部位都能取得精华并增加舞踏。
-6. 舞踏倍率达到配置上限后不再增加；落地、受击、急袭突刺和降龙按规则清空。
+5. 操虫斩直接 `B` 按角色 Forward 飞行；`RT+B` 在186的AimLock帧采样当前准心并冻结三维前冲方向。仅猎虫段[0]向有效Hitzone成功提交真实伤害GE后，按部位颜色调用ApplyExtract并提交舞踏；仅武器命中、落空或伤害提交失败均不点灯、不提交舞踏。三灯期间ApplyExtract吞掉单色精华且不刷新三灯。
+6. 舞踏倍率达到配置上限后不再增加；落地、受击、急袭突刺、死亡、收刀或卸装按规则清空，急袭突刺先快照倍率再清层。
 7. 觉虫击原子消耗旧三灯；猎虫每次成功贯通伤害立即按部位点灯并留下粉尘，途中可以重新形成三灯；猎人按受限准心方向位移。
 8. 粉尘集约只消费范围内己方粉尘；取消时正确回滚预留。
 9. 虫印斩首次有效近战 Hitzone 命中或 LT+RT 虫印弹命中后，均替换唯一虫印；虫印按时长、目标和卸装规则清理。
 10. 猎虫滑翔有虫印时追虫印、无虫印时短距前飞；命中怪物后进入空战但不增加舞踏。
-11. 空中不存在跳跃突进斩；强化跳跃斩和急袭突刺正确继承惯性；降龙不依赖翔虫或精华消费。
+11. 跳跃突进斩不在Demo范围；强化跳跃斩与降龙已于2026-10-01移出Demo/M5门禁。剩余新增空中招式仅急袭突刺：持刀Falling限时RT松开、380进入/循环及校准位移、381原根运动、三修正/四判定/三后续派生与所有权清理均按独立计划验收；M5收口与总验收仍须完成。
