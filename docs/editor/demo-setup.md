@@ -614,6 +614,8 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 
 ## 8. E6——UI 与 GameplayCue
 
+> **当前详细步骤（2026-10-06）：** 执行[E6非音效指导](m6-setup.md)，代码先按[M6计划](../using/m6-plan.md)完成。本节为总体布局；具体BindWidget名称、父类、Ready/解绑、资源快照及数字实现以两份新文档为准。音效不在本轮接线/验收范围。
+
 ### 8.1 Widget
 
 先在 `/Game/UI` 新建 `BP_MHGZHUD`，父类选择 `AMHGZHUD`；不要 Duplicate 其他 HUD。创建完成后回到 `BP_Demo_GameMode`，把 HUD Class 从 E2 的原生 `AMHGZHUD` 替换为该蓝图类。
@@ -623,12 +625,12 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 | Widget | 父类 | 必需内容 |
 |---|---|---|
 | `WBP_HUD` | `UMHGZMainHUDWidget` | 唯一 `WeaponResourceSlot`，以及 Health/Stamina/Crosshair 容器 |
-| `WBP_HealthBar` | `UMHGZUserWidget` | 当前值/最大值显示 |
-| `WBP_StaminaBar` | `UMHGZUserWidget` | 当前值/最大值显示 |
+| `WBP_HealthBar` | `UMHGZAttributeBarWidget`（M6拟新增，继承UMHGZUserWidget） | Health/MaxHealth委托驱动显示 |
+| `WBP_StaminaBar` | `UMHGZAttributeBarWidget`（M6拟新增，继承UMHGZUserWidget） | Stamina/MaxStamina委托驱动显示 |
 | `WBP_Crosshair` | `UMHGZCrosshairWidget` | 默认、Red、Orange、White 样式 |
-| `WBP_IG_ResourcePanel` | `UMHGZWeaponResourceWidget` | 猎虫耐力、三灯、舞踏层显示容器 |
-| `WBP_IG_KinsectStamina` | 项目通用 Widget 基类 | 猎虫耐力条 |
-| `WBP_IG_ExtractDisplay` | 项目通用 Widget 基类 | Red/Orange/White/Triple 状态和倒计时 |
+| `WBP_IG_ResourcePanel` | `UMHGZInsectGlaiveResourceWidget`（M6拟新增，继承UMHGZWeaponResourceWidget） | 猎虫耐力、三灯、舞踏、粉尘快照显示 |
+| `WBP_IG_KinsectStamina` | 可选面板内部子控件 | 首版可直接放在ResourcePanel，不单独绑定资源 |
+| `WBP_IG_ExtractDisplay` | 可选面板内部子控件 | 同上；Red/Orange/White/Triple状态和倒计时 |
 
 配置 `BP_MHGZHUD` Class Defaults：MainHUDClass、HealthBarClass、StaminaBarClass、CrosshairClass 分别指向上述资产。
 
@@ -652,9 +654,9 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 - `GameplayCue.IG.ExtractGained`、`TripleUpActivated`、`ExtractExpired`。
 - 不创建已移出 Demo 的 `GameplayCue.Hit.IG.DivingWyvern`；已有保留 Tag 不代表需要制作 Cue。
 
-先使用临时 Niagara/Sound 也可以，但 Cue 必须由 HitFeedbackRouter/资源事件显式执行；不要只把 Tag 放入 DynamicAssetTags。
+本轮先使用临时视觉即可，不配置新Sound；Cue必须由HitFeedbackRouter/资源事件显式执行，不只把Tag放入DynamicAssetTags。Niagara若涉及C++接口须先添加对应模块依赖。
 
-若代码使用 `AMHGZDamageNumberActor` 对象池，再创建 `BP_DamageNumberActor` 和 `WBP_DamageNumber`，把 WidgetComponent 指向该 Widget，并在最终 Feedback 配置中设置 ActorClass。伤害数字 Actor 自己拥有 WidgetComponent；木桩、Ability 和 HUD 不直接 Spawn 文本 Widget。
+本轮数字按M6计划使用有限Lifetime的 `AMHGZDamageNumberActor`（拟新增），创建 `BP_DamageNumberActor`/`WBP_DamageNumber`并设置数字Cue的ActorClass；对象池不是本轮前置条件。数字Actor拥有WidgetComponent；木桩、Ability和HUD不直接Spawn文本Widget。
 
 ## 9. E4.1 补充——Motion Matching 与动画图（旧称 E6-A）
 

@@ -585,7 +585,7 @@ ApplyExtract(Color)
 - `ApplyExtract(Color)`：所有吸收路径共用；三灯期间直接吞灯且不刷新。
 - `SetKinsectMark(Hitzone, LocalImpactPoint)` / `ClearKinsectMark(Reason)`：维护唯一虫印弱引用和到期 Timer。
 - `AddDanceStack(Source)` / `ClearDanceStacks(Reason)`：仅接受本文定义的来源和清空原因。
-- `SpawnPowder(HitResult)` / `ReservePowdersInRadius(...)`：觉虫击和粉尘集约共享的粉尘所有权接口。
+- 粉尘接口当前尚未实现；M6使用[M6非音效计划§4](../using/m6-plan.md)的 `SpawnPowderForSuccessfulHit`、`TryReservePowders`、`CommitPowderReservation`、`ReleasePowderReservation`。旧概括名 `SpawnPowder`/`ReservePowdersInRadius` 不代表已有API，也不再另外实现一套同义入口。
 
 Demo 唯一消耗三灯的动作是觉虫击。降龙已于2026-10-01移出当前Demo/M5范围；旧的 `Extract Surge`、`Triple Burst` 和“降龙消耗红灯”方案均不属于当前目标设计。
 

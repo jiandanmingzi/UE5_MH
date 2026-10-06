@@ -1,6 +1,8 @@
 # 虫棍木桩 Demo：阶段门禁、顺序与当前状态
 
 > **2026-10-06 当前状态：M5 总验收已通过并关闭。** 当前 Demo 的空回、操虫斩、强化操虫穿刺（平地范围）和急袭突刺均逐招签收；真实落地清空舞踏层数/来源/镜像 Tag，急袭突刺 Commit 先快照倍率再清层。收刀、空中受击、死亡、撞墙与封顶不在门禁范围。总验收证据：Development Editor UBT成功；`MHGZ`自动化185/185通过（M4 38、M5 77、急袭突刺专项16）；5项只读资产审计通过；全 Content DataValidation 616资产、0错误/0警告。逐招 PIE 已由用户签收，本轮未改代码/资产，故不重开 PIE。详见[M5总验收记录](../using/m5-plan.md#10-阶段-f--m5-总验收与签核)。
+>
+> **2026-10-06 验收后补充事项：空回→急袭突刺提前窗口。** 原 M5 总验收仍成立；本窄范围扩展的 C++ 已实现并通过 Development Editor 编译，尚未在 `AM_IG_AirDodge` 放置新点通知，也未做该扩展的 PIE，因此不能标为完成。该事项不改变主线 M6 的进入条件，也不重新打开已签收的 M5 原范围。
 
 > **范围收缩记录：** 强化跳跃斩和降龙已移出当前 Demo；已签收的强化操虫穿刺保留。M5 不含上述两招及收刀/空中受击/死亡路径。
 
@@ -89,7 +91,7 @@ E0/E1  E2    E3    E5.1（木桩三色部位与猎虫物理）
 | M4.6 攻击 Entry Section | M4.5、M4.2.1。 | Section 在播放前选择；拆分攻击的 Root Motion Phase 与 MovementTask 所有权可验证。 | **代码完成（2026-09-04；2026-09-05 两次复验）：** `UMHGZAttackAbility` 已按 `TransitionID → SourceState → DefaultEntrySection → Montage 开头` 在播放前选择并校验入口，非法配置在 Commit/Confirm 前拒绝；Development Editor 编译通过，`MHGZ.M4` 27/27（含 `MHGZ.M4.6.Attack.EntrySection` 2/2、精确 `bRequiresDodgeAcceptWindow` 门槛与扩展后的旧序列化字段/Notify 缺失断言）通过。第二轮清理已删除 Dummy `HalfExtent`、Combo `CoreRedirects`、两个旧 Dodge Notify 类及两个 Montage 中的四个实例。DataValidation 冷启动加载 519 资产，未见本次清理导致的 Missing Property/Class 或蓝图编译错误；全项目仍有既知 G-002 `DA_TrainingDummy` Hitzone 配置错误。实际拆分招式的资产接线、Root Motion Phase/MovementTask 目视验收由已开放的 E4.3 完成。 |
 | M4.7 地面招式 / 虫印 | M4.6 完成、E4.3 的最终 Combo 壳有效。 | 地面连段、虫印、反击/舞踏入口符合动作设计。 | **已完成并签收（2026-09-11）：** 地面虫印、四连印斩与突进回旋斩的 GA、Montage、Combo 和精确窗口均已完成 PIE；`bCounterable` 火圈命中已验证反击消费与 `AdvancingCounter` 舞踏层入口。实际弹跳位移明确移交 M5。 |
 | M5 空中/舞踏/终结 | M4.7 与 M4.5 最终回归完成。 | 当前 Demo 空中动作/舞踏/落地链只保留一个位移所有者；真实落地统一清除舞踏层数、来源和镜像 Tag；急袭突刺 Commit 先快照后清层。收刀、空中受击、死亡、撞墙和封顶不列入本轮退出条件。 | **已完成并签收（2026-10-06）。** 动作纵切均已逐招签收；Development Editor UBT、`MHGZ` 自动化185/185、5项只读资产审计、616资产 DataValidation（0错误/0警告）通过。逐招 PIE 已由用户签收，本轮未改运行时代码或资产，不重开 PIE。详见[M5总验收记录](../using/m5-plan.md#10-阶段-f--m5-总验收与签核)。 |
-| M6 觉虫击/粉尘/UI | M5、觉虫击规则和表现接口已冻结。 | HUD 唯一所有权、Resource Widget、Cue、粉尘和觉虫击闭环。 | 未开始。 |
+| M6 觉虫击/粉尘/UI | M5、觉虫击规则和表现接口已冻结；逐包数据前置条件见M6计划。 | HUD 唯一所有权、Resource Widget、视觉Cue/数字、粉尘与觉虫击闭环；本轮不含音效。 | **非音效计划已编写，实施未开始（2026-10-06）。** 下一包为[M6.1](../using/m6-plan.md)：审计与资源/粉尘基础设施；不重开M5。 |
 | M7 集成/打包 | M0～M6 与 E0～E6 均完成。 | 全项目验证、反复 PIE、压力测试、Win64 Development 打包通过。 | 未开始。 |
 
 完整字段与逐项退出条件见 [冻结实施计划](demo-implementation-plan.md#4-实施里程碑)。
@@ -107,7 +109,7 @@ E0/E1  E2    E3    E5.1（木桩三色部位与猎虫物理）
 | E4.3 其余地面动作 | M4.6 代码完成且 M4.5 已最终验收。 | 批量地面招式均从正确 Section 启动并正确结束。 | **已完成（2026-09-09）：** 地面招式的最终 GA、Montage、Combo 转移与入口 Section 已接线；用户已在 PIE 逐项验证全部当前招式。Dodge 的三帧入口混合段、Section/Notify 时间轴审计与 `MHGZ.M4.Dodge` 4/4 自动化也已复核通过。 |
 | E5.1 木桩/基础猎虫 | M3 Collision Root 与 Sweep 已完成。 | `DA_TrainingDummy` 恰有 Head=Red、Torso=Orange、Leg=White；Body/Hitzone 碰撞与猎虫物理配置正确。 | **已验收（2026-09-11）：** 三色木桩、水平火圈、受击与反击均已在 PIE 验证。猎虫采集精华因尚无可执行的人工验收路径，记录为 M7 前必须补齐的验收欠项。 |
 | E5.2 猎虫表现/训练场 | M5 或对应表现接口完成。 | 正式猎虫表现、训练场、可用的粉尘/虫印表现资产按所属阶段接线。 | 部分资产存在，未验收。 |
-| E6 UI/Cue | M6 接口完成。 | HUD 唯一所有者，ResourceWidget 填入 RuntimeDefinition，Cue/反馈闭环。 | 未开始。 |
+| E6 特殊动作/UI/视觉Cue | 对应M6代码包完成并冷编译；按子包分别进入。 | 觉虫击/集约资产与PIE、HUD唯一所有者、ResourceWidget接入、视觉Cue/数字闭环。 | **详细指导已编写，未执行。** [E6.1～E6.5](../editor/m6-setup.md)；音效排除，已有声音配置保留。 |
 | E7 全流程验证 | M0～M6、E0～E6 完成。 | 全 Content Data Validation、完整 PIE、打包均通过。 | 未开始。 |
 
 完整点击步骤见 [编辑器接线指南](../editor/demo-setup.md)。
@@ -138,7 +140,7 @@ M4.2 的唯一退出条件仍是普通 Idle、Start、Loop、真实松杆 Stop�
 
 ## 7. 当前项目位置与下一步入口
 
-**当前项目位置（2026-10-06）：M5 已完成并签收。** 急袭突刺无专属待办；主阶段总验收亦已关闭。下一阶段为 M6（觉虫击/粉尘/UI），具体入口待按 M6 规则与资源/UI 前置条件启动。普通猎虫回手交付精华仍是 M7 前独立欠项，不改变 M5 签收。
+**当前项目位置（2026-10-06）：M5 已完成并签收，M6非音效计划已编写、尚未实施。** 急袭突刺无专属待办；主阶段总验收亦已关闭。下一条任务为[M6.1审计与资源/粉尘基础设施](../using/m6-plan.md)，不是先创建HUD蓝图。音效排除本轮；普通猎虫回手交付精华仍是M7前独立欠项，不改变M5签收。
 
 **E2 录制后历史更新（2026-09-28，已由本轮 §9.5 入口取代）：** 用户已完成本版PIE，动作可触发但运动轨迹验收未通过。当前已完成原游戏专项数据提取；下一实施项为本招M4运动学修复，不是再次要求用户录同一未修版本。E1配置不重做，修改到的运动参数/Montage时序需重新回读并重验E2/E3。下方“下一步E2”仅为录制前快照。
 

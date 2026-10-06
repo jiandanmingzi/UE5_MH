@@ -9,13 +9,14 @@
 3. 按 [验证方案](verification.md) 执行当前 Demo 验收。
 4. 只有需要移动或重存资产时，读取 [资产目录整理规范](asset-organization.md)。
 
-> **普通移动状态路由：** 当前处于设计目录的 PMM-7.1 Stop 候选生命周期修复。任何涉及 `ABP_MH_Character`、PSS、PSD、Stop 曲线或 PoseSearch Notify 的操作，先读 [阶段门禁](../design/milestone-gates.md) 和 [纯 Motion Matching 普通移动实施指南](../design/pure-motion-matching-locomotion-guide.md)；不要执行本目录的 CMC/状态机历史备选文档。
+> **当前入口（2026-10-06）：** M5已签收，M6非音效计划已编写、尚未实施。执行[E6详细指导](m6-setup.md)前先完成对应[M6代码包](../using/m6-plan.md)。普通移动及动作退出已签收，PMM-7.1只是历史证据；涉及 `ABP_MH_Character`、PSS、PSD、Stop 曲线或 PoseSearch Notify 时先读[阶段门禁](../design/milestone-gates.md)，不执行CMC/状态机历史备选，也不重开普通Stop修复。
 
 ## 文档
 
 | 文档 | 用途 |
 |---|---|
 | [demo-setup.md](demo-setup.md) | 重构代码完成后的完整编辑器操作顺序 |
+| [m6-setup.md](m6-setup.md) | 本轮E6.1～E6.5：觉虫击/集约资产、HUD/准心、数字与视觉Cue、PIE；不含音效 |
 | [locomotion-refactor-setup.md](locomotion-refactor-setup.md) | 历史备选：CMC + 状态机路线的编辑器操作；当前纯 MM 路线下禁止执行 |
 | [verification.md](verification.md) | PIE、生命周期、伤害、输入和打包验收 |
 | [asset-organization.md](asset-organization.md) | Content Browser/AssetTools 移动、Redirector 和引用保护 |

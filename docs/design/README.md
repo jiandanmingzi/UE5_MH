@@ -23,6 +23,7 @@
 | [demo-refactor-scope.md](demo-refactor-scope.md) | Keep/Rewrite/Delete/Defer 与一次性迁移合同 |
 | [milestone-gates.md](milestone-gates.md) | M/E/L 阶段顺序、进出条件、当前状态和跨阶段门禁的唯一入口 |
 | [demo-implementation-plan.md](demo-implementation-plan.md) | M0～M7 实施计划、接口和验收追踪 |
+| [M6非音效实施计划](../using/m6-plan.md) | 当前M6.1～M6.5代码/自动化详细合同；配套[E6指导](../editor/m6-setup.md)，计划已编写、实施未开始 |
 | [demo-implementation-gaps.md](demo-implementation-gaps.md) | 当前源码 P0/P1 问题和证据 |
 | [m1-implementation-audit.md](m1-implementation-audit.md) | M1 实施范围、验证证据与 E2 交接 |
 | [m2-implementation-audit.md](m2-implementation-audit.md) | M2 Runtime/命中/木桩实现、验证证据与 E3 交接 |

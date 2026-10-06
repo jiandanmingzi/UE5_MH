@@ -169,8 +169,8 @@ struct FWeaponResourceCostReservation
 - Cooldown 使用标准 Cooldown GE 的 Duration 与 GrantedTag；取消、死亡或换装不手工写回 Loose Cooldown Tag。
 - 连招协调器属于 maintained/no-cost Ability：不扣耐、不附带冷却，卸装或 Pawn 生命周期结束时显式取消。
 - 旧 `bRequiresWeaponResource + WeaponResourceCost(float)` 不能表达三灯、瓶、色阶等离散资源，目标改为 `TArray<FWeaponResourceCostSpec>`。通用 GA 只透传 CostType/Amount，不按武器解释。
-- Resource 必须提供 `TryReserveCosts(ActionToken, Specs, OutReservation)`、`ReleaseReservation(Reservation)` 与保证成功的 `ConsumeReservedCosts(Reservation)`。Reservation 锁定本次需要的精确资源身份，例如 Triple ActiveGE Handle；它不广播回调、不播放表现、不立刻移除资源。
-- 固定事务顺序为：`TryReserveCosts` → `CommitAbility` → Commit 失败时 `ReleaseReservation`，成功时 `ConsumeReservedCosts` → `ConfirmTransitionActivation`。成功 reservation 在同一同步调用栈内消费，`ConsumeReservedCosts` 不允许再次失败；Resource 在 reservation 作用域内拒绝会改变被锁资源的重入操作。
+- Resource必须提供 `TryReserveCosts(ActionToken, Specs, OutReservation)`、`ReleaseReservation(Reservation)` 与 `ConsumeReservedCosts(Reservation)`。Reservation锁定本次需要的精确资源身份，例如Triple ActiveGE Handle；它不广播回调、不播放表现、不立刻移除资源。
+- 固定事务顺序：TryReserveCosts → CommitAbility；Commit失败Release，成功后消费非空预留，再ConfirmTransitionActivation。**M6.1接口修订目标（尚未实施）：ConsumeReservedCosts从void改为bool，正常有效预留在同一同步调用栈成功消费；过期/旧身份/重入移除导致消费失败时显式拒绝激活，禁止无成本Confirm。** 空Specs保持无成本语义，Resource拒绝重复预留同一资源；详见[M6计划§4.2](../using/m6-plan.md#42-成本结算必须有成功结果)。不能继续依据旧“必定成功”文字忽略当前void实现无法反馈失败的缺口；本轮觉虫击不新增未确认的GAS成本/冷却。
 - 觉虫击使用 `Cost.IG.TripleUp`，reservation 锁定当前 Triple Handle，不能拆成三个独立 `RemoveActiveGameplayEffect`。检查、GAS Commit、消费之间不得插入 Montage、Delegate 广播或延迟任务；消费结束后再统一广播资源变化。
 
 M1 固定新增两个通用原生 GE：`UMHGZStaminaCostGameplayEffect`（Instant，Stamina Additive，读取 `Data.Cost.Stamina` 负值）和 `UMHGZCooldownGameplayEffect`（HasDuration）。Ability 的 `CheckCost/ApplyCost` 计算 Instant 的 `StaminaCost × StaminaDeductionRate`；Drain Task 计算 `StaminaCostRate × StaminaConsumptionRate × ActualElapsed`，两者都构造有效 Cost Spec。`ApplyCooldown` 给通用 Cooldown Spec 设置本次 Duration 和动态 Granted CooldownTag；CooldownDuration≤0 或 Tag 无效时不 Apply。`FComboTransition::StaminaRequired` 仍只负责匹配门槛，不参与实际扣除。
@@ -697,6 +697,8 @@ M3输入接线补充（2026-10-03急袭突刺目标覆盖旧空中单RT）：`FW
 
 **修改范围：** 虫棍特殊 GA、Powder Actor、HUD/Widget、GameplayCue 临时资产。
 
+**本轮执行入口（2026-10-06）：** [M6详细实施计划](../using/m6-plan.md)、[E6详细编辑器指导](../editor/m6-setup.md)。计划已编写，代码/资产尚未实施；先M6.1，再按各包进入E6。本轮明确不包含音效制作/配置/验收，已有声音配置保留，音效延期且不阻塞非音效门禁。
+
 **进入条件：** §1.4 的觉虫击每次有效贯通伤害立即 ApplyExtract 规则已写入动作/资源/验收文档。
 
 **工作：**
@@ -704,9 +706,9 @@ M3输入接线补充（2026-10-03急袭突刺目标覆盖旧空中单RT）：`FW
 1. 实现觉虫击三灯原子消费、±60° 修正、猎虫贯通，以及每次成功伤害后的即时 ApplyExtract+粉尘生成和猎人位移。
 2. 实现己方通用粉尘、Reserved/Consumed 状态和粉尘集约取消回滚。
 3. 删除当前空壳 UISubsystem；由 HUD 独占 WBP_HUD 与资源面板生命周期，在 Possess 时绑定 RuntimeHost，把 ResourceWidget 插入主 HUD 资源插槽，并通过 Resource/Aim/Feedback Delegate 显示三灯、猎虫、舞踏、准心颜色和伤害数字；不轮询 Actor、不写 UI Loose Tag、不让资源面板单独 AddToViewport。
-4. 完成命中 Cue、三灯提示、临时音效和必要调试可视化。
+4. 完成视觉命中 Cue、三灯提示、伤害数字和必要调试可视化；音效不在本轮工作与验收范围。
 
-**退出条件：** 觉虫击失败不消耗、成功只消费一次；每次成功贯通伤害恰好对应一次 ApplyExtract 和一团粉尘，三色可重新形成三灯且后续吞灯不刷新；伤害提交失败不点灯也不产粉尘；只有粉尘集约能引爆；取消集约恢复 Reserved 粉尘；WBP_HUD 与资源面板只有 HUD 一个所有者，资源面板只存在于指定插槽；换装/死亡后无旧绑定，旧 Pawn 的 Ready/Invalidated 回调不能污染新 Pawn UI。
+**本轮非音效退出条件：** 觉虫击激活预检/成本失败不消耗、成功Commit只消费一次，成功后取消不退回旧三灯；每次成功贯通伤害恰好对应一次 ApplyExtract 和一团粉尘，三色可重新形成三灯且后续吞灯不刷新；伤害提交失败不点灯也不产粉尘；只有粉尘集约能引爆；取消集约恢复仍存活的 Reserved 粉尘，自然到期不复活；WBP_HUD 与资源面板只有 HUD 一个所有者，资源面板只存在于指定插槽；换装/Pawn解绑/运行期关闭后无旧绑定，旧 Pawn 的 Ready/Invalidated 回调不能污染新 Pawn UI。死亡玩法不在Demo范围，生命周期自动化仍覆盖旧回调清理。详细测试、数据前置条件与延期项以M6计划为准。
 
 ### M7：集成、打包与回归
 

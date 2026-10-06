@@ -2,6 +2,8 @@
 
 > **实施状态说明（以源码与 Content 为准）：** 当前完成的是 UI C++ 接口骨架和 AimComponent；主 HUD 创建/绑定、血条/耐力条、资源 Widget 工厂、准心蓝图和虫棍资源 UI 尚未接通。`Content/UI` 目前只有目录占位文件，因此下文的 Widget 蓝图和完整生命周期均作为详细方案保留。
 
+> **2026-10-06执行口径：** 具体字段、Widget父类、Ready信号与接线按[M6非音效计划§7～8](../using/m6-plan.md)及[E6详细指导](../editor/m6-setup.md)实施，尚未写代码。血/耐力使用拟新增MHGZAttributeBarWidget，虫棍面板使用拟新增MHGZInsectGlaiveResourceWidget；二者分别继承下文通用基类。RuntimeHost当前只有Invalidated，Ready必须在M6实际新增。下文概括/伪代码不能当作已存在接口；本轮不实施音效。
+
 ## 当前实现
 
 | 模块 | 当前状态 |
