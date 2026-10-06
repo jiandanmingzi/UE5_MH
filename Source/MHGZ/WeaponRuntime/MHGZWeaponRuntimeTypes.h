@@ -719,6 +719,14 @@ struct FPendingComboTransition
 
 	UPROPERTY()
 	FWeaponActionToken PreviousActionToken;
+
+	/**
+	 * Explicit action whose authored aerial handoff unlocked this transition.
+	 * Unlike PreviousActionToken (the combo FSM predecessor), this token may be
+	 * a direct/core action such as AirDodge that is not represented in ActiveTransition.
+	 */
+	UPROPERTY()
+	FWeaponActionToken AerialHandoffSourceActionToken;
 };
 
 /** 通用武器位移请求（运行时结构，不是 DataAsset；标量调优在 CombatConfig 验证） */

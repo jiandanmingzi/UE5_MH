@@ -237,7 +237,6 @@ private:
 	float RecordedTrajectoryElapsed = 0.0f;
 	bool bRecordedTrajectoryActive = false;
 	bool bRecordedTrajectoryCompleted = false;
-	TArray<FVector, TInlineAllocator<4>> RecordedContactNormals;
 
 	/** Mutable so the const ConstrainAnimRootMotionVelocity probe can append its vote. */
 	mutable TArray<FMHGZAerialMovementPhaseSample> AerialMovementSamples;

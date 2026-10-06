@@ -255,7 +255,6 @@ uint64 UMHGZInstrumentedCharacterMovementComponent::BeginRecordedTrajectoryMovem
 	RecordedTrajectoryElapsed = 0.0f;
 	bRecordedTrajectoryCompleted = false;
 	bRecordedTrajectoryActive = true;
-	RecordedContactNormals.Reset();
 
 	if (bGrounded)
 	{
@@ -342,7 +341,6 @@ void UMHGZInstrumentedCharacterMovementComponent::RetireRecordedTrajectoryMoveme
 	{
 		bRecordedTrajectoryActive = false;
 		bRecordedTrajectoryCompleted = false;
-		RecordedContactNormals.Reset();
 	}
 }
 
@@ -444,12 +442,10 @@ void UMHGZInstrumentedCharacterMovementComponent::PhysRecordedTrajectory(
 			EndVelocity.Z = 0.0;
 		}
 
-		// 只去掉指向已接触面的分量；切向分量与相位时钟都保留。
-		for (const FVector& Normal : RecordedContactNormals)
-		{
-			Delta -= Normal * FMath::Min(0.0, FVector::DotProduct(Delta, Normal));
-			EndVelocity -= Normal * FMath::Min(0.0, FVector::DotProduct(EndVelocity, Normal));
-		}
+		// 记录曲线是这条租约的运动真值。碰撞只裁掉当前 SafeMove 的被阻挡位移，
+		// 不把曲线速度投影到接触面的切线：空中下潜的高负 Z 速度投影到木桩圆角后，
+		// 会变成很大的水平速度，视觉上像被弹飞。下一子步仍从新的曲线差分开始，
+		// 不补追本步被挡掉的距离，也不沿用过去子步的接触法线。
 		Velocity = EndVelocity;
 		bJustTeleported = false;
 
@@ -475,7 +471,6 @@ void UMHGZInstrumentedCharacterMovementComponent::PhysRecordedTrajectory(
 		{
 			if (LandAtContact(Hit.Time)) { return; }
 			const FVector Normal = Hit.Normal.GetSafeNormal();
-			RecordedContactNormals.AddUnique(Normal);
 			HandleImpact(Hit, Step, Delta);
 			if (!IsRecordedTrajectoryOwnerCurrent(Lease)) { return; }
 			if (!bGrounded && MovementMode != MOVE_Flying) { return; }
@@ -494,18 +489,13 @@ void UMHGZInstrumentedCharacterMovementComponent::PhysRecordedTrajectory(
 				SlideFraction *= 1.0f - Hit.Time;
 				if (!Hit.IsValidBlockingHit()) { break; }
 				if (LandAtContact(FMath::Clamp(UsedFraction, 0.0f, 1.0f))) { return; }
-				RecordedContactNormals.AddUnique(Hit.Normal.GetSafeNormal());
 				HandleImpact(Hit, AppliedSlice, SlideDelta);
 				if (!IsRecordedTrajectoryOwnerCurrent(Lease)) { return; }
 				if (!bGrounded && MovementMode != MOVE_Flying) { return; }
 				if (SlideIndex == 0) { TwoWallAdjust(SlideDelta, Hit, Normal); }
 			}
-			for (const FVector& ContactNormal : RecordedContactNormals)
-			{
-				EndVelocity -= ContactNormal * FMath::Min(0.0,
-					FVector::DotProduct(EndVelocity, ContactNormal));
-			}
-			Velocity = EndVelocity;
+			// Keep the authored end velocity unchanged. The swept/slide movement above
+			// already resolves this step's contact without converting vertical speed to XY.
 		}
 
 		RecordedTrajectoryElapsed = StepEnd;

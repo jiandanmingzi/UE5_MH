@@ -458,7 +458,8 @@ bool UMHGZDescendingThrustAbility::IsUsableMoveSnapshot(
 
 bool UMHGZDescendingThrustAbility::ConsumeCorrectionFromPreviousFrame(
 	const int32 CorrectionOrdinal, const float MaxCorrectionAngleDegrees,
-	const float CorrectionDuration, bool& bOutSnapshotValid, bool& bOutApplied)
+	const float CorrectionDuration, bool& bOutSnapshotValid, bool& bOutApplied,
+	const bool bApplyDirectionCorrectionImmediately)
 {
 	bOutSnapshotValid = false;
 	bOutApplied = false;
@@ -489,12 +490,33 @@ bool UMHGZDescendingThrustAbility::ConsumeCorrectionFromPreviousFrame(
 			Character->GetActorRotation().Yaw,
 			Snapshot.WorldDirection.Rotation().Yaw);
 	}
-	bOutApplied = ApplyInActionDirectionCorrectionFromSnapshot(
-		GetActionToken(), Snapshot, MaxCorrectionAngleDegrees, CorrectionDuration,
-		0.0f, EActionDirectionCorrectionEasing::EaseOut);
+	if (bApplyDirectionCorrectionImmediately)
+	{
+		bOutApplied = ApplyInActionDirectionCorrectionFromSnapshot(
+			GetActionToken(), Snapshot, MaxCorrectionAngleDegrees,
+			CorrectionDuration, 0.0f,
+			EActionDirectionCorrectionEasing::EaseOut);
+	}
 	bCorrectionSnapshotValid[CorrectionOrdinal] = true;
 	bCorrectionApplied[CorrectionOrdinal] = bOutApplied;
 	return true;
+}
+
+void UMHGZDescendingThrustAbility::ApplyFirstCorrectionAfterMovementStarts()
+{
+	if (!bCorrectionConsumed[0] || !bCorrectionSnapshotValid[0]
+		|| CorrectionFrameNumbers[0] + 1 != GFrameCounter
+		|| !IsCurrentAction(DescendingActionToken))
+	{
+		return;
+	}
+
+	// Keep the already-consumed N-1 direction. Starting the MovementTask first
+	// makes this action the Host's movement owner, allowing it to take over a
+	// rotation override that is still finishing on the predecessor action.
+	bCorrectionApplied[0] = ApplyInActionDirectionCorrectionWithDirection(
+		GetActionToken(), CorrectionTargets[0], 180.0f, 0.1f, 0.0f,
+		EActionDirectionCorrectionEasing::EaseOut);
 }
 
 bool UMHGZDescendingThrustAbility::CaptureFirstSnapshotAndLockVelocity()
@@ -512,7 +534,7 @@ bool UMHGZDescendingThrustAbility::CaptureFirstSnapshotAndLockVelocity()
 	bool bSnapshotValid = false;
 	bool bApplied = false;
 	if (!ConsumeCorrectionFromPreviousFrame(0, 180.0f, 0.1f,
-		bSnapshotValid, bApplied))
+		bSnapshotValid, bApplied, false))
 	{
 		return false;
 	}
@@ -717,7 +739,10 @@ void UMHGZDescendingThrustAbility::ActivateAbility(
 	{
 		CancelDescendingThrust(EWeaponActionEndReason::Interrupted,
 			TEXT("The protected recorded Descending Thrust trajectory could not start."));
+		return;
 	}
+
+	ApplyFirstCorrectionAfterMovementStarts();
 }
 
 FWeaponMovementRequest UMHGZDescendingThrustAbility::MakeMovementRequest() const

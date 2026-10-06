@@ -1,10 +1,10 @@
 # 虫棍资源系统（操虫棍·Insect Glaive）
 
-> **实施状态说明（以源码、配置和 Content 为准）：** 本文负责猎虫实体、耐力、三色精华、三灯、UI 与词条；具体地面/空中动作、舞踏、位移和粉尘规则以 [insect-glaive-actions.md](insect-glaive-actions.md) 为唯一真相源。M3 已完成 Resource、基础猎虫飞行/召回、单灯/三灯、基础瞄准、虫印弹与四个猎虫原生 GA 父类；E4 仍需创建和接线 DataAsset/GE/GA 蓝图资产，舞踏、粉尘和后续动作由 M4～M6 完成。
+> **实施状态说明（以源码、配置和 Content 为准）：** 本文负责猎虫实体、耐力、三色精华、三灯、UI 与词条；具体地面/空中动作、舞踏、位移和粉尘规则以 [insect-glaive-actions.md](insect-glaive-actions.md) 为准。M3 基础资源、M4/E4 动作与资产、M5 空中动作/舞踏/落地链均按[阶段门禁](milestone-gates.md)验收；截至2026-10-06，M5总验收已关闭。后续 M6 聚焦觉虫击、粉尘及 HUD/Widget/GameplayCue 闭环，不把收刀、空中受击或死亡清舞踏扩成当前 Demo 要求。
 
 > **目标口径：** 项目以《世界》的猎虫与地面虫棍为基底，吸收并改造《崛起》的部分动作，形成原创连招。不是《崛起》逐项复刻；不使用翔虫资源、集中模式或钩爪。
 
-> **2026-10-03 Demo/M5目标规则更新：** 强化跳跃斩与降龙已移出当前范围，不再配置其动作、输入派生或功能验收。已签空回、操虫斩和强化操虫穿刺保留；剩余新增空中招式仅急袭突刺（同操虫斩持刀Falling门禁，RT限时松开）。[详细方案](../using/急袭突刺实现计划.md)已写，本招M1待验收，目标规则不表示已经实现。舞踏、取消清理、M5收口与总验收仍保留，M5整体尚未签收。
+> **2026-10-06 Demo/M5状态：** 强化跳跃斩与降龙已移出当前范围；空回、操虫斩、强化操虫穿刺（平地范围）和急袭突刺均按各自范围签收，M5总验收也已关闭。真实落地清舞踏；急袭突刺 Commit 先快照倍率再清层。收刀、空中受击和死亡不属于本 Demo/M5。总验收证据见[M5计划§10](../using/m5-plan.md#10-阶段-f--m5-总验收与签核)，急袭突刺本招范围见[实施计划](../using/急袭突刺实现计划.md)。
 
 ## 当前实现
 
@@ -15,7 +15,7 @@
 | GA/连招资产 | 原生 Send/Recall/DrawAndSend/Mark 父类已实现；M4-A.4 的 `UMHGZDrawAttackAbility` 与 `AnimNotify_DrawCommit` 也已实现。M4-A.5 令 Send、Recall 和 DrawAndSend 都以数据型 `ActionMontage` 播放无 Root Motion 的上半身动作：DrawAndSend 在 `DrawCommit` 才拔刀、在后续 `KinsectSendCommit` 才部署冻结请求，且不属于攻击链；Send/Recall 分别在 Send/Recall Commit 后执行 Resource。之后再在 E4 创建/回填 `GA_IG_Draw`、`GA_IG_DrawSlash`、其 Montage 与 Combo 转移。 |
 | 猎虫与萃取资产 | 猎虫 Mesh 已存在；Kinsect DataAsset 与 White/Orange/Red/TripleUp GE 待 E4 创建。生产代码已删除硬编码 `/Game/...` 加载，猎虫伤害直接复用原生 `UMHGZDamageGameplayEffect`。 |
 | UI/反馈 | AimComponent 已使用 `Aiming.Kinsect` + Visibility/Hitzone 验证并输出颜色 Delegate；Crosshair/三灯/耐力 Widget 与 GameplayCue 资产仍待 E6。 |
-| 运行时接线缺口 | Character WeaponRuntimeHost 已统一持有 Resource，并清理召回、换装、UnPossess 和 EndPlay 的当前 M3 资源。未实现的粉尘/舞踏/位移对象待后续阶段纳入同一所有权模型。 |
+| 运行时接线缺口 | RuntimeHost 统一持有 Resource；M5 已接入空中位移所有权、真实落地舞踏清理及急袭突刺 Commit 倍率快照后清层。M6 粉尘、HUD/Widget 与 Cue 尚待后续阶段；它们不是 M5 门禁。 |
 
 **设计原则：** 虫棍专属规则由猎虫实体、猎虫耐力、三色精华/三灯、虫印/粉尘、舞踏与虫棍 CombatConfig 共同组成。通用 GA 和连招协调器只处理输入、状态转移、攻击窗口和通用位移，不包含虫棍类型判断。红灯动作模式由 `UInsectGlaiveCombatConfig::RedExtractMode` 决定，默认使用经典动作门控，也可切换为只提供数值 Buff。
 
@@ -773,7 +773,7 @@ Content/
 │   ├── GA_IG_AwakenedKinsectAttack.uasset   ← 觉虫击（消耗三灯）
 │   ├── GA_IG_KinsectSlash.uasset            ← 操虫斩
 │   ├── GA_IG_KinsectPiercer.uasset         ← 强化操虫穿刺（已生成，本轮平地可玩范围已签收；旧规划名EnhancedKinsectSpiker不再使用）
-│   └── GA_IG_DescendingThrust.uasset        ← 拟新增急袭突刺（持刀Falling，RT限时松开；M1待验收）
+│   └── GA_IG_DescendingThrust.uasset        ← 急袭突刺（持刀Falling，RT限时松开；本招M1/M2/M3/E1/M4/E2已验收）
 ├── UI/InsectGlaive/
 │   ├── WBP_IG_ResourcePanel.uasset          ← 虫棍资源面板（耐力条+三灯圆盘）
 │   ├── WBP_IG_KinsectStamina.uasset         ← 猎虫耐力条

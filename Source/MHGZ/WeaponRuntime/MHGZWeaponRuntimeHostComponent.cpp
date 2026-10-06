@@ -806,10 +806,11 @@ FString UMHGZWeaponRuntimeHostComponent::GetActionMovementOwnerDebugString() con
 bool UMHGZWeaponRuntimeHostComponent::AcquireActionRotationOverride(
 	const FWeaponActionToken& ActionToken)
 {
+	const bool bOwnsMovement = IsActionMovementOwnedBy(ActionToken);
 	if (!bInitialized || bShuttingDown || !ActionToken.IsValid()
 		|| !IsTokenCurrent(ActionToken.RuntimeToken)
 		|| !ActiveActions.Contains(ActionToken)
-		|| (IsActionMovementOwned() && !IsActionMovementOwnedBy(ActionToken)))
+		|| (IsActionMovementOwned() && !bOwnsMovement))
 	{
 		return false;
 	}
@@ -818,7 +819,13 @@ bool UMHGZWeaponRuntimeHostComponent::AcquireActionRotationOverride(
 		&& ActionRotationOverrideOwner != ActionToken
 		&& IsTokenCurrent(ActionRotationOverrideOwner.RuntimeToken))
 	{
-		return false;
+		// A movement lease is the authoritative action owner for the character's
+		// transform. It may supersede a predecessor's lingering timed yaw task;
+		// that task will observe the changed owner and retire on its next tick.
+		if (!bOwnsMovement)
+		{
+			return false;
+		}
 	}
 
 	ActionRotationOverrideOwner = ActionToken;

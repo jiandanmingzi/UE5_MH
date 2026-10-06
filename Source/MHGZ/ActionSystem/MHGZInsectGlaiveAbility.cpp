@@ -160,9 +160,10 @@ bool UMHGZInsectGlaiveAbility::NotifyAerialHandoff()
 
 	// handoff = 锁定期终点：领「空中可操作」（裸 Falling）—— 空回/空中攻击的
 	// 闸门（ActivationRequiredTags / 行 RequiredTags）查它。
+	bool bFallingGateOpened = false;
 	if (UMHGZWeaponRuntimeHostComponent* HandoffHost = GetRuntimeHost())
 	{
-		HandoffHost->AcquireAerialFallingState();
+		bFallingGateOpened = HandoffHost->AcquireAerialFallingState();
 	}
 
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
@@ -185,6 +186,21 @@ bool UMHGZInsectGlaiveAbility::NotifyAerialHandoff()
 		// 会去查 CurrentFloor —— 那个 floor 已被 SetMovementMode(MOVE_Flying) 清掉了。
 		// 这里要表达的正是「CMC 接管」这个事实本身。
 		CMC->SetMovementMode(MOVE_Falling);
+	}
+
+	// A weapon attack pressed during this action's locked lead may be waiting in
+	// the Coordinator's shared preinput slot. Retry only after the Falling gate is
+	// live; the buffered snapshot is re-matched against the current combo state.
+	if (bFallingGateOpened)
+	{
+		if (UMHGZAbilitySystemComponent* MHGZASC = Cast<UMHGZAbilitySystemComponent>(
+			GetAbilitySystemComponentFromActorInfo()))
+		{
+			if (UGA_WeaponComboCoordinator* Coordinator = MHGZASC->GetActiveComboCoordinator())
+			{
+				Coordinator->OnAerialHandoffWindowOpened(&ActionToken);
+			}
+		}
 	}
 	return true;
 }
@@ -214,8 +230,8 @@ void UMHGZInsectGlaiveAbility::EndAbility(
 	CloseAerialHandoff();
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 
-	// 中止滞空 = 「空中可操作」的领取点：handoff 没到就被打断时，玩家输入必须即刻
-	// 恢复（空回没有预输入，恢复 = 之后的按下能过闸）。判「滞空」用 Host 的 Grounded
+	// 中止滞空 = 「空中可操作」的领取点：handoff 没到就被打断时，先恢复 Falling，
+	// 再检查共享预输入（Input.AirDodge 自身仍不缓存）。判「滞空」用 Host 的 Grounded
 	// 而不是 CMC->IsFalling()：此时运动任务刚拆完，Flying→Falling 的交接不一定已落定。
 	// 已被新动作接管（让位/反击进入）时注册表非空 ⇒ 不领 —— 新动作的 lead 自己要锁。
 	if (bWasCancelled)
@@ -224,7 +240,18 @@ void UMHGZInsectGlaiveAbility::EndAbility(
 		{
 			if (!AbortHost->IsGrounded() && !AbortHost->HasRegisteredAction())
 			{
-				AbortHost->AcquireAerialFallingState();
+				if (AbortHost->AcquireAerialFallingState())
+				{
+					if (UMHGZAbilitySystemComponent* MHGZASC =
+						Cast<UMHGZAbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo()))
+					{
+						if (UGA_WeaponComboCoordinator* Coordinator =
+							MHGZASC->GetActiveComboCoordinator())
+						{
+							Coordinator->OnAerialHandoffWindowOpened();
+						}
+					}
+				}
 			}
 		}
 	}
@@ -260,8 +287,9 @@ void UMHGZInsectGlaiveAbility::DetectAerialHandoffNotify(const UAnimMontage* Mon
 	{
 		bAerialHandoffAuthored = true;
 		// 【锁】空中动作的 lead 由此开始：放「空中可操作」（裸 Falling）。
-		// 起播→handoff 之间它不在场 ⇒ 空回（ActivationRequiredTags）与空中招式起手
-		// （DA_IG_Combo 行 RequiredTags）天然被拦；handoff / 中止滞空再领回。
+		// 起播→handoff 之间空回与空中招式 GA 仍不能激活；除空回指令外，符合 Combo
+		// 条件的 Input.Weapon 可由共享预输入槽等待本次 Handoff，再按当前状态重验。
+		// handoff / 中止滞空再领回。
 		// 不 Restore 物理：接管者自己的 profile 会覆写（见 ReleaseAerialFallingState）。
 		if (UMHGZWeaponRuntimeHostComponent* DetectHost = GetRuntimeHost())
 		{

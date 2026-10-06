@@ -7,7 +7,7 @@
 ### 范围与通用架构
 
 1. README、Demo 指南、虫棍资源和动作文档统一声明：以《世界》为基底，选择性改造三部曲动作；不是《崛起》逐项复刻。
-2. 项目中没有翔虫资源/恢复/消费、集中模式或钩爪作为 Demo 前置系统；范围内移植动作不隐式检查翔虫。强化跳跃斩与降龙已于2026-10-01移出当前Demo/M5范围；已签空回、操虫斩与强化操虫穿刺保留，剩余新增空中招式仅急袭突刺。M5收口与总验收仍须完成，主M5尚未签收。
+2. 项目中没有翔虫资源/恢复/消费、集中模式或钩爪作为 Demo 前置系统；范围内移植动作不隐式检查翔虫。强化跳跃斩与降龙已于2026-10-01移出当前Demo/M5范围；空回、操虫斩、强化操虫穿刺平地范围及急袭突刺均已签收，M5总验收于2026-10-06关闭。详见[M5总验收记录](../using/m5-plan.md#10-阶段-f--m5-总验收与签核)。
 3. 通用协调器只处理 InputSnapshot、转移边、ActionToken 与标签条件；新增虫棍动作不增加 `if Weapon==InsectGlaive`。
 4. 每条 Combo 转移拥有唯一 TransitionID；自动派生按 ID 定位。ActivateAbility 边经过 Pending→Resource Reserve→GAS Commit→Consume→Confirm，StateOnly 只用于同一 ActionToken 的自动阶段变化。
 5. TryActivate、Reserve 或 Commit 失败均不改变 CurrentState/Tag，且 reservation 被释放；旧 Ability 的迟到 Hit/End/Notify 不能清理或重置新 ActiveTransition。
@@ -75,9 +75,9 @@ E4-A.5. 收刀地面按 Y 只产生一个 `Input.Weapon.Y` 快照：无、左、
 
 21. 空中直接 B 的操虫斩沿角色 Forward；LT+B 沿激活瞬间准心方向；两者均受距离/碰撞限制且命中后点灯。
 22. 只有操虫斩命中和突进回旋斩反击增加舞踏；达到 MaxDanceStacks 后不超限，逐层倍率读取配置。
-23. 舞踏倍率只作用于猎人的空中攻击，不作用于猎虫、粉尘和地面伤害；落地、受击、死亡、收刀/卸装、急袭突刺会按规则清空，急袭突刺Commit先快照倍率再清层。
-24. 强化操虫穿刺只可从操虫斩有效命中提交的当前KinsectSlash舞踏来源，在Falling开放阶段用RT+Y派生；保护前段、落空、仅武器命中和回旋斩来源均拒绝。三段判定用用户放置的Attack Collision索引0/1/2，各对同目标最多成功一次；相同Yaw下改变准心Pitch不改变实际轨迹。200→201真实触地后进入203，202仅循环姿势。**2026-10-01：M1/M2/M3/E1/M4完成，E2本轮平地可玩范围已签收**，最新证据见[本招计划§13.5](../using/强化操虫穿刺实现计划.md)，规则矩阵保留§9～10。用户确认除撞墙无法测且暂不管外目测正常；碰墙/封顶暂缓，未发现已确认bug。录制没有slomo命令，不宣称慢放采样、全取消矩阵或五条clone全部实机通过。主M5尚未签收；强化跳跃斩与降龙已移出当前Demo/M5范围，剩余新增空中招式仅急袭突刺，先资源/真值核对与独立详细实施方案。
-25. 空中不存在跳跃突进斩；急袭突刺按[2026-10-03详细计划](../using/急袭突刺实现计划.md)验收：同操虫斩持刀Falling/预算门禁，RT限时松开且未组合消费；380进入/循环不重置连续轨迹，381地面段保留原Montage Root Motion。三次180°/180°/60°用指定前帧快照并按真值渐进转向；四判定窗用户配置，每段对同目标最多成功一次，地面可派生二连/后撤/飞圆，飞圆入口同二连来源。两条常驻Montage、同一Action/Ability完成落地段且精确清理所有权。方案已写，本招M1待验收，不表示本项通过。
+23. 舞踏倍率只作用于猎人的空中攻击，不作用于猎虫、粉尘和地面伤害；当前 Demo 验证真实落地清层，以及急袭突刺 Commit 先快照倍率再清层。收刀、空中受击和死亡不属于本轮验收范围；卸装/RuntimeShutdown 只作为资源生命周期清理。
+24. 强化操虫穿刺只可从操虫斩有效命中提交的当前KinsectSlash舞踏来源，在Falling开放阶段用RT+Y派生；保护前段、落空、仅武器命中和回旋斩来源均拒绝。三段判定用用户放置的Attack Collision索引0/1/2，各对同目标最多成功一次；相同Yaw下改变准心Pitch不改变实际轨迹。200→201真实触地后进入203，202仅循环姿势。**2026-10-01：M1/M2/M3/E1/M4完成，E2本轮平地可玩范围已签收**，最新证据见[本招计划§13.5](../using/强化操虫穿刺实现计划.md)，规则矩阵保留§9～10。碰墙/封顶、慢放采样、全取消矩阵和五条clone全部实机通过均不在签收范围；M5总验收已于2026-10-06关闭。
+25. **急袭突刺（2026-10-06已完整验收，当前平地Demo范围）**：同操虫斩持刀Falling/预算门禁，RT限时松开且未组合消费；380进入/循环不重置连续轨迹，381地面段保留原Montage Root Motion；三次180°/180°/60°用指定前帧快照并按真值渐进转向；四判定窗、同目标单段去重、地面二连/后撤/飞圆派生及同一Action/Ability落地段和所有权清理均已签收。用户确认M4矩阵及正常速度/慢放E2目视通过；本次空回预输入回归也通过。边界与证据见[急袭突刺计划§9](../using/急袭突刺实现计划.md#9-分阶段实施与门禁)。墙/封顶不在本轮已验收范围。
 26. 持刀虫印斩首次有效 Hitzone 命中、或 LT+RT 虫印弹命中 Hitzone 后创建唯一虫印；两种来源的新印均替换旧印，近战落空/虫印弹射空均不替换，收刀保留，目标失效/到期/卸装清除。
 27. 地面 RT+Y：有效虫印在距离内时猎虫滑翔追向虫印；否则短距前飞并少量抬升；命中怪物后小跳进入空战但不增加舞踏。
 28. 三灯下 RT+Y+B：觉虫击 Commit 通过 `Cost.IG.TripleUp` 原子清空旧三灯，准心方向限制在角色正前方上下左右 60°；猎虫每次成功提交贯通伤害后恰好按 Hitzone ApplyExtract 一次并留下通用粉尘一团，命中三色可在途中重新形成三灯，之后的萃取被吞且不刷新；伤害提交失败不点灯、不产粉尘；猎人位移有距离/碰撞上限。
@@ -90,7 +90,7 @@ E4-A.5. 收刀地面按 Y 只产生一个 `Input.Weapon.Y` 快照：无、左、
 32. 自定义 EffectContext 保留真实 HitResult/AttackInstanceID；零 MotionValue 的有效命中通过四个 Meta+最终 HitSignal 产生一次零伤害反馈，正动作值按 Demo 简化公式结算。
 33. 木桩三色 Hitzone 互不重叠且 ObjectType=Hitzone/QueryOnly；实体 Body 独立。武器用 Weapon Trace，猎虫用 Hitzone Object Sweep；Aim 用 Visibility 并验证 Hitzone，墙后部位不显示颜色。
 34. 在 30/60/120 FPS 下，组合输入、四连印斩四段、回旋反击窗口、觉虫击贯通和粉尘集约结果一致。
-35. 任意动作在受击、落地、死亡、收刀、换武器或 PIE End 时不残留 PendingTransition、Timer、Delegate、Reserved Powder、Loose Tag/GE、攻击窗口、Projectile 或 RootMotionSource；急袭突刺的 AbilityOwned Landing 不被通用落地重置提前截断。
+35. 对当前 Demo 已实现且纳入验收的动作结束/中断路径（真实落地、动作自身收刀、换武器、PIE End），不残留 PendingTransition、Timer、Delegate、Reserved Powder、Loose Tag/GE、攻击窗口、Projectile 或 RootMotionSource；急袭突刺的 AbilityOwned Landing 不被通用落地重置提前截断。舞踏战斗清理只在真实落地与急袭突刺 Commit 验收；收刀不得被误列为舞踏清层要求。空中受击与死亡流程不属于当前 Demo/M5 范围。
 36. Packaged Development Build 中完整执行 [编辑器接线指南](demo-setup.md) 第 10 节的分层验证，结果与 PIE 一致。
 37. 动作 GA 为 InstancedPerExecution、协调器为 InstancedPerActor；连续激活同一 GA Class/Spec 时两个实例有不同 ActionToken，旧实例以 Superseded 结束。
 38. 同时存在旧 BlendOut 与新 Montage 时，AttackCollision/Combo/Dodge Notify 只通过 Mesh+MontageInstanceID 调用所属 AbilityInstance；Notify 不遍历全部 Active Specs。送虫/收虫 Commit Notify 在 UE Context 缺少 InstanceID 的 Layered Slot 回调中，只可由该回调的源 Montage 取得同一 Mesh 的当前 InstanceID 后再走同一精确注册表；不得按 AbilityClass 猜实例。旧 NotifyEnd 不关闭新窗口。
@@ -140,7 +140,7 @@ E4-A.5. 收刀地面按 Y 只产生一个 `Input.Weapon.Y` 快照：无、左、
 30. **Montage 归属**：GA 内部指定 Montage→FComboTransition 仅引用 AbilityClass→连招表和动画零耦合
 31. **空挥断连**：(a) 气刃斩1 空挥→SpiritBlade Tag 未授予→气刃斩2 RequiredTags 不满足→断连。(b) DoubleSlash 段1 空挥→EndAbility 提前。(c) 首次命中→Apply OnHitSelfEffect→后续命中不重复
 32. **太刀 BlockedTags + 资源门控**：(a) 特殊纳刀 bMatchAnyState+RequiredTags={Unsheathed}→Idle 不可起手。(b) 登龙剑 BlockedTags={PostRoundslash}→大回旋后不可派生。(c) 登龙第一段命中→ShouldContinueAfterHit 检查气刃槽≥白。(d) 大回旋 GrantedTags={PostRoundslash}→Montage 完成后清除→登龙恢复可派生
-33. **预输入缓冲**：ComboData 的 `PreInputLifetime`（默认 0.5s）控制一条 Coordinator 缓冲；Input Router 先解析完整逻辑输入与摇杆快照，只有除 Combo/Dodge 接受窗口外均满足的指令才可写入。(a) ComboWindow 开前按 Y→窗口开启后按正常连招表复验并发出。(b) 超过有效期→无响应。(c) 连续按 Y→B→Y→后输入覆盖前输入，仅保留最后的 Y。(d) 攻击中 DodgeAccept 开前按 A→开启后经原 Dodge GA 路径发出；新动作确认、动作结束、打断或 ResetCombo 均清空缓冲。
+33. **预输入缓冲**：ComboData 的 `PreInputLifetime`（默认 0.5s）控制一条 Coordinator 缓冲；Input Router 先解析完整逻辑输入与摇杆快照，只有除 Combo/Dodge 接受窗口外均满足的指令才可写入。(a) ComboWindow 开前按 Y→窗口开启后按正常连招表复验并发出。(b) 超过有效期→无响应。(c) 连续按 Y→B→Y→后输入覆盖前输入，仅保留最后的 Y。(d) 攻击中 DodgeAccept 开前按 A→开启后经原 Dodge GA 路径发出；新动作确认、动作结束、打断或 ResetCombo 均清空缓冲。(e) 虫棍空中 GA 的 Falling 门尚未由 IG_AerialHandoff 打开时按一个当前 Combo 边合法的 `Input.Weapon.*`→Handoff 后用原快照重验并发出；只缺 Falling 的边可缓存，其它 Required/Blocked Tag、姿态、来源状态、方向和耐力条件不得绕过。(f) 同一时段按 `Input.AirDodge`→不缓存、不在 Handoff 自动补发。单次输入还须在 `PreInputLifetime` 内到达消费点。
 34. **翻滚窗口（纯 Tag）**：(a) 纵斩收招帧按 A→Attacking+DodgeAcceptOpen 均满足→翻滚发出。(b) Idle 按 A→翻滚始终可用
 35. **bRequiresWindowOpen=false + DodgeAcceptOpen**：(a) 虫棍纵斩 DodgeAcceptOpen 内按 LT+B→收虫触发。(b) 窗口外按 LT+B→不触发。(c) 普通纵斩 DodgeAcceptOpen 内按 A→翻滚触发
 36. **DataManager 全局查询**：(a) EquipmentComponent 查词条目录→正常返回。(b) ExecCalc 获取曲线表→得正确数值。(c) 资产未加载→FindEntryDefinition 返回 false→日志警告

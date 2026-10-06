@@ -172,7 +172,9 @@ private:
 	bool CaptureFirstSnapshotAndLockVelocity();
 	bool ConsumeCorrectionFromPreviousFrame(int32 CorrectionOrdinal,
 		float MaxCorrectionAngleDegrees, float CorrectionDuration,
-		bool& bOutSnapshotValid, bool& bOutApplied);
+		bool& bOutSnapshotValid, bool& bOutApplied,
+		bool bApplyDirectionCorrectionImmediately = true);
+	void ApplyFirstCorrectionAfterMovementStarts();
 	bool ReadPreviousFrameSnapshot(FActionMoveInputFrameSnapshot& OutSnapshot) const;
 	bool IsUsableMoveSnapshot(const FActionMoveInputFrameSnapshot& Snapshot) const;
 

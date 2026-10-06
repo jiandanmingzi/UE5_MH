@@ -497,46 +497,13 @@ Demo 公式保持 [伤害计算](exec-calc.md) 的简化基线；完整伤害模
 
 ### 3.8 空中位移所有权
 
-所有非纯动画位移通过一个通用任务族执行，建议入口为 `UAbilityTask_MHGZMovement`，内部按模式选择算法：
+所有非纯动画位移通过当前通用任务 `UAbilityTask_MHGZWeaponMovement` 执行。运行时接口是 `FWeaponMovementRequest` / `FWeaponMovementResult`，声明在 `Source/MHGZ/WeaponRuntime/MHGZWeaponRuntimeTypes.h`；本文不再复制一份易漂移的结构体定义。当前模式包括 `BoundedDirectional`、`BallisticVault`、`CurvedVault`、`AdditiveInertia`、`CurvedDirectional`、`StationaryHover`、`AuthoredAerialPhysics`、`SegmentedDirectional` 与 `RecordedLocalTrajectory`。
 
-```cpp
-enum class EWeaponMovementMode : uint8
-{
-    BoundedDirectional,
-    BallisticVault,
-    AdditiveInertia
-};
+请求以 `OwnerAction` 绑定动作所有权，以 `DirectionSnapshot` 和模式专属曲线/Profile 描述运动，必要时指定继承速度、弹道参数、旋转策略和取消速度策略；结果提供结束原因、平面/三维行程、最终速度与 `BlockingHit`。**当前接口没有** `CollisionPolicy` / `EMovementCollisionPolicy` 字段：阻挡行为由 CMC 与任务内阻挡回调按运动模式处理；记录轨迹另有 `TrajectoryGroundPolicy`、`TrajectoryTailPolicy`。新增运动模式或字段时，以头文件和对应自动化为准，并同步更新此处概述，不要复用旧的伪结构体。
 
-struct FWeaponMovementRequest
-{
-    FWeaponActionToken OwnerAction;
-    EWeaponMovementMode Mode;
-    FVector DirectionSnapshot;
-    float MaxDistance;
-    float Duration;
-    TObjectPtr<UCurveFloat> DistanceCurve;
-    FVector InheritedVelocity;
-    float InheritedVelocityRatio;
-    EBallisticParameterMode BallisticMode; // ApexHeightAndDuration / ExplicitLaunchVelocity
-    float ApexHeight;
-    FVector LaunchVelocity;
-    float AirControlScale;
-    EActionRotationPolicy RotationPolicy; // Locked / FaceDirection / SteerWithinCone
-    float MaxTurnRateDegrees;
-    float SteeringConeHalfAngle;
-    FName WarpTargetName;                 // 由 RuntimeHost 按 ActionToken 生成唯一名称
-    EMovementCollisionPolicy CollisionPolicy;
-    EMovementCancelVelocityPolicy CancelVelocityPolicy;
-};
+### 3.9 舞踏清理范围
 
-struct FWeaponMovementResult
-{
-    EWeaponMovementEndReason EndReason;
-    float TravelledDistance;
-    FVector FinalVelocity;
-    FHitResult BlockingHit;
-};
-```
+当前 Demo 的舞踏战斗清理点是**真实落地**；`UMHGZWeaponRuntimeHostComponent::HandleLanded` 统一清除舞踏层数、来源和镜像 Tag。急袭突刺在 Commit 时按本招合同先快照倍率再清层。收刀、空中受击与死亡不属于当前 Demo 的玩法/验收范围；资源卸装或 RuntimeShutdown 的兜底清理属于生命周期保护，不扩展战斗门禁。
 
 冻结规则：
 
@@ -573,7 +540,7 @@ ActiveReservations            // 本资源发起的粉尘预留
 - Triple GE 不授予三个 `WeaponResource.IG.Extract.*` 单灯状态 Tag，但授予 `Combat.Branch.Extract.Red`，保证 Classic 模式三灯期间仍使用完整动作；该动作权限随 Triple Handle 一起移除。
 - `TryConsumeTripleUpAtomic()` 先验证 ASC 中仍存在对应 Active GE，再一次移除该 Handle；匹配身份的 GE 移除回调负责清状态并广播，失败不产生部分状态。
 - GE 移除 Delegate 负责到期清理和 UI 广播；Timer 只做表现或非 GE Actor 生命周期。
-- 舞踏只由操虫斩命中和突进回旋斩反击成功增加；所有清空原因使用同一个带枚举原因的 `ResetDance`。
+- 舞踏只由操虫斩命中和突进回旋斩反击成功增加；当前战斗清理点为真实落地及急袭突刺 Commit（先快照倍率，再清层），统一调用 `URes_InsectGlaive::ClearDanceStacks(Reason)`。收刀、空中受击和死亡不属于当前 Demo/M5 清层范围；卸装/RuntimeShutdown 仅是生命周期兜底。
 - 虫印、粉尘不放进 ASC/PlayerState/SaveGame，Pawn/武器生命周期结束时清理。
 - 普通 FirstHitOnly 飞行只在 `PendingExtractColor` 为空时写入首个有效颜色并进入 Hover。返回到达必须先原子取出并清空 Pending，再切到 Attached、调用一次 `ApplyExtract`；因此下一次 Flight 可以获取新颜色。返回中重新送虫保留尚未交付的 Pending，不允许后续命中覆盖它。
 - 猎虫耐力归零按“上一帧 > 0 且本帧 <= 0，并且不在 Returning/Attached”这一阈值边沿只触发一次 ForceRecall 和一次警告音效；归零后的每帧 Tick 不得重复召回或播放。到达玩家后直接进入 Attached，开始附着恢复。
@@ -653,7 +620,7 @@ M3输入接线补充（2026-10-03急袭突刺目标覆盖旧空中单RT）：`FW
 
 > **历史条目映射：** 本节冻结细节中的 `M4-A.2`、`M4-A.3.1`、`M4-A.4`、`M4-A.5` 分别读作 **M4.1.2、M4.1.3.1、M4.1.4、M4.1.5**；`E4-A` 读作 **E4.1**。这些是已完成历史条目，不是新的任务名。
 
-> **状态入口：** M4.1.2～M4.1.5 的原生合同、动作数据和验收范围如下；实际完成度、已知阻塞项与下一步只查 [阶段门禁](milestone-gates.md#7-当前项目位置与下一步)。上述 M4.1/E4.1、M4.2～M4.5 与 M4.2.1 已于 2026-09-03 签收；当前允许进入 M4.6，E4.3/M4.7/M5 仍受其各自前置门禁限制。
+> **历史状态入口（2026-09-03 快照）：** M4.1.2～M4.1.5 的原生合同、动作数据和验收范围如下；当时 M4.1/E4.1、M4.2～M4.5 与 M4.2.1 已签收、下一阶段为 M4.6。此状态已过期；当前阶段与下一步只查[阶段门禁](milestone-gates.md#7-当前项目位置与下一步入口)。
 
 **修改范围：** 通用 ActionToken 的 Montage Root Motion 所有权与单 Token 提前释放、收刀/翻滚期间的 `Combat.State.Sheathing`/`Combat.State.Dodging` 输入互斥、攻击→翻滚的精确取消窗口、`UMHGZDodgeAbility` 的锁定/MoveExit 阶段和方向选择、`UMHGZSheatheAbility` 与 `GA_Sheathe` 的最终原生运行时语义、Y 拔刀专属 Ability/Commit、收/拔刀 Commit 驱动的武器视觉 Socket 切换、普通攻击的激活瞬转、持刀送虫/收虫的无伤害 Montage/Commit，以及对应的 Combo/GA/Montage 接线与测试；不实现其余地面动作、特殊技或完整 Transition 表。
 
@@ -680,7 +647,7 @@ M3输入接线补充（2026-10-03急袭突刺目标覆盖旧空中单RT）：`FW
 
 **修改范围：** `InputSystem` 的通用 ReleaseFallback、虫棍 ComboData、地面 GA/Montage/Notify 与虫印 Resource 接口；不实现完整空中动作。
 
-> **历史执行记录：** 本节的进入条件已在后续 M4.3、M4.4、E4.2、M4.5 与 M4.2.1 中满足并完成验收。当前不得以本节的旧顺序推断工作项；现行门禁是 M4.6，E4.3/M4.7/M5 仍保持阻塞，详见 [阶段门禁](milestone-gates.md#7-当前项目位置与唯一允许的下一步)。
+> **历史执行记录（2026-09-03）：** 本节的进入条件已在后续 M4.3、M4.4、E4.2、M4.5 与 M4.2.1 中满足并完成验收。当时的后续门禁是 M4.6；该历史顺序不得用于推断当前工作项，现行状态只看[阶段门禁](milestone-gates.md#7-当前项目位置与下一步入口)。
 
 **工作：**
 
@@ -710,6 +677,8 @@ M3输入接线补充（2026-10-03急袭突刺目标覆盖旧空中单RT）：`FW
 
 ### M5：舞踏、空中位移与终结动作
 
+**当前状态（2026-10-06）：已完成总验收并签收。** 空回、操虫斩、强化操虫穿刺（平地范围）及急袭突刺均已逐招签收；总验收结果见[M5计划§10](../using/m5-plan.md#10-阶段-f--m5-总验收与签核)。本阶段战斗清层只要求真实落地和急袭突刺 Commit；收刀、空中受击、死亡、撞墙、封顶不作为本 Demo/M5 门禁。
+
 **修改范围：** MovementTask、虫棍空中 GA、Montage/Notify、ComboData。
 
 **进入条件：** M4.7、M4.6 与 M4.5 已完成；不得以旧的直接全库动作退出路径接通空中资产。
@@ -719,10 +688,10 @@ M3输入接线补充（2026-10-03急袭突刺目标覆盖旧空中单RT）：`FW
 1. 完成 BoundedDirectional/BallisticVault/AdditiveInertia；Movement Token 同时仲裁平移、旋转、转向与唯一 WarpTarget，Character locomotion 在 Token 存活时让出旋转所有权。
 2. 实现操虫斩两种 AimSource、命中点灯和舞踏。
 3. 实现强化操虫穿刺的来源限制。
-4. 按[急袭突刺实现计划](../using/急袭突刺实现计划.md)接入380进入/循环、校准空中轨迹、381原Montage Root Motion、三前帧快照修正/四判定/地面三派生；本招M1待验收。不建立跳跃突进斩、强化跳跃斩或降龙转移（2026-10-01范围收缩）。
-5. 实现落地、受击、收刀、终结动作对舞踏/空中状态的统一清理。
+4. [急袭突刺实现计划](../using/急袭突刺实现计划.md)所列380进入/循环、校准空中轨迹、381原Montage Root Motion、三前帧快照修正/四判定/地面三派生已完成；本招M1/M2/M3/E1/M4/E2于2026-10-06完整验收。不建立跳跃突进斩、强化跳跃斩或降龙转移（2026-10-01范围收缩）。
+5. 实现并验收真实落地时对空中状态及舞踏层数/来源/镜像 Tag 的统一清理；急袭突刺 Commit 先冻结本次伤害倍率再清层。收刀、空中受击和死亡清理不属于当前 Demo 要求。
 
-**退出条件：** 只有两种指定来源增加舞踏；倍率封顶且按段快照；两种操虫斩方向正确；惯性动作末速度连续；动作转向不被 Character Tick 覆盖；任一取消路径都只剩一个 CMC 移动所有者且不存在残留 WarpTarget。
+**退出条件（已通过，2026-10-06）：** 两种指定来源增加舞踏；倍率封顶且按段快照；空中招式满足各自已签收的输入、命中/未命中、派生和位移合同；真实落地清空舞踏层数/来源/镜像 Tag；急袭突刺 Commit 的倍率快照先于清层；位移与旋转单一所有权及有效动作结束清理通过。详见[M5总验收记录](../using/m5-plan.md#10-阶段-f--m5-总验收与签核)。
 
 ### M6：觉虫击、粉尘、UI 与反馈闭环
 
@@ -780,7 +749,7 @@ M3输入接线补充（2026-10-03急袭突刺目标覆盖旧空中单RT）：`FW
 | 三色、三灯吞灯、觉虫击消费 | M3、M6 | GE 到期/失败/重复输入 |
 | LT/RT 三种瞄准语义 | M1、M3 | 收刀/持刀/空中状态矩阵 |
 | 虫印与猎虫滑翔 | M3、M4、M5 | 有印/无印/过期/卸装 |
-| 操虫斩、穿刺、舞踏、惯性 | M5 | 命中/未命中/落地/受击 |
+| 操虫斩、穿刺、舞踏、惯性 | M5 | 命中/未命中/真实落地/终结 Commit |
 | 急袭突刺 | M5 | FinalVelocity 与清理检查 |
 | 觉虫击、逐击点灯/粉尘、粉尘集约 | M6 | 原子消费、伤害/点灯/粉尘一一对应与预留回滚 |
 | 真实命中、伤害、硬直、反馈 | M2、M6 | 零伤害、部位、Cue、卡肉 |

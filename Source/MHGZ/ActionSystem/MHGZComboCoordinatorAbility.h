@@ -40,6 +40,14 @@ public:
 	/** Attack-side DodgeAccept Notify calls this after its exact gate is live. */
 	void OnDodgeAcceptWindowOpened(const FWeaponActionToken& ActionToken);
 
+	/**
+	 * IG aerial handoff calls this after the Falling gate has been restored.
+	 * Pass the still-active handoff source so a buffered destination can end it
+	 * on Confirm even when the source is not tracked by ActiveTransition.
+	 */
+	void OnAerialHandoffWindowOpened(
+		const FWeaponActionToken* SourceActionToken = nullptr);
+
 	/** A non-combo Action finished Commit; its new action boundary discards preinput. */
 	void OnDirectActionConfirmed();
 
@@ -56,11 +64,12 @@ public:
 	bool CommitActiveActionDodgeSupersede(const FWeaponActionToken& DodgeActionToken);
 	void CancelActiveActionDodgeSupersede(const FWeaponActionToken& DodgeActionToken);
 
-	// ── M5 空中回避：可操作帧闸门 + 让位 ─────────────────────────────────────
+	// ── M5 空中动作：可操作帧闸门 + 让位 ─────────────────────────────────────
 	//
 	// 与上面地面 DodgeAccept 那套**并列**、互不借用：空中走点通知的 latch
 	// （UAnimNotify_IG_AerialHandoff → NotifyAerialHandoff），地面走 NotifyState 的窗口。
-	// **空中回避没有预输入**（2026-09-22 用户拍板取消）：锁定期里的按下直接作废。
+	// Input.AirDodge 自身仍不预输入；其它 Input.Weapon 空中动作可使用共享预输入槽，
+	// 但只有在 IG_AerialHandoff 尚未恢复 Falling 门时才缓存候选边。
 
 	/**
 	 * 让位：把**其它**已 Commit 的 IG 动作以 `Superseded` 结束。返回结束个数。
@@ -116,11 +125,14 @@ private:
 	void BuildIndices();
 	const FComboTransition* FindTransition(FName TransitionID) const;
 	const FComboTransition* FindBestMatch(const FWeaponInputSnapshot& Input,
-		bool bIgnoreAcceptWindows = false) const;
+		bool bIgnoreAcceptWindows = false,
+		bool bAllowAerialHandoffPreInput = false) const;
 	bool TransitionRequirementsPass(const FComboTransition& Transition,
-		const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows = false) const;
+		const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows = false,
+		bool bAllowAerialHandoffPreInput = false) const;
 	bool ExecuteTransition(const FComboTransition& Transition,
-		const FWeaponInputSnapshot& Input, const FWeaponActionToken* SourceAction = nullptr);
+		const FWeaponInputSnapshot& Input, const FWeaponActionToken* SourceAction = nullptr,
+		const FWeaponActionToken* AerialHandoffSourceAction = nullptr);
 	bool ExecuteStateOnlyTransition(const FComboTransition& Transition,
 		const FWeaponActionToken& SourceAction);
 	bool DoesTransitionMatchState(const FComboTransition& Transition) const;
@@ -132,9 +144,11 @@ private:
 	void ReleaseActiveTransitionTags();
 	void CloseWindowsFor(const FWeaponActionToken& ActionToken);
 	bool CacheCombatInput(const FWeaponInputSnapshot& Input);
+	bool CanBufferAerialHandoffInput(const FWeaponInputSnapshot& Input) const;
 	bool HasLiveBufferedCombatInput();
 	void ClearBufferedCombatInput();
-	void TryConsumeBufferedCombatInput(bool bAllowDirectInput);
+	void TryConsumeBufferedCombatInput(bool bAllowDirectInput,
+		const FWeaponActionToken* AerialHandoffSourceAction = nullptr);
 	void ResetComboTimeout();
 	void OnComboTimeout();
 	UMHGZWeaponRuntimeHostComponent* GetRuntimeHost() const;

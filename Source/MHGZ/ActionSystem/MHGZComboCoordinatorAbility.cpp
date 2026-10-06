@@ -25,6 +25,8 @@ namespace
 		TEXT("Combat.State.Grounded"));
 	const FGameplayTag AerialTag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Aerial"));
+	const FGameplayTag AerialFallingTag = FGameplayTag::RequestGameplayTag(
+		TEXT("Combat.State.Aerial.Falling"));
 	const FGameplayTag SheathedTag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Sheathed"));
 	const FGameplayTag UnsheathedTag = FGameplayTag::RequestGameplayTag(
@@ -180,7 +182,7 @@ bool UGA_WeaponComboCoordinator::HasOpenDodgeAcceptWindowFor(
 
 bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	const FComboTransition& Transition, const FWeaponInputSnapshot& Input,
-	bool bIgnoreAcceptWindows) const
+	bool bIgnoreAcceptWindows, bool bAllowAerialHandoffPreInput) const
 {
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (!ASC || HasPlayerActionInputLock(ASC)
@@ -189,9 +191,21 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	{
 		return false;
 	}
-	if (!Transition.RequiredTags.IsEmpty()
-		&& !ASC->HasAllMatchingGameplayTags(Transition.RequiredTags))
+	for (const FGameplayTag& RequiredTag : Transition.RequiredTags)
 	{
+		if (ASC->HasMatchingGameplayTag(RequiredTag))
+		{
+			continue;
+		}
+
+		// During an authored IG aerial lead, Falling is the one intentionally
+		// withheld gate. A matching input may wait for its Handoff, but no other
+		// missing requirement is forgiven.
+		if (RequiredTag == AerialFallingTag && bAllowAerialHandoffPreInput
+			&& CanBufferAerialHandoffInput(Input))
+		{
+			continue;
+		}
 		return false;
 	}
 	if (!Transition.BlockedTags.IsEmpty()
@@ -224,7 +238,8 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 }
 
 const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
-	const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows) const
+	const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows,
+	bool bAllowAerialHandoffPreInput) const
 {
 	if (!ComboData) return nullptr;
 	TArray<int32> Candidates;
@@ -240,7 +255,8 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 		if (!ComboData->Transitions.IsValidIndex(Index)) continue;
 		const FComboTransition& Candidate = ComboData->Transitions[Index];
 		if (Candidate.bAutoTransition || Candidate.InputTag != Input.ResolvedInputTag
-			|| !TransitionRequirementsPass(Candidate, Input, bIgnoreAcceptWindows))
+			|| !TransitionRequirementsPass(Candidate, Input, bIgnoreAcceptWindows,
+				bAllowAerialHandoffPreInput))
 		{
 			continue;
 		}
@@ -303,7 +319,17 @@ void UGA_WeaponComboCoordinator::HandleWeaponInput(const FWeaponInputSnapshot& I
 			|| PendingMatch->bRequiresDodgeAcceptWindow)
 		{
 			CacheCombatInput(Input);
+			return;
 		}
+	}
+
+	// Also queue a weapon action edge pressed during an aerial lead whose only
+	// missing transition requirement is the Falling tag restored by Handoff.
+	// This reuses the same one-slot/latest-input-wins buffer and TTL as ComboWindow.
+	if (CanBufferAerialHandoffInput(Input)
+		&& FindBestMatch(Input, true, true))
+	{
+		CacheCombatInput(Input);
 	}
 }
 
@@ -312,8 +338,9 @@ bool UGA_WeaponComboCoordinator::TryBufferDirectInput(
 {
 	HasLiveBufferedCombatInput();
 
-	// 空中回避**没有预输入**（用户 2026-09-22 拍板取消）：锁定期里的按下直接作废，
-	// 不入槽、放锁点不补发。`Input.Dodge` 是它的父标签，地面分支靠下面的精确 == 守住。
+	// 空中回避指令自身**没有预输入**：锁定期按下直接作废，不入槽、放锁点不补发。
+	// `Input.Dodge` 是它的父标签，地面分支靠下面的精确 == 守住；其它 `Input.Weapon.*`
+	// 攻击边的空中 Handoff 预输入由 HandleWeaponInput 单独处理。
 	if (Input.ResolvedInputTag == AirDodgeInputTag)
 	{
 		return false;
@@ -354,7 +381,8 @@ bool UGA_WeaponComboCoordinator::TryBufferDirectInput(
 
 bool UGA_WeaponComboCoordinator::ExecuteTransition(
 	const FComboTransition& Transition, const FWeaponInputSnapshot& Input,
-	const FWeaponActionToken* SourceAction)
+	const FWeaponActionToken* SourceAction,
+	const FWeaponActionToken* AerialHandoffSourceAction)
 {
 	if (Transition.ExecutionPolicy == EComboExecutionPolicy::StateOnly)
 	{
@@ -397,6 +425,17 @@ bool UGA_WeaponComboCoordinator::ExecuteTransition(
 	Pending.AbilityHandle = AbilityHandle;
 	Pending.ActivationSequenceID = Context.ActivationSequenceID;
 	Pending.ActivationContext = Context;
+	if (AerialHandoffSourceAction && AerialHandoffSourceAction->IsValid()
+		&& AerialHandoffSourceAction->RuntimeToken == Context.RuntimeToken)
+	{
+		const UMHGZGameplayAbility* HandoffSourceAbility =
+			Cast<UMHGZGameplayAbility>(AerialHandoffSourceAction->AbilityInstance.Get());
+		if (HandoffSourceAbility && HandoffSourceAbility->IsActive()
+			&& HandoffSourceAbility->GetActionToken() == *AerialHandoffSourceAction)
+		{
+			Pending.AerialHandoffSourceActionToken = *AerialHandoffSourceAction;
+		}
+	}
 	if (ActiveTransition.IsSet())
 	{
 		Pending.PreviousActionToken = ActiveTransition->ActionToken;
@@ -431,8 +470,26 @@ bool UGA_WeaponComboCoordinator::ConfirmTransitionActivation(
 
 	ClearBufferedCombatInput();
 	PendingTransition.Reset();
+	const FWeaponActionToken AerialHandoffSource =
+		Pending.AerialHandoffSourceActionToken;
+	const auto EndAerialHandoffSource = [this, &AerialHandoffSource, &ActionToken]()
+	{
+		if (!AerialHandoffSource.IsValid() || AerialHandoffSource == ActionToken)
+		{
+			return;
+		}
+		if (UMHGZGameplayAbility* SourceAbility = Cast<UMHGZGameplayAbility>(
+			AerialHandoffSource.AbilityInstance.Get()))
+		{
+			SourceAbility->RequestEndAction(EWeaponActionEndReason::Superseded);
+		}
+		CloseWindowsFor(AerialHandoffSource);
+	};
 	if (Transition->StatePolicy == EComboStatePolicy::Preserve)
 	{
+		// Preserve keeps the combo FSM predecessor, not the aerial action which
+		// yielded its movement ownership at this authored handoff.
+		EndAerialHandoffSource();
 		ResetComboTimeout();
 		return true;
 	}
@@ -466,6 +523,10 @@ bool UGA_WeaponComboCoordinator::ConfirmTransitionActivation(
 			PreviousAbility->RequestEndAction(EWeaponActionEndReason::Superseded);
 		}
 		CloseWindowsFor(PreviousAction);
+	}
+	if (AerialHandoffSource != PreviousAction)
+	{
+		EndAerialHandoffSource();
 	}
 	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
 	{
@@ -678,6 +739,18 @@ void UGA_WeaponComboCoordinator::OnDodgeAcceptWindowOpened(
 	TryConsumeBufferedCombatInput(/* bAllowDirectInput = */ true);
 }
 
+void UGA_WeaponComboCoordinator::OnAerialHandoffWindowOpened(
+	const FWeaponActionToken* SourceActionToken)
+{
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	if (!ASC || !ASC->HasMatchingGameplayTag(AerialFallingTag))
+	{
+		return;
+	}
+	TryConsumeBufferedCombatInput(/* bAllowDirectInput = */ false,
+		SourceActionToken);
+}
+
 void UGA_WeaponComboCoordinator::OnDirectActionConfirmed()
 {
 	ClearBufferedCombatInput();
@@ -832,6 +905,26 @@ bool UGA_WeaponComboCoordinator::CacheCombatInput(const FWeaponInputSnapshot& In
 	return true;
 }
 
+bool UGA_WeaponComboCoordinator::CanBufferAerialHandoffInput(
+	const FWeaponInputSnapshot& Input) const
+{
+	if (Input.Phase != EWeaponInputPhase::Started
+		|| !Input.ResolvedInputTag.MatchesTag(WeaponInputRoot)
+		|| !Input.ContextTags.HasTagExact(AerialTag)
+		|| Input.ContextTags.HasTagExact(GroundedTag))
+	{
+		return false;
+	}
+
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	const UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	return ASC && Host
+		&& ASC->HasMatchingGameplayTag(AerialTag)
+		&& !ASC->HasMatchingGameplayTag(GroundedTag)
+		&& !ASC->HasMatchingGameplayTag(AerialFallingTag)
+		&& !Host->IsGrounded();
+}
+
 bool UGA_WeaponComboCoordinator::HasLiveBufferedCombatInput()
 {
 	if (!BufferedCombatInput.IsSet())
@@ -852,7 +945,8 @@ void UGA_WeaponComboCoordinator::ClearBufferedCombatInput()
 }
 
 void UGA_WeaponComboCoordinator::TryConsumeBufferedCombatInput(
-	bool bAllowDirectInput)
+	bool bAllowDirectInput,
+	const FWeaponActionToken* AerialHandoffSourceAction)
 {
 	if (!HasLiveBufferedCombatInput() || PendingTransition.IsSet())
 	{
@@ -870,7 +964,8 @@ void UGA_WeaponComboCoordinator::TryConsumeBufferedCombatInput(
 		if (const FComboTransition* Transition = FindBestMatch(Input))
 		{
 			ClearBufferedCombatInput();
-			ExecuteTransition(*Transition, Input);
+			ExecuteTransition(*Transition, Input, nullptr,
+				AerialHandoffSourceAction);
 			return;
 		}
 

@@ -62,8 +62,8 @@ public:
 		const FVector& FallbackFacing,
 		const UInsectGlaiveCombatConfig& Config);
 
-	// （旧 AerialPreInputLifetime 已随空中预输入退役 —— 2026-09-22 用户拍板取消：
-	// 锁定期里的按下直接作废，不入槽、放锁点不补发。）
+	// （旧空回专用 AerialPreInputLifetime 槽已移除：Input.AirDodge 自身仍不预输入；
+	// 其它 Input.Weapon 空中动作改用 ComboCoordinator 的共享预输入槽。）
 
 	virtual bool CanActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,

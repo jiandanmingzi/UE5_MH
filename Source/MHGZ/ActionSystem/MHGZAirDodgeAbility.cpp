@@ -177,7 +177,8 @@ bool UMHGZAirDodgeAbility::CanActivateAbility(
 	// 最早可操作帧的锁由引擎原生拦：`ActivationRequiredTags` 里的
 	// `Combat.State.Aerial.Falling`（空中可操作）—— 空中动作的 lead 里它被
 	// DetectAerialHandoffNotify 放掉，handoff / 中止滞空 / 离地再领回。
-	// **没有预输入**（2026-09-22 取消）：锁定期的按下直接作废，到可操作帧再按才出。
+	// `Input.AirDodge` 自身**没有预输入**：锁定期按下直接作废，到可操作帧再按才出。
+	// 其它 `Input.Weapon.*` 空中动作使用 Coordinator 的共享预输入槽，不由本 GA 缓存。
 	return !ASC->HasMatchingGameplayTag(DeadTag())
 		&& !ASC->HasMatchingGameplayTag(HitstunTag())
 		&& !ASC->HasMatchingGameplayTag(KnockdownTag());

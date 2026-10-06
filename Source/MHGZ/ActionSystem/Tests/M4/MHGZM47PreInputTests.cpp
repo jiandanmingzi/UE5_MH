@@ -225,4 +225,121 @@ bool FMHGZM47PreInputDisabledAndDodgeAccept::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM47AerialHandoffPreInput,
+	"MHGZ.M4.Input.PreInput.AerialHandoffConsumesWeaponInputButNotAirDodge",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM47AerialHandoffPreInput::RunTest(const FString& Parameters)
+{
+	FMHGZM3Harness Harness;
+	if (!Harness.Setup())
+	{
+		AddError(TEXT("aerial handoff preinput harness setup failed"));
+		Harness.Teardown();
+		return false;
+	}
+
+	UGA_WeaponComboCoordinator* Coordinator = Harness.ASC
+		? Harness.ASC->GetActiveComboCoordinator() : nullptr;
+	const FGameplayAbilitySpecHandle AttackHandle = Harness.GiveAbility(
+		UMHGZM4TestAttackAbility::StaticClass());
+	if (!Coordinator || !AttackHandle.IsValid())
+	{
+		AddError(TEXT("coordinator or test attack ability missing"));
+		Harness.Teardown();
+		return false;
+	}
+
+	UMHGZWeaponComboData* ComboData = NewObject<UMHGZWeaponComboData>(Coordinator);
+	ComboData->PreInputLifetime = 0.5f;
+	FComboTransition& AerialAttack = ComboData->Transitions.AddDefaulted_GetRef();
+	AerialAttack.TransitionID = FName(TEXT("PreInputAerialAttack"));
+	AerialAttack.SourceState = FName(TEXT("Idle"));
+	AerialAttack.TargetState = FName(TEXT("AerialAttack"));
+	AerialAttack.InputTag = M3::Tag(TEXT("Input.Weapon.B"));
+	AerialAttack.AbilityClass = UMHGZM4TestAttackAbility::StaticClass();
+	AerialAttack.RequiredTags.AddTag(M3::Tag(TEXT("Combat.State.Aerial.Falling")));
+	AerialAttack.RequiredTags.AddTag(M3::Tag(TEXT("Combat.State.Unsheathed")));
+	Coordinator->InjectComboData(ComboData);
+
+	Harness.Host->SetSheathed(false);
+	Harness.Host->SetGrounded(false);
+	TestTrue(TEXT("a direct aerial source action activates before the handoff"),
+		Harness.ASC->TryActivateAbility(AttackHandle));
+	UMHGZM4TestAttackAbility* SourceAction = GetActiveInstance<UMHGZM4TestAttackAbility>(
+		*Harness.ASC, AttackHandle);
+	TestNotNull(TEXT("the direct aerial source action is live"), SourceAction);
+	FWeaponActionToken SourceActionToken;
+	if (SourceAction)
+	{
+		SourceActionToken = SourceAction->GetActionToken();
+		FName SourceWarpTarget;
+		TestTrue(TEXT("the source action owns movement during its locked lead"),
+			Harness.Host->AcquireActionMovement(SourceActionToken, SourceWarpTarget));
+	}
+	Harness.Host->ReleaseAerialFallingState(); // simulate an aerial montage lead before Handoff
+	TestFalse(TEXT("the aerial lead has not restored the Falling activation gate"),
+		Harness.ASC->HasMatchingGameplayTag(M3::Tag(TEXT("Combat.State.Aerial.Falling"))));
+
+	FWeaponInputSnapshot AirDodgeInput = M3::MakePosedInput(false, false);
+	AirDodgeInput.ResolvedInputTag = M3::Tag(TEXT("Input.AirDodge"));
+	AirDodgeInput.SourceControlTag = AirDodgeInput.ResolvedInputTag;
+	AirDodgeInput.SequenceID = 41;
+	AirDodgeInput.Phase = EWeaponInputPhase::Started;
+	TestFalse(TEXT("AirDodge itself is still excluded from preinput"),
+		Coordinator->TryBufferDirectInput(AirDodgeInput));
+
+	FWeaponInputSnapshot AttackInput = M3::MakePosedInput(false, false);
+	AttackInput.ResolvedInputTag = M3::Tag(TEXT("Input.Weapon.B"));
+	AttackInput.SourceControlTag = AttackInput.ResolvedInputTag;
+	AttackInput.SequenceID = 42;
+	AttackInput.Direction = EDirectionalInput::Left;
+	AttackInput.Phase = EWeaponInputPhase::Started;
+	AttackInput.ContextTags.Reset();
+	AttackInput.ContextTags.AddTag(M3::Tag(TEXT("Combat.State.Aerial")));
+	AttackInput.ContextTags.AddTag(M3::Tag(TEXT("Combat.State.Unsheathed")));
+	Coordinator->HandleWeaponInput(AttackInput);
+	TestEqual(TEXT("the attack waits while only the aerial Falling gate is closed"),
+		Coordinator->GetCurrentState(), FName(TEXT("Idle")));
+	TestTrue(TEXT("the source action remains the only active action before Handoff"),
+		SourceAction && SourceAction->IsActive()
+		&& !Coordinator->GetActiveTransition().IsSet());
+
+	TestTrue(TEXT("the aerial host restores the Falling gate at Handoff"),
+		Harness.Host->AcquireAerialFallingState());
+	Coordinator->OnAerialHandoffWindowOpened(&SourceActionToken);
+	UMHGZM4TestAttackAbility* Attack = Coordinator->GetActiveTransition().IsSet()
+		? Cast<UMHGZM4TestAttackAbility>(
+			Coordinator->GetActiveTransition()->ActionToken.AbilityInstance.Get())
+		: nullptr;
+	TestNotNull(TEXT("the buffered non-dodge attack activates at Handoff"), Attack);
+	TestEqual(TEXT("the preinput transition is committed at Handoff"),
+		Coordinator->GetCurrentState(), FName(TEXT("AerialAttack")));
+	TestTrue(TEXT("the aerial source is ended before the destination takes over"),
+		SourceAction && !SourceAction->IsActive()
+		&& !Harness.Host->IsActionMovementOwnedBy(SourceActionToken));
+	if (SourceAction)
+	{
+		TestEqual(TEXT("the source ends with the explicit superseded reason"),
+			SourceAction->GetActionEndReason(), EWeaponActionEndReason::Superseded);
+	}
+	if (Attack)
+	{
+		TestEqual(TEXT("the original input sequence is preserved"),
+			Attack->GetWeaponActivationContext().Input.SequenceID, 42u);
+		TestEqual(TEXT("the original input direction is preserved"),
+			Attack->GetWeaponActivationContext().Input.Direction, EDirectionalInput::Left);
+		FName DestinationWarpTarget;
+		TestTrue(TEXT("the destination can acquire the source's released movement lease"),
+			Harness.Host->AcquireActionMovement(Attack->GetActionToken(),
+				DestinationWarpTarget));
+		Harness.Host->ReleaseActionMovement(Attack->GetActionToken());
+		Attack->RequestEndAction(EWeaponActionEndReason::Normal);
+	}
+
+	Harness.Teardown();
+	return true;
+}
+
 #endif

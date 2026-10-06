@@ -16,6 +16,7 @@
 #include "ActionSystem/MHGZDescendingThrustAbility.h"
 #include "ActionSystem/MHGZRecordedLocalTrajectory.h"
 #include "Components/BoxComponent.h"
+#include "Components/CapsuleComponent.h"
 #include "Curves/CurveVector.h"
 #include "Curves/RichCurve.h"
 #include "EngineGlobals.h"
@@ -67,6 +68,55 @@ FRecordedLocalTrajectoryProfile MakeKnownTrajectoryProfile()
 	Profile.TerminalVelocityLocal = FVector(100.0f, -40.0f, 20.0f);
 	Profile.TerminalAccelerationLocal = FVector(0.0f, 0.0f, -100.0f);
 	return Profile;
+}
+
+FRecordedLocalTrajectoryProfile MakeHighSpeedSurfaceContactProfile()
+{
+	FRecordedLocalTrajectoryProfile Profile;
+	Profile.Curve = NewObject<UCurveVector>(GetTransientPackage());
+	if (!Profile.Curve)
+	{
+		return Profile;
+	}
+
+	for (int32 Axis = 0; Axis < 3; ++Axis)
+	{
+		const float EndValue = Axis == 0 ? 100.0f : (Axis == 2 ? -2000.0f : 0.0f);
+		const FKeyHandle Start = Profile.Curve->FloatCurves[Axis].AddKey(0.0f, 0.0f);
+		Profile.Curve->FloatCurves[Axis].GetKey(Start).InterpMode = RCIM_Linear;
+		const FKeyHandle End = Profile.Curve->FloatCurves[Axis].AddKey(1.0f, EndValue);
+		Profile.Curve->FloatCurves[Axis].GetKey(End).InterpMode = RCIM_Linear;
+	}
+	Profile.CoveredSeconds = 1.0f;
+	Profile.TerminalVelocityLocal = FVector(100.0f, 0.0f, -2000.0f);
+	Profile.TerminalAccelerationLocal = FVector::ZeroVector;
+	return Profile;
+}
+
+AActor* SpawnTiltedTrajectoryContactSurface(UWorld& World)
+{
+	AActor* Surface = World.SpawnActor<AActor>();
+	if (!Surface)
+	{
+		return nullptr;
+	}
+	UBoxComponent* Box = NewObject<UBoxComponent>(Surface,
+		TEXT("RecordedTrajectoryContactSurface"), RF_Transient);
+	Surface->AddInstanceComponent(Box);
+	Surface->SetRootComponent(Box);
+	// A compact tilted top models grazing the edge of the training dummy instead
+	// of an effectively infinite ramp that would keep sliding the capsule forever.
+	Box->SetBoxExtent(FVector(40.0f, 40.0f, 10.0f));
+	Box->SetCollisionProfileName(TEXT("BlockAll"));
+	Box->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
+	Box->SetCollisionObjectType(ECC_WorldStatic);
+	Box->SetCollisionResponseToAllChannels(ECR_Ignore);
+	Box->SetCollisionResponseToChannel(ECC_Pawn, ECR_Block);
+	Box->RegisterComponent();
+	Surface->SetActorLocation(FVector(0.0f, 0.0f, -10.0f), false, nullptr,
+		ETeleportType::TeleportPhysics);
+	Surface->SetActorRotation(FRotator(15.0f, 0.0f, 0.0f), ETeleportType::TeleportPhysics);
+	return Surface;
 }
 
 FWeaponMovementRequest MakeProtectedTrajectoryRequest()
@@ -505,6 +555,119 @@ bool FMHGZM2DescendingThrustMovementTaskLandingLeaseTest::RunTest(const FString&
 		HasPhase(FName(TEXT("RecordedTrajectory.Begin"))));
 	TestTrue(TEXT("existing sparse telemetry exposes the real landing handoff event"),
 		HasPhase(FName(TEXT("RecordedTrajectory.LandingEnabled"))));
+
+	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZM2DescendingThrustRecordedTrajectoryContactPreservesAuthoredVelocityTest,
+	"MHGZ.M2.DescendingThrust.Foundation.RecordedTrajectoryContactPreservesAuthoredVelocity",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZM2DescendingThrustRecordedTrajectoryContactPreservesAuthoredVelocityTest::RunTest(
+	const FString& Parameters)
+{
+	(void)Parameters;
+
+	IConsoleVariable* TelemetryVariable = IConsoleManager::Get().FindConsoleVariable(
+		TEXT("mhgz.Telemetry.Enable"));
+	if (!TestNotNull(TEXT("the existing sparse aerial telemetry switch is available"),
+		TelemetryVariable))
+	{
+		return false;
+	}
+	FScopedTelemetryCVar TelemetryGuard(TelemetryVariable);
+
+	FDescendingThrustFoundationHarness H;
+	if (!TestTrue(*FString::Printf(TEXT("real Host/Action harness builds (%s)"),
+		*H.FailureStage), H.Build(FVector(0.0f, 0.0f, 1000.0f))))
+	{
+		H.Teardown();
+		return false;
+	}
+
+	UMHGZInstrumentedCharacterMovementComponent* CMC =
+		Cast<UMHGZInstrumentedCharacterMovementComponent>(
+			H.Character->GetCharacterMovement());
+	if (!TestNotNull(TEXT("the real instrumented CMC is available"), CMC))
+	{
+		H.Teardown();
+		return false;
+	}
+
+	const float CapsuleHalfHeight = H.Character->GetCapsuleComponent()
+		->GetScaledCapsuleHalfHeight();
+	const float CapsuleRadius = H.Character->GetCapsuleComponent()
+		->GetScaledCapsuleRadius();
+	H.Character->SetActorLocation(FVector(0.0f, 0.0f, CapsuleHalfHeight + 5.0f),
+		false, nullptr, ETeleportType::TeleportPhysics);
+	AActor* ContactSurface = SpawnTiltedTrajectoryContactSurface(*H.World);
+	if (!TestNotNull(TEXT("the tilted, blocking contact surface is spawned"), ContactSurface))
+	{
+		H.Teardown();
+		return false;
+	}
+
+	FHitResult GeometryProbeHit;
+	FCollisionQueryParams GeometryProbeParams(
+		SCENE_QUERY_STAT(RecordedTrajectorySurfaceProbe), false, H.Character);
+	const FVector GeometryProbeStart = H.Character->GetActorLocation();
+	const bool bGeometryBlocksPawn = H.World->SweepSingleByChannel(
+		GeometryProbeHit, GeometryProbeStart,
+		GeometryProbeStart + FVector(0.0f, 0.0f, -40.0f), FQuat::Identity,
+		ECC_Pawn, FCollisionShape::MakeCapsule(CapsuleRadius, CapsuleHalfHeight),
+		GeometryProbeParams);
+	TestTrue(TEXT("the test surface blocks a capsule sweep on the Pawn channel"),
+		bGeometryBlocksPawn && GeometryProbeHit.GetActor() == ContactSurface);
+
+	FWeaponMovementRequest Request = MakeProtectedTrajectoryRequest();
+	Request.RecordedTrajectory = MakeHighSpeedSurfaceContactProfile();
+	Request.Duration = Request.RecordedTrajectory.GetDuration();
+	Request.TrajectoryGroundPolicy = ERecordedTrajectoryGroundPolicy::ProtectedFlight;
+	if (!TestTrue(TEXT("the steep authored trajectory request is valid"),
+		Request.HasValidRecordedTrajectoryParameters())
+		|| !TestTrue(TEXT("the production movement task acquires the trajectory lease"),
+			H.ActivateRecordedTrajectory(Request)))
+	{
+		H.Teardown();
+		return false;
+	}
+
+	const FVector PositionBeforeMovement = H.Character->GetActorLocation();
+	const uint64 SerialBeforeMovement = CMC->GetLatestAerialMovementSampleSerial();
+	constexpr float StepSeconds = 1.0f / 60.0f;
+	for (int32 Frame = 0; Frame < 12; ++Frame)
+	{
+		CMC->PerformMovement(StepSeconds);
+	}
+
+	FMHGZRecordedTrajectoryTelemetry RuntimeTelemetry;
+	CMC->GetRecordedTrajectoryTelemetry(H.MovementAbility->GetActionToken(), RuntimeTelemetry);
+	TestTrue(TEXT("the protected trajectory remains active after grazing the surface"),
+		RuntimeTelemetry.bActive && CMC->MovementMode == MOVE_Flying);
+	const FVector ActualTravel = H.Character->GetActorLocation() - PositionBeforeMovement;
+	TestTrue(TEXT("leaving the compact surface does not preserve its old normal as a trajectory ramp"),
+		FVector(ActualTravel.X, ActualTravel.Y, 0.0f).Size() < 110.0f);
+
+	TArray<FMHGZAerialMovementPhaseSample> Samples;
+	CMC->GetAerialMovementSamplesSince(SerialBeforeMovement, Samples);
+	const bool bSawTiltedBlockingContact = Samples.ContainsByPredicate(
+		[](const FMHGZAerialMovementPhaseSample& Sample)
+		{
+			return Sample.Phase == FName(TEXT("CMC.HandleImpact.Pre"))
+				&& Sample.bImpactBlockingHit
+				&& FMath::Abs(Sample.ImpactNormal.X) > 0.1f
+				&& Sample.ImpactNormal.Z > 0.9f;
+		});
+	TestTrue(TEXT("the test trajectory actually grazes the tilted top surface"),
+		bSawTiltedBlockingContact);
+
+	const FVector ExpectedVelocity = MHGZRecordedLocalTrajectory::LocalToWorld(
+		Request.GetRecordedTrajectoryVelocity(RuntimeTelemetry.ElapsedSeconds),
+		Request.DirectionSnapshot);
+	TestTrue(TEXT("surface contact does not convert the authored downward speed into lateral launch speed"),
+		CMC->Velocity.Equals(ExpectedVelocity, 1.0f));
 
 	H.Teardown();
 	return true;

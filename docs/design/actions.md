@@ -289,7 +289,7 @@ EnhancedInput → Tag → ASC → GA → Montage → RootMotion 覆盖 CMC 位�
 | **① 动画根运动** | 具有可靠 Root 曲线的空中回避/短动作 | 轨迹主要由动画给出 | Montage RootMotion；MotionWarping 只做有限朝向/落点校正 |
 | **② 受限定向位移** | 操虫斩、猎虫滑翔、觉虫击猎人位移 | 激活时快照方向，具有最大距离和碰撞终止 | RootMotionSource/AbilityTask + Capsule Sweep + 距离/时长上限 |
 | **③ 弹跳/舞踏** | 操虫斩命中、突进回旋斩反击后的舞踏 | 明确初速度或最高点，随后交给重力 | 由统一 Launch/Ballistic Task 计算速度；结束写回 CMC |
-| **④ 惯性/入口向量攻击** | 急袭突刺（2026-10-03目标） | 第一段锁定校准水平向量，三次朝向修正不持续改变空中向量；第二段原动画位移 | 空中RecordedLocalTrajectory参数化适配；真实触地后切原Montage Root Motion。详见[急袭计划](../using/急袭突刺实现计划.md)，旧AdditiveInertia模式保留供其他动作使用 |
+| **④ 惯性/入口向量攻击** | 急袭突刺（2026-10-06已完整验收） | 第一段锁定校准水平向量，三次朝向修正不持续改变空中向量；第二段原动画位移 | 空中RecordedLocalTrajectory参数化适配；真实触地后切原Montage Root Motion。详见[急袭计划](../using/急袭突刺实现计划.md)，旧AdditiveInertia模式保留供其他动作使用 |
 | **⑤ 自由下落** | 空中动作结束后的 Falling | 仅重力、空气控制和衰减 | 无 GA 位移，CMC 全权管理 |
 
 任何运行时轨迹都必须输出明确的 Start、EndReason、FinalVelocity，并在碰墙、受击、死亡、落地和换武器时清理。不能在 `EndAbility` 临时读取“最后一帧根位移”猜测整段动作末速度。
@@ -335,20 +335,23 @@ Velocity归零→Grounded    可激活新 GA          落地动画→Idle
 
 ### 通用位移任务协议
 
-所有武器共享 `UAbilityTask_MHGZMovement`，字段与冻结计划保持一致：
+所有武器共享当前实现的 `UAbilityTask_MHGZWeaponMovement`。运行时请求/结果以 `FWeaponMovementRequest`、`FWeaponMovementResult` 为准；权威声明位于 `Source/MHGZ/WeaponRuntime/MHGZWeaponRuntimeTypes.h`。当前 `EWeaponMovementMode` 包含 `BoundedDirectional`、`BallisticVault`、`CurvedVault`、`AdditiveInertia`、`CurvedDirectional`、`StationaryHover`、`AuthoredAerialPhysics`、`SegmentedDirectional` 和 `RecordedLocalTrajectory`。
 
 ```text
-FWeaponMovementRequest:
-  OwnerAction, Mode, DirectionSnapshot, MaxDistance, Duration, DistanceCurve,
-  InheritedVelocity, InheritedVelocityRatio,
-  BallisticMode, ApexHeight, LaunchVelocity, AirControlScale,
+FWeaponMovementRequest（字段摘要）:
+  OwnerAction, Mode, DirectionSnapshot, MaxDistance, Duration,
+  SegmentedProfile, RecordedTrajectory, RecordedTrajectoryScale,
+  TrajectoryGroundPolicy, TrajectoryTailPolicy, DistanceCurve, PathOffsetCurve,
+  CurvedVaultEndHeight, CurvedVaultHandoffVelocityLocal,
+  InheritedVelocity, InheritedVelocityRatio, BallisticMode, ApexHeight,
+  LaunchVelocity, PlanarAcceleration, GravityMagnitude, AirControlScale,
   RotationPolicy, MaxTurnRateDegrees, SteeringConeHalfAngle, WarpTargetName,
-  CollisionPolicy, CancelVelocityPolicy
+  CancelVelocityPolicy
 FWeaponMovementResult:
-  EndReason, TravelledDistance, FinalVelocity, BlockingHit
+  EndReason, TravelledDistance, TravelledDistance3D, FinalVelocity, BlockingHit
 ```
 
-`Mode` 只允许 BoundedDirectional/BallisticVault/AdditiveInertia。`DirectionSnapshot` 在输入发生时确定；任务执行中不能持续追踪准心。`CollisionPolicy` 至少区分 WorldBlock、MonsterHit、Landing、IgnoreHitzoneForMovement。任务按 ActionToken 拥有唯一 Movement Token/RootMotionSource ID、旋转/steering 权限和唯一 WarpTargetName；Character 普通移动在该 Token 有效时不得另外写 ActorRotation。所有 Ability 结束路径精确回收本动作对象。
+`DirectionSnapshot` 在动作约定的采样时刻冻结；除显式启用 Steering 的请求外，不能把持续准心追踪当作快照方向。当前请求结构**没有** `CollisionPolicy` 或 `EMovementCollisionPolicy` 字段：胶囊阻挡由 CMC/位移任务的阻挡回调按当前模式处理，记录轨迹另以 `TrajectoryGroundPolicy`、`TrajectoryTailPolicy` 指定地面与曲线尾段行为；结果通过 `BlockingHit` 返回命中信息。任务按 ActionToken 拥有唯一 Movement Token/RootMotionSource ID、旋转/steering 权限和唯一 WarpTargetName；Character 普通移动在该 Token 有效时不得另外写 ActorRotation。所有 Ability 结束路径精确回收本动作对象。
 
 弹跳任务不能用“距离/Duration”冒充三维初速度。若配置为最高点 `ApexHeight` 与时长 `Duration`，应由重力求解初始 Z 速度；若配置为显式 LaunchVelocity，则最高点只作为验证结果。
 
@@ -413,17 +416,11 @@ Ability 保存当前位移任务句柄和最近一次有效 `FinalVelocity`。�
 
 **与碰撞/伤害系统无关：** 次数限制仅影响 GA 的 `CanActivateAbility`（GAS 原生 `BlockedTags`，零覆写代码）——不阻塞连招表匹配、不涉及 AnimNotifyState、不改变位移逻辑。空中攻击未命中→`ShouldContinueAfterHit` 返回 false→`EndAbility` 写入 `Falling.*` Tag→AnimBP 维持下落 Pose，不会额外发放新的空中权限。Cant 的容错性优于 Can：加 Cant 失败→最多多用一次；加 Can 失败→本应可用的招式被误锁。
 
-### 着陆重置——落地后恢复连招
+### 着陆重置——落地清舞踏并恢复地面状态
 
-**当前问题：** 落地链路绕过了协调器（CMC `OnLanded` 事件，不经过任何 GA）→ `CurrentState` 残留空中攻击的招式名 → 旧 `FComboNode` 无法从 `"Idle"` 匹配起手攻击。
+**当前实现：** `AMHGZCharacter::Landed()` 先调用 `UMHGZWeaponRuntimeHostComponent::HandleLanded()`，再通知活动的 Combo Coordinator。Host 按当前所有权释放空中姿态/许可并恢复 Grounded；若装备虫棍，则调用 `URes_InsectGlaive::ClearDanceStacks(Landed)`，同步清零舞踏层数、来源与镜像 Tag。Coordinator 随后把落地事件分发给拥有 Ability；动作专属的 AbilityOwned 落地仍由该动作合同处理。
 
-**方案：** 在 `AMHGZCharacter::OnLanded()` 中：
-1. 通过句柄移除当前空中动作实例拥有的 `Aerial`/`Falling.*`/`CantDodge`/`CantAttack` Tag → 添加 `Grounded`
-2. 当前武器资源收到 `OnLanded`；虫棍清空舞踏层数
-3. `Coordinator→OnLanded()` → `CurrentState = "Idle"` + 清除本次连招拥有的 Branch Tag
-4. AnimBP 自然检测 `Grounded` Tag → 播放 Landing→Idle 过渡
-
-> 着陆不是 GA——不产生伤害、不消耗资源、不需要 Montage。它向协调器提交 `ResetCombo(Landed)`；落地后的攻击从 `SourceState="Idle"` 的 `FComboTransition` 匹配。
+着陆不是一条新增 GA，不产生攻击伤害；舞踏战斗清理只在真实落地和急袭突刺 Commit（先快照倍率、再清层）验收。收刀、空中受击和死亡不属于当前 Demo 的舞踏清层要求；卸装/RuntimeShutdown 清理只属于资源生命周期兜底，不得误写成额外战斗触发条件。
 
 ### GameplayTag 扩展
 
@@ -1384,8 +1381,10 @@ Montage 内的实现约定如下：
 
 | 成员 | 类型 | 目标语义 |
 |------|------|----------|
-| PreInputSnapshot | TOptional\<FWeaponInputSnapshot\> | ComboWindow 打开前的单槽预输入；后输入覆盖前输入，但保留原方向/时间/SequenceID |
-| PreInputLifetime | float | 预输入有效窗口，原方案默认 0.15 秒 |
+| PreInputSnapshot | TOptional\<FWeaponInputSnapshot\> | 共享单槽预输入；后输入覆盖前输入，但保留原方向/时间/SequenceID |
+| PreInputLifetime | float | 预输入有效窗口；ComboData 配置，C++ 默认 0.5 秒 |
+
+当前消费点包括 ComboWindow、地面 DodgeAccept，以及虫棍空中 GA 的 IG_AerialHandoff。空中动作起手 lead 暂时移除 `Combat.State.Aerial.Falling` 时，只有当 `Input.Weapon.*` 对应 Combo 边除 Falling 外的源状态、姿态、Tag、耐力、方向等条件都已成立，才写入同一单槽；Handoff/取消恢复 Falling 后重新按当前状态匹配并消费。若在正式 Handoff 消费，来源空中 GA 的 `ActionToken` 随 Pending 转移传递；目标 GA Commit/Confirm 成功时，以 `Superseded` 同步结束来源动作，先释放其动作/位移租约，再让目标 GA 继续注册和启动位移任务。该来源可以是没有记录在 `ActiveTransition` 中的直接动作（例如空回），不能只靠 Combo FSM 的前序 Token 推断。空回自身的 `Input.AirDodge` 仍不缓存；过期或到达消费点后不再匹配的输入丢弃。组合键已由 Router 解析后才计时，预输入不重新读取镜头/摇杆。
 
 ### 公共方法
 
@@ -1446,7 +1445,7 @@ Montage 内的实现约定如下：
 ### 关键设计要点
 
 - **组合输入解析：** ChordResolver 只延迟可能组成组合键的单键；形成组合后立即消费，普通无组合输入不增加一帧延迟
-- **预输入缓冲：** 保存完整 `FWeaponInputSnapshot`（单槽，`PreInputLifetime=0.15s`），窗口打开时消费；不能只存 Tag 丢失方向和 SequenceID
+- **预输入缓冲：** 保存完整 `FWeaponInputSnapshot`（单槽，按 `ComboData.PreInputLifetime` 计时，当前 C++ 默认 `0.5s`）；在 ComboWindow、DodgeAccept 或合法 IG 空中 Handoff 打开时消费；不能只存 Tag 丢失方向和 SequenceID。`Input.AirDodge` 自身除外。
 - **转移匹配排序 + 匹配即停：** InputTag 已精确解析；再按精确 SourceState、具体方向、Priority 排序
 - **死亡处理：** `Combat.Event.Death` 取消武器 GA并 RuntimeHost Shutdown；复用同一 Character 时递增 Generation，新建 Pawn 时更换 Host，二者都生成新 `FWeaponRuntimeToken` 并从当前装备重建，不能复用死亡前运行时对象
 - **打断后瞄准恢复：** Hitstun/Knockdown 移除后由 WeaponInputRouter 根据仍按住的物理键重新计算 Aim Context；不自动激活攻击 GA

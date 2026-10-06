@@ -175,7 +175,10 @@ public:
 	/** Current Action Movement owner, including its activation sequence, or an empty string. */
 	FString GetActionMovementOwnerDebugString() const;
 
-	/** Temporarily make one Action the sole yaw writer while its timed correction is active. */
+	/**
+	 * Temporarily make one Action the sole yaw writer while its timed correction is active.
+	 * The current Action Movement owner may supersede a predecessor's lingering yaw override.
+	 */
 	bool AcquireActionRotationOverride(const FWeaponActionToken& ActionToken);
 	bool ReleaseActionRotationOverride(const FWeaponActionToken& ActionToken);
 	bool IsActionRotationOverrideOwnedBy(const FWeaponActionToken& ActionToken) const;

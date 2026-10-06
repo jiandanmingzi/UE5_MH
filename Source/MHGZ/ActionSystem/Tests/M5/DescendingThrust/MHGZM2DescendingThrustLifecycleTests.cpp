@@ -372,6 +372,8 @@ struct FDescendingThrustLifecycleHarness
 	UMHGZMonsterHitzoneComponent* TargetHitzone = nullptr;
 	FGameplayAbilitySpecHandle AbilityHandle;
 	UMHGZDescendingThrustAbility* Ability = nullptr;
+	FWeaponActionToken PriorRotationOwnerToken;
+	UMHGZM5KinsectSlashMovementTestAbility* PriorRotationOwnerInstance = nullptr;
 	uint64 ActivationSnapshotFrame = 0;
 	FString FailureStage;
 
@@ -586,6 +588,38 @@ struct FDescendingThrustLifecycleHarness
 		return TargetHitzone->HitzoneTag.IsValid();
 	}
 
+	bool SeedPriorRotationOverride()
+	{
+		const FGameplayAbilitySpecHandle PriorHandle = ASC->GiveAbility(
+			FGameplayAbilitySpec(UMHGZM5KinsectSlashMovementTestAbility::StaticClass(),
+				1, INDEX_NONE, ASC));
+		PriorRotationOwnerInstance =
+			NewObject<UMHGZM5KinsectSlashMovementTestAbility>(ASC);
+		PriorRotationOwnerToken.RuntimeToken = Host->GetCurrentToken();
+		PriorRotationOwnerToken.AbilityHandle = PriorHandle;
+		PriorRotationOwnerToken.ActivationSequenceID =
+			Host->AllocateActivationSequenceID();
+		PriorRotationOwnerToken.AbilityInstance = PriorRotationOwnerInstance;
+		if (!PriorHandle.IsValid() || !PriorRotationOwnerInstance
+			|| !Host->RegisterAction(PriorRotationOwnerToken)
+			|| !Host->AcquireActionRotationOverride(PriorRotationOwnerToken))
+		{
+			FailureStage = TEXT("seed a predecessor action with a lingering rotation override");
+			return false;
+		}
+		return true;
+	}
+
+	void RetirePriorRotationOverride()
+	{
+		if (Host && PriorRotationOwnerToken.IsValid())
+		{
+			Host->UnregisterAction(PriorRotationOwnerToken);
+		}
+		PriorRotationOwnerToken = FWeaponActionToken();
+		PriorRotationOwnerInstance = nullptr;
+	}
+
 	bool Activate(const float PhysicalPressDurationSeconds = 0.10f,
 		const TOptional<float> ForcedNMinusOneYawDifference = TOptional<float>())
 	{
@@ -790,7 +824,9 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 	if (!TestTrue(*FString::Printf(TEXT("a supported aerial source is published (%s)"),
 		*H.FailureStage), H.PublishPriorAerialSource())
 		|| !TestTrue(*FString::Printf(TEXT("real target setup succeeds (%s)"),
-			*H.FailureStage), H.SpawnDamageTarget()))
+			*H.FailureStage), H.SpawnDamageTarget())
+		|| !TestTrue(*FString::Printf(TEXT("a predecessor owns a lingering rotation override (%s)"),
+			*H.FailureStage), H.SeedPriorRotationOverride()))
 	{
 		H.Teardown();
 		return false;
@@ -807,6 +843,11 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 		H.Teardown();
 		return false;
 	}
+	TestTrue(TEXT("the new movement owner supersedes the predecessor yaw override"),
+		H.Host->IsActionRotationOverrideOwnedBy(H.Ability->GetActionToken()));
+	TestFalse(TEXT("the predecessor no longer owns character rotation"),
+		H.Host->IsActionRotationOverrideOwnedBy(H.PriorRotationOwnerToken));
+	H.RetirePriorRotationOverride();
 
 	FMHGZDescendingThrustTelemetrySnapshot Snapshot;
 	H.Ability->GetRuntimeTelemetrySnapshot(Snapshot);
