@@ -1,6 +1,8 @@
 # M5「空中/舞踏/终结」：接缝修复 + 收尾计划
 
 > **2026-10-06 当前状态：M5 已完成总验收并签收。** 纳入 Demo 的空回、操虫斩、强化操虫穿刺（平地范围）和急袭突刺均已完成各自 PIE/动作门禁；总验收确认真实落地清空舞踏层数/来源/镜像 Tag，急袭突刺 Commit 先快照倍率再清层。收刀、空中受击、死亡、撞墙和封顶明确不属于 M5 门禁；RuntimeShutdown/Unequipped 仅保留资源生命周期兜底。当前复验记录见§10；急袭突刺本招边界见[急袭突刺计划§9](急袭突刺实现计划.md#9-分阶段实施与门禁)。
+>
+> **2026-10-06 验收后补充：空回提前接急袭突刺的窄范围扩展。** C++ 路由已实现并通过 Development Editor 编译；代码不填写提前帧，也不改其它空中动作的 Falling 门禁。剩余是在空回蒙太奇录制确定的位置添加 `IG Early Descending Thrust` 点通知，并做 PIE 验证。此前 M5 总验收对原冻结范围仍有效；本补充在通知放置与 PIE 之前不签收。
 
 > **2026-10-06 输入预输入策略与 PIE 验收：** 仅 `Input.AirDodge`（空回指令本身）保持“锁定期按下作废、不补发”。其它符合当前 Combo 边条件的 `Input.Weapon.*`，若仅因虫棍空中动作 lead 暂缺 `Combat.State.Aerial.Falling` 而不能立即匹配，则使用 `UMHGZWeaponComboData::PreInputLifetime` 的现有单槽、后输入覆盖前输入缓存；IG_AerialHandoff 或取消路径恢复 Falling 后重新匹配并尝试消费。姿态、来源/其它 RequiredTags、BlockedTags、耐力、方向、Combo 状态仍须满足；不合格输入不缓存。地面 ComboWindow/DodgeAccept 语义不变。UE 5.6 Development Editor 编译成功，`MHGZ.M4.Input.PreInput` 3/3及急袭突刺专项16/16通过；用户完成PIE目视复测并确认无异常。下方“空回预输入退役”记录属于历史：退役的是空回自身命令缓存，不再代表其它武器招式一律禁用预输入。
 

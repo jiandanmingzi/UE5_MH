@@ -244,6 +244,41 @@ bool UMHGZAirDodgeAbility::PrepareAttackMontage()
 	return AttackMontage != nullptr;
 }
 
+bool UMHGZAirDodgeAbility::NotifyEarlyDescendingThrustWindow(
+	const FWeaponActionToken& ActionToken,
+	const int32 MontageInstanceID,
+	UAnimSequenceBase* Animation)
+{
+	if (!IsActive() || !IsActionActivationCommitted()
+		|| ActionToken != GetActionToken()
+		|| MontageInstanceID == INDEX_NONE
+		|| !Animation || Animation != ActiveAttackMontage)
+	{
+		return false;
+	}
+
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	USkeletalMeshComponent* Mesh = nullptr;
+	if (ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
+	{
+		Mesh = Character->GetMesh();
+	}
+	FWeaponActionToken RegisteredAction;
+	if (!Host || !Mesh
+		|| !Host->ResolveMontage(Mesh, MontageInstanceID, RegisteredAction)
+		|| RegisteredAction != ActionToken)
+	{
+		return false;
+	}
+
+	const UMHGZAbilitySystemComponent* MHGZASC =
+		Cast<UMHGZAbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo());
+	UGA_WeaponComboCoordinator* Coordinator = MHGZASC
+		? MHGZASC->GetActiveComboCoordinator() : nullptr;
+	return Coordinator
+		&& Coordinator->OpenEarlyDescendingThrustWindow(ActionToken);
+}
+
 bool UMHGZAirDodgeAbility::StartAttackMontage(ACharacter& Character, UAnimMontage* Montage,
 	FName StartSection)
 {

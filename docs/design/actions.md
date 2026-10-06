@@ -1384,7 +1384,7 @@ Montage 内的实现约定如下：
 | PreInputSnapshot | TOptional\<FWeaponInputSnapshot\> | 共享单槽预输入；后输入覆盖前输入，但保留原方向/时间/SequenceID |
 | PreInputLifetime | float | 预输入有效窗口；ComboData 配置，C++ 默认 0.5 秒 |
 
-当前消费点包括 ComboWindow、地面 DodgeAccept，以及虫棍空中 GA 的 IG_AerialHandoff。空中动作起手 lead 暂时移除 `Combat.State.Aerial.Falling` 时，只有当 `Input.Weapon.*` 对应 Combo 边除 Falling 外的源状态、姿态、Tag、耐力、方向等条件都已成立，才写入同一单槽；Handoff/取消恢复 Falling 后重新按当前状态匹配并消费。若在正式 Handoff 消费，来源空中 GA 的 `ActionToken` 随 Pending 转移传递；目标 GA Commit/Confirm 成功时，以 `Superseded` 同步结束来源动作，先释放其动作/位移租约，再让目标 GA 继续注册和启动位移任务。该来源可以是没有记录在 `ActiveTransition` 中的直接动作（例如空回），不能只靠 Combo FSM 的前序 Token 推断。空回自身的 `Input.AirDodge` 仍不缓存；过期或到达消费点后不再匹配的输入丢弃。组合键已由 Router 解析后才计时，预输入不重新读取镜头/摇杆。
+一般空中输入仍在 IG_AerialHandoff/取消恢复 Falling 后消费；但空回有一条**仅急袭突刺 RT 边**的更早例外：`AM_IG_AirDodge` 上的 `IG Early Descending Thrust` 点通知按空回精确 `ActionToken` 临时开放 `Air_DescendingThrust_RT`，不授予全局 Falling，也不放宽其它 Combo 边。通知到普通 Handoff 或空回结束即关闭；目标 GA Commit/Confirm 成功仍通过既有 Pending Token / `Superseded` 交接。空中 lead 预输入仍只有在 `Input.Weapon.*` 对应 Combo 边除 Falling 外的源状态、姿态、Tag、耐力、方向等条件都已成立时，才写入同一单槽；空回自身的 `Input.AirDodge` 仍不缓存。过期或到消费点仍不匹配的输入丢弃；组合键已由 Router 解析后才计时，预输入不重新读取镜头/摇杆。
 
 ### 公共方法
 
@@ -1445,7 +1445,7 @@ Montage 内的实现约定如下：
 ### 关键设计要点
 
 - **组合输入解析：** ChordResolver 只延迟可能组成组合键的单键；形成组合后立即消费，普通无组合输入不增加一帧延迟
-- **预输入缓冲：** 保存完整 `FWeaponInputSnapshot`（单槽，按 `ComboData.PreInputLifetime` 计时，当前 C++ 默认 `0.5s`）；在 ComboWindow、DodgeAccept 或合法 IG 空中 Handoff 打开时消费；不能只存 Tag 丢失方向和 SequenceID。`Input.AirDodge` 自身除外。
+- **预输入缓冲：** 保存完整 `FWeaponInputSnapshot`（单槽，按 `ComboData.PreInputLifetime` 计时，当前 C++ 默认 `0.5s`）；在 ComboWindow、DodgeAccept、合法 IG 空中 Handoff，或空回专属的急袭突刺提前点打开时按各自门禁重匹配消费；不能只存 Tag 丢失方向和 SequenceID。`Input.AirDodge` 自身除外。
 - **转移匹配排序 + 匹配即停：** InputTag 已精确解析；再按精确 SourceState、具体方向、Priority 排序
 - **死亡处理：** `Combat.Event.Death` 取消武器 GA并 RuntimeHost Shutdown；复用同一 Character 时递增 Generation，新建 Pawn 时更换 Host，二者都生成新 `FWeaponRuntimeToken` 并从当前装备重建，不能复用死亡前运行时对象
 - **打断后瞄准恢复：** Hitstun/Knockdown 移除后由 WeaponInputRouter 根据仍按住的物理键重新计算 Aim Context；不自动激活攻击 GA

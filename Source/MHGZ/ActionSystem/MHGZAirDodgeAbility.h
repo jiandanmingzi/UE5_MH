@@ -8,6 +8,7 @@
 
 class UAbilityTask_MHGZPlayMontageAndWait;
 class UAbilityTask_MHGZWeaponMovement;
+class UAnimSequenceBase;
 class UInsectGlaiveCombatConfig;
 
 // （旧 EMHGZAerialDodgeInputPolicy 已退役 —— 最早可操作帧的锁是「空中可操作」
@@ -131,6 +132,12 @@ public:
 	bool GetPlayLandedPresentationForTest() const { return bPlayLandedPresentation; }
 	void HandleAirDodgeTailLandedForTest() { HandleAirDodgeTailLanded(FHitResult()); }
 	void HandleAirDodgeVisualCompletedForTest();
+
+	/** Strict target for the AirDodge-only early Descending Thrust point notify. */
+	bool NotifyEarlyDescendingThrustWindow(
+		const FWeaponActionToken& ActionToken,
+		int32 MontageInstanceID,
+		UAnimSequenceBase* Animation);
 
 	/**
 	 * 自动化专用：取视觉任务裸指针，用来钉住两条曾经各自失效过的不变量 ——

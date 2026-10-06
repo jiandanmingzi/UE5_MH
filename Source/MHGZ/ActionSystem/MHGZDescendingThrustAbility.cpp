@@ -7,6 +7,7 @@
 #include "ActionSystem/AbilityTask_MHGZWeaponMovement.h"
 #include "ActionSystem/AnimNotify_DescendingThrustEvent.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
+#include "ActionSystem/MHGZComboCoordinatorAbility.h"
 #include "ActionSystem/MHGZGameplayEffectContext.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -43,6 +44,15 @@ const FGameplayTag& AerialFallingTag()
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Aerial.Falling"));
 	return Tag;
+}
+
+bool HasEarlyDescendingThrustPermission(const UAbilitySystemComponent* ASC)
+{
+	const UMHGZAbilitySystemComponent* MHGZASC =
+		Cast<UMHGZAbilitySystemComponent>(ASC);
+	const UGA_WeaponComboCoordinator* Coordinator = MHGZASC
+		? MHGZASC->GetActiveComboCoordinator() : nullptr;
+	return Coordinator && Coordinator->IsEarlyDescendingThrustWindowOpen();
 }
 
 const FGameplayTag& UnsheathedTag()
@@ -214,7 +224,6 @@ UMHGZDescendingThrustAbility::UMHGZDescendingThrustAbility()
 	InputTag = WeaponRTTag();
 	DefaultEntrySection = StartSectionName;
 
-	ActivationRequiredTags.AddTag(AerialFallingTag());
 	ActivationRequiredTags.AddTag(UnsheathedTag());
 	ActivationBlockedTags.AddTag(GroundedTag());
 	ActivationBlockedTags.AddTag(AerialCantAttackTag());
@@ -253,6 +262,8 @@ bool UMHGZDescendingThrustAbility::CanActivateAbility(
 	float PriorSpeed = 0.0f;
 	return Host && ResolveResourceFromASC(ASC)
 		&& !Host->IsGrounded()
+		&& (ASC->HasMatchingGameplayTag(AerialFallingTag())
+			|| HasEarlyDescendingThrustPermission(ASC))
 		&& ResolvePriorAerialSpeed(Host->GetAerialMovementSource(), PriorSpeed);
 }
 
@@ -418,7 +429,8 @@ bool UMHGZDescendingThrustAbility::IsLiveAerialEntry() const
 	float PriorSpeed = 0.0f;
 	return ASC && Host && !Host->IsGrounded()
 		&& ASC->HasMatchingGameplayTag(UnsheathedTag())
-		&& ASC->HasMatchingGameplayTag(AerialFallingTag())
+		&& (ASC->HasMatchingGameplayTag(AerialFallingTag())
+			|| HasEarlyDescendingThrustPermission(ASC))
 		&& !ASC->HasMatchingGameplayTag(GroundedTag())
 		&& !ASC->HasMatchingGameplayTag(AerialCantAttackTag())
 		&& !ASC->HasMatchingGameplayTag(DeadTag())

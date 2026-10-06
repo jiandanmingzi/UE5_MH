@@ -157,6 +157,19 @@ bool UMHGZInsectGlaiveAbility::NotifyAerialHandoff()
 	}
 	// 先锁存再动模式：exit 判据读的是这个标志，它必须与模式切换无关地成立。
 	bAerialHandoffReached = true;
+	const FWeaponActionToken& ActionToken = GetActionToken();
+	if (UMHGZAbilitySystemComponent* MHGZASC = Cast<UMHGZAbilitySystemComponent>(
+		GetAbilitySystemComponentFromActorInfo()))
+	{
+		if (UGA_WeaponComboCoordinator* Coordinator =
+			MHGZASC->GetActiveComboCoordinator())
+		{
+			// Early Descent is deliberately shorter than the general Falling
+			// unlock. Once ordinary Handoff begins, only the global Falling gate
+			// may authorize aerial attacks.
+			Coordinator->CloseEarlyDescendingThrustWindow(ActionToken);
+		}
+	}
 
 	// handoff = 锁定期终点：领「空中可操作」（裸 Falling）—— 空回/空中攻击的
 	// 闸门（ActivationRequiredTags / 行 RequiredTags）查它。
@@ -167,7 +180,6 @@ bool UMHGZInsectGlaiveAbility::NotifyAerialHandoff()
 	}
 
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
-	const FWeaponActionToken& ActionToken = GetActionToken();
 	if (Host && ActionToken.IsValid() && Host->IsTokenCurrent(ActionToken.RuntimeToken))
 	{
 		FGameplayTagContainer Tags;
@@ -227,6 +239,15 @@ void UMHGZInsectGlaiveAbility::EndAbility(
 {
 	// 在 Super::EndAbility 之前释放：父类会拆 Ledger 与 Action 注册，
 	// 那之后 Host 上按本次 Action 记账的 tag 就找不到主人了。
+	if (UMHGZAbilitySystemComponent* MHGZASC = Cast<UMHGZAbilitySystemComponent>(
+		GetAbilitySystemComponentFromActorInfo()))
+	{
+		if (UGA_WeaponComboCoordinator* Coordinator =
+			MHGZASC->GetActiveComboCoordinator())
+		{
+			Coordinator->CloseEarlyDescendingThrustWindow(GetActionToken());
+		}
+	}
 	CloseAerialHandoff();
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 

@@ -41,6 +41,7 @@ namespace
 		TEXT("Combat.State.Knockdown"));
 	const FGameplayTag AirDodgeInputTag = FGameplayTag::RequestGameplayTag(
 		TEXT("Input.AirDodge"));
+	const FName EarlyDescendingThrustTransitionID(TEXT("Air_DescendingThrust_RT"));
 
 	bool IsPostureTag(const FGameplayTag& Tag)
 	{
@@ -82,6 +83,7 @@ void UGA_WeaponComboCoordinator::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
+	EarlyDescendingThrustSourceActionToken.Reset();
 	ResetCombo(EWeaponActionEndReason::RuntimeShutdown);
 	if (UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(
 		ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr))
@@ -182,7 +184,8 @@ bool UGA_WeaponComboCoordinator::HasOpenDodgeAcceptWindowFor(
 
 bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	const FComboTransition& Transition, const FWeaponInputSnapshot& Input,
-	bool bIgnoreAcceptWindows, bool bAllowAerialHandoffPreInput) const
+	bool bIgnoreAcceptWindows, bool bAllowAerialHandoffPreInput,
+	bool bAllowEarlyDescendingThrust) const
 {
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	if (!ASC || HasPlayerActionInputLock(ASC)
@@ -202,6 +205,15 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 		// withheld gate. A matching input may wait for its Handoff, but no other
 		// missing requirement is forgiven.
 		if (RequiredTag == AerialFallingTag && bAllowAerialHandoffPreInput
+			&& CanBufferAerialHandoffInput(Input))
+		{
+			continue;
+		}
+		// AirDodge has one earlier, notify-authored release point for the
+		// Descending Thrust edge only. It never opens the shared Falling gate.
+		if (RequiredTag == AerialFallingTag && bAllowEarlyDescendingThrust
+			&& Transition.TransitionID == EarlyDescendingThrustTransitionID
+			&& IsEarlyDescendingThrustWindowOpen()
 			&& CanBufferAerialHandoffInput(Input))
 		{
 			continue;
@@ -239,7 +251,7 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 
 const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 	const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows,
-	bool bAllowAerialHandoffPreInput) const
+	bool bAllowAerialHandoffPreInput, bool bAllowEarlyDescendingThrust) const
 {
 	if (!ComboData) return nullptr;
 	TArray<int32> Candidates;
@@ -256,7 +268,7 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 		const FComboTransition& Candidate = ComboData->Transitions[Index];
 		if (Candidate.bAutoTransition || Candidate.InputTag != Input.ResolvedInputTag
 			|| !TransitionRequirementsPass(Candidate, Input, bIgnoreAcceptWindows,
-				bAllowAerialHandoffPreInput))
+				bAllowAerialHandoffPreInput, bAllowEarlyDescendingThrust))
 		{
 			continue;
 		}
@@ -300,6 +312,21 @@ void UGA_WeaponComboCoordinator::HandleWeaponInput(const FWeaponInputSnapshot& I
 		}
 		ExecuteTransition(*Transition, Input);
 		return;
+	}
+
+	// The early point belongs only to the currently committed AirDodge token.
+	// Pass that token through the regular transition transaction so successful
+	// activation supersedes the source action using the existing handoff path.
+	if (const FWeaponActionToken* EarlySource = GetLiveEarlyDescendingThrustSource())
+	{
+		if (const FComboTransition* Transition = FindBestMatch(
+			Input, /* bIgnoreAcceptWindows = */ false,
+			/* bAllowAerialHandoffPreInput = */ false,
+			/* bAllowEarlyDescendingThrust = */ true))
+		{
+			ExecuteTransition(*Transition, Input, nullptr, EarlySource);
+			return;
+		}
 	}
 	if (Input.ResolvedInputTag == BackVaultInputTag)
 	{
@@ -751,6 +778,42 @@ void UGA_WeaponComboCoordinator::OnAerialHandoffWindowOpened(
 		SourceActionToken);
 }
 
+bool UGA_WeaponComboCoordinator::OpenEarlyDescendingThrustWindow(
+	const FWeaponActionToken& SourceActionToken)
+{
+	if (!SourceActionToken.IsValid())
+	{
+		return false;
+	}
+	EarlyDescendingThrustSourceActionToken = SourceActionToken;
+	if (!IsEarlyDescendingThrustWindowOpen())
+	{
+		EarlyDescendingThrustSourceActionToken.Reset();
+		return false;
+	}
+
+	// A valid RT snapshot may already be waiting in the ordinary aerial
+	// pre-input slot. Re-match it now with the narrowly-scoped early exception.
+	TryConsumeBufferedCombatInput(/* bAllowDirectInput = */ false,
+		&SourceActionToken, /* bAllowEarlyDescendingThrust = */ true);
+	return true;
+}
+
+void UGA_WeaponComboCoordinator::CloseEarlyDescendingThrustWindow(
+	const FWeaponActionToken& SourceActionToken)
+{
+	if (EarlyDescendingThrustSourceActionToken.IsSet()
+		&& EarlyDescendingThrustSourceActionToken.GetValue() == SourceActionToken)
+	{
+		EarlyDescendingThrustSourceActionToken.Reset();
+	}
+}
+
+bool UGA_WeaponComboCoordinator::IsEarlyDescendingThrustWindowOpen() const
+{
+	return GetLiveEarlyDescendingThrustSource() != nullptr;
+}
+
 void UGA_WeaponComboCoordinator::OnDirectActionConfirmed()
 {
 	ClearBufferedCombatInput();
@@ -925,6 +988,31 @@ bool UGA_WeaponComboCoordinator::CanBufferAerialHandoffInput(
 		&& !Host->IsGrounded();
 }
 
+const FWeaponActionToken*
+UGA_WeaponComboCoordinator::GetLiveEarlyDescendingThrustSource() const
+{
+	if (!EarlyDescendingThrustSourceActionToken.IsSet())
+	{
+		return nullptr;
+	}
+
+	const FWeaponActionToken& SourceAction =
+		EarlyDescendingThrustSourceActionToken.GetValue();
+	const UMHGZAirDodgeAbility* AirDodge = Cast<UMHGZAirDodgeAbility>(
+		SourceAction.AbilityInstance.Get());
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	const UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	return AirDodge && AirDodge->IsActive()
+		&& AirDodge->IsActionActivationCommitted()
+		&& AirDodge->GetActionToken() == SourceAction
+		&& ASC && ASC->HasMatchingGameplayTag(AerialTag)
+		&& !ASC->HasMatchingGameplayTag(GroundedTag)
+		&& !ASC->HasMatchingGameplayTag(AerialFallingTag)
+		&& Host && !Host->IsGrounded()
+		&& Host->IsTokenCurrent(SourceAction.RuntimeToken)
+		? &SourceAction : nullptr;
+}
+
 bool UGA_WeaponComboCoordinator::HasLiveBufferedCombatInput()
 {
 	if (!BufferedCombatInput.IsSet())
@@ -946,7 +1034,8 @@ void UGA_WeaponComboCoordinator::ClearBufferedCombatInput()
 
 void UGA_WeaponComboCoordinator::TryConsumeBufferedCombatInput(
 	bool bAllowDirectInput,
-	const FWeaponActionToken* AerialHandoffSourceAction)
+	const FWeaponActionToken* AerialHandoffSourceAction,
+	bool bAllowEarlyDescendingThrust)
 {
 	if (!HasLiveBufferedCombatInput() || PendingTransition.IsSet())
 	{
@@ -961,17 +1050,27 @@ void UGA_WeaponComboCoordinator::TryConsumeBufferedCombatInput(
 			ClearBufferedCombatInput();
 			return;
 		}
-		if (const FComboTransition* Transition = FindBestMatch(Input))
+		const FComboTransition* Transition = bAllowEarlyDescendingThrust
+			? FindBestMatch(Input, /* bIgnoreAcceptWindows = */ false,
+				/* bAllowAerialHandoffPreInput = */ false,
+				/* bAllowEarlyDescendingThrust = */ true)
+			: FindBestMatch(Input);
+		if (Transition)
 		{
 			ClearBufferedCombatInput();
-			ExecuteTransition(*Transition, Input, nullptr,
-				AerialHandoffSourceAction);
+			const FWeaponActionToken* SourceAction = bAllowEarlyDescendingThrust
+				? GetLiveEarlyDescendingThrustSource() : AerialHandoffSourceAction;
+			ExecuteTransition(*Transition, Input, nullptr, SourceAction);
 			return;
 		}
 
 		// A weapon edge may require both accept gates.  Keep it while the
 		// virtual match is still valid, so the other gate may consume it.
-		if (!FindBestMatch(Input, true))
+		const bool bStillMatchesAcceptGate = FindBestMatch(Input, true)
+			|| (bAllowEarlyDescendingThrust
+				&& (FindBestMatch(Input, true, true)
+					|| FindBestMatch(Input, true, false, true)));
+		if (!bStillMatchesAcceptGate)
 		{
 			ClearBufferedCombatInput();
 		}

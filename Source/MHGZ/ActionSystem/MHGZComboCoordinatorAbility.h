@@ -48,6 +48,17 @@ public:
 	void OnAerialHandoffWindowOpened(
 		const FWeaponActionToken* SourceActionToken = nullptr);
 
+	/**
+	 * Opens the AirDodge-only early Descending Thrust route. The permission is
+	 * scoped to the exact AirDodge ActionToken and ends at the ordinary aerial
+	 * handoff or when that action ends.
+	 */
+	bool OpenEarlyDescendingThrustWindow(
+		const FWeaponActionToken& SourceActionToken);
+	void CloseEarlyDescendingThrustWindow(
+		const FWeaponActionToken& SourceActionToken);
+	bool IsEarlyDescendingThrustWindowOpen() const;
+
 	/** A non-combo Action finished Commit; its new action boundary discards preinput. */
 	void OnDirectActionConfirmed();
 
@@ -117,6 +128,7 @@ private:
 	TMap<FName, int32> TransitionIndex;
 	TOptional<FPendingComboTransition> PendingTransition;
 	TOptional<FActiveComboTransition> ActiveTransition;
+	TOptional<FWeaponActionToken> EarlyDescendingThrustSourceActionToken;
 	FWeaponOwnedTagToken ActiveTransitionTagToken;
 	TMap<FName, FComboWindowEntry> ComboWindows;
 	TOptional<FBufferedCombatInput> BufferedCombatInput;
@@ -126,10 +138,12 @@ private:
 	const FComboTransition* FindTransition(FName TransitionID) const;
 	const FComboTransition* FindBestMatch(const FWeaponInputSnapshot& Input,
 		bool bIgnoreAcceptWindows = false,
-		bool bAllowAerialHandoffPreInput = false) const;
+		bool bAllowAerialHandoffPreInput = false,
+		bool bAllowEarlyDescendingThrust = false) const;
 	bool TransitionRequirementsPass(const FComboTransition& Transition,
 		const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows = false,
-		bool bAllowAerialHandoffPreInput = false) const;
+		bool bAllowAerialHandoffPreInput = false,
+		bool bAllowEarlyDescendingThrust = false) const;
 	bool ExecuteTransition(const FComboTransition& Transition,
 		const FWeaponInputSnapshot& Input, const FWeaponActionToken* SourceAction = nullptr,
 		const FWeaponActionToken* AerialHandoffSourceAction = nullptr);
@@ -145,10 +159,12 @@ private:
 	void CloseWindowsFor(const FWeaponActionToken& ActionToken);
 	bool CacheCombatInput(const FWeaponInputSnapshot& Input);
 	bool CanBufferAerialHandoffInput(const FWeaponInputSnapshot& Input) const;
+	const FWeaponActionToken* GetLiveEarlyDescendingThrustSource() const;
 	bool HasLiveBufferedCombatInput();
 	void ClearBufferedCombatInput();
 	void TryConsumeBufferedCombatInput(bool bAllowDirectInput,
-		const FWeaponActionToken* AerialHandoffSourceAction = nullptr);
+		const FWeaponActionToken* AerialHandoffSourceAction = nullptr,
+		bool bAllowEarlyDescendingThrust = false);
 	void ResetComboTimeout();
 	void OnComboTimeout();
 	UMHGZWeaponRuntimeHostComponent* GetRuntimeHost() const;
