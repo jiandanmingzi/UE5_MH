@@ -8,7 +8,7 @@
 
 - LuaEngine **1.3.2**：来自[作者的 GitHub 正式发布](https://github.com/HalcyonAlcedo/LuaEngine/releases/tag/v1.3.2)。下载包 SHA-256：`809540bce40cc13a2c6b8d4d44a27895bbce668949b9ce0c4d463e6d97006937`。
 - LuaEngine 核心、`Lua/modules` 解析模块和 `nativePC/plugins/LuaEngine.dll` 已安装。
-- 游戏目录磁盘文件已部署 `0.2.4`，SHA-256 为 `A07C254E5C03DECC2CD76E376CA15E1B1B82CA504CAB9F08F06DA7AC7BF35C44`；部署前的 `0.2.3` 原件备份为 `MHGZ_MHW_AerialTrajectoryRecorder.lua.codex-backup-20261003_before_024`。游戏进程若仍运行旧脚本，需先结束当前录制，再执行 `reload MHGZ_MHW_AerialTrajectoryRecorder`。
+- 2026-10-06 已将修复版 `0.2.6` 部署到游戏目录，SHA-256 为 `75AED9E221F3E6BFC9072C786C607AB7F30FC7C177177DDA2E7208290B98473E`；原 `0.2.4` 已备份为 `MHGZ_MHW_AerialTrajectoryRecorder.lua.codex-backup-20261006_before_026`。随后实机日志确认 0.2.6 已加载，但 `SearchPattern` 偶尔会把 `Engine_aob_Player` 缓存成错误候选地址。现已部署 `0.2.7`，SHA-256 为 `5125B96E0CC935CDC9BF1646A8492A030EBA6931B1FD2EE1513017A99DDF42A3`；0.2.6 部署件备份为 `MHGZ_MHW_AerialTrajectoryRecorder.lua.codex-backup-20261006_before_027`。游戏进程仍需 reload 后短测。
 - 2026-10-02 已部署 Stracker Loader **v4.0**：`dinput8.dll`、`loader.dll`、配套 `QuestLoader.dll` 和 `MonsterLoader.dll`。安装包 SHA-256：`F0792D6015DF96EEB9239DE79A352B2CF9132075A4F3347EE97DEC879807FCBB`；部署文件已逐项复核 SHA-256。
 - 旧 `dtdata.dll` 已改名保存在游戏根目录的 `dtdata.dll.codex-backup-20261002_165557`，便于回滚。原 `loader.dll`、`loader-config.json`、QuestLoader 和 MonsterLoader 也各有同时间戳备份。`LuaEngine.dll` 未覆盖，安装前后 SHA-256 一致。
 - `loader-config.json` 保留诊断设置：`logfile=true`、`logcmd=true`、`logLevel=INFO`，并启用插件加载。
@@ -18,7 +18,11 @@
 
 2026-10-03 曾发现按 F9 开始录制时画面冻结、声音继续。0.2.2 起普通错误处理不再调用 `Message()` / `Console_Info()`，避免在异常路径上反复触发 UI/日志桥接。由于无提示让录制状态难以确认，0.2.4 对成功开始和停止各调用一次短 `Message()`，并在调用前后写入 `native_prompt_begin` / `native_prompt_end` 诊断标记；开始提示发生在 CSV 头与开始事件已 flush 之后，停止提示发生在文件关闭之后。LuaEngine 的 `on_time` 是游戏时钟钩子回调，因此这仍需本机短测：如果 F9 后卡住，诊断日志最后只有 `native_prompt_begin`，说明卡在提示 API；CSV 头/先前数据已经落盘。
 
-0.2.3 修正“猎人数据全零导致整帧丢弃”：每次开始录制时重新创建 Player/World 包装对象；猎人字段仍不可用时将角色/世界字段留空、写入 `hunter_state_available=0`，但继续记录可用的按键、输入边沿、相机/准心等字段。2026-10-03 在明确可操作场景的 0.2.3 录制中，F9 和输入行均正常，但所有样本的猎人字段仍不可用。检查本机 LuaEngine 模块后发现 `Engine_aob_Player` / `Engine_aob_World` 是跨脚本共享的进程地址缓存，`Player:new()` / `World:new()` 仅在缓存为 0 时才重新 `SearchPattern`。0.2.4 因此在开始录制时记录缓存根地址、Player/Map/World 指针链及四元数/生命上限探针；若探针未证明猎人数据有效，则每个脚本会话至多清零并重扫一次这两个 AOB 根。重扫成功才保留新缓存；未能证明有效时恢复原共享缓存。不会每帧扫描，也不写入游戏内存。
+0.2.3 修正“猎人数据全零导致整帧丢弃”：每次开始录制时重新创建 Player/World 包装对象；猎人字段仍不可用时将角色/世界字段留空、写入 `hunter_state_available=0`，但继续记录可用的按键、输入边沿、相机/准心等字段。2026-10-03 在明确可操作场景的 0.2.3 录制中，F9 和输入行均正常，但所有样本的猎人字段仍不可用。检查本机 LuaEngine 模块后发现 `Engine_aob_Player` / `Engine_aob_World` 是跨脚本共享的进程地址缓存，`Player:new()` / `World:new()` 仅在缓存为 0 时才重新 `SearchPattern`。0.2.4 因此在开始录制时记录缓存根地址、Player/Map/World 指针链及四元数/生命上限探针；重扫成功才保留新缓存，失败时恢复原共享缓存。不会每帧扫描，也不写入游戏内存。
+
+**0.2.6 修复（已实机验证但仍有缺陷）：** 2026-10-06 修复了 `resolve_sources` 前置声明和重扫异常后的缓存恢复，也增加第二次有限重试及“猎人/动作数据为 0 行”的明确提示。实机日志确认 0.2.6 能成功加载，且有一次重扫找到有效猎人数据；但后续重载时 `SearchPattern` 又返回无效玩家根地址，连续录制仍为 0 行。详见 0.2.7 对误匹配的处理。
+
+**0.2.7 修复（已部署；待 reload/实机验收）：** 0.2.6 的新日志证明脚本重扫流程已运行，但当前 `Engine_aob_Player=5452672016`，其 `{0x50}` 玩家指针链为空；重扫仍得到同一无效候选，于是被安全回滚。对照游戏随 LuaEngine 安装的 `Lua/modules/Engine_player.lua`，其玩家签名是短通配模式 `{0x20, 0x67, ??, ??, 0, 0, 0, 0}`，模块还内置备用根地址 `0x1450139A0`。历史有效样本中的玩家根地址 `5452675488` 正好等于该备用地址，且四元数范数为 1、生命上限为 200、地图 ID 有效。0.2.7 保留签名扫描优先；仅当扫描结果未通过玩家指针链及四元数/生命有效性探针时，才尝试 LuaEngine 自带备用地址，并且仍须通过同样的实时探针验证才接受。重扫只重建 Player 根，不再清空/改写正常的 World 根；若签名扫描和备用地址均未通过，则恢复旧 Player 缓存并报告失败，不盲目写入未经验证的根地址。
 
 本次诊断应使用 `Scripts/MHWorld/loader-config.diagnostic.json` 中的配置（`logfile=true`、`logLevel=INFO`），以便在 LuaEngine 日志/控制台查看脚本加载、reload 和脚本错误。诊断后可将原配置恢复为用户此前的 `logfile=false`、`logLevel=ERROR`。脚本名是文件名去掉 `.lua`：`MHGZ_MHW_AerialTrajectoryRecorder`；LuaEngine 游戏聊天指令为 `reload MHGZ_MHW_AerialTrajectoryRecorder`，重载成功会由 LuaEngine显示确认消息。
 
@@ -37,7 +41,7 @@
 
 ### 能读到什么、读不到什么
 
-本机 LuaEngine 1.3.2 的 `engine.keypad` 通过 `XCheckKeyIsPressed` 读取手柄按钮。`L↑/→/↓/←` 与 `R↑/→/↓/←` 是方向布尔值，不是模拟轴：digital x/y 只表示粗略方向（-1/0/+1），magnitude 可能为 0、1 或 √2，绝不能用于分析摇杆推了几成。旧版独立运行时原始模拟轴列 `input_axis_*` 为空、`input_axes_supported=0`；项目源码 0.2.5 增加了可选 XInput 伴随记录，但尚未部署到游戏目录，也未完成真实手柄联测，见下文。
+本机 LuaEngine 1.3.2 的 `engine.keypad` 通过 `XCheckKeyIsPressed` 读取手柄按钮。`L↑/→/↓/←` 与 `R↑/→/↓/←` 是方向布尔值，不是模拟轴：digital x/y 只表示粗略方向（-1/0/+1），magnitude 可能为 0、1 或 √2，绝不能用于分析摇杆推了几成。0.2.6 已包含可选 XInput 伴随记录读取；若伴随进程未运行、没有连接 XInput 手柄或样本失效，`input_axis_*` 仍为空且 `input_axes_supported=0`。伴随进程的实机联测状态见下文。
 
 `GetCameraData` 只暴露 XYZ 和锁定标志，没有可用的相机旋转接口。脚本不猜测相机角度；只有角色处于瞄准状态且准星世界点有效时，才输出 `collimator_dir_*`、`collimator_yaw_deg`、`collimator_pitch_deg` 和 `collimator_relative_yaw_deg`。这些量能回答“准星朝哪里”，但不能回答相机对象本身的旋转。
 
@@ -51,11 +55,11 @@
 
 开始分析转向机制时，按同一录制里的 `action_lmt_id`、`action_frame` 和 `quest_time_s` 分段。若 `facing_yaw_delta_deg` 在连续样本中平滑分布，说明可观测朝向是逐样本变化；若单个样本出现接近目标角度的大跳变，则是离散跳变或采样间隔不足。单靠这份只读遥测不能区分角色代码插值、动画根骨旋转或其他引擎层驱动；要确认具体实现仍需对照动作/骨骼运动和更密的帧采样。
 
-游戏目录已部署 `0.2.4`。若游戏进程仍运行旧脚本，先按一次 F9 完成当前可能仍在进行的录制，再执行 `reload MHGZ_MHW_AerialTrajectoryRecorder`，确认诊断日志 `script_loaded` 版本为 `0.2.4`。随后在可操作场景做 2–3 秒短录制，验收：F9 开始/停止各有屏幕提示；CSV 有样本和按键边沿；`hunter_state_available=1` 表示猎人对象可读；诊断日志显示根地址探针及是否接受重扫。若卡顿，依据最后的 `native_prompt_begin` 或 `aob_refresh_begin` 定位；不要连续反复按 F9 或反复 reload。
+部署后若游戏进程仍运行旧脚本，先按一次 F9 完成当前可能仍在进行的录制，再执行 `reload MHGZ_MHW_AerialTrajectoryRecorder`，确认诊断日志 `script_loaded` 版本为当前部署版本。随后在可操作场景做 2–3 秒短录制，验收：F9 开始/停止各有屏幕提示；CSV 有样本和按键边沿；`hunter_state_available=1` 表示猎人对象可读；诊断日志显示 `aob_refresh_result` 且注明 `source=pattern_scan` 或 `source=module_fallback`。若重扫显示 `aob_refresh_candidate_rejected`，最终必须由有效探针验证后才能接受。停止提示若显示“猎人/动作数据为 0 行”，不要把该录制用于动作分析。若卡顿，依据最后的 `native_prompt_begin` 或 `aob_refresh_begin` 定位；不要连续反复按 F9 或反复 reload。
 
-Stracker Loader v4.0 已完成静态部署与哈希验证。0.2.4 的文件部署和 SHA-256 校验已完成；仍需在游戏进程中确认 reload 成功、屏幕提示可见、AOB 探针/重扫结果及猎人字段恢复情况。只有这次短测通过后，再开始正式取样。
+Stracker Loader v4.0 已完成静态部署与哈希验证。0.2.4/0.2.6 的部署哈希是历史记录；0.2.7 已部署，仍需在游戏进程中确认 reload 成功、屏幕提示可见、AOB 重扫来源及猎人字段恢复情况。只有短测通过后，再开始正式取样。
 
-### 可选：原始模拟摇杆轴伴随采集（项目源码 0.2.5，尚未部署到游戏）
+### 可选：原始模拟摇杆轴伴随采集（Lua 读取已部署，伴随程序尚未完成实机联测）
 
 LuaEngine 的按键接口只返回方向按钮状态，不能还原摇杆幅度。项目现在提供 `Scripts/MHWorld/capture_mhw_xinput.py`：通过 Windows XInput 默认每秒采样 120 次原始摇杆、扳机、按钮掩码和高精度时钟；不访问或修改游戏内存。XInput 查询前后分别取 QPC，记录中点时间和查询耗时；Lua 每行保存它当时读到的最新样本时间戳。`quest_time_s` 与 `input_axis_qpc_ns` 可用于拟合游戏时间到 XInput 时间的对应关系，但不是同一瞬间的硬件输入快照；应从原始 CSV 与重复/跳跃时间戳估计采样滞后，不能声称零延迟。归一化值不施加死区；原始整数轴值保留在独立 CSV。
 
@@ -71,7 +75,7 @@ LuaEngine 的按键接口只返回方向按钮状态，不能还原摇杆幅度�
 & 'C:\apps\anaconda\python.exe' 'D:\study\MH\MHGZ\Scripts\MHWorld\capture_mhw_xinput.py' --rate-hz 120
 ```
 
-保持该进程运行，再启动游戏/重载已部署的 Lua 记录器并按 F9。原始控制器文件会以唯一文件名写入 `Saved/AssetProbe/DescendingThrust/XInput/`；`live_state.pipe` 是供 Lua 读取的临时状态文件，按 Ctrl+C 正常结束时会删除。`capture.lock` 是固定路径的一字节互斥锁文件，会留在磁盘上；实际锁由 Windows 文件锁维护，进程正常退出或异常终止时由系统释放。不要在采集器运行时删除它。采集器拒绝第二个并发实例。强制结束时，带 PID/session 后缀的 `.tmp` 临时文件可能残留，不会被下一次会话复用。若异常退出遗留 `live_state.pipe`，先确认没有伴随进程，再只清除此专用临时状态文件。若 Lua 工程源码尚未复制到游戏目录，游戏内仍是旧版 0.2.4，新增轴列不会出现；本次尚未替用户部署到 `F:\games\...`。
+保持该进程运行，再启动游戏/重载已部署的 Lua 记录器并按 F9。原始控制器文件会以唯一文件名写入 `Saved/AssetProbe/DescendingThrust/XInput/`；`live_state.pipe` 是供 Lua 读取的临时状态文件，按 Ctrl+C 正常结束时会删除。`capture.lock` 是固定路径的一字节互斥锁文件，会留在磁盘上；实际锁由 Windows 文件锁维护，进程正常退出或异常终止时由系统释放。不要在采集器运行时删除它。采集器拒绝第二个并发实例。强制结束时，带 PID/session 后缀的 `.tmp` 临时文件可能残留，不会被下一次会话复用。若异常退出遗留 `live_state.pipe`，先确认没有伴随进程，再只清除此专用临时状态文件。若伴随程序未运行或无 XInput 控制器，模拟轴列会为空；Lua 记录器仍可记录动作、按键和相机数据。本机当前已部署 0.2.7，但尚未完成伴随采集程序的真实手柄联测。
 
 新 Lua 版本保留旧 CSV 列顺序，只在末尾追加 `input_axis_qpc_ns`、UTC 时间、控制器索引/连接状态、XInput Packet/按钮掩码/扳机、session id 和 `input_axis_poll_duration_ns`。时间戳要在当前 Lua 会话中至少前进一次才会标记为有效；这样重载后遗留的旧 `live_state.pipe` 不会被当作有效轴值。重复时间戳超过容许次数时同样标记无效。`input_axis_l_x/y` 与 `input_axis_r_x/y` 是归一化到 `[-1,1]` 的当前轴值；没有运行伴随程序、没有连接 XInput 控制器或样本已陈旧时，`input_axes_supported=0` 且轴值留空。原始 CSV 与 Lua 行引用同一 QPC 单调时钟；Lua 行引用的是“读取到的最近一次控制器样本”，并未测量从游戏回调到读取时刻的精确延迟。当前本机一次 `--probe` 未发现已连接的 XInput 控制器，故尚未完成真实手柄联测；正式录制前要让 Windows/XInput 能看到手柄。
 

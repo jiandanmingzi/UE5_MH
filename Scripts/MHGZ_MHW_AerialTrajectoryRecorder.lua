@@ -8,7 +8,7 @@
 -- columns remain blank. The recorder never reads or writes game memory.
 
 local SCRIPT_NAME = "MHGZ MHW Aerial Trajectory Recorder"
-local SCRIPT_VERSION = "0.2.5"
+local SCRIPT_VERSION = "0.2.7"
 -- Pin capture output to this installation so Steam's working directory does
 -- not silently send CSV files somewhere else.
 local GAME_LUA_DIRECTORY = "F:/games/Steam/steamapps/common/Monster Hunter World/Lua"
@@ -18,7 +18,12 @@ local XINPUT_LIVE_STATE_PATH = "D:/study/MH/MHGZ/Saved/AssetProbe/DescendingThru
 local CAPTURE_KEY = "F9"
 local FLUSH_EVERY_SAMPLES = 60
 local DIAGNOSTIC_HEARTBEAT_SECONDS = 5
+local AOB_REFRESH_MAX_ATTEMPTS_PER_CAPTURE = 2
+local AOB_REFRESH_RETRY_DELAY_SECONDS = 5
 local WORLD_UP_AXIS = "Y"
+-- This is the same player-root fallback shipped by LuaEngine's Engine_player.lua.
+-- Use it only when SearchPattern returns a root that fails live hunter probes.
+local PLAYER_AOB_FALLBACK = 0x1450139A0
 
 local BUTTONS = {
     { api = "L↑", name = "left_stick_up" },
@@ -65,10 +70,15 @@ local state = {
     sampling_interval_count = 0, sampling_interval_sum = 0,
     sampling_interval_max = 0, sampling_gaps_over_25ms = 0,
     capture_start_game_time = nil,
-    aob_refresh_attempted = false,
+    capture_start_clock = nil,
+    aob_refresh_attempt_count = 0, aob_refresh_last_attempt_clock = nil,
     xinput_last_qpc_ns = nil, xinput_same_qpc_count = 0,
     xinput_session_id = nil,
 }
+
+-- Forward declaration is required because the AOB recovery helper is defined
+-- before this function but calls it to rebuild LuaEngine's cached wrappers.
+local resolve_sources
 
 local function safe_read(fn)
     local ok, value = pcall(fn)
@@ -233,43 +243,76 @@ local function describe_player_roots(probe)
         probe.qnorm or 0, tostring(probe.health_max), tostring(probe.map_id), tostring(probe.usable))
 end
 
-local function refresh_aob_roots_once()
-    if state.aob_refresh_attempted then
-        diagnostic_write("aob_refresh_skipped", "one bounded refresh was already attempted this script session")
+local function refresh_aob_roots_once(reason)
+    local now = os.time()
+    if state.aob_refresh_attempt_count >= AOB_REFRESH_MAX_ATTEMPTS_PER_CAPTURE then
+        diagnostic_write("aob_refresh_skipped", string.format(
+            "attempt limit reached (%d per capture)", AOB_REFRESH_MAX_ATTEMPTS_PER_CAPTURE))
         return false
     end
-    state.aob_refresh_attempted = true
+    if state.aob_refresh_last_attempt_clock ~= nil and
+        now - state.aob_refresh_last_attempt_clock < AOB_REFRESH_RETRY_DELAY_SECONDS then
+        diagnostic_write("aob_refresh_skipped", "retry cooldown has not elapsed")
+        return false
+    end
+    state.aob_refresh_attempt_count = state.aob_refresh_attempt_count + 1
+    state.aob_refresh_last_attempt_clock = now
     if type(GlobalVariable_int) ~= "function" or type(setGlobalVariable_int) ~= "function" then
         diagnostic_write("aob_refresh_unavailable", "LuaEngine global-variable APIs unavailable")
         return false
     end
 
     local before = inspect_player_roots()
-    diagnostic_write("aob_refresh_begin", describe_player_roots(before))
-    local old_player, old_world = before.player_base or 0, before.world_base or 0
-    local set_player_ok = pcall(setGlobalVariable_int, "Engine_aob_Player", 0)
-    local set_world_ok = pcall(setGlobalVariable_int, "Engine_aob_World", 0)
-    if not set_player_ok or not set_world_ok then
-        pcall(setGlobalVariable_int, "Engine_aob_Player", old_player)
-        pcall(setGlobalVariable_int, "Engine_aob_World", old_world)
-        diagnostic_write("aob_refresh_failed", "could not invalidate both shared AOB roots")
-        return false
-    end
+    diagnostic_write("aob_refresh_begin", "reason=" .. tostring(reason or "unspecified") ..
+        " attempt=" .. tostring(state.aob_refresh_attempt_count) .. " | " .. describe_player_roots(before))
+    local old_player = before.player_base or 0
+    local transaction_ok, rebuilt, after, recovery_source = pcall(function()
+        local invalidated = pcall(setGlobalVariable_int, "Engine_aob_Player", 0)
+        if not invalidated then return false, nil, "cache_invalidate_failed" end
 
-    local rebuilt = resolve_sources(true)
-    local after = inspect_player_roots()
-    diagnostic_write("aob_refresh_result", "rebuilt=" .. tostring(rebuilt) .. " | " .. describe_player_roots(after))
-    if rebuilt and after.usable then
-        diagnostic_write("aob_refresh_accepted", "fresh AOB roots resolve to live hunter data")
+        state.player, state.world = nil, nil
+        local sources_rebuilt = resolve_sources(true)
+        local probe = inspect_player_roots()
+        if sources_rebuilt and probe.usable then
+            return true, probe, "pattern_scan"
+        end
+
+        -- LuaEngine's short wildcard signature can resolve to a nearby false
+        -- match. Its own Engine_player.lua carries this fallback address; try it
+        -- only after the scanned root fails the pointer/quaternion/health probe.
+        diagnostic_write("aob_refresh_candidate_rejected", "source=pattern_scan | " ..
+            describe_player_roots(probe))
+        local fallback_set = pcall(setGlobalVariable_int, "Engine_aob_Player", PLAYER_AOB_FALLBACK)
+        if not fallback_set then return false, probe, "fallback_cache_write_failed" end
+
+        state.player, state.world = nil, nil
+        sources_rebuilt = resolve_sources(true)
+        local fallback_probe = inspect_player_roots()
+        return sources_rebuilt and fallback_probe.usable, fallback_probe, "module_fallback"
+    end)
+    if transaction_ok and rebuilt and after ~= nil then
+        diagnostic_write("aob_refresh_result", "rebuilt=true source=" ..
+            tostring(recovery_source) .. " | " .. describe_player_roots(after))
+        diagnostic_write("aob_refresh_accepted", "validated player root resolves to live hunter data")
         return true
     end
 
-    -- Do not leave shared LuaEngine state changed when a forced rescan did not
-    -- prove that it found usable live data.
+    -- Restore the shared player root even if rebuilding the wrappers raises.
+    -- The world root is not invalidated or modified by this transaction.
     pcall(setGlobalVariable_int, "Engine_aob_Player", old_player)
-    pcall(setGlobalVariable_int, "Engine_aob_World", old_world)
-    resolve_sources(true)
-    diagnostic_write("aob_refresh_rolled_back", "rescan did not prove live hunter data; restored previous shared roots")
+    state.player, state.world = nil, nil
+    local restore_ok, restore_result = pcall(function() return resolve_sources(true) end)
+    local detail
+    if not transaction_ok then
+        detail = "rescan raised: " .. tostring(rebuilt)
+    elseif after ~= nil then
+        detail = "pattern scan and LuaEngine fallback did not prove live hunter data; source=" ..
+            tostring(recovery_source) .. " | " .. describe_player_roots(after)
+    else
+        detail = "could not invalidate both shared AOB roots"
+    end
+    diagnostic_write("aob_refresh_rolled_back", detail ..
+        " | wrappers_restored=" .. tostring(restore_ok and restore_result == true))
     return false
 end
 
@@ -285,7 +328,7 @@ local function notify_capture_status(message)
     return ok
 end
 
-local function resolve_sources(force_refresh)
+resolve_sources = function(force_refresh)
     if not force_refresh and state.player ~= nil and state.world ~= nil then return true end
     if type(engine) ~= "table" or type(engine.Player) ~= "table" or type(engine.World) ~= "table" then
         state.source_error = "LuaEngine engine.Player/engine.World unavailable; install LuaEngine first"
@@ -609,18 +652,32 @@ local function stop_capture(reason)
     local average_hz = state.sampling_interval_sum > 0 and
         state.sampling_interval_count / state.sampling_interval_sum or 0
     diagnostic_write("capture_stopped", string.format(
-        "reason=%s samples=%d rejected_samples=%d unavailable_actor_samples=%d missing_position_samples=%d invalid_orientation_samples=%d events=%d avg_hz=%.2f max_gap_s=%.6f gaps_over_25ms=%d samples_path=%s events_path=%s",
-        tostring(reason or CAPTURE_KEY), state.sample_count, state.rejected_sample_count,
+        "reason=%s samples=%d valid_actor_samples=%d rejected_samples=%d unavailable_actor_samples=%d missing_position_samples=%d invalid_orientation_samples=%d events=%d avg_hz=%.2f max_gap_s=%.6f gaps_over_25ms=%d samples_path=%s events_path=%s",
+        tostring(reason or CAPTURE_KEY), state.sample_count,
+        math.max(0, state.sample_count - state.unavailable_actor_sample_count), state.rejected_sample_count,
         state.unavailable_actor_sample_count, state.missing_position_sample_count,
         state.invalid_orientation_sample_count,
         state.event_count, average_hz, state.sampling_interval_max,
         state.sampling_gaps_over_25ms,
         tostring(state.samples_path), tostring(state.events_path)))
-    notify_capture_status(string.format("录制已停止：%d 行；平均 %.1f Hz", state.sample_count, average_hz))
+    local valid_actor_samples = math.max(0, state.sample_count - state.unavailable_actor_sample_count)
+    if state.sample_count > 0 and valid_actor_samples == 0 then
+        notify_capture_status(string.format(
+            "已记录 %d 行输入数据，但猎人/动作数据为 0 行；本次不能用于动作分析",
+            state.sample_count))
+    elseif valid_actor_samples < state.sample_count then
+        notify_capture_status(string.format("录制停止：%d 行；角色数据 %d 行；平均 %.1f Hz",
+            state.sample_count, valid_actor_samples, average_hz))
+    else
+        notify_capture_status(string.format("录制已停止：%d 行；平均 %.1f Hz", state.sample_count, average_hz))
+    end
 end
 
 local function start_capture(reason)
     if state.recording then return end
+    state.capture_start_clock = os.time()
+    state.aob_refresh_attempt_count = 0
+    state.aob_refresh_last_attempt_clock = nil
     diagnostic_write("capture_start_requested", "reason=" .. tostring(reason or CAPTURE_KEY))
     if not resolve_sources(true) then
         diagnostic_write("capture_start_failed", tostring(state.source_error or "LuaEngine data access unavailable"))
@@ -671,10 +728,10 @@ local function start_capture(reason)
     diagnostic_write("capture_started", string.format("reason=%s samples_path=%s events_path=%s",
         tostring(reason or CAPTURE_KEY), tostring(state.samples_path), tostring(state.events_path)))
     notify_capture_status("录制中：按 F9 停止并保存")
-    -- Defer the single AOB rescan until after the capture files are open,
+    -- Defer the initial bounded AOB rescan until after the capture files are open,
     -- flushed, and the user has received the start prompt. If a native scan
     -- stalls, the diagnostic trail still proves that capture was armed.
-    if refresh_roots then refresh_aob_roots_once() end
+    if refresh_roots then refresh_aob_roots_once("capture_start") end
 end
 
 local function toggle_capture(reason)
@@ -688,6 +745,19 @@ local function collect_sample()
         state.first_sample_probe_started = true
     end
     local s = player_snapshot()
+    local hunter_data_unavailable = s == nil or not s._actor_state_ready
+    local capture_age = state.capture_start_clock ~= nil and
+        (os.time() - state.capture_start_clock) or 0
+    if hunter_data_unavailable and capture_age >= AOB_REFRESH_RETRY_DELAY_SECONDS and
+        state.aob_refresh_attempt_count < AOB_REFRESH_MAX_ATTEMPTS_PER_CAPTURE then
+        local probe_ok, root_probe = pcall(inspect_player_roots)
+        if probe_ok and not root_probe.usable then
+            local refresh_ok, refreshed = pcall(refresh_aob_roots_once, "delayed_player_data_retry")
+            diagnostic_write("aob_refresh_retry", "call_ok=" .. tostring(refresh_ok) ..
+                " refreshed=" .. tostring(refresh_ok and refreshed == true))
+            if refresh_ok and refreshed then s = player_snapshot() end
+        end
+    end
     if s == nil then
         state.rejected_sample_count = state.rejected_sample_count + 1
         local reason = state.snapshot_reject_reason or "snapshot_unavailable"
