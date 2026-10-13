@@ -499,7 +499,7 @@ GAS `MoveSpeedMultiplier` 属性已存在，但以下消费方式尚未接入：
 | 巡航速度 | Walk=150, Run=500, Sprint=650 | 单速 ~450 |
 | Sprint | 支持 | 不支持（拔刀态禁止奔跑） |
 
-**切换时机**：收刀/拔刀 GA 播放 Montage 期间，Montage 通过 Slot 节点覆盖 MM 输出。收刀必须在武器实际挂回背部的 `AnimNotify_SheatheCommit` 切换 `Sheathed`；该 Notify 后的短尾帧属于 `Database_Unarmed` 的姿势家族，Slot 继续遮盖数据库切换。若 Notify 前中断，保持 Unsheathed；若 Notify 后中断，保持 Sheathed。所有拔刀路径反向遵守同一合同：`GA_IG_Draw`、`GA_IG_DrawSlash` 与 `GA_IG_DrawAndSendKinsect` 都只在自己的 `AnimNotify_DrawCommit` 解析到当前 ActionToken 后切 `Unsheathed` 并清 `bSprintHeld`；Commit 前中断保持 Sheathed，Commit 后中断保持 Unsheathed。真实全身根位移动作的 Montage 根位移结束并 Blend Out 后才释放 `MontageRootMotionOwner`，MM 依据实时输入接续新数据库的第一匹配帧；`GA_IG_DrawAndSendKinsect` 是 in-place `UpperBody_IGAction`，从不取得该所有权，且其后续 `KinsectSendCommit` 才放虫。不能再笼统地在 Montage 正常结束或 Ability 激活时切换姿态。
+**切换时机**：收刀/拔刀 GA 播放 Montage 期间，Montage 通过 Slot 节点覆盖 MM 输出。收刀必须在武器实际挂回背部的 `AnimNotify_SheatheCommit` 切换 `Sheathed`；该 Notify 后的短尾帧属于 `Database_Unarmed` 的姿势家族，Slot 继续遮盖数据库切换。若 Notify 前中断，保持 Unsheathed；若 Notify 后中断，保持 Sheathed。所有拔刀路径反向遵守同一合同：`GA_IG_Draw`、`GA_IG_BaDaoZhan` 与 `GA_IG_DrawAndSendKinsect` 都只在自己的 `AnimNotify_DrawCommit` 解析到当前 ActionToken 后切 `Unsheathed` 并清 `bSprintHeld`；Commit 前中断保持 Sheathed，Commit 后中断保持 Unsheathed。真实全身根位移动作的 Montage 根位移结束并 Blend Out 后才释放 `MontageRootMotionOwner`，MM 依据实时输入接续新数据库的第一匹配帧；`GA_IG_DrawAndSendKinsect` 是 in-place `UpperBody_IGAction`，从不取得该所有权，且其后续 `KinsectSendCommit` 才放虫。不能再笼统地在 Montage 正常结束或 Ability 激活时切换姿态。
 
 ### 9.3 C++ 巡航速度配置
 

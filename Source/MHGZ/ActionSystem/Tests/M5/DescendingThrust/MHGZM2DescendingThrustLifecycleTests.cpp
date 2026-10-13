@@ -843,6 +843,12 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 		H.Teardown();
 		return false;
 	}
+	TestTrue(TEXT("confirmed aerial attack spends Host CantAttack"),
+		H.ASC->HasMatchingGameplayTag(DescLifecycleTag(
+			TEXT("Combat.State.Aerial.CantAttack"))));
+	TestTrue(TEXT("confirmed aerial attack also spends Host CantDodge"),
+		H.ASC->HasMatchingGameplayTag(DescLifecycleTag(
+			TEXT("Combat.State.Aerial.CantDodge"))));
 	TestTrue(TEXT("the new movement owner supersedes the predecessor yaw override"),
 		H.Host->IsActionRotationOverrideOwnedBy(H.Ability->GetActionToken()));
 	TestFalse(TEXT("the predecessor no longer owns character rotation"),

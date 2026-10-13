@@ -1,5 +1,7 @@
 # 项目设计与代码生成文档
 
+> **维护阶段（2026-10-13）：** Demo 已阶段性完成，后续默认是小修小补。开始任务先读[维护规范](../using/README.md)；开发期实施计划已移到[阶段档案](../archive/demo-2026-10-13/README.md)，其中旧回归/全量资产验证要求不自动适用于维护期。
+
 本目录是架构评审、代码生成和代码重构的真相源。内容描述目标玩法、公共接口、所有权、生命周期、数据结构和实施顺序；不把 Unreal Editor 点击步骤混入代码规格。
 
 ## 阅读顺序
@@ -23,7 +25,7 @@
 | [demo-refactor-scope.md](demo-refactor-scope.md) | Keep/Rewrite/Delete/Defer 与一次性迁移合同 |
 | [milestone-gates.md](milestone-gates.md) | M/E/L 阶段顺序、进出条件、当前状态和跨阶段门禁的唯一入口 |
 | [demo-implementation-plan.md](demo-implementation-plan.md) | M0～M7 实施计划、接口和验收追踪 |
-| [M6非音效实施计划](../using/m6-plan.md) | 当前M6.1～M6.5代码/自动化详细合同；配套[E6指导](../editor/m6-setup.md)，计划已编写、实施未开始 |
+| [M6非音效计划（阶段档案）](../archive/demo-2026-10-13/m6-plan.md) | 保留开发期实施与阶段记录；当前维护验证规则见 [docs/using](../using/README.md) |
 | [demo-implementation-gaps.md](demo-implementation-gaps.md) | 当前源码 P0/P1 问题和证据 |
 | [m1-implementation-audit.md](m1-implementation-audit.md) | M1 实施范围、验证证据与 E2 交接 |
 | [m2-implementation-audit.md](m2-implementation-audit.md) | M2 Runtime/命中/木桩实现、验证证据与 E3 交接 |
@@ -63,6 +65,7 @@
 
 ## 对代码生成的约束
 
+- 所有攻击/受击查询必须遵守[总规划§1.6命中覆盖硬约束](demo-implementation-plan.md#16-全项目命中覆盖硬约束2026-10-12)：受击覆盖不得小于对应视觉/实体碰撞范围，攻击覆盖不得小于有效攻击视觉范围。
 - 先检查实际源码和资产引用，再判断文档中的“已实现/规划”状态。
 - 不为旧、新结构建立永久并行运行时路径。
 - 不在通用模块按 WeaponType 编写虫棍分支。

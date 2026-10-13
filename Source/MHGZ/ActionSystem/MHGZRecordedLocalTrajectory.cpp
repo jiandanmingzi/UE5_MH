@@ -93,6 +93,20 @@ float EvaluateComponentDerivative(const FRichCurve& Curve, const float Seconds)
 	}
 
 	const float SampleTime = FMath::Clamp(Seconds, From.Time, To.Time);
+	if (From.InterpMode == RCIM_Cubic
+		&& From.TangentWeightMode == RCTWM_WeightedNone
+		&& To.TangentWeightMode == RCTWM_WeightedNone)
+	{
+		// Unweighted Hermite keys have an exact derivative, including both ends.
+		// A clamped 1e-4 finite difference at the first key used to take the chord
+		// fallback and erase half a phase's gravity from the launch tangent.
+		const float Span = To.Time - From.Time;
+		const float Alpha = (SampleTime - From.Time) / Span;
+		const float AlphaSquared = Alpha * Alpha;
+		return (6.0f * AlphaSquared - 6.0f * Alpha) * (From.Value - To.Value) / Span
+			+ (3.0f * AlphaSquared - 4.0f * Alpha + 1.0f) * From.LeaveTangent
+			+ (3.0f * AlphaSquared - 2.0f * Alpha) * To.ArriveTangent;
+	}
 	const float HalfStep = FMath::Max(1.0e-4f,
 		FMath::Min(SampleTime - From.Time, To.Time - SampleTime) * 0.25f);
 	const float Lower = FMath::Clamp(SampleTime - HalfStep, From.Time, To.Time);

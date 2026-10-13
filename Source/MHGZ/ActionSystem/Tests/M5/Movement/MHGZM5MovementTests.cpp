@@ -526,6 +526,29 @@ bool FMHGZM5VaultDirectionSnapshotTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("向后（180°）不应有侧向分量"), FMath::Abs(Side(180.0f)) < 1.0e-4f);
 	}
 
+	// When the stick heading and captured actor facing differ on the input frame,
+	// use the frozen world heading for this directional vault. Neutral input must
+	// retain the frozen actor-facing fallback.
+	{
+		FWeaponInputSnapshot Input;
+		Input.ActorForward = FRotator(0.0f, 91.5745f, 0.0f).Vector();
+		Input.WorldDirection = FRotator(0.0f, 84.5128f, 0.0f).Vector();
+		const FVector WithStick = UMHGZPoleVaultAbility::ComputeInputDirectionSnapshot(
+			Input, 0.56f);
+		const FVector ExpectedStick = UMHGZPoleVaultAbility::ComputeDirectionSnapshot(
+			Input.WorldDirection, 0.56f);
+		TestTrue(TEXT("directional vault aligns its path to the frozen world stick heading"),
+			WithStick.Equals(ExpectedStick, 1.0e-4f));
+
+		Input.WorldDirection = FVector::ZeroVector;
+		const FVector Neutral = UMHGZPoleVaultAbility::ComputeInputDirectionSnapshot(
+			Input, 0.56f);
+		const FVector ExpectedNeutral = UMHGZPoleVaultAbility::ComputeDirectionSnapshot(
+			Input.ActorForward, 0.56f);
+		TestTrue(TEXT("neutral vault falls back to the frozen actor facing"),
+			Neutral.Equals(ExpectedNeutral, 1.0e-4f));
+	}
+
 	return true;
 }
 

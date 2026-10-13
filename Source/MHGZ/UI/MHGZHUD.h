@@ -4,19 +4,79 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZHUD.generated.h"
 
+class UMHGZAttributeBarWidget;
+class UMHGZCrosshairWidget;
+class UMHGZMainHUDWidget;
+class UMHGZWeaponResourceWidget;
+class UAbilitySystemComponent;
+class UMHGZWeaponRuntimeHostComponent;
+struct FWeaponRuntimeToken;
+
 /**
- * AMHGZHUD — Demo HUD
+ * AMHGZHUD — 本地玩家HUD唯一的Widget生命周期所有者。
  */
 UCLASS()
-class AMHGZHUD : public AHUD
+class MHGZ_API AMHGZHUD : public AHUD
 {
 	GENERATED_BODY()
 
 public:
 	AMHGZHUD();
+	void RefreshPawnContext();
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+
+protected:
+	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|HUD")
+	TSubclassOf<UMHGZMainHUDWidget> MainHUDClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|HUD")
+	TSubclassOf<UMHGZAttributeBarWidget> HealthBarClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|HUD")
+	TSubclassOf<UMHGZAttributeBarWidget> StaminaBarClass;
+
+	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|HUD")
+	TSubclassOf<UMHGZCrosshairWidget> CrosshairClass;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMHGZMainHUDWidget> MainHUDWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMHGZAttributeBarWidget> HealthBarWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMHGZAttributeBarWidget> StaminaBarWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMHGZCrosshairWidget> CrosshairWidget;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UMHGZWeaponResourceWidget> WeaponResourceWidget;
+
+private:
+	friend struct FMHGZM6HUDTestAccess;
+	UFUNCTION()
+	void HandlePossessedPawnChanged(APawn* OldPawn, APawn* NewPawn);
+	void UnbindPawnContext();
+	void RemoveWeaponResourceWidget(FName Reason = NAME_None);
+	void HandleWeaponRuntimeReady(const FWeaponRuntimeToken& Token,
+		class UMHGZWeaponResourceComponent* Resource);
+	void HandleWeaponRuntimeInvalidated(const FWeaponRuntimeToken& Token);
+
+	TWeakObjectPtr<class AMHGZCharacter> BoundCharacter;
+	TWeakObjectPtr<UAbilitySystemComponent> BoundASC;
+	TWeakObjectPtr<class UMHGZAimComponent> BoundAimComponent;
+	TWeakObjectPtr<UMHGZWeaponRuntimeHostComponent> BoundRuntimeHost;
+	FDelegateHandle RuntimeReadyHandle;
+	FDelegateHandle RuntimeInvalidatedHandle;
+	FWeaponRuntimeToken BoundRuntimeToken;
+	// Possess/Ready may arrive before BeginPlay has created the widget tree.
+	bool bWidgetTreeReady = false;
+	bool bPawnContextInitialized = false;
 };

@@ -1,6 +1,6 @@
 # 怪物与靶子系统
 
-> **实施状态说明（以源码与 Content 为准）：** E5.1 已将 `DA_TrainingDummy` / `BP_TrainingDummy` 接为直径 1m、高 2.25m 的三段训练柱：下白、中橙、上红，每段 0.75m；三枚 Hitzone 分别为 White/Orange/Red，中心在 root Z=-75/0/75cm、半径 37.5cm，彼此相切而不重叠。每段有对应 Point Light。白橙交界（Z=-37.5cm）另有一个直径 2m 的周期火圈，默认每 5 秒喷发、持续 1 秒、每 0.25 秒判定；所有频率、持续时间、半径、环带厚度、伤害、是否喷发、是否可反击和硬直 Tag 均在 `FDummyFireRingConfig` 以 Blueprint 可编辑字段公开。周期预警/正式怪物 AI、死亡和部位破坏仍未实现。
+> **当前覆盖修复（2026-10-12；静态验证/PIE状态见编辑器指南§3.16）：** 训练柱实际为直径1.5m、高3.375m，下白、中橙、上红，各高1.125m。配置中心仍以基础尺寸Z=-75/0/75cm保存，运行时统一×1.5。三段受击区改为盒形查询，基础半尺寸51×51×38.5cm，运行时76.5×76.5×57.75cm，覆盖整个柱面/实体Body，并在接缝保留小幅外扩。旧37.5cm球形查询及“不重叠”验收已被[总规划§1.6](demo-implementation-plan.md#16-全项目命中覆盖硬约束2026-10-12)取代。三色精华、肉质与现有火圈玩法不变。
 
 **设计原则：** 当前木桩负责可重复验证伤害、红/白/橙提取、贯通、多部位轨迹和突进回旋斩反击。反击测试攻击是训练设施，不是怪物 AI。
 
@@ -14,11 +14,11 @@
 AMHGZMonsterBase (Character)
 ├── 持有 UAbilitySystemComponent          ← 引擎基础 ASC
 ├── 持有 UMHGZAttributeSet                ← 当前含 Health 等通用属性
-├── GenerateHitzonesFromConfig()          ← 按配置动态创建球形部位组件
+├── GenerateHitzonesFromConfig()          ← 按配置创建部位身份与Sphere/Box查询
 │
 ├── AMHGZTrainingDummy                    ← 当前实现：木桩
 │   ├── 持有 UMHGZDummyConfig
-│   └── 无 AI、无移动、默认 1000 生命、配置驱动
+│   └── 无 AI、无移动、默认无限训练生命、配置驱动
 │
 └── AMHGZMonster_Xxx                      ← 未来：完整怪物
     └── 添加 BehaviorTree / 攻击 GA / 部位破坏 / 愤怒状态机 / 虚函数钩子
@@ -28,7 +28,7 @@ AMHGZMonsterBase (Character)
 
 ## ASC 策略——最小 ASC
 
-木桩当前挂载引擎基础 `UAbilitySystemComponent` 和 `UMHGZAttributeSet`。`BeginPlay` 把 `Health/MaxHealth` 初始化为 `DummyMaxHealth`（默认 1000），订阅 Health 变化并广播 `OnHealthChanged`；伤害 GE 会实际扣血，但没有血条 UI、死亡逻辑或 GameplayCue 反馈。
+木桩挂载引擎基础 `UAbilitySystemComponent` 和 `UMHGZAttributeSet` 以复用伤害与反馈。`DummyMaxHealth`（默认1000）是内部载体值，不代表有限木桩生命；`bInfiniteHealth=true`时伤害仍正常结算/反馈，但生命恢复满值，不会因测试攻击失去命中资格。当前无正式怪物死亡玩法。
 
 | 决策 | 理由 |
 |------|------|
@@ -48,11 +48,11 @@ AMHGZMonsterBase (Character)
 |------|------|------|
 | DisplayMesh | TSoftObjectPtr\<USkeletalMesh\> | 主形体（人形靶） |
 | LoopingMontage | TSoftObjectPtr\<UAnimMontage\> | 循环动画（呼吸/挑衅，留空则静止） |
-| Hitzones | TArray\<FDummyHitzoneConfig\> | 球形部位碰撞体配置 |
+| Hitzones | TArray\<FDummyHitzoneConfig\> | 球形/盒形查询配置及部位身份 |
 | CounterTestAttack | FDummyCounterAttackConfig | 手动确定性反击测试入口；默认关闭 |
 | FireRing | FDummyFireRingConfig | 白橙交界的周期环形火焰；默认开启 |
 
-> `FallbackMesh`、`MeshScale`、`MaterialOverrides`、`PlayRate` 和多碰撞形状仍作为后续配置扩展方案保留，当前 `UMHGZDummyConfig` 没有这些字段。
+> `FallbackMesh`、`MeshScale`、`MaterialOverrides`、`PlayRate`仍为后续配置；当前已支持Sphere/Box查询形状，Capsule仍未实现。
 
 规划扩展字段：
 
@@ -62,7 +62,6 @@ AMHGZMonsterBase (Character)
 | MeshScale | FVector | 配置整体缩放，默认 `(1,1,1)` |
 | MaterialOverrides | TMap\<FName, TSoftObjectPtr\<UMaterialInstance\>\> | 按 SlotName 覆写材质 |
 | PlayRate | float | 循环 Montage 播放速率，默认 1.0 |
-| Shape | EMonsterCollisionShape | Hitzone 的 Sphere/Capsule/Box 形状选择 |
 
 ### FDummyHitzoneConfig 结构体
 
@@ -78,11 +77,13 @@ struct FDummyHitzoneConfig
     UPROPERTY(EditAnywhere) float DefenseMultiplier = 1.0f;    // 肉质（0.2=坚硬 / 1.0=弱点）
     UPROPERTY(EditAnywhere) float StaggerRate = 0.0f;          // 破坏值吸收率
     UPROPERTY(EditAnywhere) FVector RelativeLocation;           // 相对挂点位置
-    UPROPERTY(EditAnywhere) float Radius = 30.0f;               // 当前统一使用球形 Hitzone
+    UPROPERTY(EditAnywhere) float Radius = 30.0f;               // Sphere形状的半径
+    UPROPERTY(EditAnywhere) EMHGZHitzoneShape Shape;            // Sphere / Box
+    UPROPERTY(EditAnywhere) FVector BoxHalfExtent;              // 盒形半尺寸
 };
 ```
 
-> Sphere/Capsule/Box 的 `EMonsterCollisionShape` 分支是保留方案；当前统一创建 `USphereComponent`。
+> 部位元数据和挂载继续保存在原Hitzone组件。Box启用独立子查询组件，同时禁用原球的碰撞；攻击、猎虫、准心、虫印和粉尘经统一`Resolve`读取元数据，原始命中结果不改写。
 
 ---
 
@@ -93,7 +94,7 @@ struct FDummyHitzoneConfig
 ```
 AMHGZTrainingDummy::ApplyConfig(UMHGZDummyConfig* Config)
   1. 切换网格体：MeshComponent->SetSkeletalMesh(Config->DisplayMesh)
-  2. 销毁旧 HitzoneComponent → 按 Config->Hitzones 重新生成球体
+  2. 销毁旧Hitzone及其查询子组件 → 按Config->Hitzones重建Sphere/Box
   3. PlayMontage(Config->LoopingMontage)
   4. [规划] FallbackMesh / MaterialOverrides / MeshScale / PlayRate
 ```
@@ -104,13 +105,15 @@ AMHGZTrainingDummy::ApplyConfig(UMHGZDummyConfig* Config)
 
 ## 部位碰撞（UMonsterHitzoneComponent）
 
-继承 `USphereComponent`，额外持有 Hitzone 元数据。挂载到骨骼上，Object Type 固定为 `Hitzone`、Collision Enabled 为 QueryOnly、Weapon/Visibility Trace 响应为 Block、Pawn/WorldStatic 为 Ignore。木桩实体 Body 对 Visibility Ignore，WorldStatic 仍 Block，所以准心不会被 Body 抢占，也不会穿墙。
+元数据组件继续继承`USphereComponent`并挂载到骨骼。Sphere时自身QueryOnly；Box时自身NoCollision，唯一Box子查询为QueryOnly。有效查询组件的Object Type为`Hitzone`，Weapon/Visibility=Block、Pawn/WorldStatic=Ignore。所有消费者经`Resolve`读取统一部位元数据；最近点/探针外包半径使用当前查询形状。Body仍单独承担实体阻挡，不能被当作攻击命中。
 
 | 成员 | 类型 | 说明 |
 |------|------|------|
 | HitzoneTag | FGameplayTag | 部位标签（Hitzone.Head / Hitzone.Torso ...） |
 | ExtractColorTag | FGameplayTag | 该木桩部位提供的精华颜色；Demo 必须覆盖 Red/Orange/White |
-| DefenseMultiplier | float | 肉质（伤害吸收率） |
+| DefenseMultiplier | float | 原物理肉质倍率；物理类型表缺项时兼容，猎虫仍沿用 |
+| PhysicalHitzoneMultipliers | TMap\<EMHGZPhysicalDamageType, float\> | 斩/打/弹肉质，0.45=肉质45；显式0免疫 |
+| ElementHitzoneMultipliers | TMap\<EMHGZElementType, float\> | 火/水/雷/冰/龙肉质，0.20=肉质20；缺项0，不回退物理 |
 | StaggerRate | float | 破坏值吸收率 |
 
 武器攻击通过 Weapon Trace 查询 Hitzone；Aim 使用 Visibility 并验证命中组件 ObjectType=Hitzone；猎虫以前后帧 Capsule Sweep 显式查询 Hitzone Object。猎虫自身 Collision Root 只处理 WorldStatic 阻挡，不订阅 Hitzone Overlap。木桩的实体阻挡组件与 Hitzone 分离，Hitzone 不承担 Pawn 物理阻挡。
@@ -155,7 +158,7 @@ AMHGZTrainingDummy::ApplyConfig(UMHGZDummyConfig* Config)
   → 读 HitzoneTag + DefenseMultiplier
   → MakeDamageSpec(Target, HitzoneBoneName, SegmentIndex)
   → Source ASC::ApplyGameplayEffectSpecToTarget(UMHGZDamageGameplayEffect)
-  → ExecCalc 计算最终伤害（AttackPower × MotionValue × 肉质）
+  → ExecCalc计算物理/属性独立通道、分别取整后合并（详见[伤害计算](exec-calc.md)）；猎虫/粉尘保持专用规则
   → 木桩 Health 实际减少并广播 OnHealthChanged
   → [规划] HandleGameplayEvent(HitStagger) + GameplayCue + 伤害数字
 ```

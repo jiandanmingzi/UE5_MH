@@ -32,6 +32,13 @@ URes_InsectGlaive* UMHGZInsectGlaiveAbility::GetIGResourceComponent() const
 	return Cast<URes_InsectGlaive>(Host->GetResourceProvider());
 }
 
+bool UMHGZInsectGlaiveAbility::ConsumeAerialAttackAndDodgeBudgets()
+{
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	return Host && Host->MarkAerialAttackUsed()
+		&& Host->MarkAerialDodgeUsed();
+}
+
 bool UMHGZInsectGlaiveAbility::CanActivateAbility(
 	const FGameplayAbilitySpecHandle Handle,
 	const FGameplayAbilityActorInfo* ActorInfo,
@@ -215,6 +222,14 @@ bool UMHGZInsectGlaiveAbility::NotifyAerialHandoff()
 		}
 	}
 	return true;
+}
+
+bool UMHGZInsectGlaiveAbility::HandlePowderGatherBegin(
+	const FWeaponActionToken& ActionToken)
+{
+	(void)ActionToken;
+	// Only a concrete ability that owns a live powder reservation may opt in.
+	return false;
 }
 
 void UMHGZInsectGlaiveAbility::CloseAerialHandoff()

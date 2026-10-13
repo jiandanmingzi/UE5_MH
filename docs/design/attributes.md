@@ -14,7 +14,7 @@
 | MoveSpeedMultiplier | 属性与 Clamp 已实现，但当前 Motion Matching 速度计算尚未读取该值。 |
 | 受击/霸体 | `IncomingHitResolver` 已支持目标校验、AttackInstance 去重和按优先级/TTL 的当前 ActionToken 拦截；Damage ExecCalc 输出硬直 Meta，AttributeSet 发送硬直事件。正式受击 Ability、霸体比较和动画仍待后续。 |
 
-**目标设计：** 装备基础数值与词条最终统一通过 GAS 表达。当前实现会直接用 `SetNumericAttributeBase` 重算 AttackPower/Defense/CriticalRate；只有后续词条/效果方案计划使用 GameplayEffect。装备变化时，已存在的装备 GE 通过 `RemoveActiveEffectsWithAppliedTags(Effect.Source.Equipment)` 清理。
+**目标设计：** 装备基础数值与词条最终统一通过 GAS 表达。当前实现用 `SetNumericAttributeBase` 重算 AttackPower/ElementPower/Defense/CriticalRate；ElementPower的基础值仅取武器槽定义，默认0，装备GE可进一步修正。后续词条/效果使用GameplayEffect；装备变化时，通过`Effect.Source.Equipment`清理旧装备GE。
 
 属性约束：Health/Stamina 基础 100、上限 200；AttackPower/Defense 基础 0、无上限；CriticalRate 基础 0、范围 [-100, 100]；StaminaRegenRate/DeductionRate/ConsumptionRate 基础 1.0、下限 0。目标武器专属资源由 WeaponDefinition 引用的 WeaponRuntimeDefinition 决定，同种类武器共享运行时定义。
 
@@ -35,6 +35,7 @@ class UMHGZAttributeSet : public UAttributeSet
 | StaminaDeductionRate | FGameplayAttributeData | 1.0 | ∞ | 0 | 单次动作扣耐倍率 |
 | StaminaConsumptionRate | FGameplayAttributeData | 1.0 | ∞ | 0 | 持续耗耐倍率 |
 | AttackPower | FGameplayAttributeData | 0 | ∞ | 0 | 攻击力 |
+| ElementPower | FGameplayAttributeData | 0 | ∞ | 0 | 实际属性值；武器定义提供基础值。《世界》显示300对应30；公式见[伤害计算](exec-calc.md) |
 | Defense | FGameplayAttributeData | 0 | ∞ | 0 | 防御力 |
 | CriticalRate | FGameplayAttributeData | 0 | 100 | -100 | 会心率（%） |
 | StaggerMultiplier | FGameplayAttributeData | 1.0 | ∞ | 0 | ★ 破坏值倍率（**攻击方属性**——代表玩家造成怪物硬直的能力）。参与硬直计算：`Stagger = BaseStaggerValue(招式) × StaggerMultiplier(攻击方) × HitzoneStaggerRate(怪物部位)`。基础 1.0，通过装备词条 GE 加成（如"破坏王"技能珠 +0.3）。怪物侧无此属性——怪物硬直阈值由自身系统内部累积管理 |
@@ -59,7 +60,7 @@ Demo 伤害迁移时新增四个不复制、不持久化的 Meta Attribute，基
 - Stamina → [0, MaxStamina]
 - MaxHealth / MaxStamina → [1, 200]
 - CriticalRate → [-100, 100]
-- AttackPower / Defense → [0, ∞)
+- AttackPower / ElementPower / Defense → [0, ∞)
 - StaggerMultiplier → [0, ∞)
 - StaminaRegenRate / DeductionRate / ConsumptionRate → [0, ∞)
 - MoveSpeedMultiplier → [0.1, 3.0]

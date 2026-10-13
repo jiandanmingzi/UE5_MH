@@ -329,6 +329,15 @@ void UMHGZPoleVaultAbility::ActivateAbility(const FGameplayAbilitySpecHandle Han
 	{
 		return;
 	}
+	// Neutral input is routed to UMHGZForwardVaultAbility by the combo data.
+	// Keep that exact forward profile/curve for both neutral and forward stick;
+	// the sampled trajectory, not the imported takeoff root track, owns the capsule.
+	if (GetVaultDirection() == EDirectionalInput::Forward
+		&& !StartForwardVaultTrajectoryMovement())
+	{
+		RequestEndAction(EWeaponActionEndReason::Interrupted);
+		return;
+	}
 	if (!ScheduleJumpOverMovementHandoff())
 	{
 		RequestEndAction(EWeaponActionEndReason::Interrupted);
@@ -352,10 +361,10 @@ void UMHGZPoleVaultAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 		JumpOverHandoffTask->EndTask();
 		JumpOverHandoffTask = nullptr;
 	}
-	// The Jump segment owns Montage Root Motion, then CurvedVault owns the
-	// JumpOver path.  If either phase is interrupted, stop this exact visual
-	// first; otherwise an already-extracted source-sequence root track can keep
-	// CMC in HasAnimRootMotion and swallow subsequent player input.
+	// Forward uses its recorded curve from frame zero while the takeoff montage is
+	// pose-only; other directions retain montage root motion until CurvedVault takes
+	// over at the JumpOver boundary.  If interrupted, stop this exact visual first
+	// so an extracted source-sequence root track cannot swallow later player input.
 	ACharacter* VisualCharacter = ActorInfo && ActorInfo->AvatarActor.IsValid()
 		? Cast<ACharacter>(ActorInfo->AvatarActor.Get()) : nullptr;
 	UAnimInstance* AnimInstance = VisualCharacter && VisualCharacter->GetMesh()
@@ -602,6 +611,21 @@ bool UMHGZPoleVaultAbility::StartAttackMontage(ACharacter& Character,
 		RestoreBackVaultInitialFlight(Character);
 		return false;
 	}
+	if (GetVaultDirection() == EDirectionalInput::Forward)
+	{
+		UAnimInstance* AnimInstance = Character.GetMesh()
+			? Character.GetMesh()->GetAnimInstance() : nullptr;
+		FAnimMontageInstance* MontageInstance = AnimInstance
+			? AnimInstance->GetActiveInstanceForMontage(Montage) : nullptr;
+		if (!MontageInstance)
+		{
+			return false;
+		}
+		// The forward montage remains the pose source, but its imported root track
+		// must not add the measured rightward drift on top of the forward path curve.
+		MontageInstance->PushDisableRootMotion();
+		bBackVaultVisualRootMotionDisabled = true;
+	}
 	return true;
 }
 
@@ -649,9 +673,9 @@ bool UMHGZPoleVaultAbility::PlayVaultMontage(ACharacter& Character,
 	// 则和从前一样 —— 物理曲线可能比视觉链晚几帧收尾，终末姿势要一直保持到
 	// `EndAbility` 起下一个表现。两种情形都不要改成 true。
 	//
-	// Jump owns its imported Montage Root Motion.  The JumpOver boundary disables only
-	// the remaining visual root track immediately before CurvedVault starts; do not use
-	// Character-wide root-translation scaling here.
+	// Forward's Jump montage is explicitly pose-only because its recorded trajectory
+	// owns capsule movement from frame zero. Other directions keep their imported Jump
+	// root motion until the JumpOver boundary; do not scale root translation globally.
 	MontageInstance->bEnableAutoBlendOut = false;
 	return true;
 }
@@ -873,10 +897,144 @@ void UMHGZPoleVaultAbility::HandleJumpOverMovementHandoff()
 			BackVaultArcVisualTask ? 1.0f : 0.0f);
 	}
 
-	if (!StartBackVaultMovement())
+	const bool bTransitioned = GetVaultDirection() == EDirectionalInput::Forward
+		? StartJumpOverVisualTransition(/*bDisableTakeoffRootMotion=*/false)
+		: StartBackVaultMovement();
+	if (!bTransitioned)
 	{
 		RequestEndAction(EWeaponActionEndReason::Interrupted);
 	}
+}
+
+bool UMHGZPoleVaultAbility::StartJumpOverVisualTransition(
+	const bool bDisableTakeoffRootMotion)
+{
+	if (!IsActive() || bIsEndingBackVault || !IsActionActivationCommitted())
+	{
+		return false;
+	}
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	UAnimInstance* AnimInstance = Character && Character->GetMesh()
+		? Character->GetMesh()->GetAnimInstance() : nullptr;
+	FAnimMontageInstance* MontageInstance = AnimInstance && AttackMontage
+		? AnimInstance->GetActiveInstanceForMontage(AttackMontage) : nullptr;
+	if (!Host || !Character || !MontageInstance)
+	{
+		return false;
+	}
+
+	if (bDisableTakeoffRootMotion && !bBackVaultVisualRootMotionDisabled)
+	{
+		MontageInstance->PushDisableRootMotion();
+		bBackVaultVisualRootMotionDisabled = true;
+	}
+	if (BackVaultVisualTask)
+	{
+		BackVaultVisualTask->OnInterrupted.RemoveDynamic(this,
+			&UMHGZPoleVaultAbility::HandleBackVaultVisualInterrupted);
+		BackVaultVisualTask->OnCancelled.RemoveDynamic(this,
+			&UMHGZPoleVaultAbility::HandleBackVaultVisualInterrupted);
+	}
+	if (!PlayVaultMontage(*Character, ArcMontage, NAME_None, VaultSeamBlendTime,
+		TEXT("BackVaultArcVisual"), /*bBindCompleted=*/true, BackVaultArcVisualTask))
+	{
+		return false;
+	}
+	if (Host->IsMontageRootMotionOwnedBy(GetActionToken()))
+	{
+		Host->ReleaseMontageRootMotion(GetActionToken());
+	}
+	return true;
+}
+
+bool UMHGZPoleVaultAbility::StartForwardVaultTrajectoryMovement()
+{
+	if (!IsActive() || bIsEndingBackVault || BackVaultMovementTask
+		|| !IsActionActivationCommitted()
+		|| GetVaultDirection() != EDirectionalInput::Forward)
+	{
+		return false;
+	}
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	const UInsectGlaiveCombatConfig* CombatConfig = Host
+		? Cast<UInsectGlaiveCombatConfig>(Host->GetCurrentContext().CombatConfig) : nullptr;
+	const FVaultProfile* Profile = ResolveVaultProfile();
+	const FVaultTuning* Tuning = CombatConfig
+		? CombatConfig->FindVaultTuning(EDirectionalInput::Forward, bUseWhiteBackVault) : nullptr;
+	if (!Host || !CombatConfig || !Profile || !Tuning
+		|| Profile->Direction != EDirectionalInput::Forward)
+	{
+		return false;
+	}
+
+	const float Duration = Tuning->VaultDuration;
+	const float ArcDuration = Tuning->ArcDuration;
+	if (!FMath::IsFinite(Duration) || Duration <= KINDA_SMALL_NUMBER
+		|| !FMath::IsFinite(ArcDuration) || ArcDuration <= KINDA_SMALL_NUMBER)
+	{
+		return false;
+	}
+	const float HandoffProgress = Duration / ArcDuration;
+	if (!FMath::IsFinite(HandoffProgress) || HandoffProgress <= 0.0f
+		|| HandoffProgress > 1.0f)
+	{
+		return false;
+	}
+
+	float CurveDistance = 0.0f;
+	FVector HandoffVelocityLocal = FVector::ZeroVector;
+	ActiveTrajectoryCurve = BuildTrajectoryCurve(Profile->Trajectory, Profile->ClipDrift,
+		0.0f, HandoffProgress, Tuning->Distance, Tuning->ApexHeight, Duration,
+		CurveDistance, HandoffVelocityLocal);
+	if (!ActiveTrajectoryCurve || HandoffVelocityLocal.IsNearlyZero())
+	{
+		return false;
+	}
+
+	FWeaponMovementRequest Request;
+	Request.OwnerAction = GetActionToken();
+	Request.Mode = EWeaponMovementMode::CurvedVault;
+	Request.DirectionSnapshot = ComputeInputDirectionSnapshot(
+		GetWeaponActivationContext().Input, Profile->ChordYawDegrees);
+	Request.MaxDistance = CurveDistance;
+	Request.Duration = Duration;
+	Request.PathOffsetCurve = ActiveTrajectoryCurve;
+	Request.CurvedVaultHandoffVelocityLocal = HandoffVelocityLocal;
+	Request.RotationPolicy = EActionRotationPolicy::Locked;
+	Request.CancelVelocityPolicy = EMovementCancelVelocityPolicy::PreserveVelocity;
+	if (!Request.HasValidCurvedVaultParameters())
+	{
+		return false;
+	}
+
+	UAbilityTask_MHGZWeaponMovement* Task =
+		UAbilityTask_MHGZWeaponMovement::StartWeaponMovement(
+			this, TEXT("ForwardVaultFullPath"), Request);
+	if (!Task)
+	{
+		return false;
+	}
+	BackVaultMovementTask = Task;
+	Task->OnFinished.AddDynamic(this,
+		&UMHGZPoleVaultAbility::HandleBackVaultMovementFinished);
+	Task->ReadyForActivation();
+	if (!Task->DidStartMovement())
+	{
+		BackVaultMovementTask = nullptr;
+		return false;
+	}
+	if (!Host->SetAerialMovementSource(GetActionToken(), BackVaultMovementSourceTag()))
+	{
+		UE_LOG(LogMHGZ, Warning,
+			TEXT("[PoleVault] RuntimeHost could not publish the forward aerial source tag; aborting movement."));
+		Task->OnFinished.RemoveDynamic(this,
+			&UMHGZPoleVaultAbility::HandleBackVaultMovementFinished);
+		BackVaultMovementTask = nullptr;
+		Task->EndTask();
+		return false;
+	}
+	return true;
 }
 
 bool UMHGZPoleVaultAbility::StartBackVaultMovement()
@@ -1214,6 +1372,19 @@ FVector UMHGZPoleVaultAbility::ComputeDirectionSnapshot(
 	// 0 变成约 30 cm，违反消费方「起止偏移为零」的约束。
 	const float FacingYaw = FrozenActorForward.Rotation().Yaw;
 	return FRotator(0.0f, FacingYaw - ChordYawDegrees, 0.0f).Vector();
+}
+
+FVector UMHGZPoleVaultAbility::ComputeInputDirectionSnapshot(
+	const FWeaponInputSnapshot& Input, const float ChordYawDegrees)
+{
+	// A directional input can already be steering the character toward the camera-
+	// relative heading on the activation frame. Keep the path aligned with that same
+	// frozen world direction; using ActorForward can lag it by one frame and create a
+	// visible lateral offset when the character turns as the movement source starts.
+	const FVector& BaseDirection = !Input.WorldDirection.ContainsNaN()
+		&& !Input.WorldDirection.IsNearlyZero()
+		? Input.WorldDirection : Input.ActorForward;
+	return ComputeDirectionSnapshot(BaseDirection, ChordYawDegrees);
 }
 
 bool UMHGZPoleVaultAbility::SampleClipDriftForwardFraction(

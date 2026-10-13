@@ -82,7 +82,7 @@ def main():
             phase_runs[-1]["end_frame"] = frame
             phase_runs[-1]["end_time"] = number(row, "WorldTimeSeconds")
             phase_runs[-1]["last_clock"] = number(row, "KinsectPiercerCurveElapsedSeconds")
-            check(f"GA_IG_KinsectPiercer_C#{action}" in row["ActiveActions"], "registered_same_action", action, row)
+            check(f"GA_IG_QiangHuaCaoChongChuanCi_C#{action}" in row["ActiveActions"], "registered_same_action", action, row)
             check(int(row["KinsectPiercerSegmentConfigCount"]) == 3, "three_segment_configs", action, row)
             check(abs(number(row, "KinsectPiercerLockedYawX") - yaw[0]) < 0.0002
                   and abs(number(row, "KinsectPiercerLockedYawY") - yaw[1]) < 0.0002,
@@ -121,7 +121,7 @@ def main():
                       and int(row["KinsectPiercerLandingMontageInstanceID"]) >= 0,
                       "landing_has_new_registered_instance", action, row)
                 instance = montages.get(frame, {}).get(int(row["KinsectPiercerLandingMontageInstanceID"]))
-                check(instance is not None and "AM_IG_KinsectPiercer_Over" in instance["Montage"],
+                check(instance is not None and "AM_IG_QiangHuaCaoChongChuanCi_Over" in instance["Montage"],
                       "landing_instance_observed_in_engine", action, row)
                 if position:
                     check(position["MovementMode"] in ("1", "2"), "landing_is_grounded", action, row)
@@ -131,8 +131,8 @@ def main():
         after = playback[after_index] if after_index < len(playback) else None
         after_state = states.get(int(after["Frame"]), {}) if after else {}
         if after:
-            check(f"GA_IG_KinsectPiercer_C#{action}" not in after["ActiveActions"]
-                  and f"GA_IG_KinsectPiercer_C#{action}" not in after["MontageRootMotionOwnerAction"],
+            check(f"GA_IG_QiangHuaCaoChongChuanCi_C#{action}" not in after["ActiveActions"]
+                  and f"GA_IG_QiangHuaCaoChongChuanCi_C#{action}" not in after["MontageRootMotionOwnerAction"],
                   "old_action_and_montage_owner_retired", action, after)
             if not after["ActiveActions"]:
                 check(after_state.get("BlockMovement") == "0",
@@ -174,7 +174,7 @@ def main():
         for row in csv.DictReader(stream):
             movement_rows += 1
             movement_phase_names[row["Phase"]] += 1
-            identities = re.findall(r"GA_IG_KinsectPiercer_C#(\d+)", row["ActiveActions"])
+            identities = re.findall(r"GA_IG_QiangHuaCaoChongChuanCi_C#(\d+)", row["ActiveActions"])
             if identities and any(keyword in row["Phase"].lower()
                                   for keyword in ("land", "recorded", "handoff", "release")):
                 for action_text in set(identities):

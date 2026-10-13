@@ -12,7 +12,7 @@ def path(value):
 
 
 config = unreal.load_asset("/Game/Weapons/InsectGlaive/Data/DA_IG_Combat")
-ability_asset = unreal.load_asset("/Game/Blueprints/Ability/InsectGlaive/GA_IG_KinsectSlash")
+ability_asset = unreal.load_asset("/Game/Blueprints/Ability/InsectGlaive/GA_IG_CaoChongZhan")
 if config is None or ability_asset is None:
     raise RuntimeError("Missing existing CombatConfig or production Kinsect Slash blueprint")
 

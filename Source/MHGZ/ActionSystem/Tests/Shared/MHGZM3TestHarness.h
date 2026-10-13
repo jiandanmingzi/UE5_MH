@@ -13,6 +13,8 @@
 #include "Equipment/MHGZEquipmentComponent.h"
 #include "Equipment/MHGZEquipmentDefinition.h"
 #include "Equipment/MHGZEquipmentInstance.h"
+#include "Engine/Engine.h"
+#include "Engine/GameInstance.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
@@ -52,6 +54,9 @@ inline FWeaponInputSnapshot MakePosedInput(bool bGrounded, bool bSheathed)
 struct FMHGZM3Harness
 {
 	UWorld* World = nullptr;
+	FWorldContext* WorldContext = nullptr;
+	UGameInstance* TestGameInstance = nullptr;
+	bool bWorldAddedToRoot = false;
 	ACharacter* Character = nullptr;
 	AMHGZPlayerState* PlayerState = nullptr;
 	UMHGZAbilitySystemComponent* ASC = nullptr;
@@ -67,7 +72,9 @@ struct FMHGZM3Harness
 	 * 建立完整运行时。bBlockTripleUpGE 为 true 时注入必然 Apply 失败的三灯 GE，
 	 * 用于验证"Triple GE Apply 失败保留三单灯"。
 	 */
-	bool Setup(bool bBlockTripleUpGE = false);
+	bool Setup(bool bBlockTripleUpGE = false,
+		TSubclassOf<ACharacter> CharacterClass = ACharacter::StaticClass(),
+		bool bCreateTestWorldContext = false);
 
 	void Teardown();
 
@@ -82,7 +89,8 @@ struct FMHGZM3Harness
 	FWeaponActionToken MakeActionToken(TSubclassOf<UGameplayAbility> AbilityClass);
 };
 
-inline bool FMHGZM3Harness::Setup(bool bBlockTripleUpGE)
+inline bool FMHGZM3Harness::Setup(bool bBlockTripleUpGE,
+	TSubclassOf<ACharacter> CharacterClass, const bool bCreateTestWorldContext)
 {
 	UAbilitySystemGlobals& Globals = UAbilitySystemGlobals::Get();
 	if (!Globals.IsAbilitySystemGlobalsInitialized())
@@ -95,9 +103,34 @@ inline bool FMHGZM3Harness::Setup(bool bBlockTripleUpGE)
 	{
 		return false;
 	}
+	if (bCreateTestWorldContext)
+	{
+		if (!GEngine)
+		{
+			return false;
+		}
+		World->AddToRoot();
+		bWorldAddedToRoot = true;
+		World->SetShouldTick(false);
+		WorldContext = &GEngine->CreateNewWorldContext(EWorldType::Game);
+		TestGameInstance = NewObject<UGameInstance>(GEngine);
+		if (!WorldContext || !TestGameInstance)
+		{
+			return false;
+		}
+		WorldContext->OwningGameInstance = TestGameInstance;
+		WorldContext->SetCurrentWorld(World);
+		World->SetGameInstance(TestGameInstance);
+		TestGameInstance->Init();
+	}
 
-	Character = World->SpawnActor<ACharacter>(
-		ACharacter::StaticClass(), FVector::ZeroVector, FRotator::ZeroRotator);
+	UClass* SpawnCharacterClass = CharacterClass.Get();
+	if (!SpawnCharacterClass)
+	{
+		SpawnCharacterClass = ACharacter::StaticClass();
+	}
+	Character = World->SpawnActor<ACharacter>(SpawnCharacterClass,
+		FVector::ZeroVector, FRotator::ZeroRotator);
 	if (!Character)
 	{
 		return false;
@@ -109,6 +142,10 @@ inline bool FMHGZM3Harness::Setup(bool bBlockTripleUpGE)
 	{
 		return false;
 	}
+	if (bCreateTestWorldContext)
+	{
+		Character->SetPlayerState(PlayerState);
+	}
 
 	ASC = PlayerState->GetMHGZAbilitySystemComponent();
 	if (!ASC)
@@ -116,6 +153,10 @@ inline bool FMHGZM3Harness::Setup(bool bBlockTripleUpGE)
 		return false;
 	}
 	ASC->InitAbilityActorInfo(PlayerState, Character);
+	if (bCreateTestWorldContext)
+	{
+		ASC->InitializeAbilitySystem();
+	}
 
 	Equipment = PlayerState->GetEquipmentComponent();
 	if (!Equipment)
@@ -184,6 +225,13 @@ inline bool FMHGZM3Harness::Setup(bool bBlockTripleUpGE)
 	{
 		return false;
 	}
+	if (bCreateTestWorldContext)
+	{
+		const FURL URL;
+		World->SetGameMode(URL);
+		World->InitializeActorsForPlay(URL);
+		World->BeginPlay();
+	}
 	return true;
 }
 
@@ -195,9 +243,31 @@ inline void FMHGZM3Harness::Teardown()
 	}
 	if (World)
 	{
+		if (TestGameInstance && World->HasBegunPlay())
+		{
+			World->BeginTearingDown();
+			World->EndPlay(EEndPlayReason::Quit);
+		}
+		if (bWorldAddedToRoot)
+		{
+			World->RemoveFromRoot();
+			bWorldAddedToRoot = false;
+		}
+		if (TestGameInstance)
+		{
+			TestGameInstance->Shutdown();
+			TestGameInstance = nullptr;
+		}
+		if (WorldContext && GEngine)
+		{
+			GEngine->DestroyWorldContext(World);
+			WorldContext = nullptr;
+		}
 		World->DestroyWorld(false);
 	}
 	World = nullptr;
+	WorldContext = nullptr;
+	TestGameInstance = nullptr;
 	Character = nullptr;
 	PlayerState = nullptr;
 	ASC = nullptr;

@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/PlayerController.h"
+#include "UI/MHGZUITelemetry.h"
 #include "MHGZPlayerController.generated.h"
 
 class UUserWidget;
@@ -38,6 +39,8 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="MHGZ|Components")
 	TObjectPtr<UMHGZWeaponInputRouterComponent> WeaponInputRouterComponent;
 
+	FMHGZUIEventTelemetryQueue UITelemetryEvents;
+
 public:
 	AMHGZPlayerController();
 
@@ -46,6 +49,12 @@ public:
 	virtual void OnPossess(APawn* InPawn) override;
 	virtual void OnUnPossess() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
+	void RefreshMHGZHUDContext();
+	void RecordUITelemetryEvent(FName EventName, const UObject* Subject = nullptr,
+		FName Reason = NAME_None, uint64 RuntimeGeneration = 0);
+	void GetUITelemetryEventsSince(uint64& InOutLastSerial,
+		TArray<FMHGZUIEventTelemetry>& OutEvents) const;
+	uint64 GetLatestUITelemetrySerial() const { return UITelemetryEvents.GetLatestSerial(); }
 
 	UFUNCTION(BlueprintCallable, Category="MHGZ|Input")
 	UMHGZInputComponent* GetMHGZInputComponent() const { return InputComponent_MHGZ; }

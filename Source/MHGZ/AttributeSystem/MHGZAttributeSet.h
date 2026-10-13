@@ -77,6 +77,11 @@ public:
 	FGameplayAttributeData AttackPower;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, AttackPower)
 
+	/** 实际属性值（非《世界》显示面板的十倍值）；由装备/GE 设置，默认无属性伤害。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat", ReplicatedUsing = OnRep_ElementPower)
+	FGameplayAttributeData ElementPower;
+	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, ElementPower)
+
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat", ReplicatedUsing = OnRep_Defense)
 	FGameplayAttributeData Defense;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, Defense)
@@ -143,6 +148,9 @@ public:
 
 	UFUNCTION()
 	virtual void OnRep_AttackPower(const FGameplayAttributeData& OldValue);
+
+	UFUNCTION()
+	virtual void OnRep_ElementPower(const FGameplayAttributeData& OldValue);
 
 	UFUNCTION()
 	virtual void OnRep_Defense(const FGameplayAttributeData& OldValue);

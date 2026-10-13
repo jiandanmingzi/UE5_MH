@@ -40,7 +40,7 @@ for name in ("aerial_fall_gravity_scale", "white_aerial_fall_gravity_scale",
     show("combat." + name, field(combat, name))
 
 ability_class = unreal.EditorAssetLibrary.load_blueprint_class(
-    "/Game/Weapons/InsectGlaive/Abilities/GA_IG_KinsectSlash")
+    "/Game/Weapons/InsectGlaive/Abilities/GA_IG_CaoChongZhan")
 ability = unreal.get_default_object(ability_class) if ability_class else None
 show("slash_ability", ability)
 for index, segment in enumerate(field(ability, "attack_segments")):

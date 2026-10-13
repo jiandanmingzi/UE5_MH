@@ -34,6 +34,8 @@ struct FMHGZAerialPresentationRootMotionTelemetry
 
 /** 旧 Token 失效通知：M2 仅广播；M3 HUD/AimComponent 据此解绑。 */
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnWeaponRuntimeInvalidated, const FWeaponRuntimeToken&);
+DECLARE_MULTICAST_DELEGATE_TwoParams(FOnWeaponRuntimeReady,
+	const FWeaponRuntimeToken&, UMHGZWeaponResourceComponent*);
 
 /**
  * 当前 Pawn 的武器运行时所有者。
@@ -76,6 +78,15 @@ public:
 
 	/** 旧 Token 失效通知（携带被废弃的 RuntimeToken）。 */
 	FOnWeaponRuntimeInvalidated OnWeaponRuntimeInvalidated;
+
+	/** 武器Resource、能力和ComboCoordinator均完成初始化后广播。 */
+	FOnWeaponRuntimeReady OnWeaponRuntimeReady;
+
+	bool IsWeaponRuntimeReady() const { return bWeaponRuntimeReady; }
+	const FEquippedWeaponSnapshot& GetCurrentWeaponSnapshot() const
+	{
+		return CurrentWeapon;
+	}
 
 	// ----------------------------------------------------------------------
 	// Token / Generation
@@ -122,6 +133,13 @@ public:
 	// Active Action 注册表
 	// ----------------------------------------------------------------------
 	bool RegisterAction(const FWeaponActionToken& ActionToken);
+
+	/** True only while this exact action identity remains in the active registry. */
+	bool IsActionRegistered(const FWeaponActionToken& ActionToken) const;
+
+	/** Query an active action by its runtime-unique activation sequence. */
+	bool IsActionActivationRegistered(const FWeaponRuntimeToken& RuntimeToken,
+		uint32 ActivationSequenceID) const;
 
 	bool UnregisterAction(const FWeaponActionToken& ActionToken);
 
@@ -244,6 +262,15 @@ public:
 	uint64 GetLatestActionVisualPitchTelemetrySerial() const
 	{
 		return NextActionVisualPitchTelemetrySerial - 1;
+	}
+
+	/** Sparse combat events are buffered only while RuntimeTelemetry is enabled. */
+	void RecordCombatTelemetryEvent(const FWeaponCombatTelemetryEvent& InEvent);
+	void GetCombatTelemetryEventsSince(uint64& InOutLastSerial,
+		TArray<FWeaponCombatTelemetryEvent>& OutEvents) const;
+	uint64 GetLatestCombatTelemetrySerial() const
+	{
+		return NextCombatTelemetrySerial - 1;
 	}
 
 	// ----------------------------------------------------------------------
@@ -407,7 +434,7 @@ public:
 
 	void ReleaseReservation(const FWeaponResourceCostReservation& Reservation);
 
-	void ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation);
+	bool ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation);
 
 private:
 	FWeaponTagOwnerID MakeOwnerID(
@@ -514,6 +541,7 @@ private:
 	uint64 Generation = 0;
 	uint32 NextActivationSequenceID = 1;
 	bool bInitialized = false;
+	bool bWeaponRuntimeReady = false;
 	/** 关停/重建窗口：拒绝新的输入、注册与资源预留请求。 */
 	bool bShuttingDown = false;
 	/** Prevents synchronous tag callbacks from reopening aerial state during landing cleanup. */
@@ -539,6 +567,8 @@ private:
 	uint64 NextActionVisualPitchRevision = 1;
 	TArray<FWeaponActionVisualPitchTelemetryEvent> ActionVisualPitchTelemetryEvents;
 	uint64 NextActionVisualPitchTelemetrySerial = 1;
+	TArray<FWeaponCombatTelemetryEvent> CombatTelemetryEvents;
+	uint64 NextCombatTelemetrySerial = 1;
 	FPoseTokens PoseTokens;
 
 	/** Presentation owned by BeginAerialFalling and stopped only on landing/runtime teardown. */

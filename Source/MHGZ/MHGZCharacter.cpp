@@ -26,6 +26,7 @@
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "MHGZPlayerController.h"
+#include "UI/MHGZHUD.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "Equipment/MHGZEquipmentComponent.h"
 #include "Equipment/MHGZEquipmentDefinition.h"
@@ -245,6 +246,19 @@ void AMHGZCharacter::PossessedBy(AController* NewController)
 		if (AimComponent)
 		{
 			AimComponent->BindToAbilitySystem(ASC);
+		}
+		if (APlayerController* PlayerController =
+			Cast<APlayerController>(NewController))
+		{
+			if (AMHGZHUD* HUD = Cast<AMHGZHUD>(PlayerController->GetHUD()))
+			{
+				HUD->RefreshPawnContext();
+			}
+			if (AMHGZPlayerController* MHGZPlayerController =
+				Cast<AMHGZPlayerController>(PlayerController))
+			{
+				MHGZPlayerController->RefreshMHGZHUDContext();
+			}
 		}
 	}
 }

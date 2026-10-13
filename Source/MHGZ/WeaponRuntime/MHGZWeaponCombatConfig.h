@@ -6,6 +6,7 @@
 #include "Engine/DataAsset.h"
 #include "Misc/DataValidation.h"
 #include "ActionSystem/MHGZWeaponComboData.h"
+#include "ActionSystem/MHGZDamageTypes.h"
 #include "MHGZWeaponCombatConfig.generated.h"
 
 /**
@@ -22,6 +23,10 @@ public:
 	/** 该武器唯一的连招表（虫棍 ComboData 由其 CombatConfig 引用） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat")
 	TObjectPtr<UMHGZWeaponComboData> ComboData;
+
+	/** 物理/属性伤害配置；实际攻击力与属性值由 Source ASC 属性提供。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combat|Damage")
+	FMHGZWeaponDamageProfile DamageProfile;
 
 	/**
 	 * Returns the presentation montage used while the weapon is in CMC-owned

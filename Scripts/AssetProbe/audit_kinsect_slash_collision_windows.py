@@ -19,10 +19,10 @@ import unreal
 
 
 MONTAGES = {
-    "main": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash",
-    "dance": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash_Dance",
+    "main": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan",
+    "dance": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan_Dance",
 }
-ABILITY = "/Game/Weapons/InsectGlaive/Abilities/GA_IG_KinsectSlash"
+ABILITY = "/Game/Weapons/InsectGlaive/Abilities/GA_IG_CaoChongZhan"
 COMBAT = "/Game/Weapons/InsectGlaive/Data/DA_IG_Combat"
 GLAIVE = "/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_IG_Glaive"
 OUT_PATH = os.path.join(unreal.Paths.project_saved_dir(), "AssetProbe",

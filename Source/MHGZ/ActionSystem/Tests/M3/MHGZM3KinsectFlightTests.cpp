@@ -270,9 +270,12 @@ bool FMHGZM3KinsectPendingExtractAndReturn::RunTest(const FString& Parameters)
 	}
 
 	// 返回契约：Returning → 到达 → Attach；空萃取不产生灯。
-	Kinsect->StartReturn();
+	// M6 command arbitration retires the completed attack serial. Recall must
+	// acquire its own current command through the public resource entry.
+	TestTrue(TEXT("resource accepts empty-cargo recall"), H.Resource->RecallKinsect());
 	TestEqual(TEXT("returning state"), Kinsect->GetState(), EKinsectState::Returning);
-	Kinsect->SetActorLocation(FVector(10.f, 0.f, 0.f));
+	// The harness attaches to the mesh root, not the capsule origin (mesh has a Z offset).
+	Kinsect->SetActorLocation(H.Character->GetMesh()->GetComponentLocation() + FVector(10.f, 0.f, 0.f));
 	Kinsect->Tick(0.016f);
 	TestEqual(TEXT("kinsect reattached after return"),
 		Kinsect->GetState(), EKinsectState::Attached);
@@ -288,10 +291,10 @@ bool FMHGZM3KinsectPendingExtractAndReturn::RunTest(const FString& Parameters)
 	Kinsect->Tick(0.016f);
 	if (Kinsect->HasPendingExtract())
 	{
-		Kinsect->StartReturn();
+		TestTrue(TEXT("resource accepts pending-cargo recall"), H.Resource->RecallKinsect());
 		TestEqual(TEXT("return with pending starts"),
 			Kinsect->GetState(), EKinsectState::Returning);
-		Kinsect->SetActorLocation(FVector(10.f, 0.f, 0.f));
+		Kinsect->SetActorLocation(H.Character->GetMesh()->GetComponentLocation() + FVector(10.f, 0.f, 0.f));
 		Kinsect->Tick(0.016f);
 		TestEqual(TEXT("delivery reattaches kinsect"),
 			Kinsect->GetState(), EKinsectState::Attached);

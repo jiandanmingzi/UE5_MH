@@ -320,10 +320,12 @@ bool FMHGZM3TripleAtomicConsume::RunTest(const FString& Parameters)
 	TestTrue(TEXT("triple reserve succeeds"),
 		Resource->TryReserveCosts(Token, TripleSpecs, Reservation));
 	TestTrue(TEXT("reservation is valid"), Reservation.IsValid());
+	FWeaponResourceCostReservation InvalidActionReservation;
 	TestFalse(TEXT("invalid action token rejected"),
-		Resource->TryReserveCosts(FWeaponActionToken(), TripleSpecs, Reservation));
+		Resource->TryReserveCosts(FWeaponActionToken(), TripleSpecs, InvalidActionReservation));
+	FWeaponResourceCostReservation WrongAmountReservation;
 	TestFalse(TEXT("wrong amount reservation rejected"),
-		Resource->TryReserveCosts(Token, { WrongAmount }, Reservation));
+		Resource->TryReserveCosts(Token, { WrongAmount }, WrongAmountReservation));
 
 	Resource->ReleaseReservation(Reservation);
 	TestTrue(TEXT("released reservation keeps triple active"),
@@ -332,7 +334,8 @@ bool FMHGZM3TripleAtomicConsume::RunTest(const FString& Parameters)
 	FWeaponResourceCostReservation ConsumedReservation;
 	TestTrue(TEXT("second reserve succeeds"),
 		Resource->TryReserveCosts(Token, TripleSpecs, ConsumedReservation));
-	Resource->ConsumeReservedCosts(ConsumedReservation);
+	TestTrue(TEXT("reserved triple cost consumes successfully"),
+		Resource->ConsumeReservedCosts(ConsumedReservation));
 	TestFalse(TEXT("consumed reservation clears triple"), Resource->IsTripleUpActive());
 	TestFalse(TEXT("triple tag gone after reserved consume"),
 		H.ASC->HasMatchingGameplayTag(TripleUpTag()));

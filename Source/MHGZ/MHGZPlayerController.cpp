@@ -7,6 +7,8 @@
 #include "InputSystem/MHGZInputComponent.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "InputSystem/MHGZQuickBarComponent.h"
+#include "HAL/IConsoleManager.h"
+#include "MHGZHUD.h"
 #include "MHGZ.h"
 
 AMHGZPlayerController::AMHGZPlayerController()
@@ -33,6 +35,7 @@ void AMHGZPlayerController::BeginPlay()
 			UE_LOG(LogMHGZ, Error, TEXT("Could not spawn mobile controls widget."));
 		}
 	}
+	RefreshMHGZHUDContext();
 }
 
 void AMHGZPlayerController::SetupInputComponent()
@@ -56,6 +59,7 @@ void AMHGZPlayerController::OnPossess(APawn* InPawn)
 	{
 		InputComponent_MHGZ->InitializeInput(this, WeaponInputRouterComponent);
 	}
+	RefreshMHGZHUDContext();
 }
 
 void AMHGZPlayerController::OnUnPossess()
@@ -69,6 +73,7 @@ void AMHGZPlayerController::OnUnPossess()
 		WeaponInputRouterComponent->ShutdownRouter();
 	}
 	Super::OnUnPossess();
+	RefreshMHGZHUDContext();
 }
 
 void AMHGZPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
@@ -82,4 +87,43 @@ void AMHGZPlayerController::EndPlay(const EEndPlayReason::Type EndPlayReason)
 		WeaponInputRouterComponent->ShutdownRouter();
 	}
 	Super::EndPlay(EndPlayReason);
+}
+
+void AMHGZPlayerController::RefreshMHGZHUDContext()
+{
+	if (AMHGZHUD* MHGZHUD = Cast<AMHGZHUD>(GetHUD()))
+	{
+		MHGZHUD->RefreshPawnContext();
+	}
+}
+
+void AMHGZPlayerController::RecordUITelemetryEvent(const FName EventName,
+	const UObject* Subject, const FName Reason, const uint64 RuntimeGeneration)
+{
+	if (EventName.IsNone() || !IsLocalPlayerController())
+	{
+		return;
+	}
+	IConsoleVariable* CaptureVariable = IConsoleManager::Get().FindConsoleVariable(
+		TEXT("mhgz.Telemetry.Enable"));
+	if (!CaptureVariable || CaptureVariable->GetInt() == 0)
+	{
+		return;
+	}
+
+	FMHGZUIEventTelemetry Event;
+	Event.Frame = GFrameCounter;
+	Event.WorldTimeSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	Event.EventName = EventName;
+	Event.RuntimeGeneration = RuntimeGeneration;
+	Event.Reason = Reason;
+	Event.SubjectClass = IsValid(Subject) ? Subject->GetClass()->GetPathName() : FString();
+	Event.PawnName = GetPawn() ? GetPawn()->GetFName() : NAME_None;
+	UITelemetryEvents.Record(MoveTemp(Event));
+}
+
+void AMHGZPlayerController::GetUITelemetryEventsSince(uint64& InOutLastSerial,
+	TArray<FMHGZUIEventTelemetry>& OutEvents) const
+{
+	UITelemetryEvents.GetEventsSince(InOutLastSerial, OutEvents);
 }

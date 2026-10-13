@@ -82,6 +82,8 @@ void FillStandardSingleHitRequest(FKinsectFlightRequest& Request,
 	Request.MotionValue = MotionValue;
 	Request.RehitInterval = 0.f;
 	Request.FlightInstanceID = FGuid::NewGuid();
+	Request.SourceAttackInstanceID = Request.FlightInstanceID;
+	Request.PowderSpawnPolicy = EIGPowderSpawnPolicy::MarkedContact;
 }
 }
 
@@ -113,22 +115,18 @@ bool UMHGZSendKinsectAbility::BuildRequest(FKinsectFlightRequest& OutRequest) co
 
 	FillStandardSingleHitRequest(OutRequest, Activation, *Data, *Config,
 		Config->SendKinsectMotionValue);
-	if (Kinsect->GetState() == EKinsectState::Attached)
-	{
-		OutRequest.TrajectoryMode = EKinsectTrajectoryMode::AlongDirection;
-		OutRequest.DirectionSnapshot = Input.Aim.Direction.GetSafeNormal();
-	}
-	else
-	{
-		OutRequest.TrajectoryMode = EKinsectTrajectoryMode::ToPoint;
-		OutRequest.TargetPointSnapshot = Input.Aim.TargetPoint;
-	}
-	if ((OutRequest.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection
-			&& OutRequest.DirectionSnapshot.ContainsNaN())
-		|| (OutRequest.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection
-			&& OutRequest.DirectionSnapshot.IsNearlyZero())
-		|| (OutRequest.TrajectoryMode == EKinsectTrajectoryMode::ToPoint
-			&& OutRequest.TargetPointSnapshot.ContainsNaN()))
+	OutRequest.TrajectoryMode = EKinsectTrajectoryMode::ToPoint;
+	OutRequest.TargetPointSnapshot = Input.Aim.TargetPoint;
+	OutRequest.DirectionSnapshot = Input.Aim.Direction.GetSafeNormal();
+	OutRequest.AimOriginSnapshot = Input.Aim.Origin;
+	OutRequest.bProjectAttachedLaunchToAimRay = true;
+	OutRequest.bRequireHitzoneContactForArrival = Input.Aim.bHasHitResult;
+	OutRequest.AimTargetSurfaceNormal = Input.Aim.bHasBlockingHit
+		? Input.Aim.BlockingHit.ImpactNormal : FVector::ZeroVector;
+	if (OutRequest.DirectionSnapshot.ContainsNaN()
+		|| OutRequest.DirectionSnapshot.IsNearlyZero()
+		|| OutRequest.AimOriginSnapshot.ContainsNaN()
+		|| OutRequest.TargetPointSnapshot.ContainsNaN())
 	{
 		return false;
 	}
@@ -170,6 +168,12 @@ void UMHGZSendKinsectAbility::ActivateAbility(const FGameplayAbilitySpecHandle H
 
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (!Character || !StartActionMontage(*Character, ActionMontage))
+	{
+		RequestEndAction(EWeaponActionEndReason::Cancelled);
+		return;
+	}
+	URes_InsectGlaive* Resource = GetIGResource();
+	if (!Resource || !Resource->BeginKinsectPlayerCommandLease(GetActionToken()))
 	{
 		RequestEndAction(EWeaponActionEndReason::Cancelled);
 	}
@@ -264,6 +268,10 @@ void UMHGZSendKinsectAbility::EndAbility(const FGameplayAbilitySpecHandle Handle
 {
 	// The GAS ability lifetime owns the task. Do not issue another montage stop
 	// here; its completion/interruption delegate may already be ending this action.
+	if (URes_InsectGlaive* Resource = GetIGResource())
+	{
+		Resource->EndKinsectPlayerCommandLease(GetActionToken());
+	}
 	MontageTask = nullptr;
 	ActiveActionMontage = nullptr;
 	PendingRequest = FKinsectFlightRequest();
@@ -315,6 +323,12 @@ void UMHGZRecallKinsectAbility::ActivateAbility(const FGameplayAbilitySpecHandle
 
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (!Character || !StartActionMontage(*Character, ActionMontage))
+	{
+		RequestEndAction(EWeaponActionEndReason::Cancelled);
+		return;
+	}
+	URes_InsectGlaive* Resource = GetIGResource();
+	if (!Resource || !Resource->BeginKinsectPlayerCommandLease(GetActionToken()))
 	{
 		RequestEndAction(EWeaponActionEndReason::Cancelled);
 	}
@@ -405,6 +419,10 @@ void UMHGZRecallKinsectAbility::EndAbility(const FGameplayAbilitySpecHandle Hand
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
+	if (URes_InsectGlaive* Resource = GetIGResource())
+	{
+		Resource->EndKinsectPlayerCommandLease(GetActionToken());
+	}
 	MontageTask = nullptr;
 	ActiveActionMontage = nullptr;
 	bCommandCommitted = false;
@@ -514,6 +532,12 @@ void UMHGZDrawAndSendKinsectAbility::ActivateAbility(
 
 	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 	if (!Character || !StartActionMontage(*Character, ActionMontage))
+	{
+		RequestEndAction(EWeaponActionEndReason::Cancelled);
+		return;
+	}
+	URes_InsectGlaive* Resource = GetIGResource();
+	if (!Resource || !Resource->BeginKinsectPlayerCommandLease(GetActionToken()))
 	{
 		RequestEndAction(EWeaponActionEndReason::Cancelled);
 	}
@@ -640,6 +664,10 @@ void UMHGZDrawAndSendKinsectAbility::EndAbility(
 	bool bReplicateEndAbility,
 	bool bWasCancelled)
 {
+	if (URes_InsectGlaive* Resource = GetIGResource())
+	{
+		Resource->EndKinsectPlayerCommandLease(GetActionToken());
+	}
 	MontageTask = nullptr;
 	ActiveActionMontage = nullptr;
 	PendingRequest = FKinsectFlightRequest();

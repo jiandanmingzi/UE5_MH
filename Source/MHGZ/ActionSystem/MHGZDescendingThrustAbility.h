@@ -159,6 +159,9 @@ protected:
 #endif
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+	friend class FMHGZM5LandingDodgeHandoffTestAccess;
+#endif
 	// Configuration and input gates.
 	bool HasRequiredSections(const UAnimMontage* Montage) const;
 	bool HasRequiredLandingMontage() const;
@@ -255,6 +258,12 @@ private:
 		meta = (AllowPrivateAccess = "true"))
 	FName LandingSectionName = TEXT("Over");
 
+	/** Montage-over ground hit segment that establishes the unique Kinsect mark. Audited index: 2. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly,
+		Category = "DescendingThrust|Kinsect Mark",
+		meta = (ClampMin = "0", ClampMax = "3", AllowPrivateAccess = "true"))
+	int32 MarkSegmentIndex = 2;
+
 	FWeaponActionToken DescendingActionToken;
 	FWeaponActionToken MovementActionToken;
 	FWeaponInputSnapshot ActivationInputSnapshot;
@@ -273,6 +282,7 @@ private:
 		FGuid(), FGuid(), FGuid(), FGuid() };
 	TArray<TSet<TWeakObjectPtr<const AActor>>> DamagedTargetsPerSegment;
 	int32 LastSuccessfulSegmentIndex = INDEX_NONE;
+	bool bEstablishedMarkThisActivation = false;
 
 	uint64 CorrectionFrameNumbers[3] = { 0, 0, 0 };
 	bool bCorrectionSnapshotValid[3] = { false, false, false };

@@ -6,6 +6,9 @@
 
 ## 快速入口
 
+- [维护规范与低优先级问题](docs/using/README.md)：Demo已阶段性完成；后续小修按需验证，不默认运行回归或全量资产检查。
+- [Demo阶段档案与回归封存](docs/archive/demo-2026-10-13/README.md)：开发期实施计划、验证成绩与按需恢复入口。
+
 - [设计与代码生成文档](docs/design/README.md)：玩法、架构、公共接口、重构范围和代码实施顺序。
 - [UE5 编辑器操作文档](docs/editor/README.md)：代码完成后的资产迁移、蓝图/DataAsset 接线和验收入口。
 - [Demo 冻结实施计划](docs/design/demo-implementation-plan.md)：动代码前冻结的公共接口、所有权、M0～M7 阶段与退出条件。

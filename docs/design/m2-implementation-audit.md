@@ -47,7 +47,7 @@ M2 只建立后续虫棍系统依赖的通用战斗基底，不实现虫棍精�
 - Resolver 拒绝无效 ID、非真实 Hit 和 HitActor 不等于 Resolver Owner 的提交；Applied/Consumed 都进入有 TTL/容量的权威去重缓存，Apply 失败回滚。
 - 反击拦截器必须绑定当前 RuntimeHost 的有效 ActionToken，按 Priority 降序、TokenID 升序调用，并支持 TTL、单个注销、全部注销和旧 Generation 自动失效。
 - Monster ASC 正式注册 AttributeSet；Hitzone 组件携带 HitzoneTag、ExtractColorTag、DefenseMultiplier 与 StaggerRate。
-- `UMHGZDummyConfig` 校验恰好一个 Red/White/Orange、正半径和不重叠球体；`AMHGZTrainingDummy::SubmitCounterTestAttack` 用固定 Capsule Hit 与外部 AttackInstanceID 提交可重复测试。
+- 历史M2快照：`UMHGZDummyConfig`当时校验三色、正半径和不重叠球体。2026-10-12覆盖约束已取代“不重叠”，当前支持Sphere/Box并允许接缝重叠，见总规划§1.6及编辑器指南§3.16；三色与有效尺寸校验保留。`AMHGZTrainingDummy::SubmitCounterTestAttack`仍用固定Capsule Hit与外部AttackInstanceID提交可重复测试。
 
 ## 3. 验证证据
 

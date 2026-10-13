@@ -50,6 +50,19 @@ bool FMHGZGameplayEffectContext::NetSerialize(FArchive& Ar, UPackageMap* Map, bo
 	{
 		DamageSourceType = static_cast<EMHGZDamageSourceType>(SourceType);
 	}
+	uint8 PhysicalType = static_cast<uint8>(PhysicalDamageType);
+	uint8 ElementType = static_cast<uint8>(WeaponDamageProfile.ElementType);
+	Ar.SerializeBits(&PhysicalType, 2);
+	Ar.SerializeBits(&ElementType, 3);
+	Ar << WeaponDamageProfile.PhysicalSharpnessMultiplier;
+	Ar << WeaponDamageProfile.ElementSharpnessMultiplier;
+	Ar << WeaponDamageProfile.CriticalDamageMultiplier;
+	Ar << WeaponDamageProfile.CriticalElementMultiplier;
+	if (Ar.IsLoading())
+	{
+		PhysicalDamageType = static_cast<EMHGZPhysicalDamageType>(PhysicalType);
+		WeaponDamageProfile.ElementType = static_cast<EMHGZElementType>(ElementType);
+	}
 
 	bOutSuccess = bParentSuccess && bSourceActionSuccess && bHitzoneSuccess
 		&& bHitCueSuccess && bElementCueSuccess && bHitStaggerSuccess && !Ar.IsError();

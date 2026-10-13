@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "batch": "weapon-move-asset-pinyin",
+  "backup_directory": "Saved/AssetOrganization/Backups/WeaponMovePinyin",
+  "moves": [
+    {
+      "source": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_DrawSlash",
+      "destination": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_BaDaoZhan",
+      "reason": "Rename the attack GA asset's move-name portion to the project's Chinese-pinyin convention; keep its native C++ class unchanged.",
+      "expected_referencers_after_move": ["/Game/Weapons/InsectGlaive/Data/DA_IG_Combo"]
+    },
+    {
+      "source": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_KinsectSlash",
+      "destination": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_CaoChongZhan",
+      "reason": "Rename the attack GA asset's move-name portion to the project's Chinese-pinyin convention; keep its native C++ class unchanged.",
+      "expected_referencers_after_move": ["/Game/Weapons/InsectGlaive/Data/DA_IG_Combo"]
+    },
+    {
+      "source": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_KinsectPiercer",
+      "destination": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_QiangHuaCaoChongChuanCi",
+      "reason": "Rename the attack GA asset's move-name portion to the project's Chinese-pinyin convention; keep its native C++ class unchanged.",
+      "expected_referencers_after_move": ["/Game/Weapons/InsectGlaive/Data/DA_IG_Combo"]
+    },
+    {
+      "source": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_DescendingThrust",
+      "destination": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_JiXiTuCi",
+      "reason": "Rename the attack GA asset's move-name portion to the project's Chinese-pinyin convention; keep its native C++ class unchanged.",
+      "expected_referencers_after_move": ["/Game/Weapons/InsectGlaive/Data/DA_IG_Combo"]
+    },
+    {
+      "source": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_AwakenedKinsectAttack",
+      "destination": "/Game/Blueprints/Ability/InsectGlaive/GA_IG_JueChongJi",
+      "reason": "Rename the attack GA asset's move-name portion to the project's Chinese-pinyin convention; keep its native C++ class unchanged.",
+      "expected_referencers_after_move": ["/Game/Weapons/InsectGlaive/Data/DA_IG_Combo"]
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_DrawSlash",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_BaDaoZhan",
+      "reason": "Rename the attack Montage asset's move-name portion to the project's Chinese-pinyin convention.",
+      "expected_referencers_after_move": ["/Game/Blueprints/Ability/InsectGlaive/GA_IG_BaDaoZhan"]
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan",
+      "reason": "Rename the attack Montage asset's move-name portion to the project's Chinese-pinyin convention.",
+      "expected_referencers_after_move": ["/Game/Blueprints/Ability/InsectGlaive/GA_IG_CaoChongZhan"]
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash_Dance",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan_Dance",
+      "reason": "Rename only the attack Montage's move-name portion; preserve the _Dance variant suffix.",
+      "expected_referencers_after_move": ["/Game/Blueprints/Ability/InsectGlaive/GA_IG_CaoChongZhan"]
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectPiercer",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_QiangHuaCaoChongChuanCi",
+      "reason": "Rename the attack Montage asset's move-name portion to the project's Chinese-pinyin convention.",
+      "expected_referencers_after_move": ["/Game/Blueprints/Ability/InsectGlaive/GA_IG_QiangHuaCaoChongChuanCi"]
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectPiercer_Over",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_QiangHuaCaoChongChuanCi_Over",
+      "reason": "Rename only the attack Montage's move-name portion; preserve the _Over variant suffix.",
+      "expected_referencers_after_move": ["/Game/Blueprints/Ability/InsectGlaive/GA_IG_QiangHuaCaoChongChuanCi"]
+    }
+  ]
+}

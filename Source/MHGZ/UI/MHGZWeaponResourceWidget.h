@@ -18,7 +18,12 @@ class UMHGZWeaponResourceWidget : public UMHGZUserWidget
 
 public:
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|UI")
-	void BindToResourceComponent(UMHGZWeaponResourceComponent* InRC);
+	virtual void BindToResourceComponent(UMHGZWeaponResourceComponent* InRC);
+
+	UFUNCTION(BlueprintCallable, Category = "MHGZ|UI")
+	virtual void UnbindFromResourceComponent();
+
+	virtual void NativeDestruct() override;
 
 protected:
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|UI")

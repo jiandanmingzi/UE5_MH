@@ -68,11 +68,13 @@ void UMHGZM1ReservationProbeResource::ReleaseReservation(
 	}
 }
 
-void UMHGZM1ReservationProbeResource::ConsumeReservedCosts(
+bool UMHGZM1ReservationProbeResource::ConsumeReservedCosts(
 	const FWeaponResourceCostReservation& Reservation)
 {
 	if (ActiveReservationIDs.Remove(Reservation.ReservationID) > 0)
 	{
 		++ConsumeCount;
+		return true;
 	}
+	return !Reservation.IsValid();
 }

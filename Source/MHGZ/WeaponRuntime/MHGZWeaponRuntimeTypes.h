@@ -59,6 +59,18 @@ enum class EWeaponRuntimeEndReason : uint8
 	RuntimeShutdown
 };
 
+/** 猎虫当前请求的所有权来源；自动寻印始终低于有效玩家/招式指令。 */
+UENUM(BlueprintType)
+enum class EKinsectCommandSource : uint8
+{
+	None UMETA(DisplayName = "None"),
+	Player UMETA(DisplayName = "Player Command"),
+	Action UMETA(DisplayName = "Action Lease"),
+	AutoMark UMETA(DisplayName = "Automatic Mark"),
+	System UMETA(DisplayName = "System Return"),
+	PowderVortex UMETA(DisplayName = "Powder Vortex")
+};
+
 /**
  * A deliberately small routing vocabulary for the point where a functional
  * Montage hands its no-function tail to Motion Matching.  The enum identifies
@@ -365,6 +377,37 @@ struct FWeaponActionVisualPitchTelemetryEvent
 	bool bReleasing = false;
 };
 
+/** Sparse combat lifecycle event forwarded to the active RuntimeTelemetry writer. */
+struct FWeaponCombatTelemetryEvent
+{
+	uint64 Serial = 0;
+	uint64 Frame = 0;
+	double WorldTimeSeconds = 0.0;
+	FName EventName = NAME_None;
+	uint64 RuntimeGeneration = 0;
+	uint32 ActivationSequenceID = 0;
+	FGuid MarkID;
+	uint64 CommandSerial = 0;
+	FGuid FlightID;
+	FGuid SourceAttackID;
+	FGuid HitID;
+	FGuid PowderID;
+	uint64 ReservationID = 0;
+	FGuid ExplosionID;
+	int32 StageIndex = INDEX_NONE;
+	FGuid StageAttackID;
+	FName TargetActor = NAME_None;
+	FName Hitzone = NAME_None;
+	FVector ImpactPoint = FVector::ZeroVector;
+	FName SpawnPolicy = NAME_None;
+	FName ResourceTag = NAME_None;
+	FName Reason = NAME_None;
+	double ExpireAt = 0.0;
+	int32 LifetimeRevision = 0;
+	int32 MemberCount = 0;
+	float Damage = 0.0f;
+};
+
 /**
  * Runtime-only, generation-scoped payload published by the exact owning
  * Action when an authored MotionMatchingHandoff notify succeeds.  It survives
@@ -549,6 +592,13 @@ struct FWeaponAimSnapshot
 
 	UPROPERTY(BlueprintReadOnly)
 	FHitResult HitResult;
+
+	/** First blocking ray result, even when it is scenery rather than a Hitzone. */
+	UPROPERTY(BlueprintReadOnly)
+	bool bHasBlockingHit = false;
+
+	UPROPERTY(BlueprintReadOnly)
+	FHitResult BlockingHit;
 };
 
 /** A fresh screen-centre sample resolved for a late action-direction lock. */
@@ -942,9 +992,11 @@ struct FWeaponMovementRequest
 			return true;
 		}
 
+		// Authored aerial movement may start level or downward as well as upward;
+		// CMC gravity determines the subsequent arc. Reject only a zero launch vector.
 		return FMath::IsFinite(Duration) && Duration > 0.f
 			&& FMath::IsFinite(LaunchVelocity.X) && FMath::IsFinite(LaunchVelocity.Y)
-			&& FMath::IsFinite(LaunchVelocity.Z) && LaunchVelocity.Z > KINDA_SMALL_NUMBER
+			&& FMath::IsFinite(LaunchVelocity.Z) && !LaunchVelocity.IsNearlyZero()
 			&& FMath::IsFinite(GravityMagnitude) && GravityMagnitude > 0.f
 			&& FMath::IsFinite(PlanarAcceleration.X)
 			&& FMath::IsFinite(PlanarAcceleration.Y)

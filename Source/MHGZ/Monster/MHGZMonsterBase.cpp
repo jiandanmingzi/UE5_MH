@@ -7,6 +7,10 @@
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "AbilitySystemComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/MeshComponent.h"
+#include "Components/PrimitiveComponent.h"
+#include "CollisionQueryParams.h"
+#include "Engine/World.h"
 
 AMHGZMonsterBase::AMHGZMonsterBase()
 {
@@ -50,7 +54,53 @@ UAbilitySystemComponent* AMHGZMonsterBase::GetAbilitySystemComponent() const
 void AMHGZMonsterBase::BeginPlay()
 {
 	Super::BeginPlay();
+	InitializeHitEffectVisualSurfaceCollision();
 	AbilitySystemComponent->InitAbilityActorInfo(this, this);
+}
+
+void AMHGZMonsterBase::InitializeHitEffectVisualSurfaceCollision()
+{
+	// The body capsule and gameplay hitzones are not visual surfaces. Keep them
+	// out of this presentation-only query even if a project collision profile is
+	// later expanded with the custom channel.
+	if (UCapsuleComponent* Body = GetCapsuleComponent())
+	{
+		Body->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore);
+	}
+
+	TArray<UMHGZMonsterHitzoneComponent*> Hitzones;
+	GetComponents<UMHGZMonsterHitzoneComponent>(Hitzones);
+	for (UMHGZMonsterHitzoneComponent* Hitzone : Hitzones)
+	{
+		if (Hitzone)
+		{
+			Hitzone->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore);
+		}
+	}
+
+	TArray<UMeshComponent*> Meshes;
+	GetComponents<UMeshComponent>(Meshes);
+	for (UMeshComponent* VisualMesh : Meshes)
+	{
+		if (!IsValid(VisualMesh) || !VisualMesh->IsVisible())
+		{
+			continue;
+		}
+
+		const bool bWasCollisionDisabled =
+			VisualMesh->GetCollisionEnabled() == ECollisionEnabled::NoCollision;
+		if (bWasCollisionDisabled)
+		{
+			// Visual-only meshes become queryable for this one channel and remain
+			// ignored by every gameplay/physics channel.
+			VisualMesh->SetCollisionResponseToAllChannels(ECR_Ignore);
+		}
+		VisualMesh->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Overlap);
+		if (bWasCollisionDisabled)
+		{
+			VisualMesh->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
+		}
+	}
 }
 
 void AMHGZMonsterBase::ForceRestoreAllChannels()
@@ -89,7 +139,11 @@ void AMHGZMonsterBase::GenerateHitzonesFromConfig(UMHGZDummyConfig* Config)
 		Hitzone->HitzoneTag = HZConfig.HitzoneTag;
 		Hitzone->ExtractColorTag = HZConfig.ExtractColorTag;
 		Hitzone->DefenseMultiplier = HZConfig.DefenseMultiplier;
+		Hitzone->PhysicalHitzoneMultipliers = HZConfig.PhysicalHitzoneMultipliers;
+		Hitzone->ElementHitzoneMultipliers = HZConfig.ElementHitzoneMultipliers;
 		Hitzone->StaggerRate = HZConfig.StaggerRate;
+		Hitzone->QueryShape = HZConfig.Shape;
+		Hitzone->BoxHalfExtent = HZConfig.BoxHalfExtent;
 
 		// 静态训练柱使用 None，直接挂到角色 Root；骨骼怪物仍跟随指定骨骼。
 		USceneComponent* AttachmentParent = HZConfig.BoneName.IsNone()
@@ -105,8 +159,117 @@ void AMHGZMonsterBase::GenerateHitzonesFromConfig(UMHGZDummyConfig* Config)
 			HZConfig.BoneName);
 		AddInstanceComponent(Hitzone);
 		Hitzone->RegisterComponent();
+		Hitzone->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore);
 		Hitzone->SetRelativeLocation(HZConfig.RelativeLocation);
 		Hitzone->Radius = FMath::Max(1.f, HZConfig.Radius);
 		Hitzone->SetSphereRadius(Hitzone->Radius);
 	}
+}
+
+bool AMHGZMonsterBase::ResolveHitEffectVisualSurface(
+	const UMHGZMonsterHitzoneComponent* Hitzone,
+	const FVector& CollisionPoint,
+	const FVector& CollisionNormal,
+	FVector& OutVisualPoint,
+	FVector& OutVisualNormal) const
+{
+	return ResolveHitEffectVisualSurface(Hitzone, CollisionPoint,
+		CollisionNormal, CollisionNormal, OutVisualPoint, OutVisualNormal);
+}
+
+bool AMHGZMonsterBase::ResolveHitEffectVisualSurface(
+	const UMHGZMonsterHitzoneComponent* Hitzone,
+	const FVector& CollisionPoint,
+	const FVector& CollisionNormal,
+	const FVector& PreferredOutwardDirection,
+	FVector& OutVisualPoint,
+	FVector& OutVisualNormal) const
+{
+	if (!Hitzone || Hitzone->GetOwner() != this
+		|| CollisionPoint.ContainsNaN() || CollisionNormal.ContainsNaN()
+		|| PreferredOutwardDirection.ContainsNaN())
+	{
+		return false;
+	}
+
+	FVector OutwardDirection = PreferredOutwardDirection.GetSafeNormal();
+	if (OutwardDirection.IsNearlyZero())
+	{
+		OutwardDirection = CollisionNormal.GetSafeNormal();
+	}
+	if (OutwardDirection.IsNearlyZero())
+	{
+		OutwardDirection = (CollisionPoint - Hitzone->GetComponentLocation()).GetSafeNormal();
+	}
+	if (OutwardDirection.IsNearlyZero())
+	{
+		return false;
+	}
+
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return false;
+	}
+
+	const FBox Bounds = GetComponentsBoundingBox(true);
+	const float TraceHalfLength = FMath::Clamp(
+		(FVector::Distance(Bounds.GetCenter(), CollisionPoint)
+			+ Bounds.GetExtent().Size() + 100.0f),
+		100.0f, 50000.0f);
+	const FVector TraceStart = CollisionPoint + OutwardDirection * TraceHalfLength;
+	const FVector TraceEnd = CollisionPoint - OutwardDirection * TraceHalfLength;
+
+	// Do not pass this actor as FCollisionQueryParams' ignore actor: that would
+	// silently filter out the very mesh whose surface this query must resolve.
+	FCollisionQueryParams QueryParams(
+		SCENE_QUERY_STAT(MonsterMarkVisualSurface), true);
+	QueryParams.AddIgnoredComponent(GetCapsuleComponent());
+	TArray<UMHGZMonsterHitzoneComponent*> QueryHitzones;
+	GetComponents<UMHGZMonsterHitzoneComponent>(QueryHitzones);
+	for (const UMHGZMonsterHitzoneComponent* QueryHitzone : QueryHitzones)
+	{
+		QueryParams.AddIgnoredComponent(QueryHitzone);
+	}
+
+	TArray<FHitResult> SurfaceHits;
+	World->LineTraceMultiByChannel(SurfaceHits, TraceStart, TraceEnd,
+		ECC_GameTraceChannel4, QueryParams);
+
+	float BestOutwardDistance = -TNumericLimits<float>::Max();
+	float BestNormalAlignment = 0.0f;
+	bool bFoundSurface = false;
+	for (const FHitResult& SurfaceHit : SurfaceHits)
+	{
+		if (SurfaceHit.GetActor() != this
+			|| !Cast<UMeshComponent>(SurfaceHit.GetComponent()))
+		{
+			continue;
+		}
+
+		const FVector SurfaceNormal = SurfaceHit.ImpactNormal.GetSafeNormal();
+		const float NormalAlignment = FVector::DotProduct(SurfaceNormal, OutwardDirection);
+		if (SurfaceNormal.IsNearlyZero() || NormalAlignment <= 0.0f)
+		{
+			continue;
+		}
+
+		// A hitzone can be much larger than the visible model and several visual
+		// meshes can overlap. Choose the outermost visible intersection toward the
+		// attack source, not the intersection nearest the proxy's collision point.
+		const float OutwardDistance = FVector::DotProduct(
+			SurfaceHit.ImpactPoint - CollisionPoint, OutwardDirection);
+		if (OutwardDistance > BestOutwardDistance
+			|| (FMath::IsNearlyEqual(OutwardDistance, BestOutwardDistance)
+				&& NormalAlignment > BestNormalAlignment))
+		{
+			BestOutwardDistance = OutwardDistance;
+			BestNormalAlignment = NormalAlignment;
+			OutVisualPoint = SurfaceHit.ImpactPoint;
+			OutVisualNormal = SurfaceNormal;
+			bFoundSurface = true;
+		}
+	}
+
+	return bFoundSurface;
 }

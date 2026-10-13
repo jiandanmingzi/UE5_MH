@@ -19,7 +19,7 @@ Demo 明确不实现：
 - 强化跳跃斩与降龙（2026-10-01移出当前Demo/M5范围，不再作为动作需求或M5门禁）。
 - 完整斩味、元素、异常和怪物生态；Demo 伤害沿用简化公式。
 
-**2026-10-06 当前M5状态：** 空回、操虫斩、强化操虫穿刺（平地范围）与急袭突刺均已按各自范围签收，M5总验收也已关闭。真实落地清舞踏层数/来源/镜像 Tag；急袭突刺 Commit 先快照倍率再清层。收刀、空中受击和死亡不属于 Demo/M5 范围。完整验收记录见[M5总计划§10](../using/m5-plan.md#10-阶段-f--m5-总验收与签核)；急袭突刺本招范围见[独立计划](../using/急袭突刺实现计划.md)。
+**2026-10-06 当前M5状态：** 空回、操虫斩、强化操虫穿刺（平地范围）与急袭突刺均已按各自范围签收，M5总验收也已关闭。真实落地清舞踏层数/来源/镜像 Tag；急袭突刺 Commit 先快照倍率再清层。收刀、空中受击和死亡不属于 Demo/M5 范围。完整验收记录见[M5总计划§10](../archive/demo-2026-10-13/m5-plan.md#10-阶段-f--m5-总验收与签核)；急袭突刺本招范围见[独立计划](../archive/demo-2026-10-13/急袭突刺实现计划.md)。
 
 ## 2. 通用武器架构约束
 
@@ -48,7 +48,7 @@ Demo 明确不实现：
 | 持刀地面 | `LT` | 猎虫瞄准，显示猎虫准心 |
 | 持刀地面 | `Y+B` | 四连印斩 |
 | 持刀地面 | `前+Y+B` | 突进回旋斩；方向节点优先于无方向四连印斩 |
-| 持刀地面 | `LT+Y+B` | 粉尘集约并引爆 |
+| 持刀地面 | `LT+Y+B` | 猎虫飞向准心，吸粉刷新寿命，1s后两段粉尘聚爆；操虫/收虫可取消 |
 | 持刀地面 | 按住 `RT` 后松开（期间未按 A/B/Y） | 虫印斩：近战命中后建立/替换虫印 |
 | 持刀地面 | `LT+RT` | 发射虫印弹，命中 Hitzone 后建立/替换虫印 |
 | 持刀地面 | `RT+Y` | 猎虫滑翔 |
@@ -75,9 +75,9 @@ InputProfile 只配置一条普通 Y Chord，输出 `Input.Weapon.Y`；它不需
 | 转移 | 条件 | GA | 结果 |
 |---|---|---|---|
 | `Idle → DrawOnly` | `Input.Weapon.Y`、`Direction=None`、`Grounded+Sheathed` | `GA_IG_Draw` | `None` 表示不要求方向，因而覆盖无、左、右、后输入；只播放拔刀，不配置 AttackSegment。 |
-| `Idle → GroundStarter` | `Input.Weapon.Y`、`Direction=Forward`、`Grounded+Sheathed` | `GA_IG_DrawSlash` | 具体方向优先于 None；播放拔刀攻击，AttackSegment 按普通攻击配置。 |
+| `Idle → GroundStarter` | `Input.Weapon.Y`、`Direction=Forward`、`Grounded+Sheathed` | `GA_IG_BaDaoZhan` | 具体方向优先于 None；播放拔刀攻击，AttackSegment 按普通攻击配置。 |
 
-`GA_IG_Draw` 与 `GA_IG_DrawSlash` 都继承 `UMHGZDrawAttackAbility`（M4-A.4），并使用 Montage 中原生 `AnimNotify_DrawCommit`。Notify 只负责以 Mesh+MontageInstanceID 找到当前 ActionToken 并转发；Ability 才调用 `RuntimeHost->SetSheathed(false)` 与清 `bSprintHeld`。因此 Commit 前取消仍是 Sheathed，Commit 后取消仍是 Unsheathed，不能在 Blueprint Event Graph 或 Ability 激活时提前写姿态。收刀 RT 的 `GA_IG_DrawAndSendKinsect` 也复用这一视觉 Commit 合同，但它直接继承 `UMHGZGameplayAbility`：它使用无 Root Motion 的 `UpperBody_IGAction` `ActionMontage`，不获得 `Attacking`、`BlockMovement` 或 MontageRootMotionOwner；`DrawCommit` 只切姿态，后续 `KinsectSendCommit` 才部署冻结的猎虫请求。
+`GA_IG_Draw` 与 `GA_IG_BaDaoZhan` 都继承 `UMHGZDrawAttackAbility`（M4-A.4），并使用 Montage 中原生 `AnimNotify_DrawCommit`。Notify 只负责以 Mesh+MontageInstanceID 找到当前 ActionToken 并转发；Ability 才调用 `RuntimeHost->SetSheathed(false)` 与清 `bSprintHeld`。因此 Commit 前取消仍是 Sheathed，Commit 后取消仍是 Unsheathed，不能在 Blueprint Event Graph 或 Ability 激活时提前写姿态。收刀 RT 的 `GA_IG_DrawAndSendKinsect` 也复用这一视觉 Commit 合同，但它直接继承 `UMHGZGameplayAbility`：它使用无 Root Motion 的 `UpperBody_IGAction` `ActionMontage`，不获得 `Attacking`、`BlockMovement` 或 MontageRootMotionOwner；`DrawCommit` 只切姿态，后续 `KinsectSendCommit` 才部署冻结的猎虫请求。
 
 持刀 `LT+Y` 送虫和 `RT+B` 收虫同样需要角色动作，但它们不是近战攻击。M4-A.5 直接扩展现有的 `UMHGZSendKinsectAbility`、`UMHGZRecallKinsectAbility`：各自新增 `ActionMontage`，在 `AnimNotify_KinsectSendCommit`、`AnimNotify_KinsectRecallCommit` 才调用 Resource；不新建通用 Montage GA 父类。`AM_IG_SendKinsect` 也可以由收刀 RT 的 `UMHGZDrawAndSendKinsectAbility` 复用：同一 Montage 同时存在 `DrawCommit` 和 `KinsectSendCommit`，两个 Notify 都按精确 ActionToken 仅路由给匹配的 Ability 类型。共享资产中 DrawCommit 必须至少早于 KinsectSendCommit 一帧，保证 DrawAndSend 先提交姿态再允许出虫。三条路径仍使用 `UpperBody_IGAction` Slot、in-place 且无 Root Motion；AnimGraph 根据角色原始摇杆输入选择呈现范围：无移动输入时，Slot 动作全身覆盖；有移动输入时，以当前 MM 姿势为底，仅从 `Spine_00`（含其后代）混入 Slot 动作，让下半身继续由 MM 移动/转向。该选择只改变姿势呈现，不改变 Montage、GA、Commit 或输入逻辑。三种路径都不使用 `UMHGZAttackAbility`、`AttackSegment`、`AttackCollision`、`Attacking`、`BlockMovement`、攻击方向修正或 MontageRootMotionOwner；Notify 前中断不改变猎虫状态，Notify 后中断不撤销已开始的 Flight/Return。
 
@@ -171,26 +171,38 @@ OrangeDefenseMultiplier
 TripleAttack/MoveSpeed/DefenseMultipliers
 SendKinsectMotionValue / DrawSendKinsectMotionValue
 AwakenedKinsectMotionValue / AwakenedPierceHitInterval
+AwakenedAimHorizontalCorrectionAngle = 90°
+AwakenedAimCorrectionAngle = 60° pitch
 MaxDanceStacks
 DanceDamageMultipliers[]       // 索引即层数，索引 0 必须为 1.0
 KinsectSlashMaxDistance
 KinsectGlideMarkMaxDistance
 KinsectMarkMaxDistance
-KinsectMarkDuration
+KinsectMarkDuration = 90s
 KinsectMarkProjectileSpeed/Radius/Lifetime
 KinsectGlideFallbackDistance
 KinsectGlideFallbackLiftHeight
-AwakenedKinsectMaxDistance
 AwakenedHunterFlightMaxDistance
 AwakenedHunterFlightStartTime
-AwakenedAimCorrectionAngle = 60°
 DescendingThrustAirControl
-PowderGatherRadius/Duration/MaxCount
+// 以下为M6.3目标字段，完整类型/迁移表见M6计划§6.7
+KinsectAutoMarkSearchRadius / KinsectAutoMarkAttackInterval
+MarkedHitPowderCooldown = 10s
+PowderLifetime = 180s / PowderMaxCount = 100
+PowderDespawnDistance / PowderDamageMultiplier
+PowderNaturalExplosionRadius = 150cm
+PowderGatherRadius = ArenaPlayableSideLength / 2
+PowderVortexDelay = 1s / PowderVortexExplosionRadius = 300cm
+PowderVortexDamageAt1 / PowderVortexDamageAt5 / PowderVortexDamageAt10
 ```
 
 精华 GE 负责固定 GrantedTags/Modifier 形态，持续时间和倍率由 CombatConfig 通过 Spec/SetByCaller 注入；不在 GE 默认值和 CombatConfig 各保留一份真相。位移距离、高度、持续时间和增伤值也都来自该资产；动作状态机不得使用散落在 GA 蓝图中的同名常量。Data Validation 必须检查距离/时长为正、倍率非负、修正角在 `[0°, 180°]`、`DanceDamageMultipliers.Num == MaxDanceStacks + 1`。InputProfile 另行验证 GracePeriod、方向阈值和 Chord 冲突。
 
+旧`PowderGatherDuration=0.5`、`PowderGatherMaxCount=5`和单基础伤害字段仅为待迁移源码基底，不再用作新合同配置。未给出的频率、距离和伤害数值保持待定；M6计划§6.7区分已存在字段与目标字段。
+
 ## 5. 地面新增动作
+
+**Idle方向路由（2026-10-10当前接线）：** Idle的RT撑杆跳只保留一条无方向限制的`NoneRTA_QianChengGanTiao`边，仍使用前撑杆跳GA/动画/曲线，最大朝向修正为180°（覆盖完整360°输入方向）；Idle不再有独立的左、右、后撑杆跳边，AnyState左/右/后撑杆跳边也排除Idle。Idle的方向Y突刺显式配置前/后/左/右四条边，统一使用突刺GA并允许180°朝向修正；无方向Y仍走上捞斩。此处`Direction=None`表示方向通配，不表示摇杆中立。已做资产磁盘回读，PIE行为尚待验证。
 
 ### 5.1 四连印斩——`Y+B`
 
@@ -199,6 +211,7 @@ PowderGatherRadius/Duration/MaxCount
 - 四连印斩结束进入 `IG.Ground.StarterOnly`，不能直接接中段或终结动作。
 - `IG.Ground.StarterOnly` 只允许派生：突刺、上捞斩、横扫、飞身跃入斩。
 - 四段攻击各自拥有 AttackSegment/ConfigIndex；相邻攻击窗口可以重叠，但必须独立去重。
+- 第2个伤害段（`AttackSegments[1]`、约1.033～1.283s）成功结算武器伤害后施加虫印，每次动作最多成功建印一次；第1/3/4段和伤害失败不刷新。这里的“第二下”按GA伤害段编号，不是时间顺序第二个碰撞窗口（后者仍属ConfigIndex 0），不改原窗口。
 - 动作本身不产生舞踏层数。
 
 ### 5.2 突进回旋斩——`前+Y+B`
@@ -212,33 +225,42 @@ PowderGatherRadius/Duration/MaxCount
 
 反击不是普通无敌帧。判定必须由 IncomingHitResolver 消费带攻击实例 ID 的 IncomingHitContext，避免同一个多段攻击在反击成功后再次命中；窗口外按正常受击规则处理。
 
-### 5.3 粉尘集约——地面 `LT+Y+B`
+### 5.3 虫粉与粉尘聚爆——地面 `LT+Y+B`
 
-Demo 只实现一种通用粉尘，不区分爆破、回复、麻痹等正式品种：
+**2026-10-08目标规则，尚未实现闭环。** 虫印/虫粉的实际生成手段、自动寻印和新版两段聚爆属于M6.3，旧单段聚爆验证不签收本节。详细数据、指令寿命、改动文件和验收见[M6计划§6](../archive/demo-2026-10-13/m6-plan.md)。
 
-`AIGPowderActor` 至少保存 OwningPlayer、SourceAttackInstanceID、SpawnTime/Lifetime、状态（Available/Reserved/Consumed）和伤害贡献参数；它无物理阻挡。Demo 中普通武器攻击和猎虫接触都不会引爆粉尘，只有本动作能够消费并引爆。
+**虫粉生成和存在：**
 
-1. 以当前猎虫位置为中心，快照 `PowderGatherRadius` 内由本玩家生成且未被预留的粉尘。
-2. 没有可用粉尘或猎虫不存在时激活失败，不进入攻击状态。
-3. 最多选择 `PowderGatherMaxCount` 个，标记为 Reserved，防止被其他命中或第二次集约重复消费。
-4. 在 `PowderGatherDuration` 内将表现聚向猎虫；完成后消费全部预留粉尘，生成一次聚合范围爆炸。
-5. 爆炸伤害由基础值和粉尘贡献数共同计算，具体曲线保存在 CombatConfig/Curve 中；同一目标每次集约只结算一次。
-6. GA 被受击或换武器取消时解除 Reserved；粉尘不消失，也不产生爆炸。
+- 一种红色、不发光的虫粉：不规则但接近直径15cm球状的粒子团，无碰撞/物理。各团属于生成它的玩家虫棍Runtime。
+- 玩家操虫、自动虫印攻击、操虫斩等招式中的猎虫判定，只要成功伤害命中有效虫印的**局部覆盖**，进入产粉判定；这一来源每玩家Runtime共享10s冷却，首击可立即产粉，新虫印不会重置冷却。
+- 三灯觉虫击每次通过既有间隔验证的成功猎虫贯通伤害产一团，不要求虫印且绕过10s产粉冷却。同一次Hit只生成一团，不能叠加两种来源。
+- 寿命180s，上限暂定100团，预留团也计数；超上限计划拒绝新团。超过可配置的玩家距离阈值时只消失，不爆炸。
+- 180s自然到期在当时位置产生一次**半径150cm（1.5m）球形伤害**，同一怪物多部位只一笔。单团伤害为生成时猎虫攻击力快照乘配置系数，不受肉质、猎人攻击力/灯/舞踏/暴击影响；当前倍率默认1并可在DA调节。
+- 武器/猎虫直接接触虫粉不引爆；自然到期或聚爆各自消费一次。爆炸不再产粉、不点灯。
 
-### 5.4 虫印——持刀虫印斩与 `LT+RT` 虫印弹
+**粉尘聚爆：**
 
-**近战虫印斩：** 持刀地面短按 RT，若未形成 RT+A/B/Y、LT+RT 等获胜组合，且 RT 在 0.25 秒内松开，才派发 `Input.Weapon.RT` 并激活 `GA_IG_MarkSlash`。超过该最大按住时长后松开不派发虫印斩。它是带普通 AttackSegment 的近战攻击；首次有效 Hitzone 命中通过 `URes_InsectGlaive` 建立/替换唯一虫印。攻击落空、无有效 Hitzone 或被中断均不改变旧虫印。
+1. 持刀地面 `LT+Y+B`，用组合解析时冻结的Kinsect AimSnapshot，让猎虫飞向准心目标地点/部位；怪物目标保存组件/骨骼局部点，场景/空气保存世界目标点。
+2. 猎虫到达后，选入中心球内全部本玩家Available虫粉，预留并刷新寿命至当前时间+180s。收集球**直径=Demo训练场可走地面的边长**，半径为其一半；不再使用猎虫原位置、600cm或最近5团。
+3. 到达并开始吸粉后1s内将成员表现聚向目标，截止引爆；计划计时起点为到达/开始聚拢，旅途另计。这个1s内操虫或收虫会取消待引爆，立即执行新指令。抵达前也可取消；自动虫印行为不能抢占。
+4. 取消时保留已发生的聚拢位置和寿命刷新、释放Available，不使粉尘消失/复活/瞬移回出生点。猎人Montage正常播完不等于取消已提交的猎虫事务。
+5. 成功消费N团后产生**两段独立伤害，两段均为半径300cm（3m）球**。第一段仅N>0：1..4团取DamageAt1、5..9团取DamageAt5、≥10团取DamageAt10；默认10/50/100，阶梯跳变、不插值。第二段为所消费各团单独固定伤害之和ΣDi。
+6. 两段共享本次ExplosionID，使用独立StageAttackID；每段对一个怪物只一笔，不能合成单笔或对每部位重复。两段共用半径300cm（3m）的聚爆球；第二段一次结算ΣDi，不调用N次半径150cm自然爆炸。
+7. 0团不产生两段伤害。自然到期/聚爆/远距删除/运行期关闭必须原子互斥；旧寿命Timer或重复回调不能再次引爆。
 
-**远程虫印弹：**
+### 5.4 局部虫印——虫印斩与急袭突刺地面第一击
 
-- `LT+RT` 按猎虫准心发射无伤害虫印弹；只在命中有效怪物 Hitzone 时创建虫印。
-- 使用 LT+RT 输入事件冻结的 Kinsect AimSnapshot 目标点，再从武器虫印弹发射 Socket 朝该点生成 `AIGMarkProjectile`；速度、半径、Lifetime 和最大距离来自 CombatConfig，不在激活/飞行中重新采样准心。
-- Projectile 以前后帧 Sweep 查询 Hitzone Object，并单独检查 WorldStatic 阻挡；按 Hit.Time 选择最早有效命中。先撞 WorldStatic/超距/超时均失败。
-- 同一玩家同时只能有一个有效虫印。近战虫印斩与虫印弹共用同一 Resource 所有权：创建新印时先移除旧印，再把新印附着到命中 Hitzone 的组件/骨骼局部位置。
-- 虫印持续 `KinsectMarkDuration`，时长和最大射程可调；目标死亡、Hitzone/Actor 失效、卸下虫棍或 Pawn 结束生命周期时立即清除。
-- 收刀不会主动清除虫印；再次拔刀后，只要目标和时长仍有效，猎虫滑翔仍可使用。
-- 虫印不存进 ASC 或 SaveGame。`URes_InsectGlaive` 保存弱引用和到期 Timer，并用 `WeaponResource.IG.Mark.Active` 作为可选镜像 Tag 供 UI/条件查询。
-- 虫印弹命中 WorldStatic、超出距离、超时或被阻挡时失败，不替换当前仍有效的旧虫印。
+本轮必做来源为既有 `GA_IG_ChongYin` 与 `GA_IG_JiXiTuCi`：
+
+- **地面虫印斩：** 仍用项目已有单RT短按释放输入语义；指定MarkSegment首次成功武器伤害在真实ImpactPoint建立/替换虫印。
+- **急袭突刺：** 空中单RT进入既有动作链；仅地面攻击第一下的指定武器段成功伤害建立虫印，空中下坠/其他伤害段不建立。实际ConfigIndex在实施前从已配置窗口审计，不猜索引。
+- 两种动作一次Action各最多成功建印一次；空挥、伤害GE失败或无效Hitzone保留旧印。
+- 每玩家至多一个局部虫印，持续90s；普通玩法只因怪物死亡、时间结束或成功产生新印而消失。收虫、收刀、操虫、离开寻印范围不会清印或刷新时间。
+- 权威位置为目标组件/骨骼下的局部命中点及法线，随怪物移动；视觉为淡黄色、发光、不规则雾状粒子团，覆盖约20cm×20cm局部表面，不能把整部位标为都可产粉。
+- Resource保存弱引用、MarkID/Serial和ExpireAt；`WeaponResource.IG.Mark.Active`只作镜像。目标销毁/Runtime结束的技术清理继续有效，不扩展Demo范围外的玩家死亡玩法。
+- 猎虫离手、有配置范围内虫印、没有玩家指令/ActionAttached/Returning占用时，自动飞向虫印并以配置频率进行真实部位攻击。每次攻击参加产粉资格检查，虫印来源实际受10s产粉CD限制。
+- 玩家操虫、收虫、操虫斩、觉虫击、聚爆等优先于自动虫印；原指令真正执行完成且猎虫仍离手时才重新评估虫印。回手后不因虫印自动离手；旧自动回调必须按CommandSerial拒绝。
+- 旧LT+RT虫印弹接口兼容保留，不新增为本轮必做来源、不代替两个近战来源验收。其现有输入/投射物不在本次文档修订中删除；如仍启用，建立的印也必须共用90s局部虫印合同。
 
 ### 5.5 猎虫滑翔——地面 `RT+Y`
 
@@ -251,18 +273,21 @@ Demo 只实现一种通用粉尘，不区分爆破、回复、麻痹等正式品
 
 ### 5.6 觉虫击——地面 `RT+Y+B`
 
-激活条件为三灯有效且猎虫可用：
+猎虫可用即可发动；三灯决定猎虫请求模式：激活时有有效三灯就自动原子消费，无三灯则仍可使用普通猎虫模式。
 
-1. 在 Commit 时消耗三灯并清空红、白、橙精华；激活前验证失败不得消耗。
-2. 使用 RT+Y+B 输入事件中冻结的 Action AimSnapshot。相对角色 Forward 的水平和垂直修正均限制在正前方 `±60°`；超出时将方向 Clamp 到圆锥边界，而不是拒绝激活。
-3. 猎虫沿修正后的方向进行有最大距离的贯通飞行。同一 Flight 对同一 Hitzone 的重复命中受可配置间隔限制。
-4. 每个通过 Hitzone/间隔验证且成功提交伤害的 Hit，按同一真实 HitResult 立即调用普通 `ApplyExtract`，并在命中位置生成一团本玩家拥有的通用粉尘；伤害提交失败时两者都不发生。
-5. 猎人朝激活瞬间准星射线得到的目标点飞行，距离截断到 `AwakenedHunterFlightMaxDistance`。位移在 Montage 的 `HunterFlightStart` Notify/配置时刻开始，可以与猎虫贯通阶段重叠，但不重新采样准心。
-6. 猎人位移结束后根据高度进入空中或落地状态；碰墙、受击、死亡或换武器必须同时取消猎人位移，猎虫按自己的召回规则结束。
+1. **2026-10-12规则：成功发动消耗所有猎人灯，只有完整三灯提供强化。** TripleUp仍在Commit阶段原子预留/消费；一灯/两灯在动作确认成功、Montage前由Resource清空，不提供特殊效果。零灯也可发动。预检/Commit失败不扣单灯，Triple预留/消费失败不静默降级；不清猎虫尚未交付的携带精华。
+2. RTYB激活时立即读取输入快照的Action相机准心方向进行入口Yaw修正，GA `MaxCorrectionAngle=90°`（Combo边`-1`继承GA值）；不读左摇杆。Y/B全部松开时同步重采样相机准心并冻结当时ActorForward，以释放帧Forward为基准限制水平Yaw `±90°`、俯仰`±60°`，供猎虫和猎人199前冲共用。角色不在松键时立即转向，而由`AM_IG_JueChongJi`第230帧`ReleaseFacingCorrection`点通知启动共享方向任务，在`0.1s EaseOut`内转到锁定Yaw；后续不追踪准心。
+3. 消耗三灯时猎虫沿修正后的方向贯通飞行，同一 Flight 对同一 Hitzone 的重复命中受可配置间隔限制；不消耗三灯时使用普通猎虫单次命中/单次取精华行为。
+4. 强化贯通分支每个通过Hitzone/间隔验证且成功伤害的Hit，按同一真实Hit将颜色加入猎虫携带容器（红白橙去重，不覆盖前色），并立即产一团虫粉，无需虫印且绕过10s产粉CD。角色在猎虫真正回手后才逐色点灯，不在贯通途中直接ApplyExtract。普通分支仍只携带一种；命中虫印局部区域可按§5.3的MarkedContact规则产粉。伤害失败不采集、不产粉；重复颜色不加格数，但合法伤害仍可产粉。
+5. `KinsectLaunch`与`HunterFlightStart`是常驻`AM_IG_JueChongJi`中的两处精确事件点。只读资产审计得到触发时刻分别为`3.95804286s`、`4.84202242s`，固定未命中时长为`0.88397956s`。普通猎虫目标距离取当前199猎人飞行候选名义路径`4826 cm/s × 0.38s = 1833.88cm`，所以普通C++固定速度为`2074.573cm/s`；三灯暂取1.5倍`3111.8595cm/s`。运行时仅将固定速度乘通知间隔，派生通用`FKinsectFlightRequest.MaxDistance`终点距离（普通约`1833.88cm`，三灯约`2750.82cm`），不另配觉虫击专属射程、不按剩余起飞时间动态计算速度，也不叠加怪物体长。该名义基准不等同于不同瞄准俯仰/重力下猎人实际世界位移，需PIE核对。无三灯分支命中、碰地/世界阻挡或到达距离终点后只悬停；猎人199冲刺结束（自然完成、落地或中断）时才由GA召回。三灯分支按贯通/逐次取精华运行并维持请求自身终点回收。若普通速度需视觉校准，只改代码常量，三灯仍保持1.5倍。
+6. `HunterFlightStart`点通知负责启动199位移；GA还监听本次Montage实例进入`HunterFlight199`的SectionChanged并调用同一个幂等入口兜底，避免单个Notify漏触发导致整段无位移。猎人位移结束后根据高度进入空中或落地状态；碰墙、受击、死亡或换武器必须同时取消猎人位移，猎虫按自己的召回规则结束。
+7. 猎人199冲刺的武器伤害段（`AttackSegments[0]`）成功结算后施加虫印，再排队进入既有189舞踏；普通与三灯分支均适用。猎虫自身飞行/贯通伤害不因此建印，起飞前、无效部位或伤害失败不建印；舞踏接管已排队后不重复刷新。使用同一个Resource局部建印入口，不改伤害窗、冲刺曲线、三灯点灯/产粉或舞踏规则。
 
 三灯消耗必须在资源组件内作为一个原子操作完成，不能依次移除三个 GE 后再判断状态。
 
-> **已冻结：** 觉虫击 Commit 先原子消费旧三灯；之后每次有效贯通伤害都立即按命中 Hitzone 调用普通 `ApplyExtract`，并同时生成一团粉尘。贯通过程可重新取得三色并形成新三灯；新三灯形成后，后续萃取被吞且不刷新持续时间。伤害、萃取与粉尘共用同一个有效 Hit 判定，不允许三条链路各自重复查询产生次数分歧。
+> **2026-10-13冻结：** RTYB无三灯也能发动，消费与飞行/召回规则保留。仅强化贯通逐击收集不同精华、无虫印/无10s限制产粉；普通分支仍适用局部虫印产粉。新三灯只能在猎虫回手交付后形成；交付时已有三灯仍统一吞灯不刷新。采集事件与产粉沿用同一成功HitID。三色携带UI同时服务强化多色与未来双色猎虫，不扩大当前普通/操虫斩的单色容量。自动寻印不得抢占觉虫击请求或其召回。
+
+193 动画按住/松开规则：起手后播放序列后半段作为蓄力循环；RTYB 的 Y+B 控制保持按下时循环，最多播放3遍，第三遍结束后自动进入195；全部松开仍可提前退出。循环期间不结束 GA、不取消猎虫，也不再触发单独 RT 输入。
 
 ## 6. 舞踏与空中动作
 
@@ -291,18 +316,26 @@ AerialDamageMultiplier = DanceDamageMultipliers[DanceStacks]
 - 两种路径使用同一 GA 和位移参数，只改变 AimSource。
 - 方向受 `KinsectSlashMaxDistance` 和碰撞 Sweep 限制，不追踪激活后移动的准心或目标。
 - 本招有三个独立伤害机会，均由 GA 的 `Attack Collision` 窗口结算：`[0]` 猎虫附着点判定、`[1]` 棍尾至Root的第一下武器判定、`[2]` Root至棍尖的第二下武器判定。三个判定各有一次伤害额度，不能用单个 Segment 的 `MultiHitCount=3` 代替；旧独立Probe不参与生产判定。
-- **仅猎虫段[0]真实伤害GE成功提交**到有效 Hitzone 后按该部位取得红/白/橙精华，即使角色当前已经处于三灯状态；该次提取不要求猎虫先返回。武器的两次命中只造成武器伤害，不点灯。
+- **仅猎虫段[0]真实伤害GE成功提交**到有效Hitzone后，按部位颜色写入真实猎虫的单精华携带槽，立即显示携带椭圆；返回猎人时共用普通操虫交付入口点灯。2026-10-12用户要求复用普通操虫链路，此条覆盖此前“命中即时ApplyExtract”的合同，不扩展多精华容量。武器两次命中只造成武器伤害、不采集。
 - 猎虫命中后触发舞踏、增加层数，并将 Resource 的 `DanceSource` 写为 `KinsectSlash`；只有武器命中或完全未命中时不进入该舞踏分支，保留末速度进入 Falling。对应来源标签由 `URes_InsectGlaive::RefreshDanceStateTags()` 在 `AddDanceStack`/`ClearDanceStacks` 广播前镜像到 ASC（M2，2026-09-30）；真值始终是 Resource 的 `DanceSource` 字段，标签只是它的对外广播。
-- 运动使用本招专用档。**现行范围为不减速版**：188继承真实前冲末速度、重力3096cm/s²、水平制动/摩擦0；用户不要求还原原作条件制动。189两来向共用源帧0与0.1s混合，可调0.35s准备后使用实录后退上抛轨迹，随后157延续1800cm/s²重力与后向360cm/s²加速度。准备不是骨架冻结/卡肉。当前不减速运动、点灯与真实空回接管已签本招E3（2026-09-30）；M5总验收已完成。数据和边界见[操虫斩曲线](../reference/操虫斩曲线.md)，当前验收见[实施计划§9.7](../using/操虫斩实现计划.md)。
+- 空中起手攻击 GA（操虫斩、强化操虫穿刺、急袭突刺）在确认激活后同时消费 Host 所有的 `Combat.State.Aerial.CantAttack` 与 `Combat.State.Aerial.CantDodge`。因此操虫斩未命中进入 188 下坠后，即使 `Falling` 仍在场，空回也会被 `CantDodge` 阻止；GA 结束不退款，真实落地清理，成功进入舞踏时重置。
+- 运动使用本招专用档。**现行范围为不减速版**：188继承真实前冲末速度、重力3096cm/s²、水平制动/摩擦0；用户不要求还原原作条件制动。189两来向共用源帧0与0.1s混合，可调0.35s准备后使用实录后退上抛轨迹，随后157延续1800cm/s²重力与后向360cm/s²加速度。准备不是骨架冻结/卡肉。当前不减速运动、点灯与真实空回接管已签本招E3（2026-09-30）；M5总验收已完成。数据和边界见[操虫斩曲线](../reference/操虫斩曲线.md)，当前验收见[实施计划§9.7](../archive/demo-2026-10-13/操虫斩实现计划.md)。
 
 操虫斩与普通猎虫回手调用同一个 `ApplyExtract(Color)`。三灯持续期间，玩家吸收的任何单色精华都直接被吞掉：不创建单灯 GE、不缓存待恢复颜色，也不刷新三灯持续时间；仍可播放一次“吸收但未改变状态”的轻量反馈。
 
+### 6.2.1 觉虫击199武器命中→共享189舞踏（M6.2新增合同，2026-10-07）
+
+- 觉虫击猎人199冲刺另有一个武器伤害段 `AttackSegments[0]`，范围为 `IG_RearTip → Root`。只有该段成功应用伤害 GameplayEffect 后，才排队切换；Sweep接触或GE失败均不授予舞踏。碰撞窗口由用户配置在 `AM_IG_JueChongJi` 的 `HunterFlight199` 内，`ConfigIndex=0`；运行时和资产审计不更改其帧时刻。
+- 命中切换复用操虫斩常驻 `AM_IG_CaoChongZhan_Dance / HitDance189`，连同 `DanceFromDashTuning`、准备时长和Montage BlendIn；不复制新Montage、不另造189运动曲线。舞踏来源登记为独立 `EIGDanceSource::AwakenedKinsect`，不伪装成 `KinsectSlash`。
+- 命中后猎虫随猎人飞行结束而召回；切换在Sweep回调栈之外执行，退休旧199位移，再由共享189准备悬停和authored CMC舞踏运动接管。189动画与运动均结束后交回常规空中下落；未命中沿觉虫击原206下落流程。真实落地仍由RuntimeHost统一清除层数和来源Tag。
+
 ### 6.3 强化操虫穿刺——操虫斩命中舞踏后的 `RT+Y`
 
-**2026-10-01：强化操虫穿刺 M1/M2/M3/E1/M4完成，E2本轮平地可玩范围已签收。** 最新证据见[强化操虫穿刺实现计划§13.5](../using/强化操虫穿刺实现计划.md)，静态/回归证据见§13.3～13.4，§11～12保留历史。碰墙/封顶、慢放采样、全取消矩阵或五条 clone 全部实机通过均不在签收范围。强化跳跃斩与降龙已移出当前 Demo/M5 范围；急袭突刺也已完成，本招证据见[独立计划](../using/急袭突刺实现计划.md)。主 M5 总验收已关闭。
+**2026-10-01：强化操虫穿刺 M1/M2/M3/E1/M4完成，E2本轮平地可玩范围已签收。** 最新证据见[强化操虫穿刺实现计划§13.5](../archive/demo-2026-10-13/强化操虫穿刺实现计划.md)，静态/回归证据见§13.3～13.4，§11～12保留历史。碰墙/封顶、慢放采样、全取消矩阵或五条 clone 全部实机通过均不在签收范围。强化跳跃斩与降龙已移出当前 Demo/M5 范围；急袭突刺也已完成，本招证据见[独立计划](../archive/demo-2026-10-13/急袭突刺实现计划.md)。主 M5 总验收已关闭。
 
 - 输入为现有 `Input.Weapon.RTY`。仅允许当前 Resource 来源为 `EIGDanceSource::KinsectSlash`，且 `Combat.State.Aerial.Falling` 在场时派生；与空回、操虫斩的可出手时机相同。舞踏保护前段、落空、仅武器命中、突进回旋斩舞踏均不能进入。
-- Resource 来源是真值，M2 将它同步为 `Combat.State.Aerial.Dance.Source.KinsectSlash` 标签供 Combo 匹配，GA 激活时再核验真实来源；不要求层数必须大于零，也不用旧 `Aerial.Actionable`。
+- Resource 来源是真值，M2 将它同步为 `Combat.State.Aerial.Dance.Source.KinsectSlash` 标签供 Combo 匹配，GA 激活时再核验真实来源；不要求层数必须大于零，也不用旧 `Aerial.Actionable`。确认激活后消费 `CantAttack` 与 `CantDodge` 两项预算；本招命中不重置预算。
+- 强化操虫穿刺资格仍只认 `EIGDanceSource::KinsectSlash`；M6.2 新增的 `AwakenedKinsect` 来源不会自动获得本招派生权限。
 - 本次 RTY 输入解析冻结准心射线，入招只采用水平 Yaw。准心俯仰不改变位移、速度、高度或时长；之后不追踪镜头、摇杆或目标。
 - 沿实录完整链执行 `200` 起手→`201` 空中穿刺→真实触地→`203` 落地攻击/后摇；`202` 只循环空中姿势，曲线时间不循环。不再沿用旧的“穿刺结束回 Falling”设计。
 - 三个独立武器伤害段，`AttackSegments[0/1/2]` 各有一次对同目标的成功伤害额度；用户在主/落地 Montage 放现有 Attack Collision 窗口，不预设时间或强行拆为空中两击、落地一击。
@@ -315,11 +348,11 @@ AerialDamageMultiplier = DanceDamageMultipliers[DanceStacks]
 
 ### 6.5 急袭突刺——持刀 Falling 阶段 `RT` 限时松开
 
-保留《世界》的急袭突刺；它是当前Demo范围内的新增空中招式，现已完成本招验收。规则为同当前操虫斩的 `Unsheathed + Aerial.Falling`、未被CantAttack锁住及Host尚未接地；不要求操虫斩舞踏来源。RT在配置上限内松开且未被获胜组合消费才派发（初始沿用0.25s）。空中按下单RT不再提前触发，地面虫印斩与空中本招共用一个release-fallback所有者，Combo按状态分流。
+保留《世界》的急袭突刺；它是当前Demo范围内的新增空中招式，现已完成本招验收。规则为同当前操虫斩的 `Unsheathed + Aerial.Falling`、未被 `CantAttack` 锁住及 Host 尚未接地；不要求操虫斩舞踏来源。确认激活后同时消费 `CantAttack` 与 `CantDodge`，未命中下坠不能再空回；RT 在配置上限内松开且未被获胜组合消费才派发（初始沿用0.25s）。空中按下单RT不再提前触发，地面虫印斩与空中本招共用一个release-fallback所有者，Combo按状态分流。
 
 第一段380有一次性进入和待查找的循环区，采用校准的锁定水平向量/竖直曲线，姿势循环不重置物理时间。第二段381真实触地后直接播放原动画Montage Root Motion，不叠加空中惯性。三次修正最大角180°/180°/60°，依真值时钟渐进转向；前两次各取序列入口前一游戏帧、第三次取转向开始前一游戏帧的摇杆快照。四个独立武器伤害窗口由用户放置；地面接受窗可派生二连、后撤、飞圆，飞圆入口同二连来源。
 
-成功Commit先快照舞踏终结倍率再清层，四段用冻结倍率；下落、着地攻击/后摇属于同一Ability，`LandingPolicy=AbilityOwned`。只在地面段完成、成功派生或取消后报告结束。两条Montage均为常驻资产，禁止运行时动态拼接。详细实现与签收范围见[急袭突刺实现计划](../using/急袭突刺实现计划.md)；本招M1/M2/M3/E1/M4/E2与主M5总验收均已于2026-10-06签收。
+成功Commit先快照舞踏终结倍率再清层，四段用冻结倍率；下落、着地攻击/后摇属于同一Ability，`LandingPolicy=AbilityOwned`。只在地面段完成、成功派生或取消后报告结束。两条Montage均为常驻资产，禁止运行时动态拼接。详细实现与签收范围见[急袭突刺实现计划](../archive/demo-2026-10-13/急袭突刺实现计划.md)；本招M1/M2/M3/E1/M4/E2与主M5总验收均已于2026-10-06签收。
 
 ### 6.6 降龙（已移出Demo）
 
@@ -361,8 +394,8 @@ IG.Aerial.DescendingThrust
 4. 突进回旋斩窗口内受到可反击攻击时免除该次命中并触发舞踏；窗口外正常受击。
 5. 操虫斩直接 `B` 按角色 Forward 飞行；`RT+B` 在186的AimLock帧采样当前准心并冻结三维前冲方向。仅猎虫段[0]向有效Hitzone成功提交真实伤害GE后，按部位颜色调用ApplyExtract并提交舞踏；仅武器命中、落空或伤害提交失败均不点灯、不提交舞踏。三灯期间ApplyExtract吞掉单色精华且不刷新三灯。
 6. 舞踏倍率达到配置上限后不再增加；当前 Demo 在真实落地清层，急袭突刺则先快照倍率再于 Commit 清层。收刀、空中受击和死亡不列入当前 Demo 范围；卸装/RuntimeShutdown 属资源生命周期清理。
-7. 觉虫击原子消耗旧三灯；猎虫每次成功贯通伤害立即按部位点灯并留下粉尘，途中可以重新形成三灯；猎人按受限准心方向位移。
-8. 粉尘集约只消费范围内己方粉尘；取消时正确回滚预留。
-9. 虫印斩首次有效近战 Hitzone 命中或 LT+RT 虫印弹命中后，均替换唯一虫印；虫印按时长、目标和卸装规则清理。
+7. 觉虫击无三灯时仍能使用普通猎虫单次命中；命中/碰地/到达距离后悬停，等猎人冲刺结束或中断才召回。有三灯时自动消耗并进入贯通模式，成功贯通伤害收集不同颜色并留下粉尘，猎虫回手交付后才点灯/形成新三灯；猎人按受限准心方向位移。RTYB激活时按Action相机准心方向使用90°上限修正；丢虫面向修正从Montage第230帧开始；193后半段最多循环3遍，松键仍可提前进入送虫。
+8. 粉尘聚爆飞向准心目标，收集直径等于训练场边长的球内己方虫粉、刷新180s，到达开始聚拢后1s以直径2m结算数量阶梯与ΣDi两段；操虫/收虫取消，释放预留但保留已发生的聚拢和寿命刷新。
+9. 虫印斩与急袭突刺地面第一击的指定有效武器段建立/替换唯一90s局部虫印；玩法清印仅死亡、到期、新印替换。猎虫离手后在范围内自动追印真实攻击，玩家指令优先；普通/招式猎虫局部命中受10s产粉CD，贯通例外；虫粉180s自然单段直径1m爆炸，远距消失、上限100。
 10. 猎虫滑翔有虫印时追虫印、无虫印时短距前飞；命中怪物后进入空战但不增加舞踏。
 11. 跳跃突进斩不在Demo范围；强化跳跃斩与降龙已于2026-10-01移出Demo/M5门禁。急袭突刺的持刀Falling限时RT松开、380进入/循环及校准位移、381原根运动、三修正/四判定/三后续派生与所有权清理均按独立计划验收；M5收口与总验收已关闭。

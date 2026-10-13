@@ -727,12 +727,12 @@ void UMHGZDescendingThrustAbility::ActivateAbility(
 		return;
 	}
 
-	if (!Host->MarkAerialAttackUsed()
+	if (!ConsumeAerialAttackAndDodgeBudgets()
 		|| !Host->SetAerialMovementSource(DescendingActionToken,
 			DescendingThrustSourceTag()))
 	{
 		CancelDescendingThrust(EWeaponActionEndReason::Interrupted,
-			TEXT("The Host could not claim the aerial attack or source ownership."));
+			TEXT("The Host could not claim the aerial attack/dodge budget or source ownership."));
 		return;
 	}
 
@@ -1217,6 +1217,11 @@ void UMHGZDescendingThrustAbility::HandleLandingMontageCompleted()
 
 void UMHGZDescendingThrustAbility::HandleLandingMontageInterrupted()
 {
+	if (HasPreparedDodgeSupersede())
+	{
+		// 与普通攻击同一交接合同：暂缓同步中断，任务留给提交/回滚清理。
+		return;
+	}
 	LandingMontageTask = nullptr;
 	if (bEndingDescendingThrust || !bLandingMontageActive)
 	{
@@ -1302,6 +1307,15 @@ void UMHGZDescendingThrustAbility::HandleSuccessfulAttackDamage(
 {
 	RecordDamagedTarget(SegmentIndex, Hit.GetActor());
 	LastSuccessfulSegmentIndex = SegmentIndex;
+	if (SegmentIndex == MarkSegmentIndex && !bEstablishedMarkThisActivation
+		&& Phase == EDescendingThrustPhase::GroundOver)
+	{
+		if (URes_InsectGlaive* Resource = GetIGResourceComponent();
+			Resource && Resource->SetKinsectMarkFromMeleeHit(Hit))
+		{
+			bEstablishedMarkThisActivation = true;
+		}
+	}
 }
 
 FGameplayEffectSpecHandle UMHGZDescendingThrustAbility::MakeDamageSpec(
@@ -1675,6 +1689,7 @@ void UMHGZDescendingThrustAbility::ResetActivationState()
 	LockedPlanarVelocity = FVector::ZeroVector;
 	FrozenDanceDamageMultiplier = 1.0f;
 	LastSuccessfulSegmentIndex = INDEX_NONE;
+	bEstablishedMarkThisActivation = false;
 	for (FGuid& ID : SegmentDamageInstanceIDs)
 	{
 		ID.Invalidate();
@@ -1763,6 +1778,10 @@ EDataValidationResult UMHGZDescendingThrustAbility::IsDataValid(
 					TEXT("AttackSegments[%d] requires TraceRegions."), SegmentIndex));
 			}
 		}
+	}
+	if (MarkSegmentIndex < 0 || MarkSegmentIndex >= AttackSegments.Num())
+	{
+		AddError(TEXT("MarkSegmentIndex must identify one of the four descending-thrust segments."));
 	}
 
 	return bInvalid ? EDataValidationResult::Invalid

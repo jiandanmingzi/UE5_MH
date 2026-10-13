@@ -18,6 +18,7 @@
 #include "CoreGlobals.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "GameFramework/Character.h"
+#include "HAL/IConsoleManager.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "MHGZ.h"
@@ -262,6 +263,7 @@ void UMHGZWeaponRuntimeHostComponent::ApplyWeaponSnapshot(
 void UMHGZWeaponRuntimeHostComponent::BuildWeaponRuntime(
 	const FEquippedWeaponSnapshot& Snapshot)
 {
+	bWeaponRuntimeReady = false;
 	const UWeaponRuntimeDefinition* RuntimeDef = Snapshot.RuntimeDefinition.Get();
 	if (!RuntimeDef)
 	{
@@ -333,6 +335,8 @@ void UMHGZWeaponRuntimeHostComponent::BuildWeaponRuntime(
 	if (UGA_WeaponComboCoordinator* ActiveCoordinator = ASC->GetActiveComboCoordinator())
 	{
 		ActiveCoordinator->InjectComboData(ComboData);
+		bWeaponRuntimeReady = true;
+		OnWeaponRuntimeReady.Broadcast(CurrentToken, ResourceProvider.Get());
 	}
 }
 
@@ -365,6 +369,7 @@ void UMHGZWeaponRuntimeHostComponent::TeardownRuntime(EWeaponRuntimeEndReason Re
 
 	// 3) 先广播旧 Token 失效，让所有订阅者在 Resource 发出关停回调前解绑。
 	OnWeaponRuntimeInvalidated.Broadcast(CurrentToken);
+	bWeaponRuntimeReady = false;
 
 	// 4) Resource Shutdown（清 modifiers；IG 走 OnWeaponUnequipped 清理猎虫/萃取 GE）。
 	if (UMHGZWeaponResourceComponent* Provider = ResourceProvider.Get())
@@ -576,6 +581,30 @@ bool UMHGZWeaponRuntimeHostComponent::RegisterAction(const FWeaponActionToken& A
 		ActiveActions.Add(ActionToken);
 	}
 	return true;
+}
+
+bool UMHGZWeaponRuntimeHostComponent::IsActionRegistered(
+	const FWeaponActionToken& ActionToken) const
+{
+	return bInitialized && !bShuttingDown && ActionToken.IsValid()
+		&& IsTokenCurrent(ActionToken.RuntimeToken)
+		&& ActiveActions.Contains(ActionToken);
+}
+
+bool UMHGZWeaponRuntimeHostComponent::IsActionActivationRegistered(
+	const FWeaponRuntimeToken& RuntimeToken, const uint32 ActivationSequenceID) const
+{
+	if (!bInitialized || bShuttingDown || ActivationSequenceID == 0
+		|| !IsTokenCurrent(RuntimeToken))
+	{
+		return false;
+	}
+	return ActiveActions.ContainsByPredicate(
+		[&RuntimeToken, ActivationSequenceID](const FWeaponActionToken& ActionToken)
+		{
+			return ActionToken.RuntimeToken == RuntimeToken
+				&& ActionToken.ActivationSequenceID == ActivationSequenceID;
+		});
 }
 
 bool UMHGZWeaponRuntimeHostComponent::UnregisterAction(const FWeaponActionToken& ActionToken)
@@ -1093,6 +1122,50 @@ void UMHGZWeaponRuntimeHostComponent::GetActionVisualPitchTelemetrySince(
 {
 	OutEvents.Reset();
 	for (const FWeaponActionVisualPitchTelemetryEvent& Event : ActionVisualPitchTelemetryEvents)
+	{
+		if (Event.Serial > InOutLastSerial)
+		{
+			OutEvents.Add(Event);
+			InOutLastSerial = Event.Serial;
+		}
+	}
+}
+
+void UMHGZWeaponRuntimeHostComponent::RecordCombatTelemetryEvent(
+	const FWeaponCombatTelemetryEvent& InEvent)
+{
+	IConsoleVariable* CaptureVariable = IConsoleManager::Get().FindConsoleVariable(
+		TEXT("mhgz.Telemetry.Enable"));
+	if (!CaptureVariable || CaptureVariable->GetInt() == 0)
+	{
+		return;
+	}
+
+	FWeaponCombatTelemetryEvent Event = InEvent;
+	Event.Serial = NextCombatTelemetrySerial++;
+	if (NextCombatTelemetrySerial == 0)
+	{
+		NextCombatTelemetrySerial = 1;
+	}
+	Event.Frame = GFrameCounter;
+	Event.WorldTimeSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0;
+	Event.RuntimeGeneration = CurrentToken.Generation;
+	CombatTelemetryEvents.Add(MoveTemp(Event));
+	constexpr int32 MaxCombatTelemetryEvents = 8192;
+	if (CombatTelemetryEvents.Num() > MaxCombatTelemetryEvents)
+	{
+		CombatTelemetryEvents.RemoveAt(0,
+			CombatTelemetryEvents.Num() - MaxCombatTelemetryEvents,
+			EAllowShrinking::No);
+	}
+}
+
+void UMHGZWeaponRuntimeHostComponent::GetCombatTelemetryEventsSince(
+	uint64& InOutLastSerial,
+	TArray<FWeaponCombatTelemetryEvent>& OutEvents) const
+{
+	OutEvents.Reset();
+	for (const FWeaponCombatTelemetryEvent& Event : CombatTelemetryEvents)
 	{
 		if (Event.Serial > InOutLastSerial)
 		{
@@ -2218,15 +2291,24 @@ void UMHGZWeaponRuntimeHostComponent::ReleaseReservation(const FWeaponResourceCo
 	}
 }
 
-void UMHGZWeaponRuntimeHostComponent::ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation)
+bool UMHGZWeaponRuntimeHostComponent::ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation)
 {
-	if (!Reservation.IsValid() || !IsTokenCurrent(Reservation.RuntimeToken))
+	if (!bInitialized || bShuttingDown || !Reservation.RuntimeToken.IsValid()
+		|| Reservation.ActivationSequenceID == 0
+		|| !IsTokenCurrent(Reservation.RuntimeToken))
 	{
-		return;
+		return false;
+	}
+
+	// ReservationID == 0 is the explicit empty-cost success path.
+	if (!Reservation.IsValid())
+	{
+		return true;
 	}
 
 	if (UMHGZWeaponResourceComponent* Provider = ResourceProvider.Get())
 	{
-		Provider->ConsumeReservedCosts(Reservation);
+		return Provider->ConsumeReservedCosts(Reservation);
 	}
+	return false;
 }

@@ -555,7 +555,7 @@ UAbilityTask_MHGZKinsectSlashProbe::SweepProbeSegment(
 	Candidates.Reserve(HitzoneHits.Num() + ObstacleHits.Num());
 	for (const FHitResult& Hit : HitzoneHits)
 	{
-		if (Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent()))
+		if (UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent()))
 		{
 			Candidates.Add({Hit, false});
 		}
@@ -566,7 +566,7 @@ UAbilityTask_MHGZKinsectSlashProbe::SweepProbeSegment(
 		const bool bBelongsToHitzoneActor = HitActor
 			&& HitActor->FindComponentByClass<UMHGZMonsterHitzoneComponent>();
 		if (Hit.bBlockingHit && !bBelongsToHitzoneActor
-			&& !Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent()))
+			&& !UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent()))
 		{
 			Candidates.Add({Hit, true});
 		}
@@ -595,7 +595,7 @@ UAbilityTask_MHGZKinsectSlashProbe::SweepProbeSegment(
 		}
 
 		UMHGZMonsterHitzoneComponent* Hitzone =
-			Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+			UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
 		if (!Hitzone || (HitzoneQueryTag.IsValid()
 			&& !Hitzone->HitzoneTag.MatchesTagExact(HitzoneQueryTag)))
 		{

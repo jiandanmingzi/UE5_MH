@@ -5,6 +5,7 @@
 #include "ActionSystem/MHGZHitFeedbackRouterComponent.h"
 #include "ActionSystem/MHGZHitFeedbackTypes.h"
 #include "GameplayEffectExtension.h"
+#include "Monster/MHGZTrainingDummy.h"
 #include "Net/UnrealNetwork.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
@@ -27,6 +28,7 @@ UMHGZAttributeSet::UMHGZAttributeSet()
 	InitStaminaDeductionRate(1.0f);
 	InitStaminaConsumptionRate(1.0f);
 	InitAttackPower(0.f);
+	InitElementPower(0.f);
 	InitDefense(0.f);
 	InitCriticalRate(0.f);
 	InitStaggerMultiplier(1.0f);
@@ -51,6 +53,7 @@ void UMHGZAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& Ou
 	DOREPLIFETIME_CONDITION_NOTIFY(UMHGZAttributeSet, StaminaDeductionRate, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UMHGZAttributeSet, StaminaConsumptionRate, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UMHGZAttributeSet, AttackPower, COND_None, REPNOTIFY_Always);
+	DOREPLIFETIME_CONDITION_NOTIFY(UMHGZAttributeSet, ElementPower, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UMHGZAttributeSet, Defense, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UMHGZAttributeSet, CriticalRate, COND_None, REPNOTIFY_Always);
 	DOREPLIFETIME_CONDITION_NOTIFY(UMHGZAttributeSet, StaggerMultiplier, COND_None, REPNOTIFY_Always);
@@ -80,7 +83,8 @@ void UMHGZAttributeSet::ClampAttribute(const FGameplayAttribute& Attribute, floa
 	{
 		NewValue = FMath::Clamp(NewValue, -100.f, 100.f);
 	}
-	else if (Attribute == GetAttackPowerAttribute() || Attribute == GetDefenseAttribute())
+	else if (Attribute == GetAttackPowerAttribute() || Attribute == GetElementPowerAttribute()
+		|| Attribute == GetDefenseAttribute())
 	{
 		NewValue = FMath::Max(NewValue, 0.f);
 	}
@@ -116,7 +120,6 @@ void UMHGZAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallba
 	{
 		return;
 	}
-
 	UAbilitySystemComponent* TargetASC = &Data.Target;
 	if (!TargetASC)
 	{
@@ -136,15 +139,6 @@ void UMHGZAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallba
 	IncomingCriticalFlag.SetCurrentValue(0.f);
 	IncomingHitSignal.SetBaseValue(0.f);
 	IncomingHitSignal.SetCurrentValue(0.f);
-
-	// ── 按当前 Health Clamp 得到 ActualDamage 并扣血 ──
-	const float OldHealth = GetHealth();
-	const float ActualDamage = FMath::Clamp(IncomingDamageValue, 0.f, OldHealth);
-	if (ActualDamage > 0.f)
-	{
-		const float NewHealth = FMath::Clamp(OldHealth - ActualDamage, 0.f, GetMaxHealth());
-		SetHealth(NewHealth);
-	}
 
 	const FMHGZGameplayEffectContext* CombatContext =
 		FMHGZGameplayEffectContext::ExtractEffectContext(Data.EffectSpec.GetContext());
@@ -168,6 +162,20 @@ void UMHGZAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallba
 	if (!PhysicalTarget)
 	{
 		PhysicalTarget = TargetASC->GetOwnerActor();
+	}
+
+	// The training dummy is an always-available target: preserve its health and
+	// avoid death/mark teardown, but report the incoming hit magnitude normally.
+	const float OldHealth = GetHealth();
+	const AMHGZTrainingDummy* TrainingDummy = Cast<AMHGZTrainingDummy>(PhysicalTarget);
+	const bool bPreserveHealth = TrainingDummy && TrainingDummy->HasInfiniteHealth();
+	const float ActualDamage = bPreserveHealth
+		? (FMath::IsFinite(IncomingDamageValue) ? FMath::Max(IncomingDamageValue, 0.f) : 0.f)
+		: FMath::Clamp(IncomingDamageValue, 0.f, OldHealth);
+	if (!bPreserveHealth && ActualDamage > 0.f)
+	{
+		const float NewHealth = FMath::Clamp(OldHealth - ActualDamage, 0.f, GetMaxHealth());
+		SetHealth(NewHealth);
 	}
 
 	// ── 构造一次 FMHGZHitFeedbackResult ──
@@ -237,6 +245,7 @@ void UMHGZAttributeSet::OnRep_StaminaRegenRate(const FGameplayAttributeData& Old
 void UMHGZAttributeSet::OnRep_StaminaDeductionRate(const FGameplayAttributeData& OldValue) { GAMEPLAYATTRIBUTE_REPNOTIFY(UMHGZAttributeSet, StaminaDeductionRate, OldValue); }
 void UMHGZAttributeSet::OnRep_StaminaConsumptionRate(const FGameplayAttributeData& OldValue) { GAMEPLAYATTRIBUTE_REPNOTIFY(UMHGZAttributeSet, StaminaConsumptionRate, OldValue); }
 void UMHGZAttributeSet::OnRep_AttackPower(const FGameplayAttributeData& OldValue) { GAMEPLAYATTRIBUTE_REPNOTIFY(UMHGZAttributeSet, AttackPower, OldValue); }
+void UMHGZAttributeSet::OnRep_ElementPower(const FGameplayAttributeData& OldValue) { GAMEPLAYATTRIBUTE_REPNOTIFY(UMHGZAttributeSet, ElementPower, OldValue); }
 void UMHGZAttributeSet::OnRep_Defense(const FGameplayAttributeData& OldValue) { GAMEPLAYATTRIBUTE_REPNOTIFY(UMHGZAttributeSet, Defense, OldValue); }
 void UMHGZAttributeSet::OnRep_CriticalRate(const FGameplayAttributeData& OldValue) { GAMEPLAYATTRIBUTE_REPNOTIFY(UMHGZAttributeSet, CriticalRate, OldValue); }
 void UMHGZAttributeSet::OnRep_StaggerMultiplier(const FGameplayAttributeData& OldValue) { GAMEPLAYATTRIBUTE_REPNOTIFY(UMHGZAttributeSet, StaggerMultiplier, OldValue); }

@@ -89,8 +89,11 @@ public:
 	/** 释放未消耗的预留。默认无操作。 */
 	virtual void ReleaseReservation(const FWeaponResourceCostReservation& Reservation);
 
-	/** 结算已预留的成本。默认无操作。 */
-	virtual void ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation);
+	/**
+	 * 结算已预留的成本。空成本的无效 Reservation 成功；有效预留由子类核验身份后结算。
+	 * 返回 false 表示资源未结算，调用方必须拒绝转移/动作提交。
+	 */
+	virtual bool ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation);
 
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|WeaponResource")
 	float GetNormalizedValue() const

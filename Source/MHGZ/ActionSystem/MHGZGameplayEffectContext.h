@@ -6,6 +6,7 @@
 #include "AbilitySystemGlobals.h"
 #include "GameplayEffectTypes.h"
 #include "GameplayTagContainer.h"
+#include "MHGZDamageTypes.h"
 #include "MHGZGameplayEffectContext.generated.h"
 
 class UCameraShakeBase;
@@ -39,12 +40,19 @@ struct MHGZ_API FMHGZGameplayEffectContext : public FGameplayEffectContext
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FGameplayTag HitzoneTag;
 
-	/** false 时该伤害段忽略 Hitzone DefenseMultiplier；硬直肉质仍正常参与。 */
+	/** false 时忽略物理肉质；属性肉质与硬直肉质仍独立参与。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	bool bUseHitzoneDefense = true;
 
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	EMHGZDamageSourceType DamageSourceType = EMHGZDamageSourceType::Weapon;
+
+	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
+	EMHGZPhysicalDamageType PhysicalDamageType = EMHGZPhysicalDamageType::Sever;
+
+	/** 仅 Weapon 来源消费；猎虫/粉尘不继承玩家武器的斩味与属性。 */
+	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
+	FMHGZWeaponDamageProfile WeaponDamageProfile;
 
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FGameplayTag HitCueTag;

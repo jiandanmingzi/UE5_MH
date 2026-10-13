@@ -323,7 +323,7 @@ bool UMHGZIncomingHitResolverComponent::ApplyDamageToPlayer(const FIncomingHitCo
 	MHGZContext->DamageSourceType = EMHGZDamageSourceType::DummyAttack;
 	MHGZContext->HitStaggerTag = Context.StaggerTag;
 	if (UMHGZMonsterHitzoneComponent* Hitzone =
-		Cast<UMHGZMonsterHitzoneComponent>(Context.Hit.GetComponent()))
+		UMHGZMonsterHitzoneComponent::Resolve(Context.Hit.GetComponent()))
 	{
 		MHGZContext->HitzoneTag = Hitzone->HitzoneTag;
 	}

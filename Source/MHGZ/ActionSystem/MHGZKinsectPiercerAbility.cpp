@@ -355,12 +355,12 @@ bool UMHGZKinsectPiercerAbility::PrepareAttackMontage()
 	//
 	// 这一次释放同时办三件事，少任何一件都会在真实资产上出问题：
 	//
-	//  1. 关上「Falling 在场的空中动作」这道门。本招 200/201 **不开放任何空中取消窗口**，
-	//     而空回的闸门正是「`Combat.State.Aerial.Falling` 在场 + 无 `CantDodge`」——
-	//     舞踏提交时 Host 会把 `CantDodge` 与 `CantAttack` 一起退掉，所以不释放它，
-	//     空回就能在下潜中途把本招顶掉，203 永远不会播。注意这里的「攻击锁」是
-	//     `Attacking`/`BlockMovement`/`CantAttack`，它们**不拦**空回
-	//     （`HasPlayerActionInputLock` 只看 Sheathing/Dodging），Falling 才是承重的那一道。
+	//  1. 激活提交时已由 ConsumeAerialAttackAndDodgeBudgets() 同时消费 CantAttack 与
+	//     CantDodge；因此 Falling 仍在场的 200/201/未命中下坠阶段都不能空回。
+	//     这里释放 Falling 是另一项职责：关闭“Falling 在场即可输入空中攻击”的入口，
+	//     防止本动作的 Montage lead/内部阶段再次被当作新空中攻击入口。Attacking、
+	//     BlockMovement、CantAttack 本身并不拦空回；这条不变量由 Host 持有的 CantDodge
+	//     预算保证。舞踏提交时 Host 会重置两种预算。
 	//
 	//  2. 停掉系统托管下落的**表现会话**。本招刻意不挂 `IG_AerialHandoff`（§6.4），
 	//     没有别人会替我们停它。
@@ -461,12 +461,12 @@ void UMHGZKinsectPiercerAbility::ActivateAbility(
 		return;
 	}
 
-	// 空中攻击预算与操虫斩同款：确认成功后才取得，失败不消耗。
+	// 空中攻击占用攻击与回避两种预算；确认成功后才取得，GA 结束不退款。
 	// 本招自己的三次命中**不**重置预算、不增加舞踏，所以不能靠它再次开放 RTY。
-	if (!Host->MarkAerialAttackUsed())
+	if (!ConsumeAerialAttackAndDodgeBudgets())
 	{
 		CancelPiercerAction(EWeaponActionEndReason::Interrupted,
-			TEXT("Could not claim the Host-owned aerial attack budget."));
+			TEXT("Could not claim the Host-owned aerial attack and dodge budgets."));
 		return;
 	}
 
@@ -1022,6 +1022,12 @@ void UMHGZKinsectPiercerAbility::HandleLandingMontageCompleted()
 
 void UMHGZKinsectPiercerAbility::HandleLandingMontageInterrupted()
 {
+	if (HasPreparedDodgeSupersede())
+	{
+		// Montage_Play 尚未返回；旧 Action 必须保留到翻滚提交/回滚。
+		// 也不能先清 LandingMontageTask，否则提交时无法解绑延后的回调。
+		return;
+	}
 	LandingMontageTask = nullptr;
 	if (bEndingPiercer || !bLandingMontageActive)
 	{
@@ -1449,7 +1455,7 @@ EDataValidationResult UMHGZKinsectPiercerAbility::IsDataValid(
 
 	if (!AttackMontage)
 	{
-		AddError(TEXT("Kinsect Piercer requires the resident AM_IG_KinsectPiercer main montage; there is no runtime fallback that builds one from sequences."));
+		AddError(TEXT("Kinsect Piercer requires the resident AM_IG_QiangHuaCaoChongChuanCi main montage; there is no runtime fallback that builds one from sequences."));
 	}
 	else if (!HasRequiredSections(AttackMontage))
 	{
@@ -1457,7 +1463,7 @@ EDataValidationResult UMHGZKinsectPiercerAbility::IsDataValid(
 	}
 	if (!LandingMontage)
 	{
-		AddError(TEXT("Kinsect Piercer requires the resident AM_IG_KinsectPiercer_Over landing montage."));
+		AddError(TEXT("Kinsect Piercer requires the resident AM_IG_QiangHuaCaoChongChuanCi_Over landing montage."));
 	}
 	else if (!HasRequiredLandingMontage())
 	{

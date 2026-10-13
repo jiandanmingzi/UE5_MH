@@ -55,7 +55,7 @@ public:
 		FWeaponResourceCostReservation& OutReservation) override;
 	virtual void ReleaseReservation(
 		const FWeaponResourceCostReservation& Reservation) override;
-	virtual void ConsumeReservedCosts(
+	virtual bool ConsumeReservedCosts(
 		const FWeaponResourceCostReservation& Reservation) override;
 
 	int32 GetReleaseCount() const { return ReleaseCount; }

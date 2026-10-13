@@ -13,6 +13,7 @@ class UCurveFloat;
 class UInsectGlaiveKinsectData;
 class USoundBase;
 class AIGMarkProjectile;
+class AIGPowderActor;
 class UParticleSystem;
 class UAnimMontage;
 
@@ -470,9 +471,29 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Movement", meta = (ClampMin = "0.01"))
 	float KinsectMarkMaxDistance = 6000.0f;
 
-	/** 虫印持续时间（秒） */
+	/** 虫印持续时间（秒）；M6.3合同固定为90秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Movement", meta = (ClampMin = "0.01"))
-	float KinsectMarkDuration = 45.0f;
+	float KinsectMarkDuration = 90.0f;
+
+	/** 虫印在表面切向的半宽/半高（cm）；与约1m视觉云团对齐，100cm×100cm斑块对应50cm。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Mark", meta = (ClampMin = "0.01", ForceUnits = "cm"))
+	float KinsectMarkPatchHalfExtent = 50.0f;
+
+	/** 命中点距离虫印表面的最大法向厚度（cm）；初始工程容差，E6.2用实际碰撞调校。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Mark", meta = (ClampMin = "0.0", ForceUnits = "cm"))
+	float KinsectMarkSurfaceNormalTolerance = 5.0f;
+
+	/** 自动寻印起点到虫印的最大距离（cm）；0表示未调校/关闭自动寻印，不能借用粉尘聚爆半径。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Mark|Automation", meta = (ClampMin = "0.0", ForceUnits = "cm"))
+	float KinsectAutoMarkSearchRadius = 3000.0f;
+
+	/** 到达虫印后的自动攻击间隔（世界游戏秒）；0表示未调校/关闭自动攻击。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Mark|Automation", meta = (ClampMin = "0.0", ForceUnits = "s"))
+	float KinsectAutoMarkAttackInterval = 2.0f;
+
+	/** 命中虫印后两次可产粉的最小间隔；觉虫击贯通产粉不受此冷却约束。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.01", ForceUnits = "s"))
+	float MarkedHitPowderCooldown = 10.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MarkProjectile", meta = (ClampMin = "0.01"))
 	float KinsectMarkProjectileSpeed = 3000.0f;
@@ -503,20 +524,56 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Glide", meta = (ClampMin = "0.01"))
 	float KinsectGlideFallbackLiftHeight = 150.0f;
 
-	/** 觉虫击猎虫贯通最大距离（cm） */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened", meta = (ClampMin = "0.01"))
-	float AwakenedKinsectMaxDistance = 2000.0f;
-
-	/** 觉虫击猎人位移最大距离（cm） */
+	/** Legacy tuning field; 199 now uses a time-bounded CMC flight, so this is not consumed by the runtime path. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened", meta = (ClampMin = "0.01"))
 	float AwakenedHunterFlightMaxDistance = 1500.0f;
 
-	/** HunterFlight 位移在 Montage 中开始的时刻（秒） */
+	/** Legacy timer field; HunterFlightStart Notify is authoritative and this value is not scheduled. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened", meta = (ClampMin = "0.01"))
 	float AwakenedHunterFlightStartTime = 0.4f;
 
-	/** 觉虫击相对角色 Forward 的瞄准修正角上限（度）；[0, 180]，超界 Clamp 到锥边缘 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	/** 20261012 F9：20段199均持续0.375–0.383s，采用0.38s保护飞行曲线，不由初始接地提前结束。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Hunter Flight",
+		meta = (ClampMin = "0.01"))
+	float AwakenedHunterFlightDurationSeconds = 0.38f;
+
+	/** 方向取松键时冻结的准心目标；20261012干净空中样本初速4809/4842cm/s，保留4826。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Hunter Flight",
+		meta = (ClampMin = "0.01"))
+	float AwakenedHunterFlightSpeed = 4826.0f;
+
+	/** 199 线性拟合重力候选约 1190cm/s²（UE Z-up）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Hunter Flight",
+		meta = (ClampMin = "0.01"))
+	float AwakenedHunterFlightGravityMagnitude = 1190.0f;
+
+	/** 近处地面准心的最短199路程；约550cm来自低角度短程样本，不按相机角度分档。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Hunter Flight", meta = (ClampMin = "0.01"))
+	float AwakenedGroundTargetMinimumDistance = 550.0f;
+
+	/** 地面目标199的小抛弧初速：约140cm/s、1190重力对应约8cm抬升。不是向地板硬冲。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Hunter Flight", meta = (ClampMin = "0.01"))
+	float AwakenedGroundTargetVerticalLaunchSpeed = 140.0f;
+
+	/** 206 回归速度候选；入口原始行常为零，默认仅采用拟合出的垂直分量。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Hunter Flight")
+	FVector AwakenedHunterFallHandoffVelocity = FVector(0.0f, 0.0f, 900.0f);
+
+	/** 206 线性拟合重力候选约 2885cm/s²（UE Z-up）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Hunter Flight",
+		meta = (ClampMin = "0.01"))
+	float AwakenedHunterFallGravityMagnitude = 2885.0f;
+
+	/** 常驻 206 下坠表现；编辑器阶段指定正式 Montage，Root Motion 必须关闭。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Hunter Flight")
+	TObjectPtr<UAnimMontage> AwakenedHunterFallMontage;
+
+	/** Release/throw horizontal yaw correction limit around the character's release-frame facing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Aim", meta = (ClampMin = "0.0", ClampMax = "180.0", ForceUnits = "deg"))
+	float AwakenedAimHorizontalCorrectionAngle = 90.0f;
+
+	/** Release/throw vertical pitch correction limit around the character's release-frame facing. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened|Aim", meta = (ClampMin = "0.0", ClampMax = "90.0", ForceUnits = "deg"))
 	float AwakenedAimCorrectionAngle = 60.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "DivingWyvern", meta = (ClampMin = "0.01"))
@@ -533,13 +590,70 @@ public:
 	float DescendingThrustAirControl = 0.5f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder", meta = (ClampMin = "0.01"))
-	float PowderGatherRadius = 600.0f;
+	float PowderGatherRadius = 3000.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder", meta = (ClampMin = "0.01"))
+	/** Resource-owned gathering delay after the Kinsect reaches the aimed point; default 1 second. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Vortex", meta = (ClampMin = "0.01", ForceUnits = "s"))
+	float PowderVortexDelay = 1.0f;
+
+	/** Direct first-stage damage selected by powder-count tiers. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Vortex", meta = (ClampMin = "0.0"))
+	float PowderVortexDamageAt1 = 10.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Vortex", meta = (ClampMin = "0.0"))
+	float PowderVortexDamageAt5 = 50.0f;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Vortex", meta = (ClampMin = "0.0"))
+	float PowderVortexDamageAt10 = 100.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Legacy", meta = (DeprecatedProperty, ClampMin = "0.01"))
 	float PowderGatherDuration = 0.5f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder", meta = (ClampMin = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Legacy", meta = (DeprecatedProperty, ClampMin = "1"))
 	int32 PowderGatherMaxCount = 5;
+
+	/** Non-colliding persistent powder actor class. Assign BP_IG_PowderCloud to enable the powder runtime. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Actor")
+	TSubclassOf<AIGPowderActor> PowderActorClass;
+
+	/** Powder lifetime in world game seconds. The current design fixes this at 180 seconds. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.0", ForceUnits = "s"))
+	float PowderLifetime = 180.0f;
+
+	/** Maximum live powder actors owned by one weapon Runtime; Available and Reserved both count. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "1"))
+	int32 PowderMaxCount = 100;
+
+	/** Natural expiry explosion radius (default 150 cm); damage only, not visible particle size. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.01", ForceUnits = "cm"))
+	float PowderNaturalExplosionRadius = 150.0f;
+
+	/** Legacy M6.1 gather contribution. New powder uses Kinsect attack power times PowderDamageMultiplier. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.0"))
+	float PowderDamageContribution = 0.0f;
+
+	/** Natural/gather damage per powder = spawn-time Kinsect attack power × this value. Must be tuned before enabling powder. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.0"))
+	float PowderDamageMultiplier = 1.0f;
+
+	/** Distance beyond which this Runtime's powder is removed without damage; E6.2 default is 100m (10000cm). */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.0", ForceUnits = "cm"))
+	float PowderDespawnDistance = 10000.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Legacy", meta = (DeprecatedProperty, ClampMin = "0.0"))
+	float PowderVortexBaseDamage = 0.0f;
+
+	/** Radius shared by the two Powder Vortex damage stages; E6.2 default is 300cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Vortex", meta = (ClampMin = "0.01", ForceUnits = "cm"))
+	float PowderVortexExplosionRadius = 300.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Legacy", meta = (DeprecatedProperty, ClampMin = "0.0"))
+	float PowderVortexBaseStagger = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Feedback")
+	FGameplayTag PowderVortexHitCueTag;
+
+	/** One spatial cue at the committed gather center; target hit cues remain per-target. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Feedback")
+	FGameplayTag PowderVortexExplosionCueTag;
 
 #if WITH_EDITOR
 	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;

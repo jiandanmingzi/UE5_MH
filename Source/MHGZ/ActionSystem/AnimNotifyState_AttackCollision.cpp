@@ -43,7 +43,11 @@ void UAnimNotifyState_AttackCollision::NotifyEnd(USkeletalMeshComponent* MeshCom
 	{
 		if (UMHGZAttackAbility* Attack = Cast<UMHGZAttackAbility>(Action.AbilityInstance.Get()))
 		{
-			Attack->DisableCollision(ConfigIndex);
+			// NotifyTick is not guaranteed on the exit frame. Sweep the last authored
+			// movement interval before retiring this still-open window.
+			Attack->TickCollision(ConfigIndex, 0.0f);
+			// Damage callbacks can end/re-enter an action. Never retire a new action's window.
+			if (Attack->GetActionToken() == Action) { Attack->DisableCollision(ConfigIndex); }
 		}
 	}
 	(void)Animation;

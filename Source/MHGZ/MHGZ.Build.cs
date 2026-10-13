@@ -19,6 +19,7 @@ public class MHGZ : ModuleRules
 			"GameplayStateTreeModule",
 			"UMG",
 			"Slate",
+			"SlateCore",
 			// GAS 核心模块
 			"GameplayAbilities",
 			"GameplayTags",
@@ -48,7 +49,9 @@ public class MHGZ : ModuleRules
 				"PoseSearchEditor",
 				"TraceAnalysis",
 				"TraceServices",
-				"UnrealEd"
+				"RenderCore", // Opt-in HUD render regression captures.
+				"UnrealEd",
+				"UMGEditor"
 			});
 		}
 

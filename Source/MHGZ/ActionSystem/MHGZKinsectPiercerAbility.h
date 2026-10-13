@@ -195,6 +195,7 @@ protected:
 private:
 	#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 	friend class FMHGZKM5KinsectPiercerTest;
+	friend class FMHGZM5LandingDodgeHandoffTestAccess;
 	#endif
 
 	// ── 身份 ──

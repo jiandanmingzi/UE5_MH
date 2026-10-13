@@ -271,6 +271,12 @@ public:
 	 */
 	static FVector ComputeDirectionSnapshot(const FVector& FrozenActorForward,
 		float ChordYawDegrees);
+	/**
+	 * Selects the forward-vault heading from the immutable activation snapshot:
+	 * use its world move direction when present, otherwise the captured actor forward.
+	 */
+	static FVector ComputeInputDirectionSnapshot(const FWeaponInputSnapshot& Input,
+		float ChordYawDegrees);
 
 	/**
 	 * 在 CurvedVault 窗口的归一化时间处采样已回收的前向位移（÷ TotalDistance）。
@@ -510,6 +516,10 @@ private:
 	bool ScheduleJumpOverMovementHandoff();
 	/** Runs at the JumpOver section boundary and gives its physical path to CurvedVault. */
 	bool StartBackVaultMovement();
+	/** Forward/no-stick vaults use the forward profile for physical movement from frame zero. */
+	bool StartForwardVaultTrajectoryMovement();
+	/** Crossfades from Jump to JumpOver; optionally disable the takeoff root track first. */
+	bool StartJumpOverVisualTransition(bool bDisableTakeoffRootMotion);
 	/**
 	 * Rebuilds the action-owned prefix of the recorded path as a MoveToForce
 	 * offset curve.
@@ -559,7 +569,7 @@ private:
 	TObjectPtr<UCurveVector> ActiveTrajectoryCurve;
 
 	bool bUseWhiteBackVault = false;
-	/** Balanced explicitly after Jump has handed movement ownership to CurvedVault. */
+	/** Tracks the montage-local root-motion disable; EndAbility balances the push. */
 	bool bBackVaultVisualRootMotionDisabled = false;
 	bool bVisualFinished = false;
 	bool bMovementFinished = false;

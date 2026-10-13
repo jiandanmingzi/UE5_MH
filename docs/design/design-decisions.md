@@ -94,7 +94,7 @@
 | 72 | 普通攻击的 `MaxCorrectionAngle` 是 Confirm 后、Montage 前的一次冻结输入 Yaw 瞬转 | 基础攻击不依赖 MotionWarping，不读取实时摇杆；蓄力等不进连招表的 GA 仍可复用此入口参数 |
 | 73 | MotionWarping 只服务有显式目标对齐需求的特殊动作 | 特殊 GA 必须自己建立目标、Notify 消费和清理；`FAttackSegmentConfig::MaxWarpAngle` 当前没有通用运行时消费者，不能作为普通多段攻击已可用功能 |
 | 74 | FAttackSegmentConfig 统一管理碰撞+伤害+多跳 | 每段独立持有碰撞参数、动作值、破坏值、多跳配置 |
-| 75 | Demo 伤害基线 = AttackPower × MotionValue × HitzoneDefense × Crit | 只用于木桩闭环；完整斩味、属性、异常等在同一 DamageContext/ExecCalc 扩展，不阻塞动作 Demo |
+| 75 | 2026-10-13：普通武器升级为物理/属性双通道，分别取整后合并一次伤害 | 归一化MotionValue/肉质保持不变；Context快照斩味/属性类型/会心倍率，ASC快照实际属性值；猎虫/粉尘保留专用规则，见[伤害计算](exec-calc.md) |
 | 76 | 单碰撞多跳伤害（MultiHitCount>1） | 登龙剑下批：1 次 Sweep + Timer 驱动多次 Apply |
 | 77 | 武器 Ability 基类分化——每种武器一个 C++ 中间类 | 约 50 行，持有 ResourceComponent 引用+覆写资源门控钩子 |
 | 78 | 武器资源子系统不统一具体数值模型；词条入口原方案由 #170 延期 | 各子类自行管理特有字段；当前 ApplyEntryModifier 还不能可靠处理多来源和目标参数 |
@@ -153,7 +153,7 @@
 | 130 | 瞄准不走 GA，但拆分 Kinsect/Action/Slinger 三种上下文 | LT/RT 在收刀、持刀、空中含义不同；AimComponent 只订阅 `Aiming.Kinsect`，不写 UI Tag 到 ASC |
 | IG-17 | 猎虫移动用 `UProjectileMovementComponent`（`bAutoActivate=false`），不继承 APawn | 当前 Returning Tick 手动追踪 OwnerActor 并更新 Velocity，不使用 HomingTargetComponent |
 | IG-18 | 持刀 LT+Y/LT+B 放收虫，收刀只有 RT 可拔刀直飞 | 普通 Y/B 留给武器连招；地面/空中状态解决同一组合输入的动作分流 |
-| ED-0 | Demo 单一 ExecCalc 处理全部伤害来源 | 武器、猎虫和粉尘复用简化公式；DamageContext 保留后续完整伤害模型扩展位 |
+| ED-0 | 单一ExecCalc/GE处理全部伤害来源，但数值通道按来源隔离 | Weapon使用物理+属性独立公式；猎虫、粉尘和木桩不继承玩家武器斩味/属性；不复制结算与反馈链 |
 | ED-4 | 硬直走 `HandleGameplayEvent` 而非 Tag Trigger | 每次调用独立触发，InstancedPerExecution 支持受击连打 |
 | 131 | 长武器碰撞按有效区建模为多个 `FWeaponTraceRegion`，不固定为单一整棍线段 | 握持点在模型中心时可直接用 Root Bone 作为前后 Region 的共同边界；前段、后段和整棍招式只需组合不同 Region |
 | 132 | 每个 AttackCollision ConfigIndex 拥有独立运行时窗口 | Notify 可重叠；轨迹历史、目标去重和多跳 Timer 不再被另一个段的 Begin/End 覆盖 |
@@ -164,7 +164,7 @@
 | 137 | 虫棍专属 CombatConfig 保存红灯模式、舞踏和特殊动作参数 | 通用 GA/协调器不增加虫棍分支，便于以后添加其他武器 |
 | 138 | 舞踏只由操虫斩命中和突进回旋斩反击触发 | 层数和倍率可调；当前 Demo 的战斗清层点为真实落地与急袭突刺 Commit（先快照倍率再清层）。收刀、空中受击和死亡不列入当前 Demo 范围；卸装/RuntimeShutdown 仍按资源生命周期合同清理。 |
 | 139 | 虫棍特殊/位移动作单独维护在 insect-glaive-actions.md | 普通地面招式继续用 ComboData；避免在资源与通用动作文档重复规则 |
-| 140 | 持刀地面单 RT 松开后的虫印斩与 LT+RT 虫印弹均可创建虫印；每名玩家只维护一个虫印 | 两条路径共用 Resource 所有权：虫印附着 Hitzone、时长可调，新印替换旧印；目标失效/卸装清除，收刀不清除 |
+| 140 | 地面单RT短按松开虫印斩、空中单RT急袭突刺的地面第一击成功伤害建立唯一局部虫印 | 当前合同：以真实命中点为中心，表面切向覆盖100×100cm（半宽50cm），与约1m视觉云团对齐；持续90s。新印替换、怪物死亡、到期清除，收虫/收刀不清。既有LT+RT兼容接口不替代两个必需来源；目标销毁/Runtime关闭为技术清理，不增加玩法清印条件 |
 | 141 | 动代码前先冻结 [Demo 实施计划](demo-implementation-plan.md)，按 M0～M7 逐阶段验收 | 防止公共接口未定时批量创建 GA/蓝图，造成重复迁移和遗留清理路径 |
 | 142 | 武器物理输入由 PlayerController 上的 InputComponent 绑定、WeaponInputRouter 解析，ASC 只接收快照/激活上下文 | Chord、方向和释放身份必须原子快照；删除 ASC 对任意 Completed 的全局解释；唯一绑定所有权见 #162 |
 | 143 | 目标连招结构正式更名 `FComboTransition/Transitions/SourceState/TargetState` | #24～#127 中的 `FComboNode` 仅代表旧源码名称；数据实际是转移边，不永久维护双结构兼容层 |
@@ -184,7 +184,7 @@
 | 157 | ~~武器资源 UI 工厂迁移为 LocalPlayerSubsystem~~（由 #165 取代） | 复审发现 WBP_HUD 资源插槽与 Subsystem AddToViewport 会形成双 Widget 所有者 |
 | 158 | 当前 Pawn 的临时 Loose Tag 统一经 RuntimeHost TagLedger 返回有所有权 Token | 窗口重叠、Montage 中断和旧 Ability 迟到 End 时只释放自己的计数；精华/成本/冷却等持续状态仍由 Active GE Handle 管理 |
 | 159 | 普通送虫 SingleHit 命中后固定 Hover，主动召回或耐力归零才 Return 并交付精华 | 不因取得 PendingExtract 自动回手；悬停阶段关闭伤害与 Hitzone Sweep |
-| 160 | 觉虫击每次成功贯通伤害立即按 Hitzone ApplyExtract，并一一对应生成粉尘 | Commit 先消费旧三灯；贯穿可重新凑三灯，形成后三灯继续吞灯且不刷新；伤害失败不点灯、不产粉尘 |
+| 160 | 强化觉虫击成功贯通伤害先由猎虫携带不同精华，回手后才给猎人点灯（2026-10-13） | Commit先消费旧灯；成功Hit按红白橙去重收集并逐击产粉，途中不授予角色灯；回手原子清空/逐色交付，可形成新三灯，已有三灯则吞灯不刷新。普通/操虫斩仍单色；双色/三色椭圆同时服务强化多色与未来双色猎虫。失败伤害不采集、不产粉 |
 | 161 | 离散武器动作 GA 固定 InstancedPerExecution，并由 ActionToken+MontageInstanceID 精确解析 Notify | 同一 Spec/类连续重入时旧 BlendOut、NotifyEnd 和 EndAbility 不能污染新实例；协调器保持 InstancedPerActor |
 | 162 | InputComponent 独占 IMC 与 Enhanced Input Binding；ASC 和 PlayerController 不建立第二套绑定 | 重复 Possess/Avatar 替换必须可解绑重建；Router 只解析快照，通用动作和武器动作共用 ResolvedInput 入口 |
 | 163 | 装备统计变化与武器身份变化分流；RuntimeHost 只对 WeaponSnapshot 身份变化重建 | 护甲、饰品、镶嵌或重复广播不能清空精华、舞踏和猎虫状态 |
@@ -198,7 +198,11 @@
 | 171 | 旧虫棍 DT→最小 Combo→两个 GA→两个无自定义 Notify Montage 与零引用武器定义采用删除重建，不迁移其字段 | UE 5.6 引用审计证明这批资产只含最小原型数据；地图、核心 BP、AnimBP、原始 AnimSequence、美术与输入基础继续保留。M2 先解除旧读取，E3/E4 再按精确清单删除并从最终类型新建 |
 | 172 | 翻滚方向在激活时冻结选择，前向与左右后使用不同退出合同 | 收刀/持刀 Forward 或 None 可进入 MoveExit；持刀 Left/Right/Back 强制 IdleExit；收刀 Left/Right/Back 拒绝且不扣耐。所有成功变体共用同一 Instant 成本，旧方向 Map 不恢复为正式入口 |
 | 173 | 收刀 Y 使用一条 Input.Weapon.Y 与两条方向 Combo 边 | `Direction=None` 是通配，进入仅拔刀；`Direction=Forward` 优先进入拔刀攻击。输入层不创建方向 Chord，Coordinator 只读冻结快照 |
-| 174 | 所有拔刀路径都在实际视觉 DrawCommit 切姿态 | `GA_IG_Draw`、`GA_IG_DrawSlash`、`GA_IG_DrawAndSendKinsect` 由原生 Notify 按 ActionToken 回调 Ability 后 `SetSheathed(false)` + 清奔跑；不在激活或 Blueprint Event Graph 提前改姿态 |
+| 174 | 所有拔刀路径都在实际视觉 DrawCommit 切姿态 | `GA_IG_Draw`、`GA_IG_BaDaoZhan`、`GA_IG_DrawAndSendKinsect` 由原生 Notify 按 ActionToken 回调 Ability 后 `SetSheathed(false)` + 清奔跑；不在激活或 Blueprint Event Graph 提前改姿态 |
 | 175 | 连招上下文只路由到目标 GA；目标 GA 决定 Montage Entry Section | `FComboTransition` 不引用 Montage/Section。M4-B.1 由 `UMHGZAttackAbility` 按 `TransitionID → SourceState → Default → Montage 开头` 选择并在 Montage Task 创建时传 StartSection；连接动画归目标招式的 Entry Section，上一招只保留未派生 Recovery |
 | 176 | 根运动所有权按实际动画阶段持有，不按 Montage Section 开关 | Section 只决定播放路径，Root Motion 由当前 AnimSequence 决定。真实根位移片段由精确 ActionToken 的 `ActionRootMotionPhase` 获取/释放所有权；in-place 片段不持有；无根位移却需移动的动作使用 MovementTask，MM 与 Montage 不得同时输出 Root Motion |
 | 177 | 2026-10-01：强化跳跃斩与降龙移出本 Demo/M5，剩余新增空中招式仅急袭突刺 | 保留已签收空回、操虫斩和强化操虫穿刺；不新增空中 Y/LTYB 替代招式；旧资源/序列化字段不随范围调整删除，M5 仍需收口与总验收 |
+| 178 | 猎虫离手且附近有虫印时可自动追印周期攻击，但所有有效玩家指令优先 | Resource仲裁命令身份；送虫/定点攻击完成且猎虫仍在外才恢复自动模式。Returning、招式附着、操虫斩、觉虫击、聚爆不被自动指令抢占；回手后不自行离手 |
+| 179 | 所有猎虫有效攻击命中虫印局部区域可产粉，Runtime共享10s冷却；三灯觉虫击逐次成功贯通命中独立产粉 | 同HitID去重，贯通规则优先且不消耗普通产粉CD；每团红色不发光、约15cm，180s到期一次直径1m固定爆炸，仅受猎虫攻击力影响；远距消失、总上限100 |
+| 180 | 粉尘聚爆飞向准心目标，收集直径等于训练场边长的球内己方虫粉，刷新寿命、到达开始聚拢后1s引爆 | 两段均直径2m：数量1/5/10阶梯首段及各团单爆伤害之和次段；N=0无伤害。独立StageAttackID防止第二段被去重；操虫/收虫取消，保留已聚拢位置和刷新寿命 |
+| 181 | 聚爆事务由Resource跨越猎人Montage正常完成，不为等待猎虫和1s倒计时拉长操虫动画 | 已有常驻Montage/GA迁移复用；旧0.5s/最近5团/单段合并合同不再验收。M6.3.1～.6代码、聚爆、表现资产与DA接线已静态完成；E6.2只剩PIE闭环验收 |

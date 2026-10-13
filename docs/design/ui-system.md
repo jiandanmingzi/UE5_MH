@@ -1,23 +1,27 @@
 # UI 系统
 
-> **实施状态说明（以源码与 Content 为准）：** 当前完成的是 UI C++ 接口骨架和 AimComponent；主 HUD 创建/绑定、血条/耐力条、资源 Widget 工厂、准心蓝图和虫棍资源 UI 尚未接通。`Content/UI` 目前只有目录占位文件，因此下文的 Widget 蓝图和完整生命周期均作为详细方案保留。
+> **当前门禁与数字实现（2026-10-13）：** 用户确认E6.3 HUD/准心/携带图标与普通猎虫回手链已完成。E6.4本轮仅伤害数字，`WBP_DamageNumber`、`BP_DamageNumberActor`、`GCN_Hit_DamageNumber`已生成/接线，原生数字文本、有限寿命、唯一Cue与普通/暴击实绘验证通过；相关回归179/179，待E6指导§4.3短PIE。其他视觉Cue和音效延期，不作为当前Demo門禁。下方较早未接线/待E6.3描述为历史快照。
 
-> **2026-10-06执行口径：** 具体字段、Widget父类、Ready信号与接线按[M6非音效计划§7～8](../using/m6-plan.md)及[E6详细指导](../editor/m6-setup.md)实施，尚未写代码。血/耐力使用拟新增MHGZAttributeBarWidget，虫棍面板使用拟新增MHGZInsectGlaiveResourceWidget；二者分别继承下文通用基类。RuntimeHost当前只有Invalidated，Ready必须在M6实际新增。下文概括/伪代码不能当作已存在接口；本轮不实施音效。
+> **当前实施状态（以源码、Content和用户PIE反馈为准，2026-10-12）：** HUD已修复Widget创建前提前缓存上下文、早到Ready丢失与初始条值归零；复用现有五个WBP的原生父类，绘制细长血/耐力条、猎虫/三灯/携带精华图标及LT/RT四态准心。Development Editor编译成功；加载真实BP_MHGZHUD/WBP的UI专项5/5通过，含D3D12离屏绘制。证据见[E6指导§3.9](../editor/m6-setup.md#39-hud修复实施与验证2026-10-12e63仍待pie)，永久目标原图见同文§3.0，§3.8保留修复前证据。E6.3待用户真实关卡PIE签收；E6.4伤害数字/Cue资产尚未接线。相机、输入与Gameplay AimSnapshot未改；下方原始设计快照不替代当前源码。
+
+> **历史设计快照（2026-10-06，已被下方当前实现表取代）：** 本段记录当时计划的字段、Widget父类和RuntimeHost Ready信号，不代表现状；接口是否已实现请看上方状态表和源码。音效不在本轮范围。
 
 ## 当前实现
 
 | 模块 | 当前状态 |
 |------|----------|
-| `AMHGZHUD` | 类已存在，`BeginPlay` 为空，不创建主 HUD。 |
-| `UMHGZUISubsystem` | 当前为只有静态 `Get` 的空壳 GameInstanceSubsystem；M6 删除，不迁移为 Widget 工厂。 |
-| `UMHGZUserWidget` | 只保存 Bound ASC，并提供可覆写的 `OnValueUpdated`；没有自动注册 Attribute/Tag 委托。 |
-| `UMHGZWeaponResourceWidget` | `BindToResourceComponent` 只保存指针，没有 Unbind 或具体 Delegate 绑定。 |
-| `UMHGZCrosshairWidget` | 只有蓝图事件接口；当前无对应 WBP 资产。 |
-| `UMHGZAimComponent` | M3 已订阅 `Combat.State.Aiming.Kinsect`，使用 Visibility Trace + Hitzone ObjectType 验证，直接读取 `Hitzone.ExtractColorTag`，并只在目标变化时广播。Crosshair Widget 资产和 HUD 绑定仍待 E6。 |
+| `AMHGZHUD` | 唯一Widget所有者；Widget树就绪后统一绑定并同步当前值。Ready成功建/绑面板后才消费Token，晚到上下文/类引用可重试，重复/过期事件无副作用；实际资产生命周期测试通过。 |
+| `UMHGZUISubsystem` | 空壳已删除；没有恢复为Widget工厂。 |
+| `UMHGZUserWidget` | ASC绑定与解绑/属性更新接口已实现。 |
+| `UMHGZWeaponResourceWidget` | 资源组件绑定/解绑与资源快照更新接口已实现。 |
+| `UMHGZAttributeBarWidget` | 当前/上限属性委托绑定与初始值同步；原生绿/金细条，旧Designer占位隐藏，NativeConstruct不归零；Current/Max更新测试通过。 |
+| `UMHGZInsectGlaiveResourceWidget` | 原生紧凑猎虫、1/2/3红白橙菱形及独立携带精华提示；消费Resource快照，不写战斗状态。初始/更新与解绑重建测试通过。 |
+| `UMHGZCrosshairWidget` | 原生四态：LT断菱形/金黄目标准心，RT灰/橙圆环；仅Tag瞄准时显示，LT优先、释放隐藏。实际ASC绑定及离屏绘制测试通过，待PIE目视。 |
+| `UMHGZAimComponent` | 维护显示模式/目标与精华数据，HUD有效绑定链已修复。显示检测沿用当前相机视点；本次未修改该组件、相机或Gameplay AimSnapshot。 |
 
 **设计原则：** UI 由 GameplayTag/Attribute/Delegate 驱动，GAS Ability 不直接操作 UI。每个本地 PlayerController 的 `AMHGZHUD` 独占自己的 Widget 树，并按 RuntimeDefinition 在 WBP_HUD 的资源插槽动态创建/销毁面板；Dedicated Server 不建立 UI 依赖。准心数据由 Character 的 `UMHGZAimComponent` 提供。
 
-> **目标阶段：** 主 HUD 容器 + 血条 + 耐力条 + 准心 + 武器资源插槽。小地图等后续扩展。所有 Widget 蓝图由策划创建，C++ 提供数据绑定接口。
+> **E6.3范围：** 主HUD容器、血条、耐力条、准心和动态武器资源面板；资产、原生视觉及生命周期专项已完成，E6.3仍待修复后真实PIE签收，不以离屏截图代替。小地图等后续扩展。
 
 ---
 
@@ -47,7 +51,7 @@
 
 ---
 
-## 一、AMHGZHUD — 主 HUD（当前为空壳；以下成员/流程为规划）
+## 一、AMHGZHUD — 主 HUD（历史设计接口示意，当前实现以上表及源码为准）
 
 ```
 UCLASS()
@@ -305,13 +309,19 @@ UCLASS(Abstract, Blueprintable)
 class UMHGZCrosshairWidget : public UMHGZUserWidget
 ```
 
-准心 Widget 的基类。提供 `OnAimTargetUpdated` 蓝图事件——`AMHGZHUD` 直接调用，不需要在 HUD 蓝图中拖 Cast 节点。
+准心 Widget 的基类。由原生HUD绑定 ASC瞄准Tag与 Character 的 AimComponent，蓝图只消费显示事件，不自己读输入、不自己 LineTrace。
 
 | 方法 | 说明 |
 |------|------|
-| `void OnAimTargetUpdated(AActor* Target, FGameplayTag HitzoneTag, FGameplayTag ExtractColor)` | BlueprintImplementableEvent——蓝图子类覆写。根据 Target/HitzoneTag/ExtractColor 切换准心样式（颜色/形状/缩放动画） |
+| `void OnAimVisibilityUpdated(bool bVisible)` | 瞄准上下文是否存在；离开时隐藏并清除旧目标效果 |
+| `void OnAimDisplayStateUpdated(EMHGZAimDisplayMode Mode, AActor* Target, FGameplayTag HitzoneTag, FGameplayTag ExtractColor)` | 当前模式及目标载荷；`None/Kinsect/Action`。WBP据此画LT/RT的无目标/有效目标四态 |
+| `void OnAimTargetUpdated(AActor* Target, FGameplayTag HitzoneTag, FGameplayTag ExtractColor)` | 兼容既有蓝图逻辑；新Widget仅用上面的DisplayState事件绘图，避免重复处理 |
 
-> **调用链：** `AMHGZHUD::OnAimTargetChanged(...)` → `CrosshairWidget->OnAimTargetUpdated(...)`——类型安全的直接调用，HUD 不需要知道准心内部如何实现。
+> **调用链：** `AMHGZHUD::RefreshPawnContext()`绑定ASC与AimComponent → `UMHGZCrosshairWidget`发布显示模式/目标 → WBP只绘制。LT与RT目标检测共用当前相机屏幕中心射线；该射线只供显示，不替代输入时刻采集的Gameplay AimSnapshot。
+
+视觉规范必须以[E6指导§3.0的五张永久《世界》原图](../editor/m6-setup.md#30-目标视觉真相源用户提供的怪物猎人世界五张参考图)为准：细长生命绿/耐力金色条；紧凑猎虫图标及编号菱形三灯；LT无目标浅灰白断开菱形、有目标金黄色菱形；RT无目标浅灰白圆环、有目标橙色圆环，两种RT状态均带四个三角标记。此前“LT目标精华色预览、RT锁定菱形”的文字/实现不是用户原图要求，已更正。红/白/橙三灯图标与猎虫当前携带精华图标分开，后者在交付后隐藏。不得修改现有相机位置、SpringArm、PlayerCameraManager、镜头管理、俯仰限制或Gameplay AimSnapshot。
+
+**携带椭圆的多色合同（2026-10-13）：** 普通猎虫/操虫斩在本Demo仍最多携带一种精华；强化觉虫击贯通成功伤害可携带红、白、橙不同颜色，同色去重，回手后才给角色点灯。竖立椭圆必须读取 `KinsectPendingExtractColors` 的真实携带集合：一色全填、两色二分、三色三分，回手交付后清空；编号菱形只显示角色已获得的灯。设计双色是为未来可携带两色的猎虫预留，不代表当前普通容量已扩展。不得用角色已有灯或准心部位颜色伪造携带颜色，也不能只读取兼容首色字段。
 
 ---
 
@@ -323,7 +333,7 @@ class UMHGZCrosshairWidget : public UMHGZUserWidget
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
-| bIsAiming | bool | "Aim\|State" | false | 当前是否处于猎虫瞄准（订阅 `Combat.State.Aiming.Kinsect`） |
+| bIsAiming | bool | "Aim\|State" | false | 当前是否处于猎虫瞄准（订阅 `Combat.State.Aiming.Kinsect`）；保留既有Kinsect语义 |
 | CurrentAimTarget | TWeakObjectPtr\<AActor\> | "Aim\|State" | nullptr | 准心当前指向的 Actor |
 | CurrentAimHitzoneTag | FGameplayTag | "Aim\|State" | 空 | 准心指向的怪物部位 Tag |
 | CurrentAimExtractColor | FGameplayTag | "Aim\|State" | 空 | 当前 Hitzone 的 `ExtractColorTag`（Red/Orange/White） |
@@ -340,14 +350,14 @@ class UMHGZCrosshairWidget : public UMHGZUserWidget
 - `void BeginPlay() override`
   - 作用：只登记等待 RuntimeHost/ASC ActorInfo Ready，不假设此时 PlayerState/ASC 已完成初始化。AimComponent 不直接绑定 EnhancedInput。
 
-- `void BindRuntime(const FWeaponRuntimeContext& Context)` / `void UnbindRuntime(FWeaponRuntimeToken Token)`
-  - 作用：Ready 时按当前 Avatar/RuntimeToken 订阅 `Combat.State.Aiming.Kinsect` 并保存 DelegateHandle；重复 Ready 幂等。Avatar 替换、UnPossess、Invalidated 和 EndPlay 时按 Handle 解绑、清目标，再允许绑定新 Runtime。
+- `void BindToAbilitySystem(UAbilitySystemComponent*)` / `void UnbindFromAbilitySystem()`
+  - 作用：分别订阅 `Combat.State.Aiming.Action` 与 `Combat.State.Aiming.Kinsect`；`bIsAiming/IsAiming()`仍仅代表Kinsect瞄准，Action瞄准另用内部显示状态，不改变玩法查询语义。Pawn替换/UnPossess/EndPlay时精确解绑并清目标。
 
 - `void TickComponent(float DeltaTime) override`
-  - 作用：若 `bIsAiming` → `LineTraceSingleByChannel(Visibility)`；只有命中组件 ObjectType=Hitzone 且可 Cast 为 `UMHGZMonsterHitzoneComponent` 才读取颜色。命中 WorldStatic/其他对象广播空目标。**仅在目标变化时广播**，且不会透墙读取部位。
+  - 作用：Kinsect或Action瞄准期间才执行 `LineTraceSingleByChannel(Visibility)`；只有命中组件ObjectType=Hitzone且可Cast为`UMHGZMonsterHitzoneComponent`才读取目标/精华色。命中WorldStatic/其他对象广播空目标。**仅在目标变化时广播**，且不会透墙读取部位。使用PlayerController当前视点；不移动相机或改变镜头约束。
 
 - `void OnAimingTagChanged(const FGameplayTag Tag, int32 NewCount)`
-  - 作用：由当前 Runtime 绑定的 ASC Tag Delegate 调用。NewCount>0 → `bIsAiming=true`；NewCount==0 → `bIsAiming=false` → 广播 `OnAimTargetChanged(nullptr)`；旧 Token 回调直接忽略。
+  - 作用：由ASC Tag Delegate调用；分别更新Kinsect/Action显示态，任一瞄准激活即刷新显示射线，两者都关闭时清目标。输入Gameplay快照仍由InputRouter在输入解析时独立捕获。
 
 ### 虫棍扩展
 
@@ -416,7 +426,7 @@ Widget::NativeConstruct()
 
 ---
 
-## 七、目标目录结构（当前 Content/UI 只有占位文件）
+## 七、资产目录结构（E6.3当前资产与后续扩展）
 
 ```
 Source/MHGZ/
@@ -431,18 +441,17 @@ Source/MHGZ/
 
 Content/UI/
 ├── HUD/
-│   ├── WBP_HUD.uasset                   ← 主 HUD 面板
-│   └── WBP_Crosshair.uasset             ← 通用准心 Widget
-├── Common/
-│   ├── WBP_HealthBar.uasset             ← 血条 Widget（ProgressBar + 颜色渐变）
-│   └── WBP_StaminaBar.uasset            ← 耐力条 Widget（ProgressBar + 颜色渐变）
-├── Feedback/
-│   └── WBP_DamageNumber.uasset          ← 伤害数字浮空反馈
-├── InsectGlaive/
-│   ├── WBP_IG_ResourcePanel.uasset      ← 虫棍资源面板（容器）
-│   ├── WBP_IG_KinsectStamina.uasset     ← 猎虫耐力条
-│   └── WBP_IG_ExtractDisplay.uasset     ← 三灯圆盘
+│   ├── WBP_HUD.uasset                   ← 主HUD四个Overlay插槽
+│   ├── WBP_HealthBar.uasset             ← Health属性条
+│   ├── WBP_StaminaBar.uasset            ← Stamina属性条
+│   └── WBP_Crosshair.uasset             ← 原生绘制准心
+├── Feedback/                            ← E6.4数字已生成/接线，待PIE
+│   └── WBP_DamageNumber.uasset          ← 原生最终伤害文本/暴击样式
+└── InsectGlaive/
+    └── WBP_IG_ResourcePanel.uasset      ← 虫棍资源面板
 ```
+
+血条/耐力条、主HUD和资源面板由Designer树承载基础布局；猎虫耐力、三灯、携带精华、舞踏层数和粉尘计数都在资源面板内，不要求额外创建独立子Widget。是否需要美术微调以PIE目视结果为准。
 
 ---
 

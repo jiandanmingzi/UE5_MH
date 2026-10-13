@@ -46,15 +46,15 @@ namespace UE::MHGZ::DescendingThrustAssetSetup
 constexpr TCHAR Source380Path[] = TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_JiXiTuCi_StartAndFalling.AS_Unsh_JiXiTuCi_StartAndFalling");
 constexpr TCHAR Source381Path[] = TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_JiXiTuCi_Over.AS_Unsh_JiXiTuCi_Over");
 constexpr TCHAR GeneratedSequenceDir[] = TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Generated");
-constexpr TCHAR MainMontagePackage[] = TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_DescendingThrust");
-constexpr TCHAR OverMontagePackage[] = TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_DescendingThrust_Over");
-constexpr TCHAR AbilityPackage[] = TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_DescendingThrust");
+constexpr TCHAR MainMontagePackage[] = TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_JiXiTuCi");
+constexpr TCHAR OverMontagePackage[] = TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_JiXiTuCi_Over");
+constexpr TCHAR AbilityPackage[] = TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_JiXiTuCi");
 constexpr TCHAR CurvePackage[] = TEXT("/Game/Weapons/InsectGlaive/Data/Curves/CV_IG_DescendingThrust_AirBasis");
 constexpr TCHAR CombatConfigPath[] = TEXT("/Game/Weapons/InsectGlaive/Data/DA_IG_Combat.DA_IG_Combat");
 constexpr TCHAR RuntimeDefinitionPath[] = TEXT("/Game/Weapons/InsectGlaive/Data/DA_WeaponRuntime_IG.DA_WeaponRuntime_IG");
 constexpr TCHAR ComboDataPath[] = TEXT("/Game/Weapons/InsectGlaive/Data/DA_IG_Combo.DA_IG_Combo");
 constexpr TCHAR FeiYuanAbilityPath[] = TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_FeiYuan.GA_IG_FeiYuan");
-constexpr TCHAR SlashAbilityPath[] = TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_KinsectSlash.GA_IG_KinsectSlash");
+constexpr TCHAR SlashAbilityPath[] = TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_CaoChongZhan.GA_IG_CaoChongZhan");
 constexpr TCHAR CurveCsvRelativePath[] = TEXT("MHWAnalysis/20261003_155024_02/LMT380_pooled_parameter_curve.csv");
 constexpr TCHAR Source380RelativeFilename[] = TEXT("Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_JiXiTuCi_StartAndFalling.uasset");
 constexpr TCHAR Source381RelativeFilename[] = TEXT("Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_JiXiTuCi_Over.uasset");
@@ -926,7 +926,7 @@ UAnimMontage* GetOrCreateMontage(FSetupRun& Run, const TCHAR* Package,
 
 UBlueprint* GetOrCreateAbilityBlueprint(FSetupRun& Run)
 {
-	const FString Path = ObjectPath(AbilityPackage, TEXT("GA_IG_DescendingThrust"));
+	const FString Path = ObjectPath(AbilityPackage, TEXT("GA_IG_JiXiTuCi"));
 	Run.AbilityBlueprint = LoadObject<UBlueprint>(nullptr, *Path, nullptr, LOAD_NoWarn);
 	UObject* Existing = LoadObjectByPath(Path);
 	if (Existing && !Run.AbilityBlueprint)
@@ -939,7 +939,7 @@ UBlueprint* GetOrCreateAbilityBlueprint(FSetupRun& Run)
 		if (!Run.AbilityBlueprint->GeneratedClass
 			|| !Run.AbilityBlueprint->GeneratedClass->IsChildOf(UMHGZDescendingThrustAbility::StaticClass()))
 		{
-			Run.Errors.Add(TEXT("Existing GA_IG_DescendingThrust is not a child of UMHGZDescendingThrustAbility."));
+			Run.Errors.Add(TEXT("Existing GA_IG_JiXiTuCi is not a child of UMHGZDescendingThrustAbility."));
 			return nullptr;
 		}
 		Run.Ability = Cast<UMHGZDescendingThrustAbility>(
@@ -953,7 +953,7 @@ UBlueprint* GetOrCreateAbilityBlueprint(FSetupRun& Run)
 	UPackage* Package = CreatePackage(AbilityPackage);
 	Run.AbilityBlueprint = Package ? FKismetEditorUtilities::CreateBlueprint(
 		UMHGZDescendingThrustAbility::StaticClass(), Package,
-		FName(TEXT("GA_IG_DescendingThrust")), BPTYPE_Normal,
+		FName(TEXT("GA_IG_JiXiTuCi")), BPTYPE_Normal,
 		UBlueprint::StaticClass(), UBlueprintGeneratedClass::StaticClass(),
 		FName(TEXT("MHGZM5DescendingThrustAssetSetup"))) : nullptr;
 	Run.Ability = Run.AbilityBlueprint && Run.AbilityBlueprint->GeneratedClass
@@ -1017,7 +1017,7 @@ bool ConfigureAbility(FSetupRun& Run)
 	const FAttackCollisionConfig* TraceTemplate = FindWeaponTraceTemplate();
 	if (!TraceTemplate)
 	{
-		Run.Errors.Add(TEXT("Could not resolve an authored WeaponTrace collision template from GA_IG_KinsectSlash."));
+		Run.Errors.Add(TEXT("Could not resolve an authored WeaponTrace collision template from GA_IG_CaoChongZhan."));
 		return false;
 	}
 	const FGameplayTag RT = Tag(InputRTName);
@@ -1031,7 +1031,7 @@ bool ConfigureAbility(FSetupRun& Run)
 	{
 		if (*ExistingEntry != FName(TEXT("Start")))
 		{
-			Run.Errors.Add(TEXT("GA_IG_DescendingThrust already maps its owned aerial transition ID to a different Montage section."));
+			Run.Errors.Add(TEXT("GA_IG_JiXiTuCi already maps its owned aerial transition ID to a different Montage section."));
 			return false;
 		}
 	}
@@ -1039,7 +1039,7 @@ bool ConfigureAbility(FSetupRun& Run)
 		UMHGZDescendingThrustAbility::StaticClass(), FName(TEXT("LandingMontage")));
 	if (!LandingMontageProperty)
 	{
-		Run.Errors.Add(TEXT("Could not resolve GA_IG_DescendingThrust.LandingMontage."));
+		Run.Errors.Add(TEXT("Could not resolve GA_IG_JiXiTuCi.LandingMontage."));
 		return false;
 	}
 	const bool bNeedsConfiguration = Run.Ability->InputTag != RT
@@ -1063,7 +1063,7 @@ bool ConfigureAbility(FSetupRun& Run)
 		bool bLandingMontageChanged = false;
 		if (!SetPrivateMontage(*Run.Ability, Run.OverMontage, bLandingMontageChanged))
 		{
-			Run.Errors.Add(TEXT("Could not assign GA_IG_DescendingThrust.LandingMontage."));
+			Run.Errors.Add(TEXT("Could not assign GA_IG_JiXiTuCi.LandingMontage."));
 			return false;
 		}
 	}
@@ -1090,7 +1090,7 @@ bool ConfigureAbility(FSetupRun& Run)
 	}
 	if (Run.Ability->AttackSegments.Num() != 4)
 	{
-		Run.Errors.Add(TEXT("GA_IG_DescendingThrust must contain exactly four AttackSegments; existing user values are preserved."));
+		Run.Errors.Add(TEXT("GA_IG_JiXiTuCi must contain exactly four AttackSegments; existing user values are preserved."));
 		return false;
 	}
 	for (const FAttackSegmentConfig& Segment : Run.Ability->AttackSegments)
@@ -1118,7 +1118,7 @@ bool ConfigureAbility(FSetupRun& Run)
 	}
 	if (Run.AbilityBlueprint->Status == BS_Error || !Run.AbilityBlueprint->GeneratedClass)
 	{
-		Run.Errors.Add(TEXT("GA_IG_DescendingThrust failed Blueprint compilation."));
+		Run.Errors.Add(TEXT("GA_IG_JiXiTuCi failed Blueprint compilation."));
 		return false;
 	}
 	Run.Ability = Cast<UMHGZDescendingThrustAbility>(
@@ -1628,9 +1628,9 @@ bool AuditBeforeApply(FSetupRun& Run)
 	const FString LoopPath = ObjectPath(GeneratedSequenceDir, TEXT("AS_Unsh_JiXiTuCi_Falling_Loop_IP"));
 	const FString OverPath = ObjectPath(GeneratedSequenceDir, TEXT("AS_Unsh_JiXiTuCi_Over_RM"));
 	const FString CurvePath = ObjectPath(CurvePackage, TEXT("CV_IG_DescendingThrust_AirBasis"));
-	const FString MainMontagePath = ObjectPath(MainMontagePackage, TEXT("AM_IG_DescendingThrust"));
-	const FString OverMontagePath = ObjectPath(OverMontagePackage, TEXT("AM_IG_DescendingThrust_Over"));
-	const FString AbilityPath = ObjectPath(AbilityPackage, TEXT("GA_IG_DescendingThrust"));
+	const FString MainMontagePath = ObjectPath(MainMontagePackage, TEXT("AM_IG_JiXiTuCi"));
+	const FString OverMontagePath = ObjectPath(OverMontagePackage, TEXT("AM_IG_JiXiTuCi_Over"));
+	const FString AbilityPath = ObjectPath(AbilityPackage, TEXT("GA_IG_JiXiTuCi"));
 	const TPair<FString, UClass*> ExpectedAssets[] = {
 		{ StartPath, UAnimSequence::StaticClass() },
 		{ LoopPath, UAnimSequence::StaticClass() },
@@ -1698,7 +1698,7 @@ bool AuditBeforeApply(FSetupRun& Run)
 		if (!ExistingBlueprint->GeneratedClass
 			|| !ExistingBlueprint->GeneratedClass->IsChildOf(UMHGZDescendingThrustAbility::StaticClass()))
 		{
-			Run.Errors.Add(TEXT("Existing GA_IG_DescendingThrust is not a child of the production ability class."));
+			Run.Errors.Add(TEXT("Existing GA_IG_JiXiTuCi is not a child of the production ability class."));
 			return false;
 		}
 	}
@@ -1735,9 +1735,9 @@ bool PrepareAssets(FSetupRun& Run)
 	if (Run.StartSequence && Run.LoopSequence && Run.OverSequence)
 	{
 		Run.MainMontage = GetOrCreateMontage(Run, MainMontagePackage,
-			TEXT("AM_IG_DescendingThrust"), Run.Source380->GetSkeleton());
+			TEXT("AM_IG_JiXiTuCi"), Run.Source380->GetSkeleton());
 		Run.OverMontage = GetOrCreateMontage(Run, OverMontagePackage,
-			TEXT("AM_IG_DescendingThrust_Over"), Run.Source381->GetSkeleton());
+			TEXT("AM_IG_JiXiTuCi_Over"), Run.Source381->GetSkeleton());
 		if (!Run.MainMontage || !Run.OverMontage
 			|| !ConfigureMontage(Run, *Run.MainMontage, true, Run.StartSequence,
 				Run.LoopSequence, nullptr, Run.Source380->GetSkeleton())
@@ -1776,7 +1776,7 @@ bool PrepareAssets(FSetupRun& Run)
 	}
 	else
 	{
-		const FString Path = ObjectPath(AbilityPackage, TEXT("GA_IG_DescendingThrust"));
+		const FString Path = ObjectPath(AbilityPackage, TEXT("GA_IG_JiXiTuCi"));
 		Run.AbilityBlueprint = LoadObject<UBlueprint>(nullptr, *Path, nullptr, LOAD_NoWarn);
 		Run.Ability = Run.AbilityBlueprint && Run.AbilityBlueprint->GeneratedClass
 			? Cast<UMHGZDescendingThrustAbility>(Run.AbilityBlueprint->GeneratedClass->GetDefaultObject()) : nullptr;
@@ -1827,7 +1827,7 @@ bool PrepareAssets(FSetupRun& Run)
 			|| Run.Ability->EntrySectionByTransitionID.FindRef(
 				FName(TEXT("Air_DescendingThrust_RT"))) != FName(TEXT("Start")))
 		{
-			Run.Errors.Add(TEXT("GA_IG_DescendingThrust final compile or CDO readback failed after Combo routes were configured."));
+			Run.Errors.Add(TEXT("GA_IG_JiXiTuCi final compile or CDO readback failed after Combo routes were configured."));
 			return false;
 		}
 	}
@@ -1896,7 +1896,7 @@ bool WriteE1AuditReport(const bool bSuccess, const TArray<FString>& Errors,
 	Root->SetStringField(TEXT("mode"), TEXT("e1_read_only_audit"));
 	Root->SetBoolField(TEXT("success"), bSuccess);
 	Root->SetStringField(TEXT("ga_path"),
-		TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_DescendingThrust.GA_IG_DescendingThrust"));
+		TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_JiXiTuCi.GA_IG_JiXiTuCi"));
 	Root->SetNumberField(TEXT("attack_segment_count"),
 		Ability ? Ability->AttackSegments.Num() : 0);
 	Root->SetBoolField(TEXT("ga_main_montage_matches"),
@@ -1961,9 +1961,9 @@ bool WriteE1AuditReport(const bool bSuccess, const TArray<FString>& Errors,
 
 int32 AuditE1AssetsReadOnly()
 {
-	const TCHAR* MainPath = TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_DescendingThrust.AM_IG_DescendingThrust");
-	const TCHAR* OverPath = TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_DescendingThrust_Over.AM_IG_DescendingThrust_Over");
-	const TCHAR* AbilityPath = TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_DescendingThrust.GA_IG_DescendingThrust");
+	const TCHAR* MainPath = TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_JiXiTuCi.AM_IG_JiXiTuCi");
+	const TCHAR* OverPath = TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_JiXiTuCi_Over.AM_IG_JiXiTuCi_Over");
+	const TCHAR* AbilityPath = TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_JiXiTuCi.GA_IG_JiXiTuCi");
 	const TCHAR* StartPath = TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_Unsh_JiXiTuCi_Start_IP.AS_Unsh_JiXiTuCi_Start_IP");
 	const TCHAR* LoopPath = TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_Unsh_JiXiTuCi_Falling_Loop_IP.AS_Unsh_JiXiTuCi_Falling_Loop_IP");
 	const TCHAR* OverSequencePath = TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_Unsh_JiXiTuCi_Over_RM.AS_Unsh_JiXiTuCi_Over_RM");
@@ -1986,7 +1986,7 @@ int32 AuditE1AssetsReadOnly()
 	}
 	if (AbilityBlueprint && AbilityBlueprint->Status == BS_Error)
 	{
-		Errors.Add(TEXT("GA_IG_DescendingThrust Blueprint reports BS_Error."));
+		Errors.Add(TEXT("GA_IG_JiXiTuCi Blueprint reports BS_Error."));
 	}
 	if (MainMontage && (!Start || !Loop
 		|| !MontageLayoutMatches(*MainMontage, true, Start, Loop, nullptr)))
@@ -2010,7 +2010,7 @@ int32 AuditE1AssetsReadOnly()
 		if (!LandingMontageProperty
 			|| LandingMontageProperty->GetObjectPropertyValue_InContainer(Ability) != OverMontage)
 		{
-			Errors.Add(TEXT("GA LandingMontage does not reference AM_IG_DescendingThrust_Over."));
+			Errors.Add(TEXT("GA LandingMontage does not reference AM_IG_JiXiTuCi_Over."));
 		}
 	}
 

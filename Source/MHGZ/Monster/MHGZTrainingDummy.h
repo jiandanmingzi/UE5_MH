@@ -38,6 +38,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy", meta = (ClampMin = "1.0"))
 	float DummyMaxHealth = 1000.f;
 
+	/** Training target health remains full while hits still produce normal feedback. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Health")
+	bool bInfiniteHealth = true;
+
 	UPROPERTY(BlueprintAssignable, Category = "MHGZ|Dummy")
 	FOnDummyHealthChanged OnHealthChanged;
 
@@ -84,6 +88,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MHGZ|Dummy")
 	float GetMaxHealth() const;
+
+	UFUNCTION(BlueprintPure, Category = "MHGZ|Dummy|Health")
+	bool HasInfiniteHealth() const { return bInfiniteHealth; }
 
 	/** Runtime toggle; does not mutate the shared DummyConfig DataAsset. */
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Dummy|Fire Ring")

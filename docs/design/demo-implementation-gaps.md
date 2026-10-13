@@ -63,7 +63,7 @@
 | 瞄准重绑 | [MHGZAimComponent.cpp](../../Source/MHGZ/UI/MHGZAimComponent.cpp) 45～100 | BeginPlay 时一次性找 ASC，初始化顺序不对时不会重试；颜色按部位名硬编码 | Runtime/ActorInfo Ready 绑定并可随 Avatar 重绑；直接读 Hitzone 颜色，M3 |
 | 普通猎虫交付 | [Kinsect.cpp](../../Source/MHGZ/InsectGlaive/Kinsect/Kinsect.cpp) 90、239～返回逻辑 | PendingExtract 交付后未清空，后续飞行不能取得新颜色 | 到达时原子取出并清 Pending，再 Apply 一次；下一 Flight 可取新色，M3 |
 | 猎虫耐力归零 | [Res_InsectGlaive.cpp](../../Source/MHGZ/AttributeSystem/Res_InsectGlaive.cpp) 57～61 | 耐力为 0 的每帧重复音效与 ForceRecall | 只在阈值穿越时触发一次，Returning/Attached 不重复，M3 |
-| 虫印/粉尘/舞踏 | 当前源码不存在 | 无状态所有者、生命周期和清理入口 | 归属 URes/虫棍派生层；数值来自 CombatConfig，M4～M6 |
+| 虫印/粉尘/舞踏 | `URes_InsectGlaive`、`AIGPowderActor`、`UInsectGlaiveCombatConfig`；M6.3.1～.6已实现虫印生命周期、自动寻印、产粉/自然爆炸、聚爆事务及配置 | 代码和静态资产已通过审计；完整战斗闭环仍需E6.2 PIE签收，HUD/资源面板归M6.4 | M6.3代码/静态接线已完成；E6.2验证闭环，M6.4实现UI |
 | UI 所有权 | [MHGZUISubsystem](../../Source/MHGZ/UI) 当前为空壳；原文档同时让 WBP_HUD 有资源插槽又让 Subsystem AddToViewport | 两个潜在 Widget 所有者会产生重复显示、解绑和本地玩家生命周期冲突 | HUD 独占 Widget 树；资源面板只作为主 HUD 子控件；删除空壳 Subsystem，M6 |
 
 ## 3. 明确延期但必须记录

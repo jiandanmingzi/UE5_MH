@@ -4,6 +4,7 @@
 
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "AbilitySystemComponent.h"
+#include "GameplayEffectTypes.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Components/CapsuleComponent.h"
@@ -220,6 +221,16 @@ void UMHGZDodgeAbility::ActivateAbility(
 			return;
 		}
 		bPreparedAttackSupersede = false;
+	}
+
+	if (UAbilitySystemComponent* CueASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		FGameplayCueParameters CueParameters;
+		CueParameters.Instigator = Character;
+		CueParameters.EffectCauser = Character;
+		CueParameters.Location = Character->GetActorLocation();
+		CueASC->ExecuteGameplayCue(Tag(TEXT("GameplayCue.Character.Dodge")),
+			CueParameters);
 	}
 }
 

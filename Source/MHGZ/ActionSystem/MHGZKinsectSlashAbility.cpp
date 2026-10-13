@@ -620,10 +620,10 @@ void UMHGZKinsectSlashAbility::ActivateAbility(
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 	AMHGZCharacter* Character = Cast<AMHGZCharacter>(GetAvatarActorFromActorInfo());
 	UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
-	if (!Host || !Character || !CMC || !Host->MarkAerialAttackUsed())
+	if (!Host || !Character || !CMC || !ConsumeAerialAttackAndDodgeBudgets())
 	{
 		CancelSlashAction(EWeaponActionEndReason::Interrupted,
-			TEXT("Could not claim the Host-owned aerial attack budget."));
+			TEXT("Could not claim the Host-owned aerial attack and dodge budgets."));
 		return;
 	}
 
@@ -1367,7 +1367,7 @@ void UMHGZKinsectSlashAbility::HandleProbeHitzoneContact(
 	}
 
 	UMHGZMonsterHitzoneComponent* Hitzone =
-		Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+		UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
 	if (!Hitzone || (AttackSegments.IsEmpty()))
 	{
 		return;
@@ -1446,6 +1446,20 @@ void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
 	{
 		return;
 	}
+	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
+	{
+		if (!KinsectSlashPowderHitInstanceID.IsValid())
+		{
+			KinsectSlashPowderHitInstanceID = FGuid::NewGuid();
+		}
+		if (ActivationAttackInstanceID.IsValid()
+			&& KinsectSlashPowderHitInstanceID.IsValid())
+		{
+			Resource->HandleSuccessfulKinsectDamage(SlashActionToken.RuntimeToken,
+				ActivationAttackInstanceID, KinsectSlashPowderHitInstanceID, Hit,
+				EIGPowderSpawnPolicy::MarkedContact);
+		}
+	}
 
 	// Compatibility path for tests/old callers only; production no longer creates
 	// the probe task. The AttackCollision path below owns its own queued handoff.
@@ -1456,7 +1470,7 @@ void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
 			if (URes_InsectGlaive* Resource = GetIGResourceComponent())
 			{
 				const UMHGZMonsterHitzoneComponent* Hitzone =
-					Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+					UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
 				if (Hitzone)
 				{
 					Resource->ApplyExtractFromHitzone(Hitzone);
@@ -1510,13 +1524,13 @@ void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
 		if (URes_InsectGlaive* Resource = GetIGResourceComponent())
 		{
 			const UMHGZMonsterHitzoneComponent* Hitzone =
-				Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+				UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
 			if (Hitzone)
 			{
-				const bool bExtractGranted = Resource->ApplyExtractFromHitzone(Hitzone);
+				const bool bExtractGranted = Resource->CaptureActionKinsectExtract(SlashActionToken, Hitzone);
 				UE_LOG(LogMHGZ, Display,
-					TEXT("[KinsectSlash] Damage GE succeeded; extract=%s color=%s"),
-					bExtractGranted ? TEXT("applied") : TEXT("not-applicable"),
+					TEXT("[KinsectSlash] Damage GE succeeded; cargo=%s color=%s (delivered on return)"),
+					bExtractGranted ? TEXT("captured") : TEXT("not-applicable"),
 					*Hitzone->ExtractColorTag.ToString());
 			}
 		}
@@ -2083,6 +2097,7 @@ void UMHGZKinsectSlashAbility::ResetActivationState()
 	LaunchDirection = FVector::ForwardVector;
 	DashTerminalVelocity = FVector::ZeroVector;
 	SuccessfulHit = FHitResult();
+	KinsectSlashPowderHitInstanceID.Invalidate();
 	SuccessfulHitSourceSection = NAME_None;
 	SuccessfulHitSourcePosition = 0.0f;
 	SuccessfulHitSourceMontageInstanceID = INDEX_NONE;

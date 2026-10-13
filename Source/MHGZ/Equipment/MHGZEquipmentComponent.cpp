@@ -145,6 +145,7 @@ void UMHGZEquipmentComponent::RecalculateEquipmentBaseAttributes(UAbilitySystemC
 	if (!ASC) return;
 
 	float TotalAttackPower = 0.f;
+	float WeaponElementPower = 0.f;
 	float TotalDefense = 0.f;
 	float TotalCriticalRate = 0.f;
 	for (const auto& Pair : EquippedItems)
@@ -155,14 +156,24 @@ void UMHGZEquipmentComponent::RecalculateEquipmentBaseAttributes(UAbilitySystemC
 		TotalAttackPower += Instance->Definition->AttackPower;
 		TotalDefense += Instance->Definition->Defense;
 		TotalCriticalRate += Instance->Definition->CriticalRate;
+		// 属性基础值只来自当前武器槽，护甲词条走ElementPower GE，而不是混合不同武器元素。
+		if (Pair.Key == FGameplayTag::RequestGameplayTag(TEXT("Equipment.Slot.Weapon")))
+		{
+			if (const UMHGZWeaponDefinition* WeaponDef = Cast<UMHGZWeaponDefinition>(Instance->Definition))
+			{
+				WeaponElementPower = FMath::IsFinite(WeaponDef->ElementPower)
+					? FMath::Max(0.0f, WeaponDef->ElementPower) : 0.0f;
+			}
+		}
 	}
 
 	ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetAttackPowerAttribute(), TotalAttackPower);
+	ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetElementPowerAttribute(), WeaponElementPower);
 	ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetDefenseAttribute(), TotalDefense);
 	ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetCriticalRateAttribute(), TotalCriticalRate);
 
-	UE_LOG(LogTemp, Log, TEXT("[Equipment] Base stats Attack=%.1f Defense=%.1f Crit=%.1f"),
-		TotalAttackPower, TotalDefense, TotalCriticalRate);
+	UE_LOG(LogTemp, Log, TEXT("[Equipment] Base stats Attack=%.1f Element=%.1f Defense=%.1f Crit=%.1f"),
+		TotalAttackPower, WeaponElementPower, TotalDefense, TotalCriticalRate);
 }
 
 void UMHGZEquipmentComponent::ApplyItemEffects(UMHGZEquipmentInstance* Item)

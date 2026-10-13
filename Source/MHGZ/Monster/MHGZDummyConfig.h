@@ -6,12 +6,13 @@
 #include "Engine/DataAsset.h"
 #include "GameplayTagContainer.h"
 #include "Misc/DataValidation.h"
+#include "MHGZMonsterHitzoneComponent.h"
 #include "MHGZDummyConfig.generated.h"
 
 class USkeletalMesh;
 class UAnimMontage;
 
-/** One spherical hitzone of the training dummy. */
+/** Query geometry and identity of one training-dummy part. */
 USTRUCT(BlueprintType)
 struct FDummyHitzoneConfig
 {
@@ -33,6 +34,14 @@ struct FDummyHitzoneConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float DefenseMultiplier = 1.0f;
 
+	/** 斩/打/弹肉质倍率；缺项兼容旧 DefenseMultiplier。0.45表示肉质45。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TMap<EMHGZPhysicalDamageType, float> PhysicalHitzoneMultipliers;
+
+	/** 火/水/雷/冰/龙肉质倍率；缺项=0。0.20表示肉质20。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TMap<EMHGZElementType, float> ElementHitzoneMultipliers;
+
 	/** Stagger absorption rate. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float StaggerRate = 0.f;
@@ -44,6 +53,13 @@ struct FDummyHitzoneConfig
 	/** Sphere radius in cm; must be > 0. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float Radius = 30.f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EMHGZHitzoneShape Shape = EMHGZHitzoneShape::Sphere;
+
+	/** Box half size in cm, before the training dummy's 1.5x scale. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1.0"))
+	FVector BoxHalfExtent = FVector(51.0f, 51.0f, 38.5f);
 
 };
 
@@ -159,7 +175,8 @@ struct FDummyFireRingConfig
 
 /**
  * UMHGZDummyConfig - training dummy DataAsset.
- * M2 requires Red/White/Orange hitzones that do not overlap (RelativeLocation + Radius).
+ * Requires Red/White/Orange identities. Query regions may overlap at boundaries
+ * to cover visual/physical surfaces; each attack owns its normal target deduplication.
  */
 UCLASS(BlueprintType)
 class UMHGZDummyConfig : public UPrimaryDataAsset
@@ -201,9 +218,9 @@ public:
 
 	/**
 	 * Runtime/editor validation of a hitzone list:
-	 * - every HitzoneTag is valid and Radius > 0;
+	 * - every HitzoneTag is valid and shape dimensions are finite and positive;
 	 * - every ExtractColorTag leaf is Red/White/Orange and all three colors appear;
-	 * - spheres do not overlap when compared by RelativeLocation + Radius.
+	 * - overlap is allowed for complete surface coverage, not an invalid configuration.
 	 */
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Dummy")
 	static bool ValidateHitzoneConfigs(
@@ -229,14 +246,49 @@ public:
 		for (int32 Index = 0; Index < InHitzones.Num(); ++Index)
 		{
 			const FDummyHitzoneConfig& HZ = InHitzones[Index];
+			for (const auto& Entry : HZ.PhysicalHitzoneMultipliers)
+			{
+				if (static_cast<uint8>(Entry.Key) > static_cast<uint8>(EMHGZPhysicalDamageType::Shot)
+					|| !FMath::IsFinite(Entry.Value) || Entry.Value < 0.0f)
+				{
+					OutError = FString::Printf(TEXT("Hitzone[%d] physical flesh values must be valid types and finite >= 0."), Index);
+					return false;
+				}
+			}
+			for (const auto& Entry : HZ.ElementHitzoneMultipliers)
+			{
+				if (Entry.Key == EMHGZElementType::None
+					|| static_cast<uint8>(Entry.Key) > static_cast<uint8>(EMHGZElementType::Dragon)
+					|| !FMath::IsFinite(Entry.Value) || Entry.Value < 0.0f)
+				{
+					OutError = FString::Printf(TEXT("Hitzone[%d] elemental flesh values require Fire/Water/Thunder/Ice/Dragon and finite >= 0."), Index);
+					return false;
+				}
+			}
 			if (!HZ.HitzoneTag.IsValid())
 			{
 				OutError = FString::Printf(TEXT("Hitzone[%d] has an invalid HitzoneTag."), Index);
 				return false;
 			}
-			if (HZ.Radius <= 0.f || !FMath::IsFinite(HZ.Radius))
+			if (HZ.Shape != EMHGZHitzoneShape::Sphere && HZ.Shape != EMHGZHitzoneShape::Box)
+			{
+				OutError = FString::Printf(TEXT("Hitzone[%d] has an unsupported query shape."), Index);
+				return false;
+			}
+			if (HZ.RelativeLocation.ContainsNaN())
+			{
+				OutError = FString::Printf(TEXT("Hitzone[%d] location must be finite."), Index);
+				return false;
+			}
+			if (HZ.Shape == EMHGZHitzoneShape::Sphere && (HZ.Radius <= 0.f || !FMath::IsFinite(HZ.Radius)))
 			{
 				OutError = FString::Printf(TEXT("Hitzone[%d] Radius must be > 0."), Index);
+				return false;
+			}
+			if (HZ.Shape == EMHGZHitzoneShape::Box && (HZ.BoxHalfExtent.ContainsNaN()
+				|| HZ.BoxHalfExtent.X <= 0.f || HZ.BoxHalfExtent.Y <= 0.f || HZ.BoxHalfExtent.Z <= 0.f))
+			{
+				OutError = FString::Printf(TEXT("Hitzone[%d] box half extent must be finite and > 0."), Index);
 				return false;
 			}
 
@@ -266,21 +318,6 @@ public:
 		{
 			OutError = TEXT("Hitzones must contain exactly one Red, one White and one Orange part.");
 			return false;
-		}
-
-		for (int32 A = 0; A < InHitzones.Num(); ++A)
-		{
-			for (int32 B = A + 1; B < InHitzones.Num(); ++B)
-			{
-				if (AreHitzoneSpheresOverlapping(
-					InHitzones[A].RelativeLocation, InHitzones[A].Radius,
-					InHitzones[B].RelativeLocation, InHitzones[B].Radius))
-				{
-					OutError = FString::Printf(
-						TEXT("Hitzone[%d] and Hitzone[%d] spheres overlap."), A, B);
-					return false;
-				}
-			}
 		}
 
 		return true;

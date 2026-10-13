@@ -213,7 +213,19 @@ void AMHGZTrainingDummy::ApplyConfig(UMHGZDummyConfig* Config)
 		}
 		Hitzone->SetRelativeLocation(Hitzone->GetRelativeLocation() * DummySizeMultiplier);
 		Hitzone->Radius *= DummySizeMultiplier;
-		Hitzone->SetSphereRadius(Hitzone->Radius);
+		if (Hitzone->QueryShape == EMHGZHitzoneShape::Box)
+		{
+			// A static cylinder's entire visible band and physical body must be hittable,
+			// including seams. Keep a small positive margin outside the surface.
+			const FVector MinimumExtent(DummyDiameter * 0.5f + 1.5f,
+				DummyDiameter * 0.5f + 1.5f, DummySegmentHeight * 0.5f + 1.5f);
+			Hitzone->ConfigureQueryShape(EMHGZHitzoneShape::Box,
+				(Hitzone->BoxHalfExtent * DummySizeMultiplier).ComponentMax(MinimumExtent));
+		}
+		else
+		{
+			Hitzone->SetSphereRadius(Hitzone->Radius);
+		}
 	}
 	bFireRingRuntimeEnabled = Config->FireRing.bEnabled;
 	RebuildFireRingVisuals();

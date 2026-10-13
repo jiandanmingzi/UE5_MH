@@ -7,7 +7,7 @@
 #include "ActionSystem/MHGZKinsectSlashAbility.h"
 #include "AnimNotify_KinsectSlashEvent.generated.h"
 
-/** Exact point event used by AM_IG_KinsectSlash's 186/187/188/189 sections. */
+/** Exact point event used by AM_IG_CaoChongZhan's 186/187/188/189 sections. */
 UCLASS(meta = (DisplayName = "Kinsect Slash Event"))
 class MHGZ_API UAnimNotify_KinsectSlashEvent : public UAnimNotify
 {

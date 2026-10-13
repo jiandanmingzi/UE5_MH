@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "batch": "m6-awakened-kinsect-montage-pinyin",
+  "backup_directory": "Saved/AssetOrganization/Backups/M6AwakenedKinsectPinyin",
+  "moves": [
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_AwakenedKinsectAttack",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_JueChongJi",
+      "reason": "Replace the unusually long English Montage name with the project's Chinese-pinyin naming convention.",
+      "expected_referencers_after_move": [
+        "/Game/Blueprints/Ability/InsectGlaive/GA_IG_JueChongJi"
+      ]
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_AwakenedKinsectFall",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_JueChongJi_Fall",
+      "reason": "Replace the unusually long English Montage name with the project's Chinese-pinyin naming convention.",
+      "expected_referencers_after_move": [
+        "/Game/Weapons/InsectGlaive/Data/DA_IG_Combat"
+      ]
+    }
+  ]
+}

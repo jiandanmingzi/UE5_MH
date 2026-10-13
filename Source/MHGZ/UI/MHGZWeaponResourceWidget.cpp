@@ -4,5 +4,17 @@
 
 void UMHGZWeaponResourceWidget::BindToResourceComponent(UMHGZWeaponResourceComponent* InRC)
 {
+	UnbindFromResourceComponent();
 	ResourceComponent = InRC;
+}
+
+void UMHGZWeaponResourceWidget::UnbindFromResourceComponent()
+{
+	ResourceComponent = nullptr;
+}
+
+void UMHGZWeaponResourceWidget::NativeDestruct()
+{
+	UnbindFromResourceComponent();
+	Super::NativeDestruct();
 }

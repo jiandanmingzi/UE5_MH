@@ -202,6 +202,19 @@ protected:
 	 */
 	virtual bool ValidateActionDependencies() const { return true; }
 
+	/**
+	 * Builds this activation's weapon-resource costs after ActionToken creation and
+	 * dependency validation, but before reservation/Commit. Most actions use the
+	 * authored WeaponResourceCosts unchanged; conditional-cost actions may freeze
+	 * their branch and return a different list here.
+	 */
+	virtual bool PrepareActivationWeaponResourceCosts(
+		TArray<FWeaponResourceCostSpec>& OutCosts)
+	{
+		OutCosts = WeaponResourceCosts;
+		return true;
+	}
+
 	/** Leaf actions with a gameplay Commit override this before opting into a handoff. */
 	virtual bool IsMotionMatchingHandoffCommitComplete() const { return true; }
 

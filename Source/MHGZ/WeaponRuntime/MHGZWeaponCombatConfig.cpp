@@ -25,6 +25,10 @@ EDataValidationResult UWeaponCombatConfigBase::IsDataValid(FDataValidationContex
 	{
 		AddError(LOCTEXT("MissingComboData", "ComboData must be assigned."));
 	}
+	if (!DamageProfile.IsValid())
+	{
+		AddError(LOCTEXT("InvalidDamageProfile", "DamageProfile must contain a valid element and finite nonnegative sharpness / critical multipliers >= 1."));
+	}
 
 	return bInvalid ? EDataValidationResult::Invalid
 		: (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);

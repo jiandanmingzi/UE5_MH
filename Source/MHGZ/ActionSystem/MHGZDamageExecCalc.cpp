@@ -6,6 +6,22 @@
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "AbilitySystemComponent.h"
 
+namespace
+{
+float NonnegativeFinite(float Value)
+{
+	return FMath::IsFinite(Value) ? FMath::Max(0.0f, Value) : 0.0f;
+}
+
+// MHWI ordinary-hit channels round separately; a truly positive sub-1 value
+// keeps 1, but a zero hitzone/multiplier does not manufacture damage.
+float RoundDamageChannel(float Value)
+{
+	return FMath::IsFinite(Value) && Value > 0.0f
+		? FMath::Max(1.0f, FMath::RoundToFloat(Value)) : 0.0f;
+}
+}
+
 UMHGZDamageExecCalc::UMHGZDamageExecCalc()
 {
 	// 捕获攻击方属性
@@ -13,6 +29,10 @@ UMHGZDamageExecCalc::UMHGZDamageExecCalc()
 	SourceAttackPowerDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Source;
 	SourceAttackPowerDef.bSnapshot = true;
 	RelevantAttributesToCapture.Add(SourceAttackPowerDef);
+	SourceElementPowerDef.AttributeToCapture = UMHGZAttributeSet::GetElementPowerAttribute();
+	SourceElementPowerDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Source;
+	SourceElementPowerDef.bSnapshot = true;
+	RelevantAttributesToCapture.Add(SourceElementPowerDef);
 
 	SourceCriticalRateDef.AttributeToCapture = UMHGZAttributeSet::GetCriticalRateAttribute();
 	SourceCriticalRateDef.AttributeSource = EGameplayEffectAttributeCaptureSource::Source;
@@ -47,15 +67,27 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 
 	// ── 3. 从 Context 的真实命中组件读取肉质；不再扫描 DynamicAssetTags ──
 	float HitzoneDefense = 1.0f;
+	float ElementHitzone = 0.0f;
 	float HitzoneStaggerRate = 1.0f;
+	const bool bWeaponDamage = CombatContext->DamageSourceType == EMHGZDamageSourceType::Weapon;
 	if (const UMHGZMonsterHitzoneComponent* Hitzone =
-		Cast<UMHGZMonsterHitzoneComponent>(Hit->GetComponent()))
+		UMHGZMonsterHitzoneComponent::Resolve(Hit->GetComponent()))
 	{
 		if (!CombatContext || CombatContext->bUseHitzoneDefense)
 		{
-			HitzoneDefense = FMath::Max(0.f, Hitzone->DefenseMultiplier);
+			const float* TypedPhysical = bWeaponDamage
+				? Hitzone->PhysicalHitzoneMultipliers.Find(CombatContext->PhysicalDamageType) : nullptr;
+			HitzoneDefense = NonnegativeFinite(TypedPhysical ? *TypedPhysical : Hitzone->DefenseMultiplier);
 		}
-		HitzoneStaggerRate = FMath::Max(0.f, Hitzone->StaggerRate);
+		if (bWeaponDamage)
+		{
+			if (const float* Element = Hitzone->ElementHitzoneMultipliers.Find(
+				CombatContext->WeaponDamageProfile.ElementType))
+			{
+				ElementHitzone = NonnegativeFinite(*Element);
+			}
+		}
+		HitzoneStaggerRate = NonnegativeFinite(Hitzone->StaggerRate);
 	}
 
 	// ── 4. 读取 Source ASC 的属性 ──
@@ -64,11 +96,14 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 	EvalParams.TargetTags = Spec.CapturedTargetTags.GetAggregatedTags();
 
 	float AttackPower = 0.f;
+	float ElementPower = 0.f;
 	float CriticalRate = 0.f;
 	float StaggerMultiplier = 1.0f;
 
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
 		SourceAttackPowerDef, EvalParams, AttackPower);
+	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
+		SourceElementPowerDef, EvalParams, ElementPower);
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
 		SourceCriticalRateDef, EvalParams, CriticalRate);
 	ExecutionParams.AttemptCalculateCapturedAttributeMagnitude(
@@ -92,32 +127,71 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 		AttackPower = AttackPowerOverride;
 	}
 
-	// ── 6. 伤害计算 ──
-	float RawDamage = AttackPower * MotionValue * HitzoneDefense;
-
-	// 暴击判定
+	// ── 6. Weapon 物理/属性独立计算；其他来源不继承玩家武器参数 ──
+	AttackPower = NonnegativeFinite(AttackPower);
+	ElementPower = NonnegativeFinite(ElementPower);
+	const float SafeMotionValue = NonnegativeFinite(MotionValue);
+	const float SafeDanceMultiplier = FMath::IsFinite(DanceMultiplier)
+		? FMath::Max(1.0f, DanceMultiplier) : 1.0f;
+	float PhysicalDamage = AttackPower * SafeMotionValue * HitzoneDefense;
+	float ElementDamage = 0.0f;
+	float FinalDamage = 0.0f;
 	bool bCrit = false;
-	const float EffectiveCritRate = (CritOverride >= 0.f) ? CritOverride : CriticalRate;
-	if (RawDamage > 0.f && EffectiveCritRate > 0.f
-		&& FMath::FRandRange(0.f, 100.f) < EffectiveCritRate)
-	{
-		bCrit = true;
-		RawDamage *= 1.25f;
-	}
-	RawDamage *= FMath::Max(1.0f, DanceMultiplier);
 
-	// 零/负动作值保持 0 伤害；正动作值最低 1 点。
-	const float FinalDamage = (AttackPower > 0.0f && MotionValue > 0.0f)
-		? FMath::Max(1.0f, FMath::FloorToFloat(RawDamage))
-		: 0.0f;
+	const float RequestedCritRate = (CritOverride >= 0.f) ? CritOverride : CriticalRate;
+	const float EffectiveCritRate = FMath::IsFinite(RequestedCritRate)
+		? FMath::Clamp(RequestedCritRate, -100.0f, 100.0f) : 0.0f;
+	const FMHGZWeaponDamageProfile& Profile = CombatContext->WeaponDamageProfile;
+	if (bWeaponDamage)
+	{
+		if (Profile.IsValid() && SafeMotionValue > 0.0f)
+		{
+			const float PhysicalMultiplier = NonnegativeFinite(Spec.GetSetByCallerMagnitude(
+				FGameplayTag::RequestGameplayTag(TEXT("Damage.PhysicalMultiplier")), false, 1.0f));
+			const float ElementMultiplier = NonnegativeFinite(Spec.GetSetByCallerMagnitude(
+				FGameplayTag::RequestGameplayTag(TEXT("Damage.ElementMultiplier")), false, 1.0f));
+			const float ElementMotionValue = NonnegativeFinite(Spec.GetSetByCallerMagnitude(
+				FGameplayTag::RequestGameplayTag(TEXT("Damage.ElementMotionValue")), false, 1.0f));
+			PhysicalDamage *= Profile.PhysicalSharpnessMultiplier * PhysicalMultiplier * SafeDanceMultiplier;
+			const bool bHasElement = Profile.ElementType != EMHGZElementType::None
+				&& ElementPower > 0.0f && ElementMotionValue > 0.0f
+				&& ElementHitzone > 0.0f && Profile.ElementSharpnessMultiplier > 0.0f
+				&& ElementMultiplier > 0.0f;
+			const bool bCanCrit = PhysicalDamage > 0.0f || bHasElement;
+			const bool bAffinityProc = bCanCrit && FMath::Abs(EffectiveCritRate) > 0.0f
+				&& FMath::FRand() * 100.0f < FMath::Abs(EffectiveCritRate);
+			bCrit = bAffinityProc && EffectiveCritRate > 0.0f;
+			const bool bNegativeCrit = bAffinityProc && EffectiveCritRate < 0.0f;
+			PhysicalDamage *= bCrit ? Profile.CriticalDamageMultiplier : (bNegativeCrit ? 0.75f : 1.0f);
+			if (bHasElement)
+			{
+				// 属性不乘物理动作值或舞踏倍率；普通会心=1，负会心不削减属性。
+				const float EffectiveElement = RoundDamageChannel(
+					ElementPower * (bCrit ? Profile.CriticalElementMultiplier : 1.0f));
+				ElementDamage = EffectiveElement * ElementMotionValue * Profile.ElementSharpnessMultiplier
+					* ElementHitzone * ElementMultiplier;
+			}
+			FinalDamage = RoundDamageChannel(PhysicalDamage) + RoundDamageChannel(ElementDamage);
+		}
+	}
+	else
+	{
+		// 保留已验收的猎虫/粉尘/木桩伤害算法与 Floor 取整。
+		bCrit = PhysicalDamage > 0.0f && EffectiveCritRate > 0.0f
+			&& FMath::FRand() * 100.0f < EffectiveCritRate;
+		PhysicalDamage *= (bCrit ? 1.25f : 1.0f) * SafeDanceMultiplier;
+		FinalDamage = AttackPower > 0.0f && SafeMotionValue > 0.0f && FMath::IsFinite(PhysicalDamage)
+			? FMath::Max(1.0f, FMath::FloorToFloat(PhysicalDamage)) : 0.0f;
+	}
 
 	const float StaggerValue = FMath::Max(0.f,
 		BaseStagger * StaggerMultiplier * HitzoneStaggerRate);
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[Damage] Source=%s Target=%s Attack=%.2f Motion=%.2f Hitzone=%.2f Final=%.2f Stagger=%.2f"),
+		TEXT("[Damage] Source=%s Target=%s Attack=%.2f Motion=%.2f Hitzone=%.2f Physical=%.3f ElementPower=%.2f ElementHitzone=%.3f Element=%.3f Crit=%d Final=%.2f Stagger=%.2f"),
 		*GetNameSafe(SourceASC->GetAvatarActor()), *GetNameSafe(TargetASC->GetOwnerActor()),
-		AttackPower, MotionValue, HitzoneDefense, FinalDamage, StaggerValue);
+		AttackPower, MotionValue, HitzoneDefense, PhysicalDamage, ElementPower, ElementHitzone,
+		ElementDamage, bCrit ? 1 : 0, FinalDamage, StaggerValue);
 
 	// ── 7. 只写 Meta Attribute，不直接改 Health/播放 Cue/发 Event ──
 	// 顺序合同（UE5.6 按插入顺序逐项执行并在每项后调用 PostGameplayEffectExecute）：

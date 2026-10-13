@@ -268,7 +268,9 @@ bool UAbilityTask_MHGZWeaponMovement::EndForImmediateMovementHandoff(
 	if (!bStarted || bFinished || bPreserveFlyingForImmediateHandoff
 		|| (MovementRequest.Mode != EWeaponMovementMode::StationaryHover
 			&& MovementRequest.Mode != EWeaponMovementMode::CurvedDirectional
-			&& MovementRequest.Mode != EWeaponMovementMode::SegmentedDirectional)
+			&& MovementRequest.Mode != EWeaponMovementMode::SegmentedDirectional
+			&& MovementRequest.Mode != EWeaponMovementMode::RecordedLocalTrajectory
+			&& MovementRequest.Mode != EWeaponMovementMode::AuthoredAerialPhysics)
 		|| MovementRequest.OwnerAction != ActionToken
 		|| !RuntimeHost.IsValid()
 		|| !RuntimeHost->IsActionMovementOwnedBy(ActionToken))

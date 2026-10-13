@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Engine/HitResult.h"
 #include "ActionSystem/MHGZActionDirectionCorrectionTypes.h"
+#include "MHGZDamageTypes.h"
 #include "MHGZGameplayAbility.h"
 #include "GameplayTagContainer.h"
 #include "Misc/DataValidation.h"
@@ -100,6 +101,22 @@ USTRUCT(BlueprintType)
 struct FAttackDamageConfig
 {
 	GENERATED_BODY()
+
+	/** 本段物理伤害类型；不从表现用 CueTag 猜测斩/打/弹。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	EMHGZPhysicalDamageType PhysicalDamageType = EMHGZPhysicalDamageType::Sever;
+
+	/** 属性动作倍率，默认1；与物理 MotionValue 独立。0可禁用本段属性伤害。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FScalableFloat ElementMotionValue = 1.0f;
+
+	/** 本段额外物理修正，默认1；不重复填已由 AttackPower GE 处理的攻击力加成。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FScalableFloat PhysicalDamageMultiplier = 1.0f;
+
+	/** 本段额外属性修正，默认1。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FScalableFloat ElementDamageMultiplier = 1.0f;
 
 	/** 伤害 GE 蓝图 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
@@ -229,6 +246,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	TObjectPtr<UAnimMontage> AttackMontage;
 
+	/** Whether this attack suppresses locomotion input while its action is active. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Movement")
+	bool bBlockCharacterMovementDuringAction = true;
+
 	/**
 	 * 没有更具体入口时的 Montage Section。None 表示从 Montage 开头播放。
 	 * 入口 Section 属于目标攻击 Ability，而不是来源攻击的尾段。
@@ -341,6 +362,9 @@ protected:
 	/** Resolves a Combo edge's activation yaw cap, or this GA's default cap. */
 	float ResolveActivationMaxCorrectionAngle(
 		const FWeaponAbilityActivationContext& Context) const;
+	/** Apply the shared capped, immediate activation yaw correction to an explicit world direction. */
+	bool ApplyActivationDirectionCorrectionFromWorldDirection(
+		const FVector& WorldDirection, float CorrectionAngleDegrees);
 
 	/**
 	 * 开始已选入口的攻击 Montage，并登记精确 MontageInstanceID。
@@ -385,6 +409,13 @@ protected:
 	/** 通知协调器首次命中 */
 	void NotifyCoordinatorFirstHit();
 
+	/**
+	 * 翻滚已准备接管、尚未提交：其 Montage_Play 会同步打断旧 Montage。
+	 * 自建 MontageTask 的子类也必须暂缓该中断，并保留任务供提交/回滚清理。
+	 * 这不是新的取消窗口；许可仍由精确 DodgeAcceptWindow 和 ActionToken 决定。
+	 */
+	bool HasPreparedDodgeSupersede() const;
+
 	/** 当前招内修正可读取的实时世界方向；生产实现来自 Character 的原始摇杆缓存。 */
 	virtual FVector GetInActionCorrectionDirection() const;
 
@@ -398,6 +429,23 @@ protected:
 		const FWeaponActionToken& ActionToken, const FVector& WorldDirection,
 		float MaxCorrectionAngleOverride, float CorrectionDuration,
 		float MaxYawSpeedDegreesPerSecond, EActionDirectionCorrectionEasing Easing);
+	/**
+	 * Ease toward an already validated absolute target yaw. Special actions use this
+	 * when their target was clamped against a frozen reference yaw and must not be
+	 * clamped a second time against a later Montage-root-rotated actor yaw.
+	 */
+	bool ApplyInActionDirectionCorrectionToYaw(
+		const FWeaponActionToken& ActionToken, float TargetYaw,
+		float CorrectionDuration,
+		float MaxYawSpeedDegreesPerSecond = 0.0f,
+		EActionDirectionCorrectionEasing Easing = EActionDirectionCorrectionEasing::Linear);
+
+#if WITH_DEV_AUTOMATION_TESTS
+	UAbilityTask_MHGZActionDirectionCorrection* GetActiveDirectionCorrectionTaskForTest() const
+	{
+		return ActiveDirectionCorrectionTask.Get();
+	}
+#endif
 
 	/**
 	 * 每一次 Damage GE 成功提交后的扩展点。真实 HitResult 与段索引保持原样；
@@ -419,6 +467,9 @@ protected:
 
 	/** Notifies a derived action after its exact AttackCollision window is removed. */
 	virtual void OnAttackCollisionWindowClosed(int32 SegmentIndex) {}
+
+	/** Shared resolver for derived-action audits; use exactly the gameplay trace mesh. */
+	USkeletalMeshComponent* FindTraceMeshComponent(const FAttackCollisionConfig& Collision) const;
 
 	/** Montage task completion hook for attacks with multi-phase lifetimes. */
 	UFUNCTION()
@@ -478,6 +529,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
 	TWeakObjectPtr<UAbilityTask_MHGZActionDirectionCorrection> ActiveDirectionCorrectionTask;
+	bool StartInActionDirectionCorrection(const FWeaponActionToken& ActionToken,
+		ACharacter& Character, float DeltaYaw, float CorrectionDuration,
+		float MaxYawSpeedDegreesPerSecond, EActionDirectionCorrectionEasing Easing);
 
 	/** 每个 ConfigIndex 独立保存轨迹、命中和多跳状态，允许窗口重叠。 */
 	TMap<int32, FCollisionWindowRuntimeState> ActiveCollisionWindows;
@@ -507,9 +561,6 @@ private:
 
 	/** 目标/部位存活校验（ASC 死亡 Tag 或 Health<=0 视为不存活）。 */
 	bool IsTargetAlive(AActor* Target) const;
-
-	/** 根据组件 Tag 和 Socket 配置找到实际参与武器轨迹检测的骨骼网格。 */
-	USkeletalMeshComponent* FindTraceMeshComponent(const FAttackCollisionConfig& Collision) const;
 
 	/** 检查 Mesh 是否包含当前配置要求的所有轨迹 Socket/骨骼。 */
 	bool HasRequiredTraceSockets(const USkeletalMeshComponent* Mesh,

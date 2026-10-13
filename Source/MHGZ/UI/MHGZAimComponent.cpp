@@ -9,9 +9,17 @@
 
 namespace
 {
-	FGameplayTag AimingTag()
+	FGameplayTag ActionAimingTag()
 	{
-		static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aiming.Kinsect"));
+		static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+			TEXT("Combat.State.Aiming.Action"));
+		return Tag;
+	}
+
+	FGameplayTag KinsectAimingTag()
+	{
+		static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
+			TEXT("Combat.State.Aiming.Kinsect"));
 		return Tag;
 	}
 
@@ -30,8 +38,9 @@ namespace
 	/** 仅 Hitzone 组件且 ObjectType==ECC_GameTraceChannel3 才算有效瞄准命中（墙体会被 Visibility Block 遮挡）。 */
 	UMHGZMonsterHitzoneComponent* ResolveAimHitzone(const FHitResult& Hit)
 	{
-		UMHGZMonsterHitzoneComponent* Hitzone = Cast<UMHGZMonsterHitzoneComponent>(Hit.Component.Get());
-		return Hitzone && Hitzone->GetCollisionObjectType() == ECC_GameTraceChannel3 ? Hitzone : nullptr;
+		UMHGZMonsterHitzoneComponent* Hitzone = UMHGZMonsterHitzoneComponent::Resolve(Hit.Component.Get());
+		return Hitzone && Hit.GetComponent()
+			&& Hit.GetComponent()->GetCollisionObjectType() == ECC_GameTraceChannel3 ? Hitzone : nullptr;
 	}
 }
 
@@ -65,7 +74,8 @@ void UMHGZAimComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 void UMHGZAimComponent::BindToAbilitySystem(UAbilitySystemComponent* InASC)
 {
 	// 幂等：同一 ASC 且已订阅则直接返回
-	if (ASC == InASC && AimTagDelegateHandle.IsValid())
+	if (ASC == InASC && ActionAimTagDelegateHandle.IsValid()
+		&& KinsectAimTagDelegateHandle.IsValid())
 	{
 		return;
 	}
@@ -79,25 +89,38 @@ void UMHGZAimComponent::BindToAbilitySystem(UAbilitySystemComponent* InASC)
 		return;
 	}
 
-	AimTagDelegateHandle = ASC->RegisterGameplayTagEvent(
-		AimingTag(), EGameplayTagEventType::NewOrRemoved)
+	ActionAimTagDelegateHandle = ASC->RegisterGameplayTagEvent(
+		ActionAimingTag(), EGameplayTagEventType::NewOrRemoved)
+		.AddUObject(this, &UMHGZAimComponent::OnAimingTagChanged);
+	KinsectAimTagDelegateHandle = ASC->RegisterGameplayTagEvent(
+		KinsectAimingTag(), EGameplayTagEventType::NewOrRemoved)
 		.AddUObject(this, &UMHGZAimComponent::OnAimingTagChanged);
 
-	// 同步当前 tag count（Bind 可能发生在瞄准进行中）
-	OnAimingTagChanged(AimingTag(), ASC->GetTagCount(AimingTag()));
+	// Bind可能发生在任一瞄准状态已开启之后；分别同步，不改变Gameplay输入快照。
+	OnAimingTagChanged(ActionAimingTag(), ASC->GetTagCount(ActionAimingTag()));
+	OnAimingTagChanged(KinsectAimingTag(), ASC->GetTagCount(KinsectAimingTag()));
 }
 
 void UMHGZAimComponent::UnbindFromAbilitySystem()
 {
-	if (ASC && AimTagDelegateHandle.IsValid())
+	if (ASC && ActionAimTagDelegateHandle.IsValid())
 	{
 		ASC->UnregisterGameplayTagEvent(
-			AimTagDelegateHandle, AimingTag(), EGameplayTagEventType::NewOrRemoved);
+			ActionAimTagDelegateHandle, ActionAimingTag(),
+			EGameplayTagEventType::NewOrRemoved);
+	}
+	if (ASC && KinsectAimTagDelegateHandle.IsValid())
+	{
+		ASC->UnregisterGameplayTagEvent(
+			KinsectAimTagDelegateHandle, KinsectAimingTag(),
+			EGameplayTagEventType::NewOrRemoved);
 	}
 
-	AimTagDelegateHandle.Reset();
+	ActionAimTagDelegateHandle.Reset();
+	KinsectAimTagDelegateHandle.Reset();
 	ASC = nullptr;
 	bIsAiming = false;
+	bActionAimActive = false;
 	ClearTargetDisplay();
 }
 
@@ -106,7 +129,7 @@ void UMHGZAimComponent::TickComponent(float DeltaTime, ELevelTick TickType,
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
-	if (!bIsAiming) return;
+	if (!bIsAiming && !bActionAimActive) return;
 
 	// 受击/击倒：仅暂停射线并清空当前目标显示；不触碰任何 Tag（Tag 由持有时方移除）
 	if (ASC && (ASC->HasMatchingGameplayTag(AimHitstunTag()) ||
@@ -204,11 +227,13 @@ FWeaponAimSnapshot UMHGZAimComponent::CaptureAimSnapshot(EWeaponAimSnapshotConte
 	if (GetWorld() && GetWorld()->LineTraceSingleByChannel(
 		Hit, Snapshot.Origin, Snapshot.TargetPoint, AimChannel, QueryParams))
 	{
+		Snapshot.bHasBlockingHit = Hit.bBlockingHit;
+		Snapshot.BlockingHit = Hit;
+		Snapshot.TargetPoint = Hit.ImpactPoint;
 		if (ResolveAimHitzone(Hit))
 		{
 			Snapshot.bHasHitResult = true;
 			Snapshot.HitResult = Hit;
-			Snapshot.TargetPoint = Hit.ImpactPoint;
 		}
 	}
 	return Snapshot;
@@ -332,17 +357,22 @@ void UMHGZAimComponent::ClearTargetDisplay()
 
 void UMHGZAimComponent::OnAimingTagChanged(const FGameplayTag Tag, int32 NewCount)
 {
-	bIsAiming = (NewCount > 0);
-
-	if (!bIsAiming)
+	if (Tag.MatchesTagExact(ActionAimingTag()))
 	{
-		CurrentAimTarget = nullptr;
-		CurrentAimHitzoneTag = FGameplayTag();
-		CurrentAimExtractColor = FGameplayTag();
-		PreviousTarget = nullptr;
-		PreviousHitzoneTag = FGameplayTag();
-		PreviousExtractColor = FGameplayTag();
+		bActionAimActive = NewCount > 0;
+	}
+	else if (Tag.MatchesTagExact(KinsectAimingTag()))
+	{
+		bIsAiming = NewCount > 0;
+	}
 
-		OnAimTargetChanged.Broadcast(nullptr, FGameplayTag(), FGameplayTag());
+	if (bIsAiming || bActionAimActive)
+	{
+		// 进入/切换瞄准模式时立即刷新，避免沿用上一个模式的目标颜色一帧。
+		PerformAimTrace();
+	}
+	else
+	{
+		ClearTargetDisplay();
 	}
 }

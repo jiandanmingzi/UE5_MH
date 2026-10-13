@@ -371,6 +371,8 @@ private:
 	FString RuntimeTelemetryMovementPhasesFilePath;
 	FString RuntimeTelemetryRootMotionSourcesFilePath;
 	FString RuntimeTelemetryCapsuleHitsFilePath;
+	FString RuntimeTelemetryCombatEventsFilePath;
+	FString RuntimeTelemetryUIEventsFilePath;
 	FString RuntimeTelemetryMMQueryFilePath;
 	FString RuntimeTelemetryMMSelectionFilePath;
 	FString RuntimeTelemetryAnimationFilePath;
@@ -389,6 +391,8 @@ private:
 	TArray<FString> RuntimeTelemetryMovementPhasePendingRows;
 	TArray<FString> RuntimeTelemetryRootMotionSourcesPendingRows;
 	TArray<FString> RuntimeTelemetryCapsuleHitsPendingRows;
+	TArray<FString> RuntimeTelemetryCombatEventsPendingRows;
+	TArray<FString> RuntimeTelemetryUIEventsPendingRows;
 	TArray<FString> RuntimeTelemetryMMQueryPendingRows;
 	TArray<FString> RuntimeTelemetryMMSelectionPendingRows;
 	TArray<FString> RuntimeTelemetryAnimationPendingRows;
@@ -397,6 +401,9 @@ private:
 	TArray<FString> RuntimeTelemetryMontageInstancesPendingRows;
 	uint64 RuntimeTelemetryLastObservedInputEventSerial = 0;
 	uint64 RuntimeTelemetryLastObservedCapsuleHitSerial = 0;
+	uint64 RuntimeTelemetryLastObservedCombatEventSerial = 0;
+	uint64 RuntimeTelemetryLastObservedUIEventSerial = 0;
+	TWeakObjectPtr<class AMHGZPlayerController> RuntimeTelemetryUIEventSource;
 	uint64 RuntimeTelemetryLastObservedMovementPhaseSerial = 0;
 	uint64 RuntimeTelemetryLastObservedActionVisualPitchEventSerial = 0;
 	/**
@@ -508,6 +515,8 @@ private:
 	void EnterActionIdleRoute(EMHGZMotionMatchingNode MotionMatchingNode);
 	void ClearActionIdleRoute(EMHGZMotionMatchingNode MotionMatchingNode);
 	void UpdateRuntimeTelemetry(const AMHGZCharacter* Character, float DeltaSeconds);
+	void CaptureCombatTelemetryEvents(const AMHGZCharacter* Character);
+	void CaptureUITelemetryEvents(const AMHGZCharacter* Character);
 	bool StartRuntimeTelemetry(const AMHGZCharacter* Character);
 	void StopRuntimeTelemetry();
 	void FlushRuntimeTelemetry();

@@ -42,8 +42,32 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Monster")
 	void GenerateHitzonesFromConfig(class UMHGZDummyConfig* Config);
 
+	/**
+	 * Resolve a gameplay hit point to the outer queryable visual-mesh surface.
+	 * A dedicated trace channel keeps this presentation query separate from
+	 * weapon, aim, and physical-blocking collision. If no mesh surface is queryable,
+	 * the caller should retain the gameplay collision point. The direction-aware
+	 * overload should be preferred when the incoming attack direction is available.
+	 */
+	virtual bool ResolveHitEffectVisualSurface(
+		const UMHGZMonsterHitzoneComponent* Hitzone,
+		const FVector& CollisionPoint,
+		const FVector& CollisionNormal,
+		FVector& OutVisualPoint,
+		FVector& OutVisualNormal) const;
+	/** Resolve using the direction from the impact back toward the incoming attack. */
+	virtual bool ResolveHitEffectVisualSurface(
+		const UMHGZMonsterHitzoneComponent* Hitzone,
+		const FVector& CollisionPoint,
+		const FVector& CollisionNormal,
+		const FVector& PreferredOutwardDirection,
+		FVector& OutVisualPoint,
+		FVector& OutVisualNormal) const;
+
 protected:
 	virtual void BeginPlay() override;
+	/** Enables only the dedicated mark-surface query on visible mesh components. */
+	void InitializeHitEffectVisualSurfaceCollision();
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;

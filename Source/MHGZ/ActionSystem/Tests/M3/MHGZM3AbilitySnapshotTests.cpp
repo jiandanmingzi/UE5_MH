@@ -110,10 +110,12 @@ bool FMHGZM3SendKinsectSnapshotConstruction::RunTest(const FString& Parameters)
 	TestEqual(TEXT("no kinsect active tag after rejections"),
 		H.ASC->GetTagCount(SnapshotKinsectActiveTag()), 0);
 
-	// ── 合法 LTY（吸附中）：AlongDirection + 归一化 Aim.Direction 快照 ──
+	// ── 合法 LTY（吸附中）：屏幕中心起点 + 冻结 TargetPoint ──
 	FWeaponInputSnapshot SendInput = M3::MakePosedInput(true, false);
 	SendInput.Aim.Context = EWeaponAimSnapshotContext::Kinsect;
 	SendInput.Aim.Direction = FVector(300.f, 0.f, 0.f); // 未归一化 → 构造时归一
+	SendInput.Aim.Origin = H.Character->GetActorLocation() + FVector(-600.f, 70.f, 200.f);
+	SendInput.Aim.TargetPoint = SendInput.Aim.Origin + FVector(2000.f, 0.f, 0.f);
 	TestTrue(TEXT("valid LTY send activates"), H.TryActivateWithInput(SendHandle, SendInput));
 	TestEqual(TEXT("kinsect remains attached before SendCommit"),
 		Kinsect->GetState(), EKinsectState::Attached);
@@ -127,8 +129,12 @@ bool FMHGZM3SendKinsectSnapshotConstruction::RunTest(const FString& Parameters)
 	TestEqual(TEXT("kinsect flying after send"), Kinsect->GetState(), EKinsectState::Flying);
 	TestTrue(TEXT("frozen runtime token preserved in flight request"),
 		Kinsect->ActiveRequest.RuntimeToken == H.Host->GetCurrentToken());
-	TestEqual(TEXT("attached send uses along-direction"),
-		Kinsect->ActiveRequest.TrajectoryMode, EKinsectTrajectoryMode::AlongDirection);
+	TestEqual(TEXT("attached send uses frozen target-point"),
+		Kinsect->ActiveRequest.TrajectoryMode, EKinsectTrajectoryMode::ToPoint);
+	TestTrue(TEXT("attached send starts on camera ray at hunter vertical plane"),
+		Kinsect->GetActorLocation().Equals(H.Character->GetActorLocation() + FVector(0.f, 70.f, 200.f)));
+	TestTrue(TEXT("attached send freezes target point"),
+		Kinsect->ActiveRequest.TargetPointSnapshot.Equals(SendInput.Aim.TargetPoint));
 	TestTrue(TEXT("aim direction frozen normalized"),
 		Kinsect->ActiveRequest.DirectionSnapshot.Equals(FVector(1.f, 0.f, 0.f)));
 	TestEqual(TEXT("max distance from kinsect data"),

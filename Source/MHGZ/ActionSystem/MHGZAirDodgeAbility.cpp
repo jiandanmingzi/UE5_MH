@@ -6,6 +6,7 @@
 #include "ActionSystem/AbilityTask_MHGZWeaponMovement.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
+#include "GameplayEffectTypes.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "GameFramework/Character.h"
@@ -393,6 +394,18 @@ void UMHGZAirDodgeAbility::ActivateAbility(const FGameplayAbilitySpecHandle Hand
 	if (!StartAirDodgeMovement())
 	{
 		RequestEndAction(EWeaponActionEndReason::Interrupted);
+		return;
+	}
+
+	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
+	{
+		AActor* Character = GetAvatarActorFromActorInfo();
+		FGameplayCueParameters CueParameters;
+		CueParameters.Instigator = Character;
+		CueParameters.EffectCauser = Character;
+		CueParameters.Location = Character ? Character->GetActorLocation() : FVector::ZeroVector;
+		ASC->ExecuteGameplayCue(FGameplayTag::RequestGameplayTag(
+			TEXT("GameplayCue.Character.Dodge")), CueParameters);
 	}
 }
 

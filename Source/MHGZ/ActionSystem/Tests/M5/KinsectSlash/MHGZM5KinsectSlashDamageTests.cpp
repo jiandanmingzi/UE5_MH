@@ -4,6 +4,7 @@
 
 #include "Misc/AutomationTest.h"
 
+#include "ActionSystem/MHGZAirDodgeAbility.h"
 #include "ActionSystem/AbilityTask_MHGZPlayMontageAndWait.h"
 #include "ActionSystem/AbilityTask_MHGZWeaponMovement.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
@@ -96,6 +97,15 @@ bool FMHGZM5KinsectSlashDamageResourceTest::RunTest(const FString& Parameters)
 		DamageTestTag(TEXT("Combat.State.Aerial.Falling"));
 	TestTrue(TEXT("activation spends the Host-owned CantAttack budget"),
 		Harness.ASC->HasMatchingGameplayTag(CantAttackTag));
+	TestTrue(TEXT("activation also spends Host-owned CantDodge through the later miss-fall phase"),
+		Harness.ASC->HasMatchingGameplayTag(CantDodgeTag));
+	const UMHGZAirDodgeAbility* AirDodgeCDO = GetDefault<UMHGZAirDodgeAbility>();
+	TestNotNull(TEXT("production Air Dodge CDO exists"), AirDodgeCDO);
+	if (AirDodgeCDO)
+	{
+		TestFalse(TEXT("spent CantDodge blocks Air Dodge while the aerial attack's fall continues"),
+			AirDodgeCDO->DoesAbilitySatisfyTagRequirements(*Harness.ASC));
+	}
 	TestFalse(TEXT("red extract starts absent"), Harness.Resource->HasExtract(RedExtractTag));
 
 	FHitResult Hit(Harness.TargetActor, Harness.Hitzone,
@@ -245,9 +255,9 @@ bool FMHGZM5KinsectSlashDamageResourceTest::RunTest(const FString& Parameters)
 	USkeletalMesh* CompatibleMesh = LoadObject<USkeletalMesh>(nullptr,
 		TEXT("/Game/Characters/Demo/Meshes/Body/SKM_Demo_Body.SKM_Demo_Body"));
 	UAnimMontage* PrimaryMontage = LoadObject<UAnimMontage>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash.AM_IG_KinsectSlash"));
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan.AM_IG_CaoChongZhan"));
 	UAnimMontage* DanceMontage = LoadObject<UAnimMontage>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash_Dance.AM_IG_KinsectSlash_Dance"));
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan_Dance.AM_IG_CaoChongZhan_Dance"));
 	const UInsectGlaiveCombatConfig* ProductionConfig = LoadObject<UInsectGlaiveCombatConfig>(nullptr,
 		TEXT("/Game/Weapons/InsectGlaive/Data/DA_IG_Combat.DA_IG_Combat"));
 	UAnimMontage* FallMontage = ProductionConfig ? ProductionConfig->GetAerialDodgeFallMontage() : nullptr;
@@ -317,7 +327,8 @@ bool FMHGZM5KinsectSlashDamageResourceTest::RunTest(const FString& Parameters)
 		NaturalAbility->HandleQueuedDanceTransition(NaturalToken, PrimaryMontageID);
 		if (!TestTrue(TEXT("successful damage commits the real Dance entry and resets its budget"),
 			NaturalAbility->IsActive() && NaturalAbility->bDanceEntryCommitted
-				&& !NaturalHarness.ASC->HasMatchingGameplayTag(CantAttackTag)))
+				&& !NaturalHarness.ASC->HasMatchingGameplayTag(CantAttackTag)
+				&& !NaturalHarness.ASC->HasMatchingGameplayTag(CantDodgeTag)))
 		{
 			NaturalHarness.Teardown();
 			return false;
@@ -396,6 +407,8 @@ bool FMHGZM5KinsectSlashDamageResourceTest::RunTest(const FString& Parameters)
 			NaturalHarness.ASC->HasMatchingGameplayTag(ActionableTag));
 		TestTrue(TEXT("actual reactivation spends the next Host-owned attack budget"),
 			NaturalHarness.ASC->HasMatchingGameplayTag(CantAttackTag));
+		TestTrue(TEXT("actual reactivation also spends the next Host-owned dodge budget"),
+			NaturalHarness.ASC->HasMatchingGameplayTag(CantDodgeTag));
 		NaturalHarness.Teardown();
 	}
 	return true;

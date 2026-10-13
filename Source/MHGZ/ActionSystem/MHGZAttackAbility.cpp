@@ -17,10 +17,10 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
+#include "WeaponRuntime/MHGZWeaponCombatConfig.h"
 
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "WeaponRuntime/MHGZWeaponCombatConfig.h"
 #endif
 
 namespace
@@ -145,6 +145,15 @@ EDataValidationResult UMHGZAttackAbility::IsDataValid(FDataValidationContext& Co
 			AddError(FString::Printf(
 				TEXT("AttackSegments[%d] must explicitly set MotionValue to 0 or a positive value."),
 				SegmentIndex));
+		}
+		for (const FScalableFloat* Multiplier : { &Segment.Damage.ElementMotionValue,
+			&Segment.Damage.PhysicalDamageMultiplier, &Segment.Damage.ElementDamageMultiplier })
+		{
+			const float Value = Multiplier->GetValueAtLevel(1.0f);
+			if (!FMath::IsFinite(Value) || Value < 0.0f)
+			{
+				AddError(FString::Printf(TEXT("AttackSegments[%d] elemental motion / damage multipliers must be finite and >= 0."), SegmentIndex));
+			}
 		}
 
 		if (Segment.MultiHitCount < 1)
@@ -291,7 +300,10 @@ void UMHGZAttackAbility::ActivateAbility(
 
 	FGameplayTagContainer ActionTags;
 	ActionTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")));
-	ActionTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
+	if (bBlockCharacterMovementDuringAction)
+	{
+		ActionTags.AddTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.BlockMovement")));
+	}
 	AcquireActionTags(ActionTags, FName(TEXT("AttackState")));
 
 	// 重置状态
@@ -625,6 +637,11 @@ bool UMHGZAttackAbility::PrepareDodgeSupersede(
 	return true;
 }
 
+bool UMHGZAttackAbility::HasPreparedDodgeSupersede() const
+{
+	return PendingDodgeSuperseder.IsValid();
+}
+
 bool UMHGZAttackAbility::CommitDodgeSupersede(
 	const FWeaponActionToken& DodgeActionToken)
 {
@@ -685,7 +702,7 @@ void UMHGZAttackAbility::OnMontageInterrupted()
 {
 	if (IsActive() && !bIsEndingAbility && !bMontageSuspendedForFollowup)
 	{
-		if (PendingDodgeSuperseder.IsValid())
+		if (HasPreparedDodgeSupersede())
 		{
 			return;
 		}
@@ -695,12 +712,6 @@ void UMHGZAttackAbility::OnMontageInterrupted()
 
 void UMHGZAttackAbility::ApplyDirectionCorrection()
 {
-	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
-	if (!Character)
-	{
-		return;
-	}
-
 	// Direction is frozen during input resolution; activation never re-reads the stick.
 	const FWeaponAbilityActivationContext& Context = GetWeaponActivationContext();
 	// WorldDirection is backed by the character's last non-zero movement direction,
@@ -711,8 +722,16 @@ void UMHGZAttackAbility::ApplyDirectionCorrection()
 		return;
 	}
 
-	ApplyDirectYawCorrection(*Character, Context.Input.WorldDirection,
-		ResolveActivationMaxCorrectionAngle(Context));
+	ApplyActivationDirectionCorrectionFromWorldDirection(
+		Context.Input.WorldDirection, ResolveActivationMaxCorrectionAngle(Context));
+}
+
+bool UMHGZAttackAbility::ApplyActivationDirectionCorrectionFromWorldDirection(
+	const FVector& WorldDirection, const float CorrectionAngleDegrees)
+{
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	return Character && ApplyDirectYawCorrection(*Character, WorldDirection,
+		CorrectionAngleDegrees);
 }
 
 void UMHGZAttackAbility::ApplyActivationDirectionCorrection()
@@ -768,6 +787,10 @@ bool UMHGZAttackAbility::ApplyInActionDirectionCorrectionWithDirection(
 {
 	if (!IsActive() || bIsEndingAbility || !IsActionActivationCommitted()
 		|| ActionToken != GetActionToken()
+		|| !FMath::IsFinite(MaxCorrectionAngleOverride)
+		|| !FMath::IsFinite(WorldDirection.X)
+		|| !FMath::IsFinite(WorldDirection.Y)
+		|| !FMath::IsFinite(WorldDirection.Z)
 		|| !FMath::IsFinite(CorrectionDuration) || CorrectionDuration < 0.0f
 		|| !FMath::IsFinite(MaxYawSpeedDegreesPerSecond)
 		|| MaxYawSpeedDegreesPerSecond < 0.0f)
@@ -797,6 +820,58 @@ bool UMHGZAttackAbility::ApplyInActionDirectionCorrectionWithDirection(
 		return false;
 	}
 
+	return StartInActionDirectionCorrection(ActionToken, *Character, DeltaYaw,
+		CorrectionDuration, MaxYawSpeedDegreesPerSecond, Easing);
+}
+
+bool UMHGZAttackAbility::ApplyInActionDirectionCorrectionToYaw(
+	const FWeaponActionToken& ActionToken,
+	const float TargetYaw,
+	const float CorrectionDuration,
+	const float MaxYawSpeedDegreesPerSecond,
+	const EActionDirectionCorrectionEasing Easing)
+{
+	if (!FMath::IsFinite(TargetYaw))
+	{
+		return false;
+	}
+
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (!Character)
+	{
+		return false;
+	}
+
+	const float DeltaYaw = FMath::FindDeltaAngleDegrees(
+		Character->GetActorRotation().Yaw, TargetYaw);
+	return StartInActionDirectionCorrection(ActionToken, *Character, DeltaYaw,
+		CorrectionDuration, MaxYawSpeedDegreesPerSecond, Easing);
+}
+
+bool UMHGZAttackAbility::StartInActionDirectionCorrection(
+	const FWeaponActionToken& ActionToken,
+	ACharacter& Character,
+	const float DeltaYaw,
+	const float CorrectionDuration,
+	const float MaxYawSpeedDegreesPerSecond,
+	const EActionDirectionCorrectionEasing Easing)
+{
+	if (!IsActive() || bIsEndingAbility || !IsActionActivationCommitted()
+		|| ActionToken != GetActionToken()
+		|| !FMath::IsFinite(DeltaYaw)
+		|| !FMath::IsFinite(CorrectionDuration) || CorrectionDuration < 0.0f
+		|| !FMath::IsFinite(MaxYawSpeedDegreesPerSecond)
+		|| MaxYawSpeedDegreesPerSecond < 0.0f)
+	{
+		return false;
+	}
+
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	if (!Host || !Host->IsTokenCurrent(ActionToken.RuntimeToken))
+	{
+		return false;
+	}
+
 	// A later notify always supersedes an unfinished correction from this action,
 	// including when the new request is the legacy instantaneous form.
 	if (UAbilityTask_MHGZActionDirectionCorrection* ExistingTask =
@@ -805,20 +880,24 @@ bool UMHGZAttackAbility::ApplyInActionDirectionCorrectionWithDirection(
 		ExistingTask->EndTask();
 	}
 	ActiveDirectionCorrectionTask = nullptr;
+	if (FMath::IsNearlyZero(DeltaYaw, 0.01f))
+	{
+		return true;
+	}
 
 	// Duration zero is the backward-compatible one-frame correction path.
 	if (CorrectionDuration <= 0.0f)
 	{
-		FRotator CorrectedRotation = Character->GetActorRotation();
+		FRotator CorrectedRotation = Character.GetActorRotation();
 		CorrectedRotation.Yaw = FRotator::NormalizeAxis(
 			CorrectedRotation.Yaw + DeltaYaw);
-		Character->SetActorRotation(CorrectedRotation);
+		Character.SetActorRotation(CorrectedRotation);
 		return true;
 	}
 
 	UAbilityTask_MHGZActionDirectionCorrection* DirectionTask =
 		UAbilityTask_MHGZActionDirectionCorrection::StartCorrection(
-			this, ActionToken, Character, Character->GetActorRotation().Yaw,
+			this, ActionToken, &Character, Character.GetActorRotation().Yaw,
 			DeltaYaw, CorrectionDuration, MaxYawSpeedDegreesPerSecond, Easing);
 	if (!DirectionTask || !DirectionTask->DidAcquireRotationOverride())
 	{
@@ -1085,7 +1164,7 @@ void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
 						continue;
 					}
 					UMHGZMonsterHitzoneComponent* Hitzone =
-						Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+						UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
 					if (!Hitzone || (Collision.HitzoneQueryTag.IsValid() &&
 						!Hitzone->HitzoneTag.MatchesTagExact(Collision.HitzoneQueryTag)))
 					{
@@ -1145,7 +1224,7 @@ void UMHGZAttackAbility::ProcessSweepHit(const FHitResult& Hit, int32 SegmentInd
 		return;
 	}
 
-	UMHGZMonsterHitzoneComponent* Hitzone = Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+	UMHGZMonsterHitzoneComponent* Hitzone = UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
 	if (!Hitzone) return;
 
 	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
@@ -1442,6 +1521,14 @@ FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
 		Context->AttackInstanceID = ActivationAttackInstanceID;
 		Context->SourceActionTag = InputTag; // 输入标签即动作身份
 		Context->DamageSourceType = EMHGZDamageSourceType::Weapon;
+		Context->PhysicalDamageType = Seg.Damage.PhysicalDamageType;
+		if (const UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
+		{
+			if (const UWeaponCombatConfigBase* Combat = Host->GetCurrentContext().CombatConfig.Get())
+			{
+				Context->WeaponDamageProfile = Combat->DamageProfile;
+			}
+		}
 		Context->bUseHitzoneDefense = Seg.Damage.bUseHitzoneDefense;
 		Context->HitStaggerTag = Seg.Damage.HitStaggerTag;
 		Context->HitCueTag = Seg.Damage.HitCueTag;
@@ -1450,7 +1537,7 @@ FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
 		Context->CameraShakeClass = Seg.Damage.CameraShakeClass;
 		Context->CameraShakeScale = Seg.Damage.CameraShakeScale;
 		if (const UMHGZMonsterHitzoneComponent* Hitzone =
-			Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent()))
+			UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent()))
 		{
 			Context->HitzoneTag = Hitzone->HitzoneTag;
 		}
@@ -1469,6 +1556,15 @@ FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
 	Spec.Data->SetSetByCallerMagnitude(
 		FGameplayTag::RequestGameplayTag(TEXT("Damage.MotionValue")),
 		Seg.Damage.MotionValue.GetValueAtLevel(GetAbilityLevel()));
+	Spec.Data->SetSetByCallerMagnitude(
+		FGameplayTag::RequestGameplayTag(TEXT("Damage.ElementMotionValue")),
+		Seg.Damage.ElementMotionValue.GetValueAtLevel(GetAbilityLevel()));
+	Spec.Data->SetSetByCallerMagnitude(
+		FGameplayTag::RequestGameplayTag(TEXT("Damage.PhysicalMultiplier")),
+		Seg.Damage.PhysicalDamageMultiplier.GetValueAtLevel(GetAbilityLevel()));
+	Spec.Data->SetSetByCallerMagnitude(
+		FGameplayTag::RequestGameplayTag(TEXT("Damage.ElementMultiplier")),
+		Seg.Damage.ElementDamageMultiplier.GetValueAtLevel(GetAbilityLevel()));
 
 	// 基础破坏值
 	Spec.Data->SetSetByCallerMagnitude(
@@ -1477,7 +1573,7 @@ FGameplayEffectSpecHandle UMHGZAttackAbility::MakeDamageSpec(
 
 	// DynamicAssetTag 只作调试镜像；结算与反馈以 Context 为真相源。
 	const UMHGZMonsterHitzoneComponent* Hitzone =
-		Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+		UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
 	if (Seg.Damage.bUseHitzoneDefense && Hitzone && Hitzone->HitzoneTag.IsValid())
 	{
 		Spec.Data->AddDynamicAssetTag(Hitzone->HitzoneTag);

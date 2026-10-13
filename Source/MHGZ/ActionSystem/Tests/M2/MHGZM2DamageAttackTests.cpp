@@ -79,6 +79,12 @@ bool FMHGZM2ContextDuplicateFeedbackFields::RunTest(const FString& Parameters)
 	Context->HitzoneTag = FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Head"));
 	Context->bUseHitzoneDefense = false;
 	Context->DamageSourceType = EMHGZDamageSourceType::Weapon;
+	Context->PhysicalDamageType = EMHGZPhysicalDamageType::Blunt;
+	Context->WeaponDamageProfile.ElementType = EMHGZElementType::Fire;
+	Context->WeaponDamageProfile.PhysicalSharpnessMultiplier = 1.32f;
+	Context->WeaponDamageProfile.ElementSharpnessMultiplier = 1.15f;
+	Context->WeaponDamageProfile.CriticalDamageMultiplier = 1.40f;
+	Context->WeaponDamageProfile.CriticalElementMultiplier = 1.35f;
 	Context->HitCueTag = FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.Slash"));
 	Context->ElementCueTag = FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.Fire"));
 	Context->HitStaggerTag = FGameplayTag::RequestGameplayTag(TEXT("Combat.Stagger.Light"));
@@ -106,6 +112,12 @@ bool FMHGZM2ContextDuplicateFeedbackFields::RunTest(const FString& Parameters)
 	TestEqual(TEXT("SourceActionTag survives Duplicate"), Duplicate->SourceActionTag, Context->SourceActionTag);
 	TestEqual(TEXT("HitzoneTag survives Duplicate"), Duplicate->HitzoneTag, Context->HitzoneTag);
 	TestFalse(TEXT("hitzone-defense switch survives Duplicate"), Duplicate->bUseHitzoneDefense);
+	TestEqual(TEXT("physical damage type survives Duplicate"), Duplicate->PhysicalDamageType, Context->PhysicalDamageType);
+	TestEqual(TEXT("element type survives Duplicate"), Duplicate->WeaponDamageProfile.ElementType, Context->WeaponDamageProfile.ElementType);
+	TestEqual(TEXT("physical sharpness survives Duplicate"), Duplicate->WeaponDamageProfile.PhysicalSharpnessMultiplier, 1.32f);
+	TestEqual(TEXT("element sharpness survives Duplicate"), Duplicate->WeaponDamageProfile.ElementSharpnessMultiplier, 1.15f);
+	TestEqual(TEXT("physical crit multiplier survives Duplicate"), Duplicate->WeaponDamageProfile.CriticalDamageMultiplier, 1.40f);
+	TestEqual(TEXT("element crit multiplier survives Duplicate"), Duplicate->WeaponDamageProfile.CriticalElementMultiplier, 1.35f);
 	TestEqual(TEXT("HitCueTag survives Duplicate"), Duplicate->HitCueTag, Context->HitCueTag);
 	TestEqual(TEXT("ElementCueTag survives Duplicate"), Duplicate->ElementCueTag, Context->ElementCueTag);
 	TestEqual(TEXT("HitStaggerTag survives Duplicate"), Duplicate->HitStaggerTag, Context->HitStaggerTag);
@@ -216,7 +228,7 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 		return true;
 	};
 
-	// 第一次：MotionValue=0 → 零扣血，但真实命中仍产生一次反馈。
+	// 第一次：MotionValue=0 → 零扣血；命中反馈保留，但不生成伤害数字Cue。
 	const int32 InitialCueCount = Router->GetExecutedCueCount();
 	if (!TestTrue(TEXT("zero-MotionValue hit applies"), ApplyHit(0.f)))
 	{
@@ -224,8 +236,8 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestEqual(TEXT("zero MotionValue keeps full health"), TargetAttributes->GetHealth(), 1000.f);
-	TestEqual(TEXT("zero MotionValue produces one feedback pass"), Router->GetExecutedCueCount(), InitialCueCount + 2);
-	TestEqual(TEXT("damage number carries zero damage"),
+	TestEqual(TEXT("zero MotionValue keeps the physical hit cue only"), Router->GetExecutedCueCount(), InitialCueCount + 1);
+	TestEqual(TEXT("zero damage does not update damage-number magnitude"),
 		Router->GetLastDamageNumberMagnitude(), 0.f);
 
 	// Meta 原子清空：一次结算后四个 Meta 全部回到 0。
@@ -241,8 +253,8 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestEqual(TEXT("positive MotionValue uses hitzone defense"), TargetAttributes->GetHealth(), 950.f);
-	TestEqual(TEXT("second hit produces exactly one more feedback pass"),
-		Router->GetExecutedCueCount(), InitialCueCount + 4);
+	TestEqual(TEXT("positive damage adds one damage-number cue"),
+		Router->GetExecutedCueCount(), InitialCueCount + 3);
 	TestEqual(TEXT("damage number carries actual damage"),
 		Router->GetLastDamageNumberMagnitude(), 50.f);
 	TestEqual(TEXT("IncomingDamage cleared after second hit"), TargetAttributes->GetIncomingDamage(), 0.f);
@@ -259,7 +271,7 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 	TestEqual(TEXT("disabled hitzone defense bypasses multiplier"),
 		TargetAttributes->GetHealth(), 850.f);
 	TestEqual(TEXT("third hit produces exactly one more feedback pass"),
-		Router->GetExecutedCueCount(), InitialCueCount + 6);
+		Router->GetExecutedCueCount(), InitialCueCount + 5);
 	TestEqual(TEXT("bypassed damage number carries 100"),
 		Router->GetLastDamageNumberMagnitude(), 100.f);
 

@@ -51,8 +51,9 @@ void UMHGZWeaponResourceComponent::ReleaseReservation(const FWeaponResourceCostR
 {
 }
 
-void UMHGZWeaponResourceComponent::ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation)
+bool UMHGZWeaponResourceComponent::ConsumeReservedCosts(const FWeaponResourceCostReservation& Reservation)
 {
+	return !Reservation.IsValid();
 }
 
 UAbilitySystemComponent* UMHGZWeaponResourceComponent::GetPlayerASC() const

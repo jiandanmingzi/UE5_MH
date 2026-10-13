@@ -34,6 +34,8 @@ FWeaponInputSnapshot MakeKinsectAimInput()
 		/*bSheathed=*/false);
 	Input.Aim.Context = EWeaponAimSnapshotContext::Kinsect;
 	Input.Aim.Direction = FVector(1.f, 0.f, 0.f);
+	Input.Aim.Origin = FVector(-600.f, 70.f, 200.f);
+	Input.Aim.TargetPoint = Input.Aim.Origin + Input.Aim.Direction * 2000.f;
 	return Input;
 }
 }

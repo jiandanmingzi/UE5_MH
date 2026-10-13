@@ -44,11 +44,11 @@
 namespace UE::MHGZ::KinsectPiercerAssetSetup
 {
 constexpr TCHAR MainMontagePackage[] =
-	TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectPiercer");
+	TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_QiangHuaCaoChongChuanCi");
 constexpr TCHAR LandingMontagePackage[] =
-	TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectPiercer_Over");
+	TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_QiangHuaCaoChongChuanCi_Over");
 constexpr TCHAR AbilityPackage[] =
-	TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_KinsectPiercer");
+	TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_QiangHuaCaoChongChuanCi");
 constexpr TCHAR SequenceDirectory[] =
 	TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Generated");
 constexpr TCHAR LegacyLandingSequencePath[] =
@@ -62,7 +62,7 @@ constexpr TCHAR RuntimeDefinitionPath[] =
 constexpr TCHAR GlaiveMeshPath[] =
 	TEXT("/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_IG_Glaive.SKM_IG_Glaive");
 constexpr TCHAR ExistingAttackBlueprintPath[] =
-	TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_KinsectSlash.GA_IG_KinsectSlash");
+	TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_CaoChongZhan.GA_IG_CaoChongZhan");
 constexpr TCHAR DefaultSlotName[] = TEXT("DefaultSlot");
 constexpr TCHAR TargetTransitionID[] = TEXT("Air_KinsectPiercer_RTY");
 constexpr TCHAR TargetStateName[] = TEXT("IG.Aerial.KinsectPiercer");
@@ -2241,7 +2241,7 @@ bool ExecuteSetup(FSetupRun& Run)
 	FAttackCollisionConfig* ReferenceCollision = FindReferenceCollision(ExistingSlashAbility);
 	if (!ReferenceCollision)
 	{
-		Run.Error(TEXT("Could not resolve a working WeaponTrace collision channel/HitzoneQueryTag from GA_IG_KinsectSlash."));
+		Run.Error(TEXT("Could not resolve a working WeaponTrace collision channel/HitzoneQueryTag from GA_IG_CaoChongZhan."));
 	}
 
 	AddCombatConfigReport(Run, CombatConfig);
@@ -2315,7 +2315,7 @@ bool ExecuteSetup(FSetupRun& Run)
 
 	FMontagePlan MainPlan;
 	MainPlan.PackageName = MainMontagePackage;
-	MainPlan.AssetName = TEXT("AM_IG_KinsectPiercer");
+	MainPlan.AssetName = TEXT("AM_IG_QiangHuaCaoChongChuanCi");
 	MainPlan.ObjectPath = MakeAssetObjectPath(MainPlan.PackageName, MainPlan.AssetName);
 	MainPlan.Skeleton = Sequences[0].Source ? Sequences[0].Source->GetSkeleton() : nullptr;
 	MainPlan.Montage = LoadTargetAsset<UAnimMontage>(Run, MainPlan.ObjectPath,
@@ -2323,7 +2323,7 @@ bool ExecuteSetup(FSetupRun& Run)
 	MainPlan.bIsNew = !MainPlan.bWasExisting && Run.bApply;
 	FMontagePlan LandingPlan;
 	LandingPlan.PackageName = LandingMontagePackage;
-	LandingPlan.AssetName = TEXT("AM_IG_KinsectPiercer_Over");
+	LandingPlan.AssetName = TEXT("AM_IG_QiangHuaCaoChongChuanCi_Over");
 	LandingPlan.ObjectPath = MakeAssetObjectPath(LandingPlan.PackageName, LandingPlan.AssetName);
 	LandingPlan.Skeleton = Sequences[0].Source ? Sequences[0].Source->GetSkeleton() : nullptr;
 	LandingPlan.Montage = LoadTargetAsset<UAnimMontage>(Run, LandingPlan.ObjectPath,
@@ -2342,7 +2342,7 @@ bool ExecuteSetup(FSetupRun& Run)
 		}
 	}
 
-	UObject* AbilityObject = LoadAnyAsset(MakeAssetObjectPath(AbilityPackage, TEXT("GA_IG_KinsectPiercer")));
+	UObject* AbilityObject = LoadAnyAsset(MakeAssetObjectPath(AbilityPackage, TEXT("GA_IG_QiangHuaCaoChongChuanCi")));
 	UBlueprint* AbilityBlueprint = Cast<UBlueprint>(AbilityObject);
 	bool bAbilityExists = AbilityObject != nullptr;
 	if (AbilityObject && !AbilityBlueprint)
@@ -2357,7 +2357,7 @@ bool ExecuteSetup(FSetupRun& Run)
 	if (AbilityBlueprint && (!AbilityBlueprint->GeneratedClass
 		|| !AbilityBlueprint->GeneratedClass->IsChildOf(UMHGZKinsectPiercerAbility::StaticClass())))
 	{
-		Run.Error(TEXT("Existing GA_IG_KinsectPiercer Blueprint is not derived from UMHGZKinsectPiercerAbility."));
+		Run.Error(TEXT("Existing GA_IG_QiangHuaCaoChongChuanCi Blueprint is not derived from UMHGZKinsectPiercerAbility."));
 	}
 	const bool bAbilityNew = !bAbilityExists && Run.bApply;
 	if (bAbilityNew && Run.Errors.IsEmpty())
@@ -2365,7 +2365,7 @@ bool ExecuteSetup(FSetupRun& Run)
 		UPackage* Package = CreatePackage(AbilityPackage);
 		AbilityBlueprint = Package ? FKismetEditorUtilities::CreateBlueprint(
 			UMHGZKinsectPiercerAbility::StaticClass(), Package,
-			FName(TEXT("GA_IG_KinsectPiercer")), BPTYPE_Normal,
+			FName(TEXT("GA_IG_QiangHuaCaoChongChuanCi")), BPTYPE_Normal,
 			UBlueprint::StaticClass(), UBlueprintGeneratedClass::StaticClass(),
 			FName(TEXT("MHGZM5KinsectPiercerAssetSetup"))) : nullptr;
 		if (!AbilityBlueprint || !AbilityBlueprint->GeneratedClass)

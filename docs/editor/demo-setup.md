@@ -406,11 +406,11 @@ M4-A 的最小 Y 拔刀只先配置下列两条边；这不是完整地面连招
 | TransitionID（建议） | SourceState → TargetState | InputTag | Direction | RequiredTags | AbilityClass | 关键约束 |
 |---|---|---|---|---|---|---|
 | `IG_DrawOnly` | `Idle → DrawOnly` | `Input.Weapon.Y` | `None` | `Combat.State.Grounded`、`Combat.State.Sheathed` | `GA_IG_Draw` | `None` 是**不要求方向**的通配项，覆盖无、左、右、后输入；无 AttackSegment，只播放拔刀。 |
-| `IG_DrawSlash_Forward` | `Idle → GroundStarter` | `Input.Weapon.Y` | `Forward` | `Combat.State.Grounded`、`Combat.State.Sheathed` | `GA_IG_DrawSlash` | 具体 `Forward` 天然优先于 `None`；配置一个或多个正式 AttackSegment。 |
+| `IG_DrawSlash_Forward` | `Idle → GroundStarter` | `Input.Weapon.Y` | `Forward` | `Combat.State.Grounded`、`Combat.State.Sheathed` | `GA_IG_BaDaoZhan` | 具体 `Forward` 天然优先于 `None`；配置一个或多个正式 AttackSegment。 |
 
-两行的 `ExecutionPolicy=ActivateAbility`、`StatePolicy=Replace`、`GrantTiming=OnActivation`、`bRequiresComboWindow=false`；不需要为前推 Y 新增 Chord。`GA_IG_Draw` 或 `GA_IG_DrawSlash` 结束后由 Coordinator 按其精确 ActionToken 回到 Idle。不要在 `RequiredTags` 里加 `Unsheathed`，也不要在 Blueprint Event Graph 写 `SetSheathed(false)`。
+两行的 `ExecutionPolicy=ActivateAbility`、`StatePolicy=Replace`、`GrantTiming=OnActivation`、`bRequiresComboWindow=false`；不需要为前推 Y 新增 Chord。`GA_IG_Draw` 或 `GA_IG_BaDaoZhan` 结束后由 Coordinator 按其精确 ActionToken 回到 Idle。不要在 `RequiredTags` 里加 `Unsheathed`，也不要在 Blueprint Event Graph 写 `SetSheathed(false)`。
 
-**PIE 修复检查：** `DA_IG_Combo` 必须实际引用 `IG_DrawOnly` 的最终 Draw Ability，否则 RuntimeHost 不会授予该 GA，Y 即使已由 Router 解析为 `Input.Weapon.Y` 也不会拔刀。现有 `GA_IG_BaDao` 若已确认父类为 `UMHGZDrawAttackAbility`、`AttackMontage` 已填且 Montage 有原生 `Draw Commit`，可直接填入 `IG_DrawOnly.AbilityClass`；资产名不参与运行时匹配。是否改名为 `GA_IG_Draw` 仅是后续统一命名的整理，不是本轮 PIE 的前置条件。`GA_IG_DrawSlash` 未完成时，不创建或不保留指向空类的 Forward 边，不能用旧 `GA_IG_TuCi` 代替。
+**PIE 修复检查：** `DA_IG_Combo` 必须实际引用 `IG_DrawOnly` 的最终 Draw Ability，否则 RuntimeHost 不会授予该 GA，Y 即使已由 Router 解析为 `Input.Weapon.Y` 也不会拔刀。现有 `GA_IG_BaDao` 若已确认父类为 `UMHGZDrawAttackAbility`、`AttackMontage` 已填且 Montage 有原生 `Draw Commit`，可直接填入 `IG_DrawOnly.AbilityClass`；资产名不参与运行时匹配。是否改名为 `GA_IG_Draw` 仅是后续统一命名的整理，不是本轮 PIE 的前置条件。`GA_IG_BaDaoZhan` 未完成时，不创建或不保留指向空类的 Forward 边，不能用旧 `GA_IG_TuCi` 代替。
 
 E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Priority、非法 StateOnly 和缺失 AbilityClass。E3 的临时空壳不是阶段最终验收数据，不得拿它运行 PIE 或宣称 Combo 已完成。
 
@@ -430,13 +430,13 @@ E4 回填完成后运行 Data Validation，消除重复 TransitionID、并列 Pr
 | 精华 GE | White、Orange、Red、TripleUp 四个 GE | `DA_IG_Combat` Data Validation 必需；E4-A 可不做三灯 UI，但不能留空 |
 | 猎虫 GA | `GA_IG_DrawAndSendKinsect`、`GA_IG_SendKinsect`、`GA_IG_RecallKinsect` | 分别对应收刀 RT、持刀 LT+Y、持刀 LT+B |
 | 通用 GA | `GA_Sheathe` | 持刀地面 RB 纳刀；M4-A 先创建并编译原生父类 `UMHGZSheatheAbility`，再创建此最终蓝图子类；只加入 CoreAbilities |
-| 地面动作 | `GA_IG_Draw` 与 `GA_IG_DrawSlash` 各一个 GA/Montage | 收刀 Y 无/左/右/后只拔刀；收刀前+Y 拔刀攻击；二者通过同一 `Input.Weapon.Y` 的两条 Combo 边分流 |
+| 地面动作 | `GA_IG_Draw` 与 `GA_IG_BaDaoZhan` 各一个 GA/Montage | 收刀 Y 无/左/右/后只拔刀；收刀前+Y 拔刀攻击；二者通过同一 `Input.Weapon.Y` 的两条 Combo 边分流 |
 
 按以下顺序操作：
 
 1. 完成 `DA_IG_Kinsect_Speed`、四个精华 GE 与 `DA_IG_Combat` 回填；创建角色 Skeleton 的 `Kinsect_Arm_Socket`，填入 `KinsectAttachSocket`。这一步通过 **E4-A 阶段范围**的 Data Validation 后，才允许启动 E4-A PIE；全 Content 验证留给 E7。M6/E6 前 `DA_WeaponRuntime_IG.ResourceWidgetClass` 保持 `None`，不得创建占位 Widget。
 2. 在 InputProfile 至少确认 Y、B、LT、RT、RB 的 RawAction 映射，并完成 `Input.Weapon.RT`、`Input.Weapon.LTY`、`Input.Weapon.LTB`、`Input.Sheathe` 和唯一 `Input.Weapon.Y` Chord。Y 不添加方向 ContextTag；收刀 RT 必须保持 `Sheathed+Grounded`，Sheathe 必须保持 `Unsheathed+Grounded`；不要为了先测试删除 ContextTags。
-3. 创建三个猎虫 GA 蓝图子类。`GA_IG_Draw`、`GA_IG_DrawSlash` 继承 `UMHGZDrawAttackAbility`，各自有完整拔刀 Montage，并仅由上一节的两条 `DA_IG_Combo` Transition 引用。`GA_IG_DrawAndSendKinsect` 则继承 `UMHGZDrawAndSendKinsectAbility`：它是无伤害、可移动的上半身动作，不继承攻击链，必须填写 `ActionMontage`，通常直接复用 `AM_IG_SendKinsect`。三个猎虫 GA 与两个 Y 拔刀 GA 都不在 Event Graph 实现姿态、Montage、Resource 或 Coordinator 逻辑。
+3. 创建三个猎虫 GA 蓝图子类。`GA_IG_Draw`、`GA_IG_BaDaoZhan` 继承 `UMHGZDrawAttackAbility`，各自有完整拔刀 Montage，并仅由上一节的两条 `DA_IG_Combo` Transition 引用。`GA_IG_DrawAndSendKinsect` 则继承 `UMHGZDrawAndSendKinsectAbility`：它是无伤害、可移动的上半身动作，不继承攻击链，必须填写 `ActionMontage`，通常直接复用 `AM_IG_SendKinsect`。三个猎虫 GA 与两个 Y 拔刀 GA 都不在 Event Graph 实现姿态、Montage、Resource 或 Coordinator 逻辑。
 4. 收刀所需的 ActionToken 阶段、Montage Root Motion 所有权、原生 `AnimNotify_SheatheCommit` 与 `UMHGZSheatheAbility` 已完成；现在创建/保留下方规定的最终收刀 Montage、数据型 `GA_Sheathe` 子类，并且只把它加入 `BP_PlayerState` 的 CoreAbilities。前向 `GA_Dodge` 及其 Montage 已完成；M4-A.3.1 的新字段现已编译，可为持刀 Left/Right/Back 创建并配置方向 Montage。暂不创建其他地面/空中/特殊 GA，不配置完整 Transitions，不创建虫印、粉尘、HUD 或正式猎虫表现资产。保存全部 E4-A/M4-A 资产后再 PIE 验证。
 
 `AM_Shth_ShouDao` 的精确接线：
@@ -470,7 +470,7 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 本节是当前唯一的**进入 L0 前编辑器门禁**；前置 C++ 校验合同已经完成。按下面顺序只检查/补齐尚未完成的项，不创建 M4-B、M5 或 M6 占位资产：
 
 1. 打开 `DA_WeaponRuntime_IG`，确认 `WeaponTypeTag=Weapon.InsectGlaive`、`ResourceComponentClass=URes_InsectGlaive`、`InputProfile=DA_IG_InputProfile`、`CombatConfig=DA_IG_Combat`；`ResourceWidgetClass` 必须是 `None`。保存。这里 `Resource` 有值而 Widget 为 `None` 是当前正确状态，不得创建空 Widget。
-2. 逐个打开并 Compile/Save：`GA_Sheathe`、`GA_Dodge`、`GA_IG_Draw`、`GA_IG_DrawSlash`、`GA_IG_DrawAndSendKinsect`、`GA_IG_SendKinsect`、`GA_IG_RecallKinsect`、`BP_PlayerState` 和 `ABP_MH_Character`。Message Log 不得有 Missing Class、Unknown Property、失效 Pin 或编译 Error。`GA_Sheathe`、`GA_Dodge` 只在 `BP_PlayerState.MHGZAbilitySystemComponent.CoreAbilities` 各出现一次；其余虫棍 GA 只由 `DA_IG_Combo` 的 Transition 授予。
+2. 逐个打开并 Compile/Save：`GA_Sheathe`、`GA_Dodge`、`GA_IG_Draw`、`GA_IG_BaDaoZhan`、`GA_IG_DrawAndSendKinsect`、`GA_IG_SendKinsect`、`GA_IG_RecallKinsect`、`BP_PlayerState` 和 `ABP_MH_Character`。Message Log 不得有 Missing Class、Unknown Property、失效 Pin 或编译 Error。`GA_Sheathe`、`GA_Dodge` 只在 `BP_PlayerState.MHGZAbilitySystemComponent.CoreAbilities` 各出现一次；其余虫棍 GA 只由 `DA_IG_Combo` 的 Transition 授予。
 3. 逐个保存 Montage：`AM_IG_SendKinsect` 使用 `IGActionGroup.UpperBody_IGAction`、in-place、无 Root Motion，且 `Draw Commit` 早于 `Kinsect Send Commit` 至少一帧；`AM_IG_RecallKinsect` 同 Slot、in-place、无 Root Motion，仅有 `Kinsect Recall Commit`。不要在这两个 Montage 上放 AttackCollision、ComboWindow、DodgeWindow、SheatheCommit 或 Action Root Motion Phase。
 4. 在 `ABP_MH_Character` 中，保留当前完整 MM 输出作为操虫 Slot 的基础姿势。`UpperBody_IGAction` Slot 从该基础姿势播放，再缓存 Slot 输出；一条 `Layered Blend per Bone` 以基础姿势为 Base、Slot 姿势为 Blend，Branch Filter 从 `Spine_00`（含全部后代）开始。用 `bKinsectUpperBodyOnly` 选择输出：无原始摇杆输入时选完整 Slot 姿势（全身操虫）；有原始摇杆输入时选分层结果（Spine_00 以下继续 MM）。选择器放在原有 `DefaultSlot` 之前，随后仍进入原有 `DefaultSlot` 和动作视觉 Pitch 后处理。不要把 `UpperBody_IGAction` 改成 `DefaultSlot`，也不要让选择器重启 Montage。
 5. 在 Content Browser 只选 E4-A 资产及其直接依赖：`DA_WeaponRuntime_IG`、`DA_IG_InputProfile`、`DA_IG_Combat`、`DA_IG_Combo`、四个 Extract GE、`DA_IG_Kinsect_Speed`、上述 GA 和 Montage。使用 `Tools -> Validate Data`（或资产右键的 Validate Data）验证；这一步不选 `DA_TrainingDummy`，其错误属于 E5-A。修正所选资产的错误后再次保存。
@@ -492,23 +492,23 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 
 ### 6.2 Ability 蓝图（E4.1 后续为 E4.3）
 
-旧 `GA_IG_BaDao`、`GA_IG_R_TuCI` 只属于已删除原型，不 re-parent、不 Duplicate、不复制 Event Graph。E4-A 先创建上一节表中不依赖新收刀父类的 GA；M4-A 创建并编译 `UMHGZSheatheAbility`、`UMHGZDrawAttackAbility` 与对应原生 Commit Notify 后，再建立最终 `GA_Sheathe`、`GA_IG_Draw`、`GA_IG_DrawSlash` 数据型子类。E4-B 再基于最终原生父类，在 `/Game/Blueprints/Ability/InsectGlaive` 新建其余 Demo 必需 Ability：
+旧 `GA_IG_BaDao`、`GA_IG_R_TuCI` 只属于已删除原型，不 re-parent、不 Duplicate、不复制 Event Graph。E4-A 先创建上一节表中不依赖新收刀父类的 GA；M4-A 创建并编译 `UMHGZSheatheAbility`、`UMHGZDrawAttackAbility` 与对应原生 Commit Notify 后，再建立最终 `GA_Sheathe`、`GA_IG_Draw`、`GA_IG_BaDaoZhan` 数据型子类。E4-B 再基于最终原生父类，在 `/Game/Blueprints/Ability/InsectGlaive` 新建其余 Demo 必需 Ability：
 
 - 现有《世界》地面基底和四个 Starter 动作。
 - `GA_IG_SendKinsect`（父类 `UMHGZSendKinsectAbility`）、`GA_IG_DrawAndSendKinsect`（父类 `UMHGZDrawAndSendKinsectAbility`）、`GA_IG_RecallKinsect`（父类 `UMHGZRecallKinsectAbility`）。
-- `GA_IG_Draw`、`GA_IG_DrawSlash`（均继承 `UMHGZDrawAttackAbility`；前者不配置 AttackSegments，后者配置最终攻击段；两个 Montage 都放原生 `AnimNotify_DrawCommit`）。
+- `GA_IG_Draw`、`GA_IG_BaDaoZhan`（均继承 `UMHGZDrawAttackAbility`；前者不配置 AttackSegments，后者配置最终攻击段；两个 Montage 都放原生 `AnimNotify_DrawCommit`）。
 - `GA_IG_TetrasealSlash`、`GA_IG_AdvancingRoundslash`。
 - `GA_IG_MarkSlash`（父类 `UMHGZMarkSlashAbility`）、`GA_IG_MarkTarget`（父类 `UMHGZMarkKinsectTargetAbility`，仅 LT+RT 虫印弹）、`GA_IG_PowderVortex`、`GA_IG_KinsectGlide`。
-- `GA_IG_AwakenedKinsectAttack`。
-- `GA_IG_KinsectSlash`；强化操虫穿刺最终名为 `GA_IG_KinsectPiercer`，不是旧规划名 `GA_IG_EnhancedKinsectSpiker`。穿刺原生类/生成器/生产资产及 E1 已完成，2026-10-01 E2 本轮平地范围已签收，见[本招计划 §13.5](../using/强化操虫穿刺实现计划.md)；不重建占位 GA 或重置用户判定窗。
-- `GA_IG_DescendingThrust`：M5 唯一剩余新增空中招式，待原生类与详细方案稳定后生成。`GA_IG_StrongJumpingSlash`、`GA_IG_DivingWyvern` 已移出 Demo，不创建对应 GA/Montage/Combo。
+- `GA_IG_JueChongJi`。
+- `GA_IG_CaoChongZhan`；强化操虫穿刺最终名为 `GA_IG_QiangHuaCaoChongChuanCi`，不是旧规划名 `GA_IG_EnhancedKinsectSpiker`。穿刺原生类/生成器/生产资产及 E1 已完成，2026-10-01 E2 本轮平地范围已签收，见[本招计划 §13.5](../archive/demo-2026-10-13/强化操虫穿刺实现计划.md)；不重建占位 GA 或重置用户判定窗。
+- `GA_IG_JiXiTuCi`：M5 唯一剩余新增空中招式，待原生类与详细方案稳定后生成。`GA_IG_StrongJumpingSlash`、`GA_IG_DivingWyvern` 已移出 Demo，不创建对应 GA/Montage/Combo。
 - `GA_Sheathe`（父类 `UMHGZSheatheAbility`；通用路由 `InputTag=Input.Sheathe`；仅 `Grounded+Unsheathed` 可激活，拒绝 Aerial/Dead/攻击/硬直/击倒/收刀中/翻滚中；播放 `AM_Shth_ShouDao`，静止/移动选段；`AnimNotify_SheatheCommit` 时由 RuntimeHost 切 Sheathed）。
 
 每个蓝图只配置数据：Montage、AttackSegments、成本、位移请求和动作特有参数；不要在 Event Graph 复制 Coordinator、资源状态机或直接操作 UI。武器动作必须继承重构后的虫棍动作基类，并保持 native `InstancedPerExecution`。旧拼音 GA 名称不作为最终资产名占位；最终名称按本节动作清单建立。
 
 `GA_Sheathe` 只在 `UMHGZSheatheAbility` 编译通过后创建；它不进入虫棍 ComboData，把它加入 `BP_PlayerState` 继承的 `MHGZAbilitySystemComponent.CoreAbilities`（与 `GA_Dodge` 同一通用授予入口）。其余 `Input.Weapon.*` 猎虫 GA 必须由 `DA_IG_Combo` 的 Transition 引用，RuntimeHost 才会按武器授予。
 
-拔刀路径（`GA_IG_Draw`、`GA_IG_DrawSlash`、收刀 RT 的 `GA_IG_DrawAndSendKinsect`，以及奔跑中进入这些路径）都在武器实际取出的原生 `AnimNotify_DrawCommit` 解析到当前 ActionToken 后，由对应 Ability 调用 `RuntimeHost->SetSheathed(false)` 并清 `bSprintHeld`。收刀 RT 的 `GA_IG_DrawAndSendKinsect` 以 `ActionMontage=AM_IG_SendKinsect` 播放无 Root Motion 的 `UpperBody_IGAction`；它没有 AttackSegments、`Attacking`、`BlockMovement` 或 MontageRootMotionOwner。该 Montage 后续的原生 `Kinsect Send Commit` 才按冻结 ActorForward 部署猎虫。不得在 Ability Event Graph、激活函数或 Montage 蓝图直接写姿态。纳刀由 `AnimNotify_SheatheCommit` 经 `GA_Sheathe` 调用 `SetSheathed(true)`。
+拔刀路径（`GA_IG_Draw`、`GA_IG_BaDaoZhan`、收刀 RT 的 `GA_IG_DrawAndSendKinsect`，以及奔跑中进入这些路径）都在武器实际取出的原生 `AnimNotify_DrawCommit` 解析到当前 ActionToken 后，由对应 Ability 调用 `RuntimeHost->SetSheathed(false)` 并清 `bSprintHeld`。收刀 RT 的 `GA_IG_DrawAndSendKinsect` 以 `ActionMontage=AM_IG_SendKinsect` 播放无 Root Motion 的 `UpperBody_IGAction`；它没有 AttackSegments、`Attacking`、`BlockMovement` 或 MontageRootMotionOwner。该 Montage 后续的原生 `Kinsect Send Commit` 才按冻结 ActorForward 部署猎虫。不得在 Ability Event Graph、激活函数或 Montage 蓝图直接写姿态。纳刀由 `AnimNotify_SheatheCommit` 经 `GA_Sheathe` 调用 `SetSheathed(true)`。
 
 #### M4.1.5：持刀送虫/收虫的上半身 Montage 接线
 
@@ -614,7 +614,7 @@ E4 开始时先创建数据型空壳 `DA_IG_Kinsect_Speed`（类型 `UInsectGlai
 
 ## 8. E6——UI 与 GameplayCue
 
-> **当前详细步骤（2026-10-06）：** 执行[E6非音效指导](m6-setup.md)，代码先按[M6计划](../using/m6-plan.md)完成。本节为总体布局；具体BindWidget名称、父类、Ready/解绑、资源快照及数字实现以两份新文档为准。音效不在本轮接线/验收范围。
+> **当前详细步骤（2026-10-06）：** 执行[E6非音效指导](m6-setup.md)，代码先按[M6计划](../archive/demo-2026-10-13/m6-plan.md)完成。本节为总体布局；具体BindWidget名称、父类、Ready/解绑、资源快照及数字实现以两份新文档为准。音效不在本轮接线/验收范围。
 
 ### 8.1 Widget
 

@@ -7,9 +7,11 @@
 #include "GameFramework/Actor.h"
 #include "GameplayTagContainer.h"
 #include "MHGZWeaponRuntimeTypes.h"
+#include "InsectGlaive/IGPowderTypes.h"
 #include "Kinsect.generated.h"
 
 class USkeletalMeshComponent;
+class UPrimitiveComponent;
 class UKinsectCollisionComponent;
 class UProjectileMovementComponent;
 class UInsectGlaiveKinsectData;
@@ -51,7 +53,7 @@ enum class EKinsectExtractMode : uint8
 {
 	None             UMETA(DisplayName = "不萃取"),
 	FirstHitOnly     UMETA(DisplayName = "仅首次命中记录"),
-	ApplyPerValidHit UMETA(DisplayName = "每次有效命中直接应用")
+	CollectPerValidHit UMETA(DisplayName = "每次有效命中携带不同精华，回手交付")
 };
 
 /** 飞行结束后的策略。 */
@@ -95,9 +97,36 @@ struct FKinsectFlightRequest
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FVector DirectionSnapshot = FVector::ForwardVector;
 
+	/** Ordinary aimed send: align an Attached kinsect to the saved ray at the owner's vertical plane. */
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	bool bProjectAttachedLaunchToAimRay = false;
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	FVector AimOriginSnapshot = FVector::ZeroVector;
+
 	/** ToPoint 模式下的目标点快照。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FVector TargetPointSnapshot = FVector::ZeroVector;
+
+	/** Aimed damaging send must physically touch a hitzone, not stop at a loose arrival radius. */
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	bool bRequireHitzoneContactForArrival = false;
+	/** Frozen blocking-surface normal, used only to keep the center-launch capsule outside the surface. */
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	FVector AimTargetSurfaceNormal = FVector::ZeroVector;
+
+	/** Optional ToPoint target that follows a component/bone from its local point. */
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	TWeakObjectPtr<UPrimitiveComponent> TargetComponent;
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	FName TargetBoneName = NAME_None;
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	FVector TargetLocalPoint = FVector::ZeroVector;
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	bool bFollowTargetComponent = false;
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	bool bAllowWorldHitAtTarget = false;
+	/** C++ action identity for the Resource-owned post-flight transaction. */
+	uint32 ActionActivationSequenceID = 0;
 
 	/** 最大飞行距离（自 FlightStartLocation 起算）。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight", meta = (ClampMin = "0.0"))
@@ -131,6 +160,20 @@ struct FKinsectFlightRequest
 	/** 本次 Flight 实例 ID；每次实际伤害另生成 HitInstanceID 供 Resolver 去重。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FGuid FlightInstanceID;
+
+	/** Per-hit powder policy, evaluated only after the matching damage GE succeeds. */
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	EIGPowderSpawnPolicy PowderSpawnPolicy = EIGPowderSpawnPolicy::None;
+
+	/** 请求所有者与当前Resource命令代数；自动请求另绑定虫印代数。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	EKinsectCommandSource CommandSource = EKinsectCommandSource::None;
+	uint64 CommandSerial = 0;
+	uint64 MarkSerial = 0;
+
+	/** Powder attribution identity; distinct from each successful hit's HitInstanceID. */
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
+	FGuid SourceAttackInstanceID;
 };
 
 /**
@@ -171,16 +214,33 @@ public:
 
 	// ── 飞行 API ──
 	/** 完整校验后原子提交一次飞行；校验失败不改变任何状态。 */
+	bool CanBeginFlight(const FKinsectFlightRequest& Request) const;
 	bool BeginFlight(const FKinsectFlightRequest& Request);
+	static bool ResolveScreenCenterLaunchOrigin(const FVector& CameraOrigin,
+		const FVector& CameraDirection, const FVector& OwnerLocation, FVector& OutOrigin);
+	/** 由同一动作租约将棍尾临时附着原子转换为飞行，不先回手。 */
+	bool BeginFlightFromActionAttachment(const FWeaponActionToken& ActionToken,
+		const FKinsectFlightRequest& Request);
 
 	/** 中断当前飞行/返回并转悬停；不清除 Pending 萃取。 */
 	void Interrupt();
 
 	/** 开始返回；幂等（Attached/Returning 时直接返回），保留 Pending。 */
-	void StartReturn();
+	bool StartReturn(uint64 CommandSerial = 0,
+		EKinsectCommandSource Source = EKinsectCommandSource::None);
 
 	/** 强制召回（耐力归零等）；保留 Pending。 */
-	void ForceRecall();
+	void ForceRecall(uint64 CommandSerial = 0,
+		EKinsectCommandSource Source = EKinsectCommandSource::System);
+	/** 自动寻印飞行中的目标更新，需同时匹配请求代数和虫印代数。 */
+	bool UpdateAutomaticMarkTarget(const FVector& TargetPoint,
+		uint64 ExpectedCommandSerial, uint64 ExpectedMarkSerial);
+	/** 已在虫印前方时登记自动接触请求，不伪造一次零长度飞行。 */
+	bool BeginAutomaticMarkContact(const FKinsectFlightRequest& Request);
+	/** 在当前虫印处进行真实 Hitzone 接触Trace并校验表面斑块，不直接应用伤害。 */
+	bool SweepAutomaticMarkContact(uint64 ExpectedCommandSerial,
+		uint64 ExpectedMarkSerial, const FWeaponRuntimeToken& RuntimeToken,
+		FHitResult& OutHit) const;
 
 	/** 附着到指定组件 Socket，保存组件与 Socket 供返回时实时追踪。 */
 	void AttachToPlayer(USceneComponent* InAttachComponent, FName InSocketName = NAME_None);
@@ -189,15 +249,23 @@ public:
 	bool BeginActionAttachment(const FWeaponActionToken& ActionToken,
 		USkeletalMeshComponent* WeaponMesh, FName SocketName);
 	bool EndActionAttachmentAndReturn(const FWeaponActionToken& ActionToken,
-		const FWeaponRuntimeToken& RuntimeToken, float ArrivalRadius);
+		const FWeaponRuntimeToken& RuntimeToken, float ArrivalRadius,
+		uint64 CommandSerial = 0,
+		EKinsectCommandSource Source = EKinsectCommandSource::Action);
 	bool IsActionAttachmentOwnedBy(const FWeaponActionToken& ActionToken) const;
 
 	// ── 查询 ──
 	EKinsectState GetState() const { return State; }
-	bool HasPendingExtract() const { return PendingExtractColor.IsValid(); }
-	FGameplayTag GetPendingExtractColor() const { return PendingExtractColor; }
-	/** 取出并清除 Pending 萃取；仅应由单个调用方调用一次。 */
+	bool HasPendingExtract() const { return !PendingExtractColors.IsEmpty(); }
+	/** 兼容普通单精华查询；多色显示必须读取完整容器。 */
+	FGameplayTag GetPendingExtractColor() const;
+	const FGameplayTagContainer& GetPendingExtractColors() const { return PendingExtractColors; }
+	/** 单色兼容入口，仅取出首色；多色返回交付使用 TakePendingExtractColors。 */
 	FGameplayTag TakePendingExtractColor();
+	/** 原子取出完整携带精华，仅返回到主人时交付。 */
+	FGameplayTagContainer TakePendingExtractColors();
+	/** 普通/操虫斩只存首色；强化贯通显式允许红白橙去重多色。 */
+	bool CapturePendingExtractColor(FGameplayTag ExtractColor, bool bAllowMultipleColors = false);
 	float GetFlightSpeed() const;
 	float GetHoverDrainRate() const;
 	float GetFlightDrainRate() const;
@@ -225,8 +293,14 @@ protected:
 		UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
 
 private:
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FMHGZM6PowderVortexAimsFromSnapshotAndManualRecallSupersedes;
+#endif
+
 	/** 校验请求；纯查询，不修改状态。 */
 	bool IsFlightRequestValid(const FKinsectFlightRequest& Request) const;
+	bool BeginFlightInternal(const FKinsectFlightRequest& Request,
+		const FWeaponActionToken* ActionAttachmentOwner);
 
 	/** Tick 内 Hitzone 扫描（Previous→Current，按 Hit.Time 排序）。 */
 	void SweepHitzones(float DeltaTime);
@@ -251,7 +325,7 @@ private:
 	 * 非弹跳 Projectile 撞墙后会 StopSimulating，届时 UpdatedComponent 可能被清空；
 	 * 后续送虫或召回必须显式绑定回 Collision，不能只调用 Activate。
 	 */
-	bool ArmMovement(const FVector& Direction, float Speed);
+	bool ArmMovement(const FVector& Direction, float Speed, bool bKeepCollisionOrientation = false);
 
 	/** 在附着原始朝向与飞行朝向修正之间切换猎虫视觉 Mesh。 */
 	void SetFlightVisualFacing(bool bInFlight);
@@ -262,6 +336,9 @@ private:
 
 	/** 解析返回目标的世界位置（优先附着 Socket，回退 OwnerActor）。 */
 	bool ResolveAttachSocketLocation(FVector& OutLocation) const;
+	bool ResolveToPointTarget(const FKinsectFlightRequest& Request,
+		FVector& OutLocation) const;
+	void UpdateMovingToPointTarget();
 
 	// 飞行
 	FVector FlightStartLocation = FVector::ZeroVector;
@@ -270,14 +347,19 @@ private:
 	bool bHasDealtDamage = false;
 	FWeaponActionToken ActionAttachmentToken;
 	FWeaponRuntimeToken ReturnRuntimeToken;
+	uint64 ReturnCommandSerial = 0;
+	uint64 ReturnMarkSerial = 0;
+	EKinsectCommandSource ReturnCommandSource = EKinsectCommandSource::None;
 	float ReturnArrivalRadius = RETURN_ARRIVAL_DISTANCE;
+	FVector LastReturnRelativeLocation = FVector::ZeroVector;
+	bool bHasLastReturnRelativeLocation = false;
 
 	// 贯穿：每个 Hitzone 组件上次成功伤害的绝对世界时间。
 	TMap<TWeakObjectPtr<UMHGZMonsterHitzoneComponent>, float> HitzoneHitTimers;
 
 	// 萃取（无颜色优先级、无部位名映射）
 	UPROPERTY()
-	FGameplayTag PendingExtractColor;
+	FGameplayTagContainer PendingExtractColors;
 
 	// 返回附着目标
 	UPROPERTY()
@@ -291,4 +373,5 @@ private:
 	bool bHasAttachedMeshRelativeRotation = false;
 
 	static constexpr float RETURN_ARRIVAL_DISTANCE = 50.f; // 无已提交 Request 时的防御回退
+	static constexpr float RETURN_SWEEP_TOLERANCE = 5.f; // 返回路径跨帧可捕获半径，避免高速越过手臂 Socket
 };

@@ -81,6 +81,13 @@ public:
 	 */
 	virtual bool NotifyAerialHandoff();
 
+	/**
+	 * M6.3 powder-gather point-notify extension. The notify resolver supplies the
+	 * exact active action token; concrete gather abilities must validate it before
+	 * starting their reservation-backed gather task. Other IG abilities reject it.
+	 */
+	virtual bool HandlePowderGatherBegin(const FWeaponActionToken& ActionToken);
+
 	/** 本动作是否**曾经**越过最早可操作帧。没挂通知时恒为 false。 */
 	bool IsAerialHandoffReached() const { return bAerialHandoffReached; }
 
@@ -144,6 +151,9 @@ public:
 protected:
 	/** 获取虫棍资源组件 */
 	URes_InsectGlaive* GetIGResourceComponent() const;
+
+	/** 消耗本次空中攻击占用的攻击与回避预算；Host 在落地清理，舞踏入口重置。 */
+	bool ConsumeAerialAttackAndDodgeBudgets();
 
 	/**
 	 * 在蒙太奇上找 UAnimNotify_IG_AerialHandoff，写进 bAerialHandoffAuthored，

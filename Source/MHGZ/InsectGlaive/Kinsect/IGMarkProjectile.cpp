@@ -188,7 +188,7 @@ void AIGMarkProjectile::SweepHitzones()
 
 	const FHitResult& Earliest = Hits[0];
 	UMHGZMonsterHitzoneComponent* Hitzone =
-		Cast<UMHGZMonsterHitzoneComponent>(Earliest.GetComponent());
+		UMHGZMonsterHitzoneComponent::Resolve(Earliest.GetComponent());
 	if (!Hitzone)
 	{
 		return;
@@ -196,7 +196,8 @@ void AIGMarkProjectile::SweepHitzones()
 
 	// 收编失败：销毁
 	if (!Resource.IsValid() ||
-		!Resource->SetKinsectMark(Hitzone, Earliest.ImpactPoint, this))
+		!Resource->SetKinsectMark(Hitzone, Earliest.ImpactPoint, this,
+			Earliest.TraceStart - Earliest.ImpactPoint))
 	{
 		Destroy();
 		return;

@@ -39,9 +39,9 @@ bool FMHGZM5KinsectSlashReentrantDanceCommitTest::RunTest(const FString& Paramet
 	USkeletalMesh* CompatibleMesh = LoadObject<USkeletalMesh>(nullptr,
 		TEXT("/Game/Characters/Demo/Meshes/Body/SKM_Demo_Body.SKM_Demo_Body"));
 	UAnimMontage* PrimaryMontage = LoadObject<UAnimMontage>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash.AM_IG_KinsectSlash"));
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan.AM_IG_CaoChongZhan"));
 	UAnimMontage* DanceMontage = LoadObject<UAnimMontage>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash_Dance.AM_IG_KinsectSlash_Dance"));
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan_Dance.AM_IG_CaoChongZhan_Dance"));
 	if (!TestNotNull(TEXT("real montage coverage requires the compatible demo mesh"), CompatibleMesh)
 		|| !TestNotNull(TEXT("real montage coverage requires the production 186/187/188 montage"), PrimaryMontage)
 		|| !TestNotNull(TEXT("real montage coverage requires the production 189 montage"), DanceMontage))

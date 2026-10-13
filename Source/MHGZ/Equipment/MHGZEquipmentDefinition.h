@@ -78,6 +78,10 @@ class UMHGZWeaponDefinition : public UMHGZEquipmentDefinition
 	GENERATED_BODY()
 
 public:
+	/** 实际属性值，非《世界》显示值；面板300在这里填30。属性类型由CombatConfig.DamageProfile决定。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Damage", meta = (ClampMin = "0.0"))
+	float ElementPower = 0.0f;
+
 	/** 武器运行时唯一接线入口；M2 后不再按 WeaponTypeTag 查询旧 DataTable。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Weapon|Runtime")
 	TObjectPtr<UWeaponRuntimeDefinition> RuntimeDefinition;

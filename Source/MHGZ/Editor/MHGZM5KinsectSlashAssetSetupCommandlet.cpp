@@ -42,11 +42,11 @@ constexpr TCHAR MissSequencePath[] =
 constexpr TCHAR DanceSequencePath[] =
 	TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_CaoChongZhanJueChongJiWuTa.AS_Unsh_CaoChongZhanJueChongJiWuTa");
 constexpr TCHAR MainMontagePackage[] =
-	TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash");
+	TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan");
 constexpr TCHAR DanceMontagePackage[] =
-	TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash_Dance");
+	TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan_Dance");
 constexpr TCHAR AbilityPackage[] =
-	TEXT("/Game/Weapons/InsectGlaive/Abilities/GA_IG_KinsectSlash");
+	TEXT("/Game/Weapons/InsectGlaive/Abilities/GA_IG_CaoChongZhan");
 constexpr TCHAR ComboDataPath[] =
 	TEXT("/Game/Weapons/InsectGlaive/Data/DA_IG_Combo.DA_IG_Combo");
 constexpr TCHAR CombatConfigPath[] =
@@ -235,7 +235,7 @@ bool BuildMainMontage(const FSequenceSet& Sequences, UAnimMontage*& OutMontage,
 	FSegmentInfo& OutHover, FSegmentInfo& OutDash, FSegmentInfo& OutMiss)
 {
 	UAnimMontage* Montage = GetOrCreateMontage(MainMontagePackage,
-		TEXT("AM_IG_KinsectSlash"), Sequences.Hover->GetSkeleton());
+		TEXT("AM_IG_CaoChongZhan"), Sequences.Hover->GetSkeleton());
 	if (!Montage)
 	{
 		return false;
@@ -298,7 +298,7 @@ bool BuildDanceMontage(const UAnimSequence& Sequence, UAnimMontage*& OutMontage,
 	float& OutHandoffTime)
 {
 	UAnimMontage* Montage = GetOrCreateMontage(DanceMontagePackage,
-		TEXT("AM_IG_KinsectSlash_Dance"), Sequence.GetSkeleton());
+		TEXT("AM_IG_CaoChongZhan_Dance"), Sequence.GetSkeleton());
 	if (!Montage)
 	{
 		return false;
@@ -342,7 +342,7 @@ bool BuildDanceMontage(const UAnimSequence& Sequence, UAnimMontage*& OutMontage,
 
 UBlueprint* GetOrCreateAbilityBlueprint()
 {
-	const FString ObjectPath = FString::Printf(TEXT("%s.GA_IG_KinsectSlash"), AbilityPackage);
+	const FString ObjectPath = FString::Printf(TEXT("%s.GA_IG_CaoChongZhan"), AbilityPackage);
 	UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *ObjectPath);
 	if (Blueprint)
 	{
@@ -361,7 +361,7 @@ UBlueprint* GetOrCreateAbilityBlueprint()
 	}
 	Blueprint = FKismetEditorUtilities::CreateBlueprint(
 		UMHGZKinsectSlashAbility::StaticClass(), Package,
-		FName(TEXT("GA_IG_KinsectSlash")), BPTYPE_Normal,
+		FName(TEXT("GA_IG_CaoChongZhan")), BPTYPE_Normal,
 		UBlueprint::StaticClass(), UBlueprintGeneratedClass::StaticClass(),
 		FName(TEXT("MHGZM5KinsectSlashAssetSetup")));
 	return Blueprint && Blueprint->GeneratedClass ? Blueprint : nullptr;
@@ -447,7 +447,7 @@ bool UpgradeExistingAbilityToThreeHits()
 		}
 	}
 
-	const FString ObjectPath = FString::Printf(TEXT("%s.GA_IG_KinsectSlash"), AbilityPackage);
+	const FString ObjectPath = FString::Printf(TEXT("%s.GA_IG_CaoChongZhan"), AbilityPackage);
 	UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr, *ObjectPath);
 	UMHGZKinsectSlashAbility* Ability = Blueprint && Blueprint->GeneratedClass
 		? Cast<UMHGZKinsectSlashAbility>(Blueprint->GeneratedClass->GetDefaultObject())
@@ -684,11 +684,11 @@ bool HasMeshSocketOrBone(const USkeletalMesh& Mesh, const FName Name)
 bool InspectExistingCollisionWindows()
 {
 	UAnimMontage* MainMontage = LoadObject<UAnimMontage>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash.AM_IG_KinsectSlash"));
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan.AM_IG_CaoChongZhan"));
 	UAnimMontage* DanceMontage = LoadObject<UAnimMontage>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash_Dance.AM_IG_KinsectSlash_Dance"));
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan_Dance.AM_IG_CaoChongZhan_Dance"));
 	UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Abilities/GA_IG_KinsectSlash.GA_IG_KinsectSlash"));
+		TEXT("/Game/Weapons/InsectGlaive/Abilities/GA_IG_CaoChongZhan.GA_IG_CaoChongZhan"));
 	UInsectGlaiveCombatConfig* CombatConfig = LoadObject<UInsectGlaiveCombatConfig>(nullptr,
 		CombatConfigPath);
 	USkeletalMesh* GlaiveMesh = LoadObject<USkeletalMesh>(nullptr,
@@ -773,11 +773,11 @@ bool MigrateCollisionWindows(const FString& Params, const bool bAuditOnly)
 	}
 
 	UAnimMontage* MainMontage = LoadObject<UAnimMontage>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash.AM_IG_KinsectSlash"));
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan.AM_IG_CaoChongZhan"));
 	UAnimMontage* DanceMontage = LoadObject<UAnimMontage>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectSlash_Dance.AM_IG_KinsectSlash_Dance"));
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan_Dance.AM_IG_CaoChongZhan_Dance"));
 	UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr,
-		TEXT("/Game/Weapons/InsectGlaive/Abilities/GA_IG_KinsectSlash.GA_IG_KinsectSlash"));
+		TEXT("/Game/Weapons/InsectGlaive/Abilities/GA_IG_CaoChongZhan.GA_IG_CaoChongZhan"));
 	UInsectGlaiveCombatConfig* CombatConfig = LoadObject<UInsectGlaiveCombatConfig>(nullptr,
 		CombatConfigPath);
 	USkeletalMesh* GlaiveMesh = LoadObject<USkeletalMesh>(nullptr,
@@ -1535,7 +1535,7 @@ FString EscapeJson(const FString& Value)
 namespace CapturedMotionCalibration
 {
 constexpr TCHAR ExistingAbilityPackage[] =
-	TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_KinsectSlash");
+	TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_CaoChongZhan");
 constexpr TCHAR Fall157SequencePath[] =
 	TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/AS_Unsh_Fall_W_Jump.AS_Unsh_Fall_W_Jump");
 constexpr float PrepDuration = 0.35f;
@@ -1942,9 +1942,9 @@ bool Run(const bool bAuditOnly)
 		: FPackageName::DoesPackageExist(AbilityPackage) ? AbilityPackage : nullptr;
 	if (!Package)
 	{
-		return Finish(false, TEXT("Existing GA_IG_KinsectSlash package is missing at both supported paths."));
+		return Finish(false, TEXT("Existing GA_IG_CaoChongZhan package is missing at both supported paths."));
 	}
-	Blueprint = LoadObject<UBlueprint>(nullptr, *FString::Printf(TEXT("%s.GA_IG_KinsectSlash"), Package));
+	Blueprint = LoadObject<UBlueprint>(nullptr, *FString::Printf(TEXT("%s.GA_IG_CaoChongZhan"), Package));
 	Report.String(TEXT("ability_blueprint"), Blueprint ? Blueprint->GetPathName() : Package);
 	Report.Bool(TEXT("used_legacy_path_fallback"), Package == AbilityPackage);
 	if (!Blueprint || Blueprint->GetOutermost()->GetName() != Package || !Blueprint->ParentClass
@@ -2320,7 +2320,7 @@ bool Run(const bool bAuditOnly)
 	const FGameplayTag Falling = RequireTag(TEXT("Combat.State.Aerial.Falling"));
 	const FGameplayTag Unsheathed = RequireTag(TEXT("Combat.State.Unsheathed"));
 	UBlueprint* Blueprint = LoadObject<UBlueprint>(nullptr,
-		TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_KinsectSlash.GA_IG_KinsectSlash"));
+		TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_CaoChongZhan.GA_IG_CaoChongZhan"));
 	UMHGZKinsectSlashAbility* Ability = Blueprint && Blueprint->GeneratedClass
 		? Cast<UMHGZKinsectSlashAbility>(Blueprint->GeneratedClass->GetDefaultObject()) : nullptr;
 	UMHGZWeaponComboData* Combo = LoadObject<UMHGZWeaponComboData>(nullptr, ComboDataPath);
@@ -2696,7 +2696,7 @@ int32 UMHGZM5KinsectSlashAssetSetupCommandlet::Main(const FString& Params)
 		|| !ConfigureAbility(*AbilityBlueprint, *MainMontage, *DanceMontage))
 	{
 		UE_LOG(LogTemp, Error,
-			TEXT("[KinsectSlashAssets] GA_IG_KinsectSlash Blueprint creation/configuration/save failed."));
+			TEXT("[KinsectSlashAssets] GA_IG_CaoChongZhan Blueprint creation/configuration/save failed."));
 		return 4;
 	}
 
@@ -2741,9 +2741,9 @@ int32 UMHGZM5KinsectSlashAssetSetupCommandlet::Main(const FString& Params)
 
 	const FString Report = FString::Printf(
 		TEXT("{\n  \"status\": \"generated\",\n  \"entry_source_frame_189\": 0,\n")
-		TEXT("  \"primary_montage\": \"%s.AM_IG_KinsectSlash\",\n")
-		TEXT("  \"dance_montage\": \"%s.AM_IG_KinsectSlash_Dance\",\n")
-		TEXT("  \"ability_blueprint\": \"%s.GA_IG_KinsectSlash\",\n")
+		TEXT("  \"primary_montage\": \"%s.AM_IG_CaoChongZhan\",\n")
+		TEXT("  \"dance_montage\": \"%s.AM_IG_CaoChongZhan_Dance\",\n")
+		TEXT("  \"ability_blueprint\": \"%s.GA_IG_CaoChongZhan\",\n")
 		TEXT("  \"hover_duration\": %.6f,\n  \"dash_duration\": %.6f,\n")
 		TEXT("  \"miss_duration_double_speed\": %.6f,\n")
 		TEXT("  \"late_hit_close_source_frame\": 14,\n")

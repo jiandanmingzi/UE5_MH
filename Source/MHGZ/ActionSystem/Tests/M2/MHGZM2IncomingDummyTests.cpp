@@ -329,10 +329,10 @@ bool FMHGZM2ResolverGASApplyAndNonCounterable::RunTest(const FString& Parameters
 	return true;
 }
 
-// 3. Dummy config validation: three colors, no overlap, positive radius.
+// 3. Dummy config validation: three colors and positive query dimensions.
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMHGZM2DummyConfigThreeColorValidation,
-	"MHGZ.M2.DummyConfig.ThreeColorNonOverlapValidation",
+	"MHGZ.M2.DummyConfig.ThreeColorCoverageValidation",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FMHGZM2DummyConfigThreeColorValidation::RunTest(const FString& Parameters)
@@ -379,9 +379,14 @@ bool FMHGZM2DummyConfigThreeColorValidation::RunTest(const FString& Parameters)
 
 	TArray<FDummyHitzoneConfig> Overlap = Good;
 	Overlap[2].RelativeLocation = FVector(50.f, 0.f, 0.f); // 50 < 30+30
-	TestFalse(TEXT("overlapping spheres rejected"),
+	TestTrue(TEXT("overlap is permitted to avoid visible surface gaps"),
 		UMHGZDummyConfig::ValidateHitzoneConfigs(Overlap, Error));
-	TestTrue(TEXT("overlap error names the spheres"), Error.Contains(TEXT("overlap")));
+	TestTrue(TEXT("valid overlapping query geometry leaves no error"), Error.IsEmpty());
+	TArray<FDummyHitzoneConfig> Boxes = Good;
+	for (FDummyHitzoneConfig& Box : Boxes) { Box.Shape = EMHGZHitzoneShape::Box; }
+	TestTrue(TEXT("positive box query geometry validates"), UMHGZDummyConfig::ValidateHitzoneConfigs(Boxes, Error));
+	Boxes[0].BoxHalfExtent.Z = 0.0f;
+	TestFalse(TEXT("zero box extent is rejected"), UMHGZDummyConfig::ValidateHitzoneConfigs(Boxes, Error));
 
 	TArray<FDummyHitzoneConfig> MissingColor = Good;
 	MissingColor[2].ExtractColorTag =

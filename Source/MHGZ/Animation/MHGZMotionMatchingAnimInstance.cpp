@@ -21,6 +21,7 @@
 #include "HAL/FileManager.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "MHGZCharacter.h"
+#include "MHGZPlayerController.h"
 #include "MHGZ.h"
 #include "MHGZPlayerController.h"
 #include "Misc/DateTime.h"
@@ -82,6 +83,9 @@ FString BuildRuntimeTelemetryReadme()
 		TEXT("  Character/MovementPhases.csv    CMC pre/post, intra-CMC sub-phases, exact collision impacts, movement owners, landing speed reset, and sparse handoff events\n")
 		TEXT("  Character/RootMotionSources.csv CMC RootMotionSource snapshots; one or more rows per frame\n")
 		TEXT("  Character/CapsuleHits.csv       capsule blocking-contact events; zero or more rows per frame\n")
+		TEXT("  Combat/Events.csv               exact triple-cost/kinsect/extract/mark/powder/vortex event stream; one row per event, independent of sample rate\n")
+	TEXT("  UI/Events.csv                   sparse HUD, pawn binding, runtime readiness, resource panel, stale-event and damage-number lifecycle events\n")
+	TEXT("  UI/Events.csv                   sparse HUD, pawn binding, runtime readiness, resource panel, stale-event and damage-number lifecycle events\n")
 		TEXT("  MotionMatching/Query.csv        runtime MM query values and state-machine modes\n")
 		TEXT("  MotionMatching/Selection.csv    every selected MM candidate plus semantic comparison data\n")
 		TEXT("  MotionMatching/PoseSearchCandidates.csv  optional engine-traced Top-N candidates\n")
@@ -100,6 +104,9 @@ FString BuildRuntimeTelemetryReadme()
 		TEXT("- `Character/Spatial` records geometry at three separate levels, and only the last two can show a pose that displaces the visible mesh: the capsule transform (`Location*`, `Actor*`), the mesh *component* transform (`MeshRelativeToCapsule*`, constant unless the component is re-attached), and the animated skeleton itself (`RootBoneWorld*` / `RootBoneRel*` / `MeshBounds*`). `RootBoneRel*` is the root bone in component space, i.e. purely what the animation contributed; `MeshBounds*` is the posed geometry origin, so it also moves when a child bone shifts the silhouette. `MeshBoundsExtentZ` is the box half-height and `MeshBoundsMinZ` its bottom edge — the lowest geometry, effectively the feet — which is what a viewer reads as the model dropped when a seam leaves a frame without a pose; compare the pair so a box that changes size is not mistaken for a downward slide. When a viewer reports the model sliding sideways, subtracting the capsule from `RootBoneWorld*` localises it: unchanged means the pose did it, changing means the capsule did.\n")
 		TEXT("- `Character/Spatial` also records Actor Pitch/Roll separately from final sampled root-bone world/component rotation and the AnimInstance's action-pitch value/weight. Root-bone samples are captured during AnimInstance update and must not be treated as proof that a later same-frame AttackCollision Socket Sweep saw that exact pose; use the event/order instrumentation and PIE check for that contract.\n")
 		TEXT("- `Animation/ActionVisualPitchEvents` is the sparse lifecycle timeline for the exact RuntimeGeneration/ActionActivationSequenceID/MontageInstanceID. `EventSerial` orders accepted Set, BlendOut, and reset/retirement events; periodic `Playback.csv` rows show current target direction, blend weight, component correction, and the actual CameraManager pitch bounds.\n")
+		TEXT("- `Combat/Events.csv` is event-driven, not sampled. `EventSerial` orders rows; `RuntimeGeneration` identifies the Pawn runtime. `ResourceTag` carries a cost/extract GameplayTag when applicable; `Reason` carries the result or rejection cause. TripleCostReserved/Consumed/Rejected/Released, KinsectDamageSubmitted/Rejected, ExtractAttempt, Mark/Command/Powder/Vortex lifecycle, and StageDamageSubmitted are recorded at their authoritative transaction points. `TelemetryEventsDropped` explicitly reports bounded-queue overflow; blank fields mean not applicable.\n")
+	TEXT("- `UI/Events.csv` is event-driven, not sampled. It records local HUD create/destroy, Pawn bind/unbind, weapon RuntimeHost ready/invalidated, resource-panel create/remove, rejected stale runtime callbacks, and damage-number spawn/expiry. `RuntimeGeneration` identifies the weapon runtime; `SubjectClass` and `Pawn` identify the source without retaining UObject references. `TelemetryEventsDropped` reports bounded-queue overflow.\n")
+	TEXT("- `UI/Events.csv` is event-driven, not sampled. It records local HUD create/destroy, Pawn bind/unbind, weapon RuntimeHost ready/invalidated, resource-panel create/remove, rejected stale runtime callbacks, and damage-number spawn/expiry. `RuntimeGeneration` identifies the weapon runtime; `SubjectClass` and `Pawn` identify the source without retaining UObject references. `TelemetryEventsDropped` reports bounded-queue overflow.\n")
 		TEXT("- `Character/CapsuleHits` records every blocking hit emitted by the Character capsule, including the other actor/component and both hit normals. Absence of an event during a no-displacement interval helps distinguish collision blocking from root-motion extraction or movement-mode issues.\n")
 		TEXT("- `Animation/AnimGraphRootMotion` is captured from the AnimInstance proxy immediately after AnimGraph evaluation and before CMC consumes it. Its translation is mesh-local; `ScaledLocalTranslation*` applies the Character's current AnimRootMotionTranslationScale. It isolates a zero locomotion graph output from a later CMC-consumption failure. Montage Root Motion is queued after this proxy stage, so inspect it together with `Animation/MontageInstances`.\n")
 		TEXT("- `Animation/MontageInstances` writes every current or blending-out montage instance. `Weight`/`DesiredWeight`, per-slot graph weight and `RootMotionDisabled` expose a stale slot or a disabled blend-out that `Playback`'s single active montage field cannot show.\n")
@@ -1980,11 +1987,144 @@ void UMHGZMotionMatchingAnimInstance::DiscardMMActionIdleContextConsumptions()
 	}
 }
 
+void UMHGZMotionMatchingAnimInstance::CaptureCombatTelemetryEvents(
+	const AMHGZCharacter* Character)
+{
+	if (!bRuntimeTelemetryActive || !Character)
+	{
+		return;
+	}
+	UMHGZWeaponRuntimeHostComponent* RuntimeHost = Character->GetWeaponRuntimeHost();
+	if (!RuntimeHost)
+	{
+		return;
+	}
+	TArray<FWeaponCombatTelemetryEvent> Events;
+	const uint64 PreviousSerial = RuntimeTelemetryLastObservedCombatEventSerial;
+	RuntimeHost->GetCombatTelemetryEventsSince(
+		RuntimeTelemetryLastObservedCombatEventSerial, Events);
+	if (Events.IsEmpty())
+	{
+		return;
+	}
+	const FString SessionID = FPaths::GetCleanFilename(RuntimeTelemetrySessionDirectory);
+	if (Events[0].Serial > PreviousSerial + 1)
+	{
+		const FWeaponCombatTelemetryEvent& FirstAvailable = Events[0];
+		TArray<FString> GapFields;
+		GapFields.Reserve(29);
+		GapFields.Append({ ToCSVString(SessionID), ToCSVDouble(FirstAvailable.WorldTimeSeconds),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(FirstAvailable.Frame)),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(FirstAvailable.Serial - 1)),
+			ToCSVString(TEXT("TelemetryEventsDropped")),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(FirstAvailable.RuntimeGeneration)),
+			TEXT("0"), TEXT(""), TEXT("0"), TEXT(""), TEXT(""), TEXT(""), TEXT(""), TEXT("0"),
+			TEXT(""), TEXT("-1"), TEXT(""), TEXT(""), TEXT(""), TEXT("0"), TEXT("0"), TEXT("0"),
+			TEXT(""), TEXT(""), ToCSVString(TEXT("BoundedQueueOverflow")), TEXT("0"), TEXT("0"),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(
+				FirstAvailable.Serial - PreviousSerial - 1)), TEXT("0") });
+		RuntimeTelemetryCombatEventsPendingRows.Add(FString::Join(GapFields, TEXT(",")));
+	}
+	for (const FWeaponCombatTelemetryEvent& Event : Events)
+	{
+		const auto GuidField = [](const FGuid& Guid)
+		{
+			return Guid.IsValid() ? ToCSVString(Guid.ToString()) : FString();
+		};
+		TArray<FString> Fields;
+		Fields.Reserve(29);
+		Fields.Append({ ToCSVString(SessionID), ToCSVDouble(Event.WorldTimeSeconds),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.Frame)),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.Serial)),
+			ToCSVString(Event.EventName.ToString()),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.RuntimeGeneration)),
+			FString::Printf(TEXT("%u"), Event.ActivationSequenceID),
+			GuidField(Event.MarkID), FString::Printf(TEXT("%llu"),
+				static_cast<unsigned long long>(Event.CommandSerial)),
+			GuidField(Event.FlightID), GuidField(Event.SourceAttackID),
+			GuidField(Event.HitID), GuidField(Event.PowderID),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.ReservationID)),
+			GuidField(Event.ExplosionID), FString::FromInt(Event.StageIndex),
+			GuidField(Event.StageAttackID), ToCSVString(Event.TargetActor.ToString()),
+			ToCSVString(Event.Hitzone.ToString()), ToCSVFloat(Event.ImpactPoint.X),
+			ToCSVFloat(Event.ImpactPoint.Y), ToCSVFloat(Event.ImpactPoint.Z),
+			ToCSVString(Event.SpawnPolicy.ToString()),
+			ToCSVString(Event.ResourceTag.ToString()),
+			ToCSVString(Event.Reason.ToString()), ToCSVDouble(Event.ExpireAt),
+			FString::FromInt(Event.LifetimeRevision), FString::FromInt(Event.MemberCount),
+			ToCSVFloat(Event.Damage) });
+		RuntimeTelemetryCombatEventsPendingRows.Add(FString::Join(Fields, TEXT(",")));
+	}
+	// Event ordering/counts are authoritative evidence; persist immediately and never
+	// infer them from the periodic 60 Hz state snapshots.
+	FlushRuntimeTelemetry();
+}
+
+void UMHGZMotionMatchingAnimInstance::CaptureUITelemetryEvents(
+	const AMHGZCharacter* Character)
+{
+	if (!bRuntimeTelemetryActive || !Character)
+	{
+		return;
+	}
+	AMHGZPlayerController* PlayerController =
+		Cast<AMHGZPlayerController>(Character->GetController());
+	if (!PlayerController)
+	{
+		RuntimeTelemetryUIEventSource.Reset();
+		RuntimeTelemetryLastObservedUIEventSerial = 0;
+		return;
+	}
+	if (RuntimeTelemetryUIEventSource.Get() != PlayerController)
+	{
+		RuntimeTelemetryUIEventSource = PlayerController;
+		RuntimeTelemetryLastObservedUIEventSerial = 0;
+	}
+
+	const uint64 PreviousSerial = RuntimeTelemetryLastObservedUIEventSerial;
+	TArray<FMHGZUIEventTelemetry> Events;
+	PlayerController->GetUITelemetryEventsSince(
+		RuntimeTelemetryLastObservedUIEventSerial, Events);
+	if (Events.IsEmpty())
+	{
+		return;
+	}
+	const FString SessionID = FPaths::GetCleanFilename(RuntimeTelemetrySessionDirectory);
+	if (Events[0].Serial > PreviousSerial + 1)
+	{
+		const FMHGZUIEventTelemetry& FirstAvailable = Events[0];
+		const uint64 DroppedCount = FirstAvailable.Serial - PreviousSerial - 1;
+		TArray<FString> GapFields;
+		GapFields.Append({ ToCSVString(SessionID), ToCSVDouble(FirstAvailable.WorldTimeSeconds),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(FirstAvailable.Frame)),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(FirstAvailable.Serial - 1)),
+			ToCSVString(TEXT("TelemetryEventsDropped")), TEXT("0"),
+			ToCSVString(TEXT("BoundedQueueOverflow")), FString(), FString(),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(DroppedCount)) });
+		RuntimeTelemetryUIEventsPendingRows.Add(FString::Join(GapFields, TEXT(",")));
+	}
+	for (const FMHGZUIEventTelemetry& Event : Events)
+	{
+		TArray<FString> Fields;
+		Fields.Append({ ToCSVString(SessionID), ToCSVDouble(Event.WorldTimeSeconds),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.Frame)),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.Serial)),
+			ToCSVString(Event.EventName.ToString()),
+			FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.RuntimeGeneration)),
+			ToCSVString(Event.Reason.ToString()), ToCSVString(Event.SubjectClass),
+			ToCSVString(Event.PawnName.ToString()), FString::FromInt(Event.DroppedCount) });
+		RuntimeTelemetryUIEventsPendingRows.Add(FString::Join(Fields, TEXT(",")));
+	}
+	FlushRuntimeTelemetry();
+}
+
 void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacter* Character,
 	const float DeltaSeconds)
 {
 	if (bRuntimeTelemetryActive && Character)
 	{
+		CaptureCombatTelemetryEvents(Character);
+		CaptureUITelemetryEvents(Character);
 		const UMHGZInstrumentedCharacterMovementComponent* InstrumentedMovement =
 			Cast<UMHGZInstrumentedCharacterMovementComponent>(Character->GetCharacterMovement());
 		if (InstrumentedMovement)
@@ -2639,6 +2779,8 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 		|| RuntimeTelemetryCharacterSpatialPendingRows.Num() >= FlushRowCount
 		|| RuntimeTelemetryMovementPhasePendingRows.Num() >= FlushRowCount
 		|| RuntimeTelemetryCapsuleHitsPendingRows.Num() >= FlushRowCount
+		|| RuntimeTelemetryCombatEventsPendingRows.Num() >= FlushRowCount
+		|| RuntimeTelemetryUIEventsPendingRows.Num() >= FlushRowCount
 		|| RuntimeTelemetryMMQueryPendingRows.Num() >= FlushRowCount
 		|| RuntimeTelemetryMMSelectionPendingRows.Num() >= FlushRowCount
 		|| RuntimeTelemetryAnimationPendingRows.Num() >= FlushRowCount
@@ -2745,9 +2887,11 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	const FString InputDirectory = FPaths::Combine(RuntimeTelemetrySessionDirectory, TEXT("Input"));
 	const FString CharacterDirectory = FPaths::Combine(RuntimeTelemetrySessionDirectory, TEXT("Character"));
 	const FString MotionMatchingDirectory = FPaths::Combine(RuntimeTelemetrySessionDirectory, TEXT("MotionMatching"));
+	const FString CombatDirectory = FPaths::Combine(RuntimeTelemetrySessionDirectory, TEXT("Combat"));
+	const FString UIDirectory = FPaths::Combine(RuntimeTelemetrySessionDirectory, TEXT("UI"));
 	const FString AnimationDirectory = FPaths::Combine(RuntimeTelemetrySessionDirectory, TEXT("Animation"));
 	for (const FString& Directory : { RuntimeTelemetrySessionDirectory, InputDirectory, CharacterDirectory,
-		MotionMatchingDirectory, AnimationDirectory })
+		MotionMatchingDirectory, CombatDirectory, UIDirectory, AnimationDirectory })
 	{
 		if (!IFileManager::Get().MakeDirectory(*Directory, true))
 		{
@@ -2764,6 +2908,8 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	RuntimeTelemetryMovementPhasesFilePath = FPaths::Combine(CharacterDirectory, TEXT("MovementPhases.csv"));
 	RuntimeTelemetryRootMotionSourcesFilePath = FPaths::Combine(CharacterDirectory, TEXT("RootMotionSources.csv"));
 	RuntimeTelemetryCapsuleHitsFilePath = FPaths::Combine(CharacterDirectory, TEXT("CapsuleHits.csv"));
+	RuntimeTelemetryCombatEventsFilePath = FPaths::Combine(CombatDirectory, TEXT("Events.csv"));
+	RuntimeTelemetryUIEventsFilePath = FPaths::Combine(UIDirectory, TEXT("Events.csv"));
 	RuntimeTelemetryMMQueryFilePath = FPaths::Combine(MotionMatchingDirectory, TEXT("Query.csv"));
 	RuntimeTelemetryMMSelectionFilePath = FPaths::Combine(MotionMatchingDirectory, TEXT("Selection.csv"));
 	RuntimeTelemetryAnimationFilePath = FPaths::Combine(AnimationDirectory, TEXT("Playback.csv"));
@@ -2784,6 +2930,8 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	const FString MovementPhasesHeader = TEXT("WorldTimeSeconds,Frame,EventSerial,Phase,DeltaSeconds,LocationX,LocationY,LocationZ,VelocityX,VelocityY,VelocityZ,AccelerationX,AccelerationY,AccelerationZ,MovementMode,CustomMovementMode,GravityScale,BrakingDecelerationFalling,FallingLateralFriction,RuntimeGeneration,ActionMovementOwner,MontageRootMotionOwner,ActiveActions,ActiveRootMotionSourceCount,PendingRootMotionSourceCount,HasOverrideRootMotionVelocity,HasAdditiveRootMotionVelocity,HasRootMotionCallbackTransform,RootMotionTranslationX,RootMotionTranslationY,RootMotionTranslationZ,RootMotionPitch,RootMotionYaw,RootMotionRoll,HasMovementImpact,ImpactBlockingHit,ImpactStartPenetrating,ImpactActor,ImpactComponent,ImpactPointX,ImpactPointY,ImpactPointZ,ImpactNormalX,ImpactNormalY,ImpactNormalZ,ImpactMoveDeltaX,ImpactMoveDeltaY,ImpactMoveDeltaZ,ImpactTimeSlice,SubPhaseSite,SubPhaseEntryVelocityX,SubPhaseEntryVelocityY,SubPhaseEntryVelocityZ,SubPhaseFriction,SubPhaseBrakingDeceleration,SubPhaseIterations,HasAnimRootMotion,RootMotionParamsTranslationX,RootMotionParamsTranslationY,RootMotionParamsTranslationZ,AnimRootMotionVelocityX,AnimRootMotionVelocityY,AnimRootMotionVelocityZ,IsPlayingRootMotion,RootMotionShieldBound,AdditiveVelocityApplied,LastPreAdditiveVelocityX,LastPreAdditiveVelocityY,LastPreAdditiveVelocityZ,ConstrainProbe,ConstrainCallSite,ConstrainRootMotionVelocityX,ConstrainRootMotionVelocityY,ConstrainRootMotionVelocityZ,ConstrainInputVelocityX,ConstrainInputVelocityY,ConstrainInputVelocityZ,ConstrainOutputVelocityX,ConstrainOutputVelocityY,ConstrainOutputVelocityZ") LINE_TERMINATOR;
 	const FString RootMotionSourcesHeader = TEXT("WorldTimeSeconds,Frame,Group,SourceIndex,SourceValid,LocalID,InstanceName,SourceType,SourceDebug,Priority,AccumulateMode,StartTime,CurrentTime,PreviousTime,Duration,StatusFlags,Prepared,Finished,MarkedForRemoval,InLocalSpace,NeedsSimulatedCatchup,FinishVelocityMode,FinishVelocityX,FinishVelocityY,FinishVelocityZ,GroupHasRootMotionSources,GroupHasOverrideVelocity,GroupHasAdditiveVelocity,ActiveSourceCount,PendingSourceCount") LINE_TERMINATOR;
 	const FString CapsuleHitsHeader = TEXT("WorldTimeSeconds,Frame,EventSerial,OtherActor,OtherComponent,LocationX,LocationY,LocationZ,ImpactPointX,ImpactPointY,ImpactPointZ,ImpactNormalX,ImpactNormalY,ImpactNormalZ,NormalX,NormalY,NormalZ") LINE_TERMINATOR;
+	const FString CombatEventsHeader = TEXT("SessionID,WorldTimeSeconds,Frame,EventSerial,Event,RuntimeGeneration,ActivationSequenceID,MarkID,CommandSerial,FlightID,SourceAttackID,HitID,PowderID,ReservationID,ExplosionID,StageIndex,StageAttackID,TargetActor,Hitzone,ImpactPointX,ImpactPointY,ImpactPointZ,SpawnPolicy,ResourceTag,Reason,ExpireAt,LifetimeRevision,MemberCount,Damage") LINE_TERMINATOR;
+	const FString UIEventsHeader = TEXT("SessionID,WorldTimeSeconds,Frame,EventSerial,Event,RuntimeGeneration,Reason,SubjectClass,Pawn,DroppedCount") LINE_TERMINATOR;
 	const FString MMQueryHeader = TEXT("WorldTimeSeconds,Frame,Unsheathed,IntentQuery,DistanceToStopQuery,StopGaitQuery,MoveGaitQuery,SheathedCandidateSet,SheathedTargetGait,LastNonZeroCruiseSpeed,StartQueryActive,StartQueryElapsed,StartQueryDuration,SheathedStopMode,LegacyStopMode,ExternalForceMMIdle,EffectiveForceMMIdle,ForceIdleReleaseHoldRemaining,StartInputSettleRemaining,HasLocomotionInput,StopRequestActive,ExitWantsMoveDatabase,ActionIdleContextActive,ActionIdleContextUnsheathed,ActionIdleContextSerial,SheathedActionExitRoute,UnsheathedActionExitRoute,SheathedActionExitSerial,UnsheathedActionExitSerial,SheathedExitSelectedTime,UnsheathedExitSelectedTime,PredictedDistance0,PredictedDistance0p2,PredictedDistance0p5,PredictedDistance0p8,PredictedDistance1p0") LINE_TERMINATOR;
 	const FString MMSelectionHeader = TEXT("Frame,Node,SelectedDatabase,SelectedAnimation,SelectedTime,SearchCost,WantedPlayRate,HasSelectionResult,IsContinuing,IsLooping,IsMirrored,QueryIntent,QueryDistanceToStop,QueryStopGait,QueryMoveGait,CandidateIntent,CandidateDistanceToStop,CandidateStopGait,CandidateMoveGait,IntentDelta,DistanceToStopDelta,StopGaitDelta,MoveGaitDelta,IntentWeightedSquaredEstimate,DistanceToStopWeightedSquaredEstimate,StopGaitWeightedSquaredEstimate,MoveGaitWeightedSquaredEstimate") LINE_TERMINATOR;
 	const FString AnimationHeader = TEXT("WorldTimeSeconds,Frame,ActiveActions,MontageRootMotionOwnerAction,MontageRootMotionOwned,ActiveMontage,ActiveMontageTime,ActiveMontageLength,ActiveMontagePlayRate,HandoffActive,HandoffType,HandoffSerial,HandoffRawMoveRight,HandoffRawMoveForward,HandoffHasRawMoveInput,HandoffHadRawMoveInputInMobilePhase,PendingStopAtHandoff,HandoffLastActiveRawMoveCruiseSpeed,AerialFallingMontage,AerialFallingMontageReferenced,AerialFallingRootMotionDisabledByHost,AerialFallingMontageInstanceFound,AerialFallingInstanceRootMotionDisabled,AerialLandingMontage,AerialLandingMontageReferenced,AerialLandingRootMotionDisabledByHost,AerialLandingMontageInstanceFound,AerialLandingInstanceRootMotionDisabled,CameraManagerClass,CameraViewPitch,CameraViewPitchMin,CameraViewPitchMax,ActionVisualPitchActive,ActionVisualPitchDegrees,ActionVisualPitchWeight,ActionVisualPitchComponentPitch,ActionVisualPitchComponentYaw,ActionVisualPitchComponentRoll,LockedDirectionX,LockedDirectionY,LockedDirectionZ,ActionActivationSequenceID,PitchSourceMontageInstanceID,PitchStateRevision,PitchStateValid,PitchStateReleasing,KinsectPiercerActive,KinsectPiercerActivationSequenceID,KinsectPiercerPhase,KinsectPiercerCurveElapsedSeconds,KinsectPiercerCurveCoveredSeconds,KinsectPiercerMovementLease,KinsectPiercerRecordedTrajectoryActive,KinsectPiercerActionMovementOwned,KinsectPiercerAerialAttackBudgetSpent,KinsectPiercerDanceSource,KinsectPiercerSourceTagPresent,KinsectPiercerLockedYawX,KinsectPiercerLockedYawY,KinsectPiercerMainMontageInstanceID,KinsectPiercerLandingMontageInstanceID,KinsectPiercerLandingMontageTimeSeconds,KinsectPiercerLandingRootMotionOwned,KinsectPiercerLandingRootMotionModeCaptured,KinsectPiercerAnimRootMotionMode,KinsectPiercerSegmentConfigCount,KinsectPiercerLastSuccessfulConfigIndex,KinsectPiercerSegment0SuccessfulTargets,KinsectPiercerSegment1SuccessfulTargets,KinsectPiercerSegment2SuccessfulTargets,")
@@ -2811,6 +2959,8 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 		|| !CreateCSV(MovementPhasesHeader, RuntimeTelemetryMovementPhasesFilePath, TEXT("movement phases"))
 		|| !CreateCSV(RootMotionSourcesHeader, RuntimeTelemetryRootMotionSourcesFilePath, TEXT("Root Motion sources"))
 		|| !CreateCSV(CapsuleHitsHeader, RuntimeTelemetryCapsuleHitsFilePath, TEXT("capsule hits"))
+		|| !CreateCSV(CombatEventsHeader, RuntimeTelemetryCombatEventsFilePath, TEXT("combat events"))
+		|| !CreateCSV(UIEventsHeader, RuntimeTelemetryUIEventsFilePath, TEXT("UI events"))
 		|| !CreateCSV(MMQueryHeader, RuntimeTelemetryMMQueryFilePath, TEXT("Motion Matching query"))
 		|| !CreateCSV(MMSelectionHeader, RuntimeTelemetryMMSelectionFilePath, TEXT("Motion Matching selection"))
 		|| !CreateCSV(AnimationHeader, RuntimeTelemetryAnimationFilePath, TEXT("animation"))
@@ -2834,6 +2984,8 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	RuntimeTelemetryMovementPhasePendingRows.Reset();
 	RuntimeTelemetryRootMotionSourcesPendingRows.Reset();
 	RuntimeTelemetryCapsuleHitsPendingRows.Reset();
+	RuntimeTelemetryCombatEventsPendingRows.Reset();
+	RuntimeTelemetryUIEventsPendingRows.Reset();
 	RuntimeTelemetryMMQueryPendingRows.Reset();
 	RuntimeTelemetryMMSelectionPendingRows.Reset();
 	RuntimeTelemetryAnimationPendingRows.Reset();
@@ -2873,6 +3025,8 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	DiscardMMSelectionEvents();
 	RuntimeTelemetryLastObservedInputEventSerial = 0;
 	RuntimeTelemetryLastObservedCapsuleHitSerial = Character->GetLatestCapsuleBlockingHitTelemetrySerial();
+	RuntimeTelemetryLastObservedCombatEventSerial = RuntimeHost
+		? RuntimeHost->GetLatestCombatTelemetrySerial() : 0;
 	RuntimeTelemetryLastObservedMovementPhaseSerial = 0;
 	RuntimeTelemetryLastObservedActionVisualPitchEventSerial = RuntimeHost
 		? RuntimeHost->GetLatestActionVisualPitchTelemetrySerial() : 0;
@@ -2939,6 +3093,8 @@ void UMHGZMotionMatchingAnimInstance::StopRuntimeTelemetry()
 	RuntimeTelemetryMovementPhasesFilePath.Reset();
 	RuntimeTelemetryRootMotionSourcesFilePath.Reset();
 	RuntimeTelemetryCapsuleHitsFilePath.Reset();
+	RuntimeTelemetryCombatEventsFilePath.Reset();
+	RuntimeTelemetryUIEventsFilePath.Reset();
 	RuntimeTelemetryMMQueryFilePath.Reset();
 	RuntimeTelemetryMMSelectionFilePath.Reset();
 	RuntimeTelemetryAnimationFilePath.Reset();
@@ -2951,6 +3107,7 @@ void UMHGZMotionMatchingAnimInstance::StopRuntimeTelemetry()
 	RuntimeTelemetryPoseSearchTopN = 0;
 	RuntimeTelemetryLastObservedInputEventSerial = 0;
 	RuntimeTelemetryLastObservedCapsuleHitSerial = 0;
+	RuntimeTelemetryLastObservedCombatEventSerial = 0;
 	RuntimeTelemetryLastObservedMovementPhaseSerial = 0;
 	RuntimeTelemetryLastObservedActionVisualPitchEventSerial = 0;
 	// Drop the acceleration difference cache with the session it belongs to, so a
@@ -2966,6 +3123,8 @@ void UMHGZMotionMatchingAnimInstance::FlushRuntimeTelemetry()
 		&& RuntimeTelemetryMovementPhasePendingRows.IsEmpty()
 		&& RuntimeTelemetryRootMotionSourcesPendingRows.IsEmpty()
 		&& RuntimeTelemetryCapsuleHitsPendingRows.IsEmpty()
+		&& RuntimeTelemetryCombatEventsPendingRows.IsEmpty()
+		&& RuntimeTelemetryUIEventsPendingRows.IsEmpty()
 		&& RuntimeTelemetryMMQueryPendingRows.IsEmpty() && RuntimeTelemetryMMSelectionPendingRows.IsEmpty()
 		&& RuntimeTelemetryAnimationPendingRows.IsEmpty()
 		&& RuntimeTelemetryActionVisualPitchEventsPendingRows.IsEmpty()
@@ -3020,6 +3179,16 @@ void UMHGZMotionMatchingAnimInstance::FlushRuntimeTelemetry()
 	if (bRuntimeTelemetryActive)
 	{
 		AppendRows(RuntimeTelemetryCapsuleHitsPendingRows, RuntimeTelemetryCapsuleHitsFilePath, TEXT("capsule hits"));
+	}
+	if (bRuntimeTelemetryActive)
+	{
+		AppendRows(RuntimeTelemetryCombatEventsPendingRows,
+			RuntimeTelemetryCombatEventsFilePath, TEXT("combat events"));
+	}
+	if (bRuntimeTelemetryActive)
+	{
+		AppendRows(RuntimeTelemetryUIEventsPendingRows,
+			RuntimeTelemetryUIEventsFilePath, TEXT("UI events"));
 	}
 	if (bRuntimeTelemetryActive)
 	{

@@ -98,6 +98,8 @@ private:
 	bool EnsureVaultFlightReleased(bool& bOutWasFlying);
 	void ApplyFinishVelocityPolicy();
 
+	/** Keep request-owned runtime curves alive throughout the movement lease. */
+	UPROPERTY(Transient)
 	FWeaponMovementRequest MovementRequest;
 	TWeakObjectPtr<UMHGZGameplayAbility> MovementAbility;
 	TWeakObjectPtr<ACharacter> Character;

@@ -23,9 +23,9 @@ $sequenceNames = @(
     'AS_Unsh_CaoChongChuanCI_Flying_Loop', 'AS_Unsh_CaoChongChuanCi_Over'
 )
 $assetFiles = @(
-    'Content/Blueprints/Ability/InsectGlaive/GA_IG_KinsectPiercer.uasset',
-    'Content/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectPiercer.uasset',
-    'Content/Weapons/InsectGlaive/Anims/Montage/AM_IG_KinsectPiercer_Over.uasset',
+    'Content/Blueprints/Ability/InsectGlaive/GA_IG_QiangHuaCaoChongChuanCi.uasset',
+    'Content/Weapons/InsectGlaive/Anims/Montage/AM_IG_QiangHuaCaoChongChuanCi.uasset',
+    'Content/Weapons/InsectGlaive/Anims/Montage/AM_IG_QiangHuaCaoChongChuanCi_Over.uasset',
     'Content/Weapons/InsectGlaive/Data/Curves/CV_IG_KinsectPiercer_Start.uasset',
     'Content/Weapons/InsectGlaive/Data/Curves/CV_IG_KinsectPiercer_Dive.uasset',
     'Content/Weapons/InsectGlaive/Data/Curves/CV_IG_KinsectPiercer_Landing.uasset'

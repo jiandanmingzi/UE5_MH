@@ -6,6 +6,7 @@
 #include "Curves/CurveFloat.h"
 #include "GameplayEffect.h"
 #include "Generated/MHGZVaultCurveTables.h"
+#include "InsectGlaive/IGPowderActor.h"
 #include "Misc/DataValidation.h"
 
 #define LOCTEXT_NAMESPACE "MHGZInsectGlaiveCombatConfig"
@@ -197,14 +198,37 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckPositive(TEXT("KinsectGlideMarkMaxDistance"), KinsectGlideMarkMaxDistance);
 	CheckPositive(TEXT("KinsectMarkMaxDistance"), KinsectMarkMaxDistance);
 	CheckPositive(TEXT("KinsectMarkDuration"), KinsectMarkDuration);
+	CheckPositive(TEXT("KinsectMarkPatchHalfExtent"), KinsectMarkPatchHalfExtent);
+	CheckNonNegative(TEXT("KinsectMarkSurfaceNormalTolerance"), KinsectMarkSurfaceNormalTolerance);
+	CheckNonNegative(TEXT("KinsectAutoMarkSearchRadius"), KinsectAutoMarkSearchRadius);
+	CheckNonNegative(TEXT("KinsectAutoMarkAttackInterval"), KinsectAutoMarkAttackInterval);
+	if ((KinsectAutoMarkSearchRadius > 0.0f)
+		!= (KinsectAutoMarkAttackInterval > 0.0f))
+	{
+		AddError(LOCTEXT("IncompleteKinsectAutoMarkTuning",
+			"KinsectAutoMarkSearchRadius and KinsectAutoMarkAttackInterval must both be zero (disabled/unset) or both be positive."));
+	}
 	CheckPositive(TEXT("KinsectMarkProjectileSpeed"), KinsectMarkProjectileSpeed);
 	CheckPositive(TEXT("KinsectMarkProjectileRadius"), KinsectMarkProjectileRadius);
 	CheckPositive(TEXT("KinsectMarkProjectileLifetime"), KinsectMarkProjectileLifetime);
 	CheckPositive(TEXT("KinsectGlideFallbackDistance"), KinsectGlideFallbackDistance);
 	CheckPositive(TEXT("KinsectGlideFallbackLiftHeight"), KinsectGlideFallbackLiftHeight);
-	CheckPositive(TEXT("AwakenedKinsectMaxDistance"), AwakenedKinsectMaxDistance);
 	CheckPositive(TEXT("AwakenedHunterFlightMaxDistance"), AwakenedHunterFlightMaxDistance);
 	CheckPositive(TEXT("AwakenedHunterFlightStartTime"), AwakenedHunterFlightStartTime);
+	CheckPositive(TEXT("AwakenedHunterFlightDurationSeconds"), AwakenedHunterFlightDurationSeconds);
+	CheckPositive(TEXT("AwakenedHunterFlightSpeed"), AwakenedHunterFlightSpeed);
+	CheckPositive(TEXT("AwakenedHunterFlightGravityMagnitude"), AwakenedHunterFlightGravityMagnitude);
+	CheckPositive(TEXT("AwakenedGroundTargetMinimumDistance"), AwakenedGroundTargetMinimumDistance);
+	CheckPositive(TEXT("AwakenedGroundTargetVerticalLaunchSpeed"), AwakenedGroundTargetVerticalLaunchSpeed);
+	CheckPositive(TEXT("AwakenedHunterFallGravityMagnitude"), AwakenedHunterFallGravityMagnitude);
+	if (!FMath::IsFinite(AwakenedHunterFallHandoffVelocity.X)
+		|| !FMath::IsFinite(AwakenedHunterFallHandoffVelocity.Y)
+		|| !FMath::IsFinite(AwakenedHunterFallHandoffVelocity.Z)
+		|| AwakenedHunterFallHandoffVelocity.Z <= 0.0f)
+	{
+		AddError(LOCTEXT("InvalidAwakenedHunterFallHandoffVelocity",
+			"AwakenedHunterFallHandoffVelocity must be finite and have positive UE Z velocity."));
+	}
 	CheckPositive(TEXT("DivingWyvernDistance"), DivingWyvernDistance);
 	CheckPositive(TEXT("DivingWyvernHeight"), DivingWyvernHeight);
 	CheckPositive(TEXT("DivingWyvernDuration"), DivingWyvernDuration);
@@ -261,7 +285,46 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckPositive(TEXT("AirDodgeHorizontalSpeed"), AirDodgeHorizontalSpeed);
 	CheckPositive(TEXT("AirDodgeVerticalSpeed"), AirDodgeVerticalSpeed);
 	CheckPositive(TEXT("PowderGatherRadius"), PowderGatherRadius);
-	CheckPositive(TEXT("PowderGatherDuration"), PowderGatherDuration);
+	CheckPositive(TEXT("PowderVortexDelay"), PowderVortexDelay);
+	CheckPositive(TEXT("PowderVortexDamageAt1"), PowderVortexDamageAt1);
+	CheckPositive(TEXT("PowderVortexDamageAt5"), PowderVortexDamageAt5);
+	CheckPositive(TEXT("PowderVortexDamageAt10"), PowderVortexDamageAt10);
+	CheckPositive(TEXT("MarkedHitPowderCooldown"), MarkedHitPowderCooldown);
+	CheckPositive(TEXT("PowderNaturalExplosionRadius"), PowderNaturalExplosionRadius);
+	CheckPositive(TEXT("PowderVortexExplosionRadius"), PowderVortexExplosionRadius);
+	if (PowderMaxCount < 1)
+	{
+		AddError(LOCTEXT("InvalidPowderMaxCount", "PowderMaxCount must be at least 1."));
+	}
+	// Powder is still dormant until a final actor class is assigned. This keeps
+	// existing M5 weapon assets valid while enforcing the complete tuning contract
+	// as soon as a weapon opts into powder production.
+	if (PowderActorClass)
+	{
+		CheckPositive(TEXT("KinsectAutoMarkSearchRadius"), KinsectAutoMarkSearchRadius);
+		CheckPositive(TEXT("KinsectAutoMarkAttackInterval"), KinsectAutoMarkAttackInterval);
+		CheckPositive(TEXT("MarkedHitPowderCooldown"), MarkedHitPowderCooldown);
+		CheckPositive(TEXT("PowderLifetime"), PowderLifetime);
+		CheckNonNegative(TEXT("PowderDamageContribution"), PowderDamageContribution);
+		CheckPositive(TEXT("PowderDamageMultiplier"), PowderDamageMultiplier);
+		CheckPositive(TEXT("PowderDespawnDistance"), PowderDespawnDistance);
+		CheckPositive(TEXT("PowderVortexExplosionRadius"), PowderVortexExplosionRadius);
+		if (!FMath::IsNearlyEqual(PowderLifetime, 180.0f, 0.001f))
+		{
+			AddError(LOCTEXT("InvalidPowderLifetimeContract",
+				"PowderLifetime is fixed at 180 world seconds by the current design."));
+		}
+		if (!PowderVortexHitCueTag.IsValid())
+		{
+			AddError(LOCTEXT("MissingPowderVortexHitCueTag",
+				"PowderVortexHitCueTag must be assigned when powder is enabled."));
+		}
+		if (!PowderVortexExplosionCueTag.IsValid())
+		{
+			AddError(LOCTEXT("MissingPowderVortexExplosionCueTag",
+				"PowderVortexExplosionCueTag must be assigned when powder is enabled."));
+		}
+	}
 
 	// 倍率/动作值必须非负
 	CheckNonNegative(TEXT("WhiteMoveSpeedMultiplier"), WhiteMoveSpeedMultiplier);
@@ -288,13 +351,23 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	{
 		AddError(LOCTEXT("MissingAerialLandingMontage", "AerialLandingMontage must be assigned."));
 	}
-
+	// M6-specific AwakenedHunterFallMontage is checked by
+	// UMHGZAwakenedKinsectAttackAbility::ValidateActionDependencies. Do not make
+	// the shared DA_IG_Combat invalid before E6.1 creates and assigns that asset.
 	// 修正角范围
-	if (!FMath::IsFinite(AwakenedAimCorrectionAngle)
-		|| AwakenedAimCorrectionAngle < 0.f || AwakenedAimCorrectionAngle > 180.f)
+	if (!FMath::IsFinite(AwakenedAimHorizontalCorrectionAngle)
+		|| AwakenedAimHorizontalCorrectionAngle < 0.f
+		|| AwakenedAimHorizontalCorrectionAngle > 180.f)
 	{
 		AddError(FText::Format(
-			LOCTEXT("InvalidAimCorrectionAngle", "AwakenedAimCorrectionAngle must be within [0, 180] degrees (current {0})."),
+			LOCTEXT("InvalidAwakenedAimHorizontalCorrectionAngle", "AwakenedAimHorizontalCorrectionAngle must be within [0, 180] degrees (current {0})."),
+			FText::AsNumber(AwakenedAimHorizontalCorrectionAngle)));
+	}
+	if (!FMath::IsFinite(AwakenedAimCorrectionAngle)
+		|| AwakenedAimCorrectionAngle < 0.f || AwakenedAimCorrectionAngle > 90.f)
+	{
+		AddError(FText::Format(
+			LOCTEXT("InvalidAimCorrectionAngle", "AwakenedAimCorrectionAngle (pitch) must be within [0, 90] degrees (current {0})."),
 			FText::AsNumber(AwakenedAimCorrectionAngle)));
 	}
 
@@ -332,13 +405,6 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 				}
 			}
 		}
-	}
-
-	if (PowderGatherMaxCount <= 0)
-	{
-		AddError(FText::Format(
-			LOCTEXT("InvalidPowderMaxCount", "PowderGatherMaxCount must be > 0 (current {0})."),
-			FText::AsNumber(PowderGatherMaxCount)));
 	}
 
 	FWeaponMovementRequest DanceVaultRequest;

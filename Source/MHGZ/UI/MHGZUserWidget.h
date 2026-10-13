@@ -21,11 +21,16 @@ class UMHGZUserWidget : public UUserWidget
 public:
 	/** 绑定到 ASC */
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|UI")
-	void BindToASC(UAbilitySystemComponent* InASC);
+	virtual void BindToASC(UAbilitySystemComponent* InASC);
+
+	UFUNCTION(BlueprintCallable, Category = "MHGZ|UI")
+	virtual void UnbindFromASC();
 
 	/** 当数值更新时调用（子类覆写） */
 	UFUNCTION(BlueprintNativeEvent, Category = "MHGZ|UI")
 	void OnValueUpdated(float Current, float Max);
+
+	virtual void NativeDestruct() override;
 
 protected:
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|UI")

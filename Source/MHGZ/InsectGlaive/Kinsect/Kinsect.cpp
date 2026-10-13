@@ -7,8 +7,27 @@
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Components/PrimitiveComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/World.h"
+
+bool AKinsect::ResolveScreenCenterLaunchOrigin(const FVector& CameraOrigin,
+	const FVector& CameraDirection, const FVector& OwnerLocation, FVector& OutOrigin)
+{
+	OutOrigin = FVector::ZeroVector;
+	if (CameraOrigin.ContainsNaN() || CameraDirection.ContainsNaN() || OwnerLocation.ContainsNaN())
+	{
+		return false;
+	}
+	const FVector Direction = CameraDirection.GetSafeNormal();
+	const FVector PlaneNormal = FVector(Direction.X, Direction.Y, 0).GetSafeNormal();
+	const double Denominator = FVector::DotProduct(Direction, PlaneNormal);
+	if (Denominator <= KINDA_SMALL_NUMBER) { return false; }
+	const double Distance = FVector::DotProduct(OwnerLocation - CameraOrigin, PlaneNormal) / Denominator;
+	if (!FMath::IsFinite(Distance) || Distance < 0) { return false; }
+	OutOrigin = CameraOrigin + Direction * Distance;
+	return !OutOrigin.ContainsNaN();
+}
 
 namespace
 {
@@ -76,10 +95,32 @@ void AKinsect::Tick(float DeltaTime)
 		Interrupt();
 		return;
 	}
+	if (State == EKinsectState::Flying && ActiveRequest.CommandSerial != 0
+		&& !ResourceComponent->IsKinsectCommandCurrent(ActiveRequest))
+	{
+		Interrupt();
+		return;
+	}
+	if (State == EKinsectState::Returning && ReturnCommandSerial != 0
+		&& !ResourceComponent->IsKinsectCommandCurrent(ReturnCommandSerial,
+			ReturnCommandSource, ReturnMarkSerial, ReturnRuntimeToken))
+	{
+		StopAndHover();
+		return;
+	}
 
 	switch (State)
 	{
 	case EKinsectState::Flying:
+		if (ActiveRequest.TrajectoryMode == EKinsectTrajectoryMode::ToPoint
+			&& ActiveRequest.bFollowTargetComponent)
+		{
+			UpdateMovingToPointTarget();
+			if (State != EKinsectState::Flying)
+			{
+				break;
+			}
+		}
 		// 先 Hitzone Sweep，再处理墙
 		SweepHitzones(DeltaTime);
 		if (State != EKinsectState::Flying)
@@ -137,6 +178,27 @@ bool AKinsect::IsFlightRequestValid(const FKinsectFlightRequest& Request) const
 	{
 		return false;
 	}
+	if (Request.bProjectAttachedLaunchToAimRay && State == EKinsectState::Attached)
+	{
+		FVector ProjectedOrigin;
+		if (!OwnerActor.IsValid() || !ResolveScreenCenterLaunchOrigin(Request.AimOriginSnapshot,
+			Request.DirectionSnapshot, OwnerActor->GetActorLocation(), ProjectedOrigin))
+		{
+			return false;
+		}
+	}
+	if (Request.PowderSpawnPolicy != EIGPowderSpawnPolicy::None
+		&& !Request.SourceAttackInstanceID.IsValid())
+	{
+		return false;
+	}
+	if (Request.PowderSpawnPolicy == EIGPowderSpawnPolicy::AwakenedPiercing
+		&& (Request.DamageMode != EKinsectDamageMode::Piercing
+			|| Request.ExtractMode != EKinsectExtractMode::CollectPerValidHit
+			|| Request.PostFlightPolicy != EKinsectPostFlightPolicy::ReturnToOwner))
+	{
+		return false;
+	}
 	if (Request.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection)
 	{
 		if (Request.DirectionSnapshot.ContainsNaN() ||
@@ -147,7 +209,8 @@ bool AKinsect::IsFlightRequestValid(const FKinsectFlightRequest& Request) const
 	}
 	else if (Request.TrajectoryMode == EKinsectTrajectoryMode::ToPoint)
 	{
-		if (Request.TargetPointSnapshot.ContainsNaN())
+		FVector ResolvedTarget;
+		if (!ResolveToPointTarget(Request, ResolvedTarget))
 		{
 			return false;
 		}
@@ -159,14 +222,70 @@ bool AKinsect::IsFlightRequestValid(const FKinsectFlightRequest& Request) const
 	return true;
 }
 
+bool AKinsect::CanBeginFlight(const FKinsectFlightRequest& Request) const
+{
+	return IsFlightRequestValid(Request) && Movement && Collision
+		&& State != EKinsectState::ActionAttached;
+}
+
 bool AKinsect::BeginFlight(const FKinsectFlightRequest& Request)
 {
+	return BeginFlightInternal(Request, nullptr);
+}
+
+bool AKinsect::BeginFlightFromActionAttachment(
+	const FWeaponActionToken& ActionToken,
+	const FKinsectFlightRequest& Request)
+{
+	return BeginFlightInternal(Request, &ActionToken);
+}
+
+bool AKinsect::BeginFlightInternal(
+	const FKinsectFlightRequest& Request,
+	const FWeaponActionToken* ActionAttachmentOwner)
+{
 	// 完整校验，全部通过后才提交，保证原子性
-	if (State == EKinsectState::ActionAttached || !IsFlightRequestValid(Request))
+	const bool bFromActionAttachment = ActionAttachmentOwner != nullptr;
+	if (!IsFlightRequestValid(Request)
+		|| (bFromActionAttachment
+			? !IsActionAttachmentOwnedBy(*ActionAttachmentOwner)
+			: State == EKinsectState::ActionAttached))
 	{
 		return false;
 	}
 
+	if (!Movement || !Collision) { return false; }
+	FVector LaunchOrigin = GetActorLocation();
+	const bool bProjectLaunch = Request.bProjectAttachedLaunchToAimRay && State == EKinsectState::Attached;
+	if (bProjectLaunch && !ResolveScreenCenterLaunchOrigin(Request.AimOriginSnapshot,
+		Request.DirectionSnapshot, OwnerActor->GetActorLocation(), LaunchOrigin))
+	{
+		return false;
+	}
+	if (bProjectLaunch && Request.TrajectoryMode == EKinsectTrajectoryMode::ToPoint)
+	{
+		// A close floor/wall can meet the center ray before the hunter's plane.
+		// Stay on the visible ray, but do not teleport past that frozen target.
+		const FVector AimDirection = Request.DirectionSnapshot.GetSafeNormal();
+		const double TargetDistance = FVector::DotProduct(
+			Request.TargetPointSnapshot - Request.AimOriginSnapshot, AimDirection);
+		const double PlaneDistance = FVector::DotProduct(
+			LaunchOrigin - Request.AimOriginSnapshot, AimDirection);
+		double Clearance = Request.ArrivalRadius + Collision->GetScaledCapsuleRadius();
+		const FVector Normal = Request.AimTargetSurfaceNormal.GetSafeNormal();
+		const double ApproachCosine = -FVector::DotProduct(AimDirection, Normal);
+		if (!Normal.IsNearlyZero() && ApproachCosine > KINDA_SMALL_NUMBER)
+		{
+			const double Support = Collision->GetScaledCapsuleRadius()
+				+ (Collision->GetScaledCapsuleHalfHeight() - Collision->GetScaledCapsuleRadius()) * FMath::Abs(Normal.Z);
+			Clearance = FMath::Max(Clearance, (Support + 2.0) / ApproachCosine);
+		}
+		if (TargetDistance <= 0) { return false; }
+		if (PlaneDistance > TargetDistance - Clearance)
+		{
+			LaunchOrigin = Request.AimOriginSnapshot + AimDirection * FMath::Max(0.0, TargetDistance - Clearance);
+		}
+	}
 	FVector FlightDirection;
 	if (Request.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection)
 	{
@@ -174,36 +293,59 @@ bool AKinsect::BeginFlight(const FKinsectFlightRequest& Request)
 	}
 	else
 	{
-		FlightDirection = (Request.TargetPointSnapshot - GetActorLocation()).GetSafeNormal();
+		FlightDirection = (Request.TargetPointSnapshot - LaunchOrigin).GetSafeNormal();
 	}
 	if (FlightDirection.IsNearlyZero())
 	{
 		return false; // 目标点与当前位置重合
 	}
-	if (!Movement || !Collision)
-	{
-		return false;
-	}
-
 	// 原子提交
+	USceneComponent* PreviousAttachParent = bFromActionAttachment
+		&& GetRootComponent() ? GetRootComponent()->GetAttachParent() : nullptr;
+	const FName PreviousAttachSocket = bFromActionAttachment
+		&& GetRootComponent() ? GetRootComponent()->GetAttachSocketName() : NAME_None;
+	const FVector PreviousLocation = GetActorLocation();
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	// Flight heading belongs to the visual mesh; keep the physical capsule upright.
+	SetActorRotation(FRotator(0.0f, GetActorRotation().Yaw, 0.0f));
+	if (bProjectLaunch) { SetActorLocation(LaunchOrigin, false, nullptr, ETeleportType::TeleportPhysics); }
 	SetFlightVisualFacing(true);
-	if (!ArmMovement(FlightDirection, Request.FlightSpeed))
+	if (!ArmMovement(FlightDirection, Request.FlightSpeed, true))
 	{
-		// BeginFlight 的失败不能留下一个从主人脱离、却不可移动的猎虫。
-		AttachToPlayer(AttachComponent.Get(), AttachSocketName);
+		// BeginFlight 的失败不能留下一个从主人/武器脱离、却不可移动的猎虫。
+		SetFlightVisualFacing(false);
+		SetActorLocation(PreviousLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		if (PreviousAttachParent)
+		{
+			AttachToComponent(PreviousAttachParent,
+				FAttachmentTransformRules::KeepWorldTransform, PreviousAttachSocket);
+		}
+		else
+		{
+			AttachToPlayer(AttachComponent.Get(), AttachSocketName);
+		}
 		return false;
 	}
 	Collision->EnableKinsectCollision();
 
+	ActionAttachmentToken = FWeaponActionToken();
 	ActiveRequest = Request;
 	ReturnRuntimeToken = FWeaponRuntimeToken();
+	ReturnCommandSerial = 0;
+	ReturnCommandSource = EKinsectCommandSource::None;
+	ReturnMarkSerial = 0;
 	FlightStartLocation = GetActorLocation();
 	LastTickLocation = GetActorLocation();
 	PendingWorldHit.Reset();
 	bHasDealtDamage = false;
 	HitzoneHitTimers.Reset();
 	State = EKinsectState::Flying;
+	if (Request.bProjectAttachedLaunchToAimRay)
+	{
+		UE_LOG(LogTemp, Display, TEXT("[KinsectAim] centerLaunch=%d origin=%s target=%s direction=%s"),
+			bProjectLaunch, *LaunchOrigin.ToCompactString(),
+			*Request.TargetPointSnapshot.ToCompactString(), *FlightDirection.ToCompactString());
+	}
 	return true;
 }
 
@@ -213,6 +355,8 @@ void AKinsect::Interrupt()
 	{
 		return;
 	}
+	const FKinsectFlightRequest InterruptedRequest = ActiveRequest;
+	const bool bWasFlying = State == EKinsectState::Flying;
 
 	// 停旧飞行但不清除 Pending 萃取
 	Movement->StopMovementImmediately();
@@ -225,19 +369,39 @@ void AKinsect::Interrupt()
 	HitzoneHitTimers.Reset();
 	bHasDealtDamage = false;
 	State = EKinsectState::Hovering;
+	if (bWasFlying && ResourceComponent.IsValid())
+	{
+		ResourceComponent->OnKinsectFlightEnded(InterruptedRequest,
+			EKinsectFlightEndReason::Interrupted);
+	}
 }
 
-void AKinsect::StartReturn()
+bool AKinsect::StartReturn(const uint64 CommandSerial,
+	const EKinsectCommandSource Source)
 {
 	if (State == EKinsectState::Attached || State == EKinsectState::ActionAttached
 		|| State == EKinsectState::Returning)
 	{
-		return; // 幂等
+		return State == EKinsectState::Returning; // 幂等
 	}
 	ReturnRuntimeToken = ActiveRequest.RuntimeToken;
+	ReturnCommandSerial = CommandSerial != 0
+		? CommandSerial : ActiveRequest.CommandSerial;
+	ReturnCommandSource = Source != EKinsectCommandSource::None
+		? Source : ActiveRequest.CommandSource;
+	ReturnMarkSerial = ActiveRequest.MarkSerial;
 	ReturnArrivalRadius = ActiveRequest.ArrivalRadius > 0.f
 		? ActiveRequest.ArrivalRadius : RETURN_ARRIVAL_DISTANCE;
+	bHasLastReturnRelativeLocation = false;
 	StartReturnInternal();
+	if (State != EKinsectState::Returning)
+	{
+		ReturnCommandSerial = 0;
+		ReturnCommandSource = EKinsectCommandSource::None;
+		ReturnMarkSerial = 0;
+		return false;
+	}
+	return true;
 }
 
 void AKinsect::StartReturnInternal()
@@ -275,24 +439,137 @@ void AKinsect::StartReturnInternal()
 		return;
 	}
 	const FVector ToTarget = SocketLocation - GetActorLocation();
+	LastReturnRelativeLocation = GetActorLocation() - SocketLocation;
+	bHasLastReturnRelativeLocation = true;
 	if (ToTarget.Size() > ReturnArrivalRadius && !ArmMovement(ToTarget, ReturnSpeed))
 	{
 		StopAndHover();
 	}
 }
 
-void AKinsect::ForceRecall()
+void AKinsect::ForceRecall(const uint64 CommandSerial,
+	const EKinsectCommandSource Source)
 {
 	if (State == EKinsectState::ActionAttached)
 	{
 		if (ResourceComponent.IsValid())
 		{
 			ResourceComponent->EndKinsectActionAttachmentAndReturn(
-				ActionAttachmentToken);
+				ActionAttachmentToken, Source);
 		}
 		return;
 	}
-	StartReturn();
+	StartReturn(CommandSerial, Source);
+}
+
+bool AKinsect::UpdateAutomaticMarkTarget(const FVector& TargetPoint,
+	const uint64 ExpectedCommandSerial, const uint64 ExpectedMarkSerial)
+{
+	if (State != EKinsectState::Flying || TargetPoint.ContainsNaN()
+		|| ActiveRequest.CommandSource != EKinsectCommandSource::AutoMark
+		|| ActiveRequest.CommandSerial != ExpectedCommandSerial
+		|| ActiveRequest.MarkSerial != ExpectedMarkSerial
+		|| !ResourceComponent.IsValid()
+		|| !ResourceComponent->IsKinsectCommandCurrent(ActiveRequest))
+	{
+		return false;
+	}
+
+	ActiveRequest.TargetPointSnapshot = TargetPoint;
+	const FVector ToTarget = TargetPoint - GetActorLocation();
+	if (ToTarget.IsNearlyZero())
+	{
+		return true;
+	}
+	return ArmMovement(ToTarget, ActiveRequest.FlightSpeed, true);
+}
+
+bool AKinsect::BeginAutomaticMarkContact(const FKinsectFlightRequest& Request)
+{
+	if (State != EKinsectState::Hovering
+		|| Request.CommandSource != EKinsectCommandSource::AutoMark
+		|| Request.CommandSerial == 0 || Request.MarkSerial == 0
+		|| !IsFlightRequestValid(Request)
+		|| !ResourceComponent.IsValid()
+		|| !ResourceComponent->IsKinsectCommandCurrent(Request))
+	{
+		return false;
+	}
+	ActiveRequest = Request;
+	ReturnRuntimeToken = FWeaponRuntimeToken();
+	ReturnCommandSerial = 0;
+	ReturnCommandSource = EKinsectCommandSource::None;
+	ReturnMarkSerial = 0;
+	LastTickLocation = GetActorLocation();
+	bHasDealtDamage = false;
+	return true;
+}
+
+bool AKinsect::SweepAutomaticMarkContact(const uint64 ExpectedCommandSerial,
+	const uint64 ExpectedMarkSerial, const FWeaponRuntimeToken& RuntimeToken,
+	FHitResult& OutHit) const
+{
+	if (State != EKinsectState::Hovering || !Collision || !GetWorld()
+		|| ActiveRequest.CommandSource != EKinsectCommandSource::AutoMark
+		|| ActiveRequest.CommandSerial != ExpectedCommandSerial
+		|| ActiveRequest.MarkSerial != ExpectedMarkSerial
+		|| ActiveRequest.RuntimeToken != RuntimeToken
+		|| !ResourceComponent.IsValid()
+		|| !ResourceComponent->IsKinsectCommandCurrent(ExpectedCommandSerial,
+			EKinsectCommandSource::AutoMark, ExpectedMarkSerial, RuntimeToken))
+	{
+		return false;
+	}
+
+	FVector MarkLocation;
+	FVector MarkNormal;
+	if (!ResourceComponent->GetKinsectMarkSurfaceFrame(ExpectedMarkSerial,
+		MarkLocation, MarkNormal))
+	{
+		return false;
+	}
+
+	FCollisionObjectQueryParams ObjectQueryParams;
+	ObjectQueryParams.AddObjectTypesToQuery(ECC_GameTraceChannel3);
+	FCollisionQueryParams QueryParams(FName(TEXT("KinsectAutoMarkContact")), false);
+	QueryParams.AddIgnoredActor(this);
+	if (OwnerActor.IsValid())
+	{
+		QueryParams.AddIgnoredActor(OwnerActor.Get());
+	}
+
+	const UMHGZMonsterHitzoneComponent* MarkHitzone =
+		ResourceComponent->GetKinsectMarkHitzone();
+	if (!MarkHitzone)
+	{
+		return false;
+	}
+	// The visible surface can be outside its spherical gameplay proxy. Trace
+	// radially through that proxy, then verify the projected surface patch; a broad
+	// capsule sweep hits an off-centre point that can miss the small 20 cm patch.
+	const FVector ProxyCenter = MarkHitzone->GetComponentLocation();
+	const FVector ContactDirection = (MarkLocation - ProxyCenter).GetSafeNormal(SMALL_NUMBER, MarkNormal);
+	const float ContactDepth = FVector::Distance(MarkLocation, ProxyCenter)
+		+ MarkHitzone->GetQueryBoundingRadius() + 2.0f;
+	const FVector Start = MarkLocation + ContactDirection * ContactDepth;
+	const FVector End = ProxyCenter - ContactDirection * ContactDepth;
+	TArray<FHitResult> Hits;
+	GetWorld()->LineTraceMultiByObjectType(Hits, Start, End,
+		ObjectQueryParams, QueryParams);
+	Hits.Sort([](const FHitResult& A, const FHitResult& B)
+	{
+		return A.Time < B.Time;
+	});
+
+	for (const FHitResult& Hit : Hits)
+	{
+		if (ResourceComponent->IsHitWithinKinsectMarkPatch(Hit))
+		{
+			OutHit = Hit;
+			return true;
+		}
+	}
+	return false;
 }
 
 void AKinsect::AttachToPlayer(USceneComponent* InAttachComponent, FName InSocketName)
@@ -319,8 +596,12 @@ void AKinsect::AttachToPlayer(USceneComponent* InAttachComponent, FName InSocket
 	Movement->Deactivate();
 	PendingWorldHit.Reset();
 	State = EKinsectState::Attached;
+	bHasLastReturnRelativeLocation = false;
 	ActionAttachmentToken = FWeaponActionToken();
 	ReturnRuntimeToken = FWeaponRuntimeToken();
+	ReturnCommandSerial = 0;
+	ReturnCommandSource = EKinsectCommandSource::None;
+	ReturnMarkSerial = 0;
 	ReturnArrivalRadius = RETURN_ARRIVAL_DISTANCE;
 
 	if (Collision)
@@ -370,7 +651,9 @@ bool AKinsect::BeginActionAttachment(const FWeaponActionToken& ActionToken,
 bool AKinsect::EndActionAttachmentAndReturn(
 	const FWeaponActionToken& ActionToken,
 	const FWeaponRuntimeToken& RuntimeToken,
-	const float ArrivalRadius)
+	const float ArrivalRadius,
+	const uint64 CommandSerial,
+	const EKinsectCommandSource Source)
 {
 	if (!IsActionAttachmentOwnedBy(ActionToken) || !ResourceComponent.IsValid()
 		|| !RuntimeToken.IsValid()
@@ -384,6 +667,9 @@ bool AKinsect::EndActionAttachmentAndReturn(
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
 	ActionAttachmentToken = FWeaponActionToken();
 	ReturnRuntimeToken = RuntimeToken;
+	ReturnCommandSerial = CommandSerial;
+	ReturnCommandSource = Source;
+	ReturnMarkSerial = 0;
 	ReturnArrivalRadius = ArrivalRadius;
 	State = EKinsectState::Hovering;
 	StartReturnInternal();
@@ -397,11 +683,39 @@ bool AKinsect::IsActionAttachmentOwnedBy(
 		&& ActionAttachmentToken.IsValid() && ActionAttachmentToken == ActionToken;
 }
 
+FGameplayTag AKinsect::GetPendingExtractColor() const
+{
+	return PendingExtractColors.IsEmpty() ? FGameplayTag() : PendingExtractColors.GetByIndex(0);
+}
+
 FGameplayTag AKinsect::TakePendingExtractColor()
 {
-	const FGameplayTag Extracted = PendingExtractColor;
-	PendingExtractColor = FGameplayTag();
+	const FGameplayTag Extracted = GetPendingExtractColor();
+	PendingExtractColors.RemoveTag(Extracted);
 	return Extracted;
+}
+
+FGameplayTagContainer AKinsect::TakePendingExtractColors()
+{
+	FGameplayTagContainer Extracted = MoveTemp(PendingExtractColors);
+	PendingExtractColors.Reset();
+	return Extracted;
+}
+
+bool AKinsect::CapturePendingExtractColor(const FGameplayTag ExtractColor,
+	const bool bAllowMultipleColors)
+{
+	const FString Name = ExtractColor.ToString();
+	if ((!bAllowMultipleColors && HasPendingExtract())
+		|| PendingExtractColors.HasTagExact(ExtractColor)
+		|| (Name != TEXT("WeaponResource.IG.Extract.Red")
+		&& Name != TEXT("WeaponResource.IG.Extract.White")
+		&& Name != TEXT("WeaponResource.IG.Extract.Orange")))
+	{
+		return false;
+	}
+	PendingExtractColors.AddTag(ExtractColor);
+	return true;
 }
 
 float AKinsect::GetFlightSpeed() const
@@ -472,7 +786,7 @@ void AKinsect::SweepHitzones(float DeltaTime)
 	for (const FHitResult& Hit : Hits)
 	{
 		UMHGZMonsterHitzoneComponent* Hitzone =
-			Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+			UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
 		if (!Hitzone)
 		{
 			continue;
@@ -488,7 +802,7 @@ void AKinsect::SweepHitzones(float DeltaTime)
 void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 {
 	UMHGZMonsterHitzoneComponent* Hitzone =
-		Cast<UMHGZMonsterHitzoneComponent>(Hit.GetComponent());
+		UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
 	if (!Hitzone || !ResourceComponent.IsValid())
 	{
 		return;
@@ -497,9 +811,9 @@ void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 	// 萃取：无颜色优先级、无部位名映射，直接用 Hitzone 的 ExtractColorTag
 	if (ActiveRequest.ExtractMode == EKinsectExtractMode::FirstHitOnly)
 	{
-		if (!PendingExtractColor.IsValid() && Hitzone->ExtractColorTag.IsValid())
+		if (!HasPendingExtract() && Hitzone->ExtractColorTag.IsValid())
 		{
-			PendingExtractColor = Hitzone->ExtractColorTag;
+			CapturePendingExtractColor(Hitzone->ExtractColorTag);
 		}
 	}
 	if (ActiveRequest.DamageMode == EKinsectDamageMode::None)
@@ -516,13 +830,21 @@ void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 		bHasDealtDamage = true;
 
 		// 真实 FHitResult 全程保留并透传给 Resource
+		const FGuid HitInstanceID = FGuid::NewGuid();
 		const bool bDamageApplied = ResourceComponent->ApplyKinsectDamage(
-			Hit, ActiveRequest.MotionValue, FGuid::NewGuid());
+			Hit, ActiveRequest.MotionValue, HitInstanceID,
+			ActiveRequest.SourceAttackInstanceID);
+		if (bDamageApplied && ActiveRequest.PowderSpawnPolicy != EIGPowderSpawnPolicy::None)
+		{
+			ResourceComponent->HandleSuccessfulKinsectDamage(
+				ActiveRequest.RuntimeToken, ActiveRequest.SourceAttackInstanceID,
+				HitInstanceID, Hit, ActiveRequest.PowderSpawnPolicy);
+		}
 
-		if (ActiveRequest.ExtractMode == EKinsectExtractMode::ApplyPerValidHit
+		if (ActiveRequest.ExtractMode == EKinsectExtractMode::CollectPerValidHit
 			&& bDamageApplied && Hitzone->ExtractColorTag.IsValid())
 		{
-			ResourceComponent->ApplyExtract(Hitzone->ExtractColorTag);
+			ResourceComponent->CaptureExtractFromKinsectHit(ActiveRequest, Hit, HitInstanceID);
 		}
 
 		// 单发命中：立即结束飞行；结束策略由 PostFlightPolicy 决定
@@ -539,24 +861,61 @@ void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 		return;
 	}
 
+	const FGuid HitInstanceID = FGuid::NewGuid();
 	const bool bDamageApplied = ResourceComponent->ApplyKinsectDamage(
-		Hit, ActiveRequest.MotionValue, FGuid::NewGuid());
+		Hit, ActiveRequest.MotionValue, HitInstanceID,
+		ActiveRequest.SourceAttackInstanceID);
 	if (!bDamageApplied)
 	{
 		return;
 	}
 	HitzoneHitTimers.Add(Hitzone, Now);
-
-	// 伤害成功且 ExtractMode=ApplyPerValidHit 后立即 Apply
-	if (ActiveRequest.ExtractMode == EKinsectExtractMode::ApplyPerValidHit
+	// 强化贯通成功伤害只写入猎虫携带；角色点灯统一等回手交付。
+	if (ActiveRequest.ExtractMode == EKinsectExtractMode::CollectPerValidHit
 		&& Hitzone->ExtractColorTag.IsValid())
 	{
-		ResourceComponent->ApplyExtract(Hitzone->ExtractColorTag);
+		ResourceComponent->CaptureExtractFromKinsectHit(ActiveRequest, Hit, HitInstanceID);
+	}
+
+	// 产粉策略统一在真实伤害 GE 成功后评估；失败命中不会启动冷却、占用ID或留下粉尘。
+	if (ActiveRequest.PowderSpawnPolicy != EIGPowderSpawnPolicy::None
+		&& !ResourceComponent->HandleSuccessfulKinsectDamage(
+			ActiveRequest.RuntimeToken, ActiveRequest.SourceAttackInstanceID,
+			HitInstanceID, Hit, ActiveRequest.PowderSpawnPolicy))
+	{
+		UE_LOG(LogTemp, VeryVerbose,
+			TEXT("[Kinsect] Successful hit did not produce powder under policy %d (attack=%s hit=%s)."),
+			static_cast<int32>(ActiveRequest.PowderSpawnPolicy),
+			*ActiveRequest.SourceAttackInstanceID.ToString(), *HitInstanceID.ToString());
 	}
 }
 
 void AKinsect::HandleWorldHit()
 {
+	const UPrimitiveComponent* HitComponent = PendingWorldHit.GetComponent();
+	const UPrimitiveComponent* AimedComponent = ActiveRequest.TargetComponent.Get();
+	const bool bHitCapturedAimComponent = AimedComponent
+		&& HitComponent == AimedComponent;
+	const float TargetContactTolerance = ActiveRequest.ArrivalRadius
+		+ (Collision ? Collision->GetScaledCapsuleRadius() : 0.0f) + 2.0f;
+	const bool bImpactNearCapturedPoint =
+		!PendingWorldHit.ImpactPoint.ContainsNaN()
+		&& FVector::DistSquared(PendingWorldHit.ImpactPoint,
+			ActiveRequest.TargetPointSnapshot)
+			<= FMath::Square(TargetContactTolerance);
+	if (ActiveRequest.CommandSource == EKinsectCommandSource::PowderVortex
+		&& ActiveRequest.bAllowWorldHitAtTarget
+		&& PendingWorldHit.bBlockingHit
+		&& (bHitCapturedAimComponent || bImpactNearCapturedPoint))
+	{
+		// A floor/wall hit on the exact component selected by the activation-time
+		// aim is the requested endpoint even when the Kinsect capsule touches the
+		// surface before its center enters the small arrival-radius tolerance.
+		ActiveRequest.TargetPointSnapshot = PendingWorldHit.ImpactPoint;
+		PendingWorldHit.Reset();
+		EndFlight(EKinsectFlightEndReason::Arrival);
+		return;
+	}
 	PendingWorldHit.Reset();
 	EndFlight(EKinsectFlightEndReason::WorldHit);
 }
@@ -564,10 +923,15 @@ void AKinsect::HandleWorldHit()
 void AKinsect::CheckFlightProgress()
 {
 	const FVector CurrentLocation = GetActorLocation();
-
-	// 距离从 FlightStartLocation 计算
 	const float Travelled = FVector::Dist(CurrentLocation, FlightStartLocation);
-	if (Travelled >= ActiveRequest.MaxDistance)
+	const bool bPowderVortexToPoint =
+		ActiveRequest.TrajectoryMode == EKinsectTrajectoryMode::ToPoint
+		&& ActiveRequest.CommandSource == EKinsectCommandSource::PowderVortex;
+
+	// Keep the established distance-first behavior for every existing flight. The
+	// vortex is the sole request allowed to resolve arrival before its distance cap,
+	// so a target captured exactly at MaxFlightRange remains reachable.
+	if (!bPowderVortexToPoint && Travelled >= ActiveRequest.MaxDistance)
 	{
 		EndFlight(EKinsectFlightEndReason::MaxDistance);
 		return;
@@ -575,27 +939,109 @@ void AKinsect::CheckFlightProgress()
 
 	if (ActiveRequest.TrajectoryMode == EKinsectTrajectoryMode::ToPoint)
 	{
-		const FVector ToTarget = ActiveRequest.TargetPointSnapshot - CurrentLocation;
+		FVector TargetPoint;
+		if (!ResolveToPointTarget(ActiveRequest, TargetPoint))
+		{
+			EndFlight(EKinsectFlightEndReason::Interrupted);
+			return;
+		}
+		ActiveRequest.TargetPointSnapshot = TargetPoint;
+		const FVector ToTarget = TargetPoint - CurrentLocation;
 		const bool bWithinArrivalRadius =
 			ToTarget.SizeSquared() <= FMath::Square(ActiveRequest.ArrivalRadius);
 		const bool bPassedTarget =
 			FVector::DotProduct(ToTarget, Movement->Velocity.GetSafeNormal()) < 0.f;
-		if (bWithinArrivalRadius || bPassedTarget)
+		if ((!ActiveRequest.bRequireHitzoneContactForArrival && bWithinArrivalRadius) || bPassedTarget)
 		{
+			// Auto-mark approaches end at a surface-normal offset from a small local
+			// patch. At 60 Hz a fast Kinsect can pass the point by more than the later
+			// contact tolerance in one ProjectileMovement step; leaving it at that
+			// overshot location makes the resource alternate between arrival and a
+			// fresh approach forever. Snap only this non-damaging, moving-mark request
+			// to its latest target point before the contact sweep begins.
+			if (bPassedTarget
+				&& ActiveRequest.CommandSource == EKinsectCommandSource::AutoMark)
+			{
+				SetActorLocation(ActiveRequest.TargetPointSnapshot, false, nullptr,
+					ETeleportType::TeleportPhysics);
+				LastTickLocation = ActiveRequest.TargetPointSnapshot;
+			}
 			EndFlight(EKinsectFlightEndReason::Arrival);
+			return;
 		}
+
+		if (bPowderVortexToPoint && Travelled >= ActiveRequest.MaxDistance)
+		{
+			EndFlight(EKinsectFlightEndReason::MaxDistance);
+		}
+		return;
+	}
+
+	if (Travelled >= ActiveRequest.MaxDistance)
+	{
+		EndFlight(EKinsectFlightEndReason::MaxDistance);
+	}
+}
+
+bool AKinsect::ResolveToPointTarget(const FKinsectFlightRequest& Request,
+	FVector& OutLocation) const
+{
+	if (Request.bFollowTargetComponent)
+	{
+		UPrimitiveComponent* Component = Request.TargetComponent.Get();
+		if (!IsValid(Component) || Request.TargetLocalPoint.ContainsNaN())
+		{
+			return false;
+		}
+		if (!Request.TargetBoneName.IsNone())
+		{
+			if (const USkeletalMeshComponent* SkeletalMesh =
+				Cast<USkeletalMeshComponent>(Component))
+			{
+				OutLocation = SkeletalMesh->GetSocketTransform(
+					Request.TargetBoneName, RTS_World).TransformPosition(
+					Request.TargetLocalPoint);
+				return !OutLocation.ContainsNaN();
+			}
+		}
+		OutLocation = Component->GetComponentTransform().TransformPosition(
+			Request.TargetLocalPoint);
+		return !OutLocation.ContainsNaN();
+	}
+	OutLocation = Request.TargetPointSnapshot;
+	return !OutLocation.ContainsNaN();
+}
+
+void AKinsect::UpdateMovingToPointTarget()
+{
+	FVector TargetPoint;
+	if (!ResolveToPointTarget(ActiveRequest, TargetPoint))
+	{
+		EndFlight(EKinsectFlightEndReason::Interrupted);
+		return;
+	}
+	ActiveRequest.TargetPointSnapshot = TargetPoint;
+	const FVector ToTarget = TargetPoint - GetActorLocation();
+	if (!ToTarget.IsNearlyZero())
+	{
+		ArmMovement(ToTarget, ActiveRequest.FlightSpeed, true);
 	}
 }
 
 void AKinsect::EndFlight(EKinsectFlightEndReason Reason)
 {
+	const FKinsectFlightRequest EndedRequest = ActiveRequest;
 	if (ActiveRequest.PostFlightPolicy == EKinsectPostFlightPolicy::ReturnToOwner)
 	{
-		StartReturn();
+		StartReturn(ActiveRequest.CommandSerial, ActiveRequest.CommandSource);
 	}
 	else
 	{
 		StopAndHover();
+	}
+	if (ResourceComponent.IsValid())
+	{
+		ResourceComponent->OnKinsectFlightEnded(EndedRequest, Reason);
 	}
 }
 
@@ -608,9 +1054,11 @@ void AKinsect::StopAndHover()
 		Collision->DisableKinsectCollision();
 	}
 	State = EKinsectState::Hovering;
+	bHasLastReturnRelativeLocation = false;
 }
 
-bool AKinsect::ArmMovement(const FVector& Direction, float Speed)
+bool AKinsect::ArmMovement(const FVector& Direction, float Speed,
+	const bool bKeepCollisionOrientation)
 {
 	const FVector SafeDirection = Direction.GetSafeNormal();
 	if (!Movement || !Collision || SafeDirection.IsNearlyZero() ||
@@ -633,7 +1081,18 @@ bool AKinsect::ArmMovement(const FVector& Direction, float Speed)
 	Movement->MaxSpeed = Speed;
 	Movement->Velocity = SafeDirection * Speed;
 	Movement->UpdateComponentVelocity();
-	SetActorRotation(SafeDirection.Rotation());
+	Movement->bRotationFollowsVelocity = !bKeepCollisionOrientation;
+	if (bKeepCollisionOrientation && Mesh)
+	{
+		// A hovering capsule resting against a floor must not rotate into that
+		// floor when auto-seek starts. Only the visual mesh follows the new heading.
+		const FQuat MeshFacingOffset(FVector::UpVector, -UE_HALF_PI);
+		Mesh->SetWorldRotation(SafeDirection.ToOrientationQuat() * MeshFacingOffset);
+	}
+	else
+	{
+		SetActorRotation(SafeDirection.Rotation());
+	}
 	return true;
 }
 
@@ -663,6 +1122,15 @@ void AKinsect::SetFlightVisualFacing(bool bInFlight)
 
 void AKinsect::TickReturn()
 {
+	if (ReturnCommandSerial != 0
+		&& (!ResourceComponent.IsValid()
+			|| !ResourceComponent->IsKinsectCommandCurrent(ReturnCommandSerial,
+				ReturnCommandSource, ReturnMarkSerial, ReturnRuntimeToken)))
+	{
+		StopAndHover();
+		return;
+	}
+
 	FVector SocketLocation;
 	if (!ResolveAttachSocketLocation(SocketLocation))
 	{
@@ -673,8 +1141,12 @@ void AKinsect::TickReturn()
 
 	const FVector ToTarget = SocketLocation - GetActorLocation();
 	const float Distance = ToTarget.Size();
+	const FVector CurrentRelativeLocation = GetActorLocation() - SocketLocation;
+	const bool bCrossedSocketBetweenTicks = bHasLastReturnRelativeLocation
+		&& FMath::PointDistToSegment(FVector::ZeroVector,
+			LastReturnRelativeLocation, CurrentRelativeLocation) <= RETURN_SWEEP_TOLERANCE;
 
-	if (Distance <= ReturnArrivalRadius)
+	if (Distance <= ReturnArrivalRadius || bCrossedSocketBetweenTicks)
 	{
 		if (!ResourceComponent.IsValid())
 		{
@@ -682,11 +1154,18 @@ void AKinsect::TickReturn()
 			return;
 		}
 		// 先局部取出并清 Pending，再 Attach，再回调一次
-		const FGameplayTag DeliveredColor = TakePendingExtractColor();
+		const FGameplayTagContainer DeliveredColors = TakePendingExtractColors();
+		const uint64 CompletedCommandSerial = ReturnCommandSerial;
+		const EKinsectCommandSource CompletedCommandSource = ReturnCommandSource;
+		SetActorLocation(SocketLocation, false, nullptr, ETeleportType::TeleportPhysics);
+		bHasLastReturnRelativeLocation = false;
 		AttachToPlayer(AttachComponent.Get(), AttachSocketName);
-		ResourceComponent->OnKinsectReachedPlayer(DeliveredColor);
+		ResourceComponent->OnKinsectReachedPlayer(DeliveredColors,
+			CompletedCommandSerial, CompletedCommandSource);
 		return;
 	}
+	LastReturnRelativeLocation = CurrentRelativeLocation;
+	bHasLastReturnRelativeLocation = true;
 
 	const float ReturnSpeed = KinsectData ? KinsectData->ReturnSpeed : FALLBACK_RETURN_SPEED;
 	if (!ArmMovement(ToTarget, ReturnSpeed))
@@ -728,5 +1207,10 @@ void AKinsect::OnWorldCollision(UPrimitiveComponent* HitComp, AActor* OtherActor
 
 	// 只缓存真实 HitResult 并停 Movement；墙处理统一放在 Actor Tick（先 Hitzone Sweep 再处理墙）
 	PendingWorldHit = Hit;
+	if (ActiveRequest.CommandSource == EKinsectCommandSource::AutoMark
+		&& ResourceComponent.IsValid())
+	{
+		ResourceComponent->RecordAutomaticMarkWorldBlock(ActiveRequest, Hit);
+	}
 	Movement->StopMovementImmediately();
 }

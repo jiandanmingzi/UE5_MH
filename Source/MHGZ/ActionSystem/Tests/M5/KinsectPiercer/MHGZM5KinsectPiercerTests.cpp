@@ -1312,9 +1312,9 @@ bool FMHGZM5KinsectPiercerEntryGateTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("203 cannot produce a valid recorded request even with a valid legacy landing profile"),
 		UMHGZM5KinsectPiercerGateProbeAbility::bLastLandingMovementRequestValid);
 
-	// §6.2：「入招后释放 Falling 许可」。这是 200/201 唯一的空中取消窗口锁 ——
-	// 空回的闸门就是「Falling 在场 + 无 CantDodge」，而舞踏提交时 Host 会把 CantDodge
-	// 和 CantAttack 一起退掉，所以不释放它，空回能在下潜中途把本招顶掉。
+	// §6.2：「入招后释放 Falling 许可」。这是 200/201 的 lead 锁；动作交回 Falling 后，
+	// 空回仍受 Host 持有的 CantDodge 预算拦截。成功舞踏提交时 Host 会同时重置
+	// CantDodge 与 CantAttack，因此下一空中阶段才重新开放两种预算。
 	// 同时它也停掉了系统托管下落的表现会话，触地时才不会被系统落地表现重设成 337 cm/s。
 	TestFalse(TEXT("the action releases the aerial falling permit before its montage starts"),
 		UMHGZM5KinsectPiercerGateProbeAbility::bLastFallingPermitHeldAfterPrepare);

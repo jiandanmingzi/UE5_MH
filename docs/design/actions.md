@@ -289,7 +289,7 @@ EnhancedInput → Tag → ASC → GA → Montage → RootMotion 覆盖 CMC 位�
 | **① 动画根运动** | 具有可靠 Root 曲线的空中回避/短动作 | 轨迹主要由动画给出 | Montage RootMotion；MotionWarping 只做有限朝向/落点校正 |
 | **② 受限定向位移** | 操虫斩、猎虫滑翔、觉虫击猎人位移 | 激活时快照方向，具有最大距离和碰撞终止 | RootMotionSource/AbilityTask + Capsule Sweep + 距离/时长上限 |
 | **③ 弹跳/舞踏** | 操虫斩命中、突进回旋斩反击后的舞踏 | 明确初速度或最高点，随后交给重力 | 由统一 Launch/Ballistic Task 计算速度；结束写回 CMC |
-| **④ 惯性/入口向量攻击** | 急袭突刺（2026-10-06已完整验收） | 第一段锁定校准水平向量，三次朝向修正不持续改变空中向量；第二段原动画位移 | 空中RecordedLocalTrajectory参数化适配；真实触地后切原Montage Root Motion。详见[急袭计划](../using/急袭突刺实现计划.md)，旧AdditiveInertia模式保留供其他动作使用 |
+| **④ 惯性/入口向量攻击** | 急袭突刺（2026-10-06已完整验收） | 第一段锁定校准水平向量，三次朝向修正不持续改变空中向量；第二段原动画位移 | 空中RecordedLocalTrajectory参数化适配；真实触地后切原Montage Root Motion。详见[急袭计划](../archive/demo-2026-10-13/急袭突刺实现计划.md)，旧AdditiveInertia模式保留供其他动作使用 |
 | **⑤ 自由下落** | 空中动作结束后的 Falling | 仅重力、空气控制和衰减 | 无 GA 位移，CMC 全权管理 |
 
 任何运行时轨迹都必须输出明确的 Start、EndReason、FinalVelocity，并在碰墙、受击、死亡、落地和换武器时清理。不能在 `EndAbility` 临时读取“最后一帧根位移”猜测整段动作末速度。
@@ -392,7 +392,7 @@ Ability 保存当前位移任务句柄和最近一次有效 `FinalVelocity`。�
 
 ### 空中动作次数限制
 
-空中回避和普通空中攻击许可仍可使用 `CantDodge`/`CantAttack` Tag；舞踏层数则必须是虫棍资源组件中的显式计数，不能用 Cant Tag 代替。只有操虫斩命中和突进回旋斩反击能触发舞踏并按动作配置重置空中许可。
+空中回避和空中起手攻击预算使用 `CantDodge`/`CantAttack` 两个 Host 所有的 Tag；舞踏层数则必须是虫棍资源组件中的显式计数，不能用 Cant Tag 代替。操虫斩、强化操虫穿刺、急袭突刺在确认激活后同时消费两个预算，因此未命中下坠阶段不能再空回；空回本身只消费 `CantDodge`。Host 在真实落地时清理预算，成功进入舞踏时重置两个预算。
 
 ```
 权限模型（Tag 驱动，零交叉逻辑）：
@@ -402,19 +402,20 @@ Ability 保存当前位移任务句柄和最近一次有效 `FinalVelocity`。�
     ├── GA_AirDodge: BlockedTags={CantDodge}
     │     → 激活时添加 CantDodge（锁自己）
     │
-    ├── GA_AirAttack_*: BlockedTags={CantAttack}
-    │     → 激活时添加 CantAttack（锁自己）
+    ├── 空中起手攻击 GA（操虫斩/强化操虫穿刺/急袭突刺）: BlockedTags={CantAttack}
+    │     → 确认激活后添加 CantAttack + CantDodge
+    │       （攻击次数与回避次数都被本次攻击消费；Tag 由 Host 持有）
     │
-    ├── 两者都用了 → CantDodge + CantAttack 都存在
-    │     → 各自 BlockedTags 各自命中 → 双阻塞
+    ├── 空回先用 → 只有 CantDodge；空中攻击仍可用
+    ├── 空中攻击先用 → CantDodge + CantAttack；空回和再次攻击均被阻止
     │
     └── ★ IG DanceVault（仅操虫斩命中/突进回旋斩反击）
           → 移除 CantDodge + CantAttack（重置）
 
-不需要 Exhausted——两个 Cant 各自独立，不需要"汇总"标签。
+舞踏提交重置两个预算；否则保持到真实落地。不需要 Exhausted 汇总标签。
 ```
 
-**与碰撞/伤害系统无关：** 次数限制仅影响 GA 的 `CanActivateAbility`（GAS 原生 `BlockedTags`，零覆写代码）——不阻塞连招表匹配、不涉及 AnimNotifyState、不改变位移逻辑。空中攻击未命中→`ShouldContinueAfterHit` 返回 false→`EndAbility` 写入 `Falling.*` Tag→AnimBP 维持下落 Pose，不会额外发放新的空中权限。Cant 的容错性优于 Can：加 Cant 失败→最多多用一次；加 Can 失败→本应可用的招式被误锁。
+**与碰撞/伤害系统无关：** 次数限制只通过 GA 的 `CanActivateAbility`/`BlockedTags` 闸门，不阻塞连招表匹配、不涉及 AnimNotifyState、不改变位移逻辑。空中攻击未命中后 GA 结束并进入下坠，Host 所有的两个 Cant Tag 仍保持到落地，因此空回不能在该下坠段重新激活。Cant 的容错性优于 Can：加 Cant 失败最多多用一次；加 Can 失败则会误锁原本可用的招式。
 
 ### 着陆重置——落地清舞踏并恢复地面状态
 
@@ -435,7 +436,7 @@ Combat.State.Aerial.Falling.IG_KinsectGlide
 Combat.State.Aerial.Falling.IG_KinsectSlash
 Combat.State.Aerial.Falling.IG_DescendingThrust
 Combat.State.Aerial.Falling.IG_DivingWyvern         ← 旧保留名；对应动作已移出 Demo，不配置/验收
-Combat.State.Aerial.CantDodge                  ← 空中回避已用
+Combat.State.Aerial.CantDodge                  ← 空中回避预算已消费（空回或空中攻击）
 Combat.State.Aerial.CantAttack                 ← 空中攻击已用
 Combat.State.Aerial.Landing                       ← 落地瞬间过渡
 ```
@@ -628,11 +629,14 @@ class UMHGZAttackAbility : public UMHGZGameplayAbility
 |------|------|--------|------|
 | DamageEffectClass | TSubclassOf\<UGameplayEffect\> | UMHGZDamageGameplayEffect | Demo 通用原生伤害 GE；特殊来源仍复用同一 ExecCalc，不以空类静默跳过 |
 | MotionValue | FScalableFloat | 0 | ★ 动作值（倍率）。伤害段必须显式设置为正值；0 表示合法的无伤害命中，缺失不回退到 1 |
+| PhysicalDamageType | EMHGZPhysicalDamageType | Sever | 显式选择斩/打/弹肉质，不从表现Cue推断 |
+| ElementMotionValue | FScalableFloat | 1 | 独立属性动作倍率；0禁用属性，不乘物理MotionValue |
+| PhysicalDamageMultiplier / ElementDamageMultiplier | FScalableFloat | 1 / 1 | 额外段内修正；不重复填写已由攻击力/属性值GE处理的加成 |
 | BaseStaggerValue | FScalableFloat | 0 | ★ 基础破坏值。参与硬直计算：`Stagger = BaseStaggerValue × StaggerMultiplier × MonsterHitzoneStaggerRate`。为 0 则该段不造成硬直 |
 | KnockbackAngle | float | 0 | 击退方向（相对攻击者朝向，0=前方，180=击飞） |
 | KnockbackForce | FScalableFloat | 0 | 击退力度 |
 | HitStaggerTag | FGameplayTag | 空 | 硬直等级（`Combat.Stagger.Light` / `Medium` / `Heavy`） |
-| bUseHitzoneDefense | bool | true | 是否按命中部位的 `DefenseMultiplier` 修正伤害。怪物侧每个 hitzone 碰撞体持有 `DefenseMultiplier`（肉质）和 `StaggerRate`（硬直肉质） |
+| bUseHitzoneDefense | bool | true | 是否使用物理肉质（类型表缺项沿用DefenseMultiplier）；属性肉质与StaggerRate独立，不随该开关绕过 |
 | bRequiresHitToContinue | bool | false | 招式内空挥截断：为 true 时，本段碰撞窗口结束后检查该窗口自己的 `HitTargets`——若该段空挥，提前 `EndAbility`。同时也是 `ShouldContinueAfterHit()` 的默认判断依据 |
 | OnHitSelfEffect | TSubclassOf\<UGameplayEffect\> | nullptr | 命中时对自身施加的 GE（如虫棍三灯）。仅首次命中时 Apply 一次 |
 | HitCueTag | FGameplayTag | 空 | 物理命中 Cue Tag。目标链路把它写入 HitFeedbackResult，由 Router 显式执行；DynamicAssetTags 只保留调试镜像 |
@@ -711,7 +715,7 @@ struct FAttackSegmentConfig
   - 输出：构造好的 GE Spec。
   - 作用：
     1. `ASC→MakeOutgoingSpec(AttackSegments[SegmentIndex].Damage.DamageEffectClass)`
-    2. 写入 `Damage.MotionValue` 与 `Damage.BaseStagger` SetByCaller；最终伤害由 `UMHGZDamageExecCalc` 计算
+    2. 写入物理/属性动作倍率、段内修正与BaseStagger；Context快照当前CombatConfig的DamageProfile和段物理类型。最终双通道伤害由 `UMHGZDamageExecCalc` 计算，见[伤害计算](exec-calc.md)
     3. 将原始 HitResult、HitStaggerTag、HitCueTag、ElementalCueTag 和 AttackInstanceID 写入项目自定义 GameplayEffectContext
     4. 虫棍空中攻击写入激活时快照的 `Damage.DanceMultiplier`；其他来源默认为 1
     5. DynamicAssetTags 可保留用于调试/查询，但不负责触发 GameplayCue
@@ -772,7 +776,7 @@ UMHGZAttackAbility                         ← 碰撞+伤害+方向修正（通�
   ├── UMHGZInsectGlaiveAbility             ← ★ 虫棍: 三灯+猎虫耐力
   │     └── UMHGZDrawAttackAbility          ← M4-A.4: 拔刀 Commit+姿态切换
   │           ├── GA_IG_Draw                ← 仅拔刀，无 AttackSegment
-  │           └── GA_IG_DrawSlash           ← 前+Y 拔刀攻击
+  │           └── GA_IG_BaDaoZhan           ← 前+Y 拔刀攻击
   ├── UMHGZChargeBladeAbility              ← ★ 盾斧: 瓶计数+盾充能
   └── UMHGZSwitchAxeAbility                ← ★ 斩斧: 充能槽
 ```
@@ -1450,7 +1454,7 @@ Montage 内的实现约定如下：
 - **死亡处理：** `Combat.Event.Death` 取消武器 GA并 RuntimeHost Shutdown；复用同一 Character 时递增 Generation，新建 Pawn 时更换 Host，二者都生成新 `FWeaponRuntimeToken` 并从当前装备重建，不能复用死亡前运行时对象
 - **打断后瞄准恢复：** Hitstun/Knockdown 移除后由 WeaponInputRouter 根据仍按住的物理键重新计算 Aim Context；不自动激活攻击 GA
 - **着陆分流——`Coordinator→OnLanded(Hit)`：** 默认 `ResetCombo(Landed)`；当前转移为 AbilityOwned 时，只把 Hit 交给匹配 ActionToken 的 GA，急袭突刺等 AbilityOwned 动作完成落地段后再 StateOnly Auto→Idle
-- **空中次数限制——Cant 权限模型（零交叉逻辑）：** `CantDodge`/`CantAttack` 两个 Tag 各自独立。`GA_AirDodge` 添加 `CantDodge`，`GA_AirAttack_*` 添加 `CantAttack`。无需 `Exhausted` 汇总——两个 Cant 同时存在 = 双阻塞。GAS 原生 `BlockedTags` 处理，GA 零覆写代码
+- **空中次数限制——Cant 权限模型：** 空回添加 `CantDodge`；空中攻击 GA 在确认激活后同时添加 `CantAttack` 与 `CantDodge`，Host 持有至落地，舞踏提交重置。空中攻击的入口仍只以 `CantAttack` 阻止重复攻击，故空回先用后仍可做一次空中攻击。无需 `Exhausted` 汇总标签。
 - **FSM 两条转移路径不冲突：** 输入转移和自动转移共享 `ExecuteTransition(TransitionID)`；自动转移必须引用唯一边 ID，EndAbility 只有在 AbilityHandle 仍拥有 ActiveTransition 时才能回 Idle
 - **GA→GA 自动派生不走 `TryActivateAbilityByTag`：** 必须通过 `OnAutoTransition`——确保协调器感知状态变更、ActivationContext 来源正确、SafetyTimer 更新。绕过协调器直接激活 GA 会导致状态不同步、Entry Section 选错、旧 End 回调误回 Idle
 

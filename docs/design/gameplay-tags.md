@@ -89,8 +89,8 @@ Combat.State.Aerial.Falling.IG_DescendingThrust ← 急袭突刺阶段
 Combat.State.Aerial.Falling.IG_DivingWyvern  ← 旧保留名；降龙已移出 Demo，不配置表现/转移
 Combat.State.Aerial.Dance.Source.KinsectSlash ← 操虫斩触发的舞踏，可派生强化操虫穿刺
 Combat.State.Aerial.Dance.Source.AdvancingCounter ← 突进回旋斩反击舞踏，不可派生强化操虫穿刺
-Combat.State.Aerial.CantDodge             ← 空中回避已用（默认无限制，舞踏重置清）
-Combat.State.Aerial.CantAttack            ← 空中攻击已用（默认无限制，舞踏重置清）
+Combat.State.Aerial.CantDodge             ← 空中回避预算已消费（空回或空中攻击；舞踏重置/落地清）
+Combat.State.Aerial.CantAttack            ← 空中攻击已用（空中攻击GA消费；舞踏重置/落地清）
 Combat.State.Aerial.Landing               ← 落地瞬间过渡（AnimBP 内部用）
 Combat.State.Sheathed      ← RuntimeHost 维护的收刀姿态；与 Unsheathed 互斥，收刀在 SheatheCommit 精确帧切换
 Combat.State.Unsheathed    ← RuntimeHost 维护的持刀姿态；与 Sheathed 互斥
@@ -170,7 +170,7 @@ Input.Weapon.YB            ← Y+B / △+○（Chord Resolver）
 Input.Weapon.LTY           ← LT+Y（持刀送虫/空中特殊派生）
 Input.Weapon.LTB           ← LT+B（持刀召回/空中操虫斩）
 Input.Weapon.LTRT          ← LT+RT（持刀发射虫印弹）
-Input.Weapon.LTYB          ← LT+Y+B（仅地面粉尘集约；空中降龙已移出 Demo）
+Input.Weapon.LTYB          ← LT+Y+B（地面粉尘聚爆：准心目标、吸粉后1s两段；空中降龙已移出Demo）
 Input.Weapon.RTYB          ← RT+Y+B（觉虫击）
 Input.Modifier.LT          ← LT/L2 原始修饰输入，按姿态产生 Kinsect/Slinger 上下文
 Input.Modifier.RT          ← RT/R2 原始修饰输入，按姿态产生 Action 上下文或拔刀直飞
@@ -192,7 +192,7 @@ WeaponResource.IG.Extract.Orange      ← 橙灯激活中
 WeaponResource.IG.Extract.Red         ← 红灯激活中
 WeaponResource.IG.TripleUp            ← 三灯齐聚中
 WeaponResource.IG.Kinsect.Active      ← 猎虫放出中
-WeaponResource.IG.Mark.Active         ← 当前玩家存在有效虫印；运行时弱引用仍在 ResourceComponent
+WeaponResource.IG.Mark.Active         ← 当前玩家存在有效90s局部虫印的镜像；局部点/覆盖/唯一身份由Resource持有，不能仅凭此Tag认定整个部位都带印
 WeaponResource.IG.KinsectRegenRate    ← 猎虫耐力回复速率（词条用）
 WeaponResource.IG.HoverDrainRate      ← 悬停耐力消耗倍率（词条用）
 WeaponResource.IG.FlightDrainRate     ← 飞行耐力消耗倍率（词条用）

@@ -37,11 +37,12 @@ the recorder never consumes or changes it. Axis reads are best-effort across
 TDB variants, so a live UI status of `Connected: controller axes unavailable`
 means that build needs a runtime accessor adjustment before using the stick data.
 
-Press `F8` once at idle and again in each animation phase to write read-only
-motion-probe snapshots in the same directory. Each report lists the reflected
-motion/animation/frame/time/rate/blend/rotation candidates reachable from the
-master hunter and its GameObject components. It does not call those candidate
-methods or write to game state.
+`F8` is an optional diagnostic motion probe, not part of the normal capture
+workflow and not required for M6.2. If you deliberately use it, press it at idle
+and again in a phase to write read-only reflected motion/animation/frame/time/
+rate/blend/rotation candidates. The current M6.2 implementation uses the F9
+world-transform, velocity, camera, facing, and controller samples; do not repeat
+F8 captures just to continue this task.
 
 ## Facing
 
@@ -127,3 +128,52 @@ directory before running them. On a newly installed device the data directory
 does not exist until the first F9 capture; the scripts do not copy captures
 from another machine or regenerate the historical reference documents without
 their original input data.
+
+## M6 action-ID audit
+
+Run `python Scripts/MHRise/audit_action_motion_captures.py` from the repository
+root to scan the installed recorder's `*_samples.csv` files for contiguous
+`player_motion_old_id` episodes of 193, 195, 196, 199 and 206. The report
+includes phase duration through the next ID, displacement, mean velocity/speed,
+camera/facing alignment, stick input, and a per-axis linear velocity fit. Fits
+are emitted both with and without the first transition sample: REFramework can
+report zero velocity on that boundary sample even though movement begins on the
+next sample. The report also shows whether `motion_l*_frame` fields were
+populated. To audit a copied capture directory, pass `--directory <path>`; to
+save the machine-readable report, pass `--json-out <path>`. Without that option
+the tool prints to stdout and writes nothing. This is an offline read-only
+audit: action IDs and elapsed time do not reveal source-animation frame numbers;
+missing frame fields remain explicitly missing, never inferred.
+
+For the 2026-10-06 M6 capture, F9 provided enough data to audit the action
+phases and world motion; F8 is not a required capture step. Do not treat the
+movement-state ID duration as an animation clip's source-frame range.
+
+## M6.3 Powder Vortex source-action discovery
+
+The recorder already writes `player_motion_old_id` and every readable
+controller button's `down`/`pressed`/`released` state on each F9 sample. No Lua
+change or F8 motion probe is needed to find the Powder Vortex action ID. To
+isolate it, record a short capture with one deliberate Powder Vortex execution
+and no other attacks, then run:
+
+```text
+python Scripts/MHRise/discover_action_ids_by_input.py --directory "F:\games\Steam\steamapps\common\MonsterHunterRise\reframework\data\MHGZ_AerialTrajectoryRecorder"
+```
+
+The command above uses this machine's known game install path and inspects its
+newest `*_samples.csv`. On another device, pass `--directory <recorder-data-path>`
+or set `MHGZ_RISE_RECORDER_DIR` first. For a specific capture, pass
+`--capture <absolute-csv-path>`;
+to save a machine-readable copy, add `--json-out Saved/M6Audit/powder_vortex_input_id.json`.
+The report aligns button edges, held-button rows, contiguous `player_motion_old_id`
+episodes, transition IDs, and observed durations. Button labels are the RE Engine
+enum names shown by the recorder, so use the captured press/hold/release sequence
+to identify the controller chord rather than guessing enum names.
+
+Use the isolated action's ID and its neighboring IDs to search the local Rise
+motion/action index and extracted animation assets. The report identifies game
+motion-state IDs only; it does not infer UE source frames or prove that an ID is
+itself a single animation clip. If the recorder says controller input is
+unavailable, or no pressed/released edges appear, do not interpret the IDs as a
+button-to-action mapping; fix/verify the input capture first.

@@ -101,8 +101,9 @@ void UMHGZHitFeedbackRouterComponent::RouteHitFeedback(
 		}
 	}
 
-	// 4. 伤害数字：目标没有 Health 属性时不显示伪造数字，保留无伤害命中反馈。
-	if (TargetASC->HasAttributeSetForAttribute(UMHGZAttributeSet::GetHealthAttribute()))
+	// 4. 伤害数字：仅对真实扣血显示；0伤害仍保留上面的命中/暴击表现。
+	if (Result.ActualDamage > 0.0f
+		&& TargetASC->HasAttributeSetForAttribute(UMHGZAttributeSet::GetHealthAttribute()))
 	{
 		static const FGameplayTag DamageNumberTag =
 			FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.DamageNumber"));
@@ -110,6 +111,8 @@ void UMHGZHitFeedbackRouterComponent::RouteHitFeedback(
 		{
 			FGameplayCueParameters NumberParams = Params;
 			NumberParams.RawMagnitude = Result.ActualDamage;
+			// 仅复制给数字Cue的参数；不改变命中/元素/暴击Cue语义。
+			NumberParams.NormalizedMagnitude = Result.bCritical ? 1.0f : 0.0f;
 			ExecuteCueOnTarget(TargetASC, DamageNumberTag, NumberParams);
 			LastDamageNumberMagnitude = Result.ActualDamage;
 		}

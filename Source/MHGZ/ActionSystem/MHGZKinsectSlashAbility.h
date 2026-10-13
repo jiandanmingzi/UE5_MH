@@ -332,6 +332,7 @@ private:
 	FVector LaunchDirection = FVector::ForwardVector;
 	FVector DashTerminalVelocity = FVector::ZeroVector;
 	FHitResult SuccessfulHit;
+	FGuid KinsectSlashPowderHitInstanceID;
 	FName SuccessfulHitSourceSection = NAME_None;
 	float SuccessfulHitSourcePosition = 0.0f;
 	int32 SuccessfulHitSourceMontageInstanceID = INDEX_NONE;

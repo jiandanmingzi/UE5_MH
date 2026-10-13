@@ -238,15 +238,23 @@ void UMHGZGameplayAbility::ActivateAbility(
 		return;
 	}
 
+	TArray<FWeaponResourceCostSpec> ActivationResourceCosts;
+	if (!PrepareActivationWeaponResourceCosts(ActivationResourceCosts))
+	{
+		RejectTransitionAndEnd(true);
+		return;
+	}
+
 	// 4. 武器资源预留。
 	bool bReservationOK = false;
 	if (Host)
 	{
-		bReservationOK = Host->TryReserveCosts(CurrentActionToken, WeaponResourceCosts, ActiveReservation);
+		bReservationOK = Host->TryReserveCosts(CurrentActionToken,
+			ActivationResourceCosts, ActiveReservation);
 	}
 	else
 	{
-		bReservationOK = WeaponResourceCosts.IsEmpty();
+		bReservationOK = ActivationResourceCosts.IsEmpty();
 		ActiveReservation = FWeaponResourceCostReservation();
 	}
 	if (!bReservationOK)
@@ -267,10 +275,22 @@ void UMHGZGameplayAbility::ActivateAbility(
 		return;
 	}
 
-	// 6. 结算预留。
-	if (Host)
+	// 6. 结算预留。GAS Commit 成功不代表武器资源预留仍然有效（例如三灯 GE
+	// 在 Commit 回调期间过期/被移除）；只有结算成功才允许确认 Combo、注册 Action
+	// 或播放动作。空成本 Reservation 由 Host 明确返回成功。
+	const bool bCostsConsumed = Host
+		? Host->ConsumeReservedCosts(ActiveReservation)
+		: !ActiveReservation.IsValid();
+	if (!bCostsConsumed)
 	{
-		Host->ConsumeReservedCosts(ActiveReservation);
+		if (Host)
+		{
+			Host->ReleaseReservation(ActiveReservation);
+		}
+		ActiveReservation = FWeaponResourceCostReservation();
+		bReservationConsumed = true; // 已显式释放；EndAbility 不再重复结算/释放。
+		RejectTransitionAndEnd(true);
+		return;
 	}
 	bReservationConsumed = true;
 	bIsActionActivationCommitted = true;

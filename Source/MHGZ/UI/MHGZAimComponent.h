@@ -15,7 +15,8 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnAimTargetChanged,
 
 /**
  * UMHGZAimComponent — 瞄准检测组件（挂载到 Character）
- * 持刀 LT → ASC 持有 Combat.State.Aiming.Kinsect → Tick 中每帧射线检测 → Delegate 驱动 UI 准心
+ * LT/Kinsect 与 RT/Action 瞄准时为准心显示执行同一条屏幕中心可见性射线；
+ * 输入快照仍由 CaptureAimSnapshot 独立即时采集。
  */
 UCLASS(ClassGroup = (MHGZ), BlueprintType)
 class UMHGZAimComponent : public UActorComponent
@@ -39,6 +40,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Aim")
 	FVector GetCameraForward() const { return CachedCameraDir; }
 
+	AActor* GetCurrentAimTarget() const { return CurrentAimTarget.Get(); }
+	FGameplayTag GetCurrentAimHitzoneTag() const { return CurrentAimHitzoneTag; }
+	FGameplayTag GetCurrentAimExtractColor() const { return CurrentAimExtractColor; }
+
 	/** 输入解析瞬间执行独立射线并返回不可变快照。 */
 	FWeaponAimSnapshot CaptureAimSnapshot(EWeaponAimSnapshotContext Context) const;
 
@@ -52,7 +57,7 @@ public:
 	bool CaptureAimLockSample(const FVector& LaunchOrigin, FWeaponAimLockSample& OutSample) const;
 
 	// ── ASC 生命周期绑定 ──
-	/** 绑定 ASC 并订阅 Combat.State.Aiming.Kinsect；幂等；切换 ASC 时先解绑并同步当前 tag count。 */
+	/** 绑定 ASC 并订阅 Action/Kinsect瞄准Tag；幂等；切换ASC时先解绑再同步当前Tag count。 */
 	void BindToAbilitySystem(UAbilitySystemComponent* InASC);
 
 	/** 解绑 ASC 并清空当前目标显示。 */
@@ -90,7 +95,9 @@ private:
 	UPROPERTY()
 	TObjectPtr<UAbilitySystemComponent> ASC;
 
-	FDelegateHandle AimTagDelegateHandle;
+	FDelegateHandle ActionAimTagDelegateHandle;
+	FDelegateHandle KinsectAimTagDelegateHandle;
+	bool bActionAimActive = false;
 
 	// 缓存相机朝向（供 GA_SendKinsect 读取）
 	FVector CachedCameraDir = FVector::ForwardVector;
