@@ -1,10 +1,20 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZM3TestTypes.h"
-
+#include "InputActionValue.h"
 #include "GameplayEffectComponents/TargetTagsGameplayEffectComponent.h"
 #include "GameplayEffectComponents/TargetTagRequirementsGameplayEffectComponent.h"
 #include "GameplayTagContainer.h"
+
+void AMHGZM3TestCharacter::PressSprintForTest()
+{
+	SprintPressed(FInputActionValue(true));
+}
+
+void AMHGZM3TestCharacter::ReleaseSprintForTest()
+{
+	SprintReleased(FInputActionValue(false));
+}
 
 namespace
 {

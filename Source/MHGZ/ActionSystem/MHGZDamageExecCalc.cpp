@@ -66,18 +66,19 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 	}
 
 	// ── 3. 从 Context 的真实命中组件读取肉质；不再扫描 DynamicAssetTags ──
-	float HitzoneDefense = 1.0f;
+	float PhysicalHitzone = 100.0f;
 	float ElementHitzone = 0.0f;
 	float HitzoneStaggerRate = 1.0f;
 	const bool bWeaponDamage = CombatContext->DamageSourceType == EMHGZDamageSourceType::Weapon;
+	const bool bKinsectDamage = CombatContext->DamageSourceType == EMHGZDamageSourceType::Kinsect;
 	if (const UMHGZMonsterHitzoneComponent* Hitzone =
 		UMHGZMonsterHitzoneComponent::Resolve(Hit->GetComponent()))
 	{
 		if (!CombatContext || CombatContext->bUseHitzoneDefense)
 		{
-			const float* TypedPhysical = bWeaponDamage
+			const float* TypedPhysical = (bWeaponDamage || bKinsectDamage)
 				? Hitzone->PhysicalHitzoneMultipliers.Find(CombatContext->PhysicalDamageType) : nullptr;
-			HitzoneDefense = NonnegativeFinite(TypedPhysical ? *TypedPhysical : Hitzone->DefenseMultiplier);
+			PhysicalHitzone = NonnegativeFinite(TypedPhysical ? *TypedPhysical : Hitzone->DefenseMultiplier);
 		}
 		if (bWeaponDamage)
 		{
@@ -133,7 +134,22 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 	const float SafeMotionValue = NonnegativeFinite(MotionValue);
 	const float SafeDanceMultiplier = FMath::IsFinite(DanceMultiplier)
 		? FMath::Max(1.0f, DanceMultiplier) : 1.0f;
-	float PhysicalDamage = AttackPower * SafeMotionValue * HitzoneDefense;
+	float PhysicalDamage = 0.0f;
+	if (bWeaponDamage || bKinsectDamage)
+	{
+		PhysicalDamage = AttackPower * (SafeMotionValue / 100.0f)
+			* (PhysicalHitzone / 100.0f);
+	}
+	else if (CombatContext->DamageSourceType == EMHGZDamageSourceType::Powder)
+	{
+		PhysicalDamage = AttackPower * (SafeMotionValue / 100.0f);
+	}
+	else
+	{
+		// DummyAttack is a separate incoming-damage protocol: its MotionValue is a
+		// legacy direct multiplier, while physical hitzones now use the 0..100 unit.
+		PhysicalDamage = AttackPower * SafeMotionValue * (PhysicalHitzone / 100.0f);
+	}
 	float ElementDamage = 0.0f;
 	float FinalDamage = 0.0f;
 	bool bCrit = false;
@@ -174,9 +190,16 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 			FinalDamage = RoundDamageChannel(PhysicalDamage) + RoundDamageChannel(ElementDamage);
 		}
 	}
+	else if (bKinsectDamage || CombatContext->DamageSourceType == EMHGZDamageSourceType::Powder)
+	{
+		// Kinsect and powder use their own attack-power/action-value formulas; they
+		// do not inherit hunter affinity, sharpness, element, or Dance modifiers.
+		FinalDamage = AttackPower > 0.0f && SafeMotionValue > 0.0f && FMath::IsFinite(PhysicalDamage)
+			? FMath::Max(1.0f, FMath::FloorToFloat(PhysicalDamage)) : 0.0f;
+	}
 	else
 	{
-		// 保留已验收的猎虫/粉尘/木桩伤害算法与 Floor 取整。
+		// 保留木桩入站攻击算法与 Floor 取整。
 		bCrit = PhysicalDamage > 0.0f && EffectiveCritRate > 0.0f
 			&& FMath::FRand() * 100.0f < EffectiveCritRate;
 		PhysicalDamage *= (bCrit ? 1.25f : 1.0f) * SafeDanceMultiplier;
@@ -188,9 +211,9 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 		BaseStagger * StaggerMultiplier * HitzoneStaggerRate);
 
 	UE_LOG(LogTemp, Log,
-		TEXT("[Damage] Source=%s Target=%s Attack=%.2f Motion=%.2f Hitzone=%.2f Physical=%.3f ElementPower=%.2f ElementHitzone=%.3f Element=%.3f Crit=%d Final=%.2f Stagger=%.2f"),
+		TEXT("[Damage] Source=%s Target=%s Attack=%.2f Motion=%.2f PhysicalHitzone=%.2f Physical=%.3f ElementPower=%.2f ElementHitzone=%.3f Element=%.3f Crit=%d Final=%.2f Stagger=%.2f"),
 		*GetNameSafe(SourceASC->GetAvatarActor()), *GetNameSafe(TargetASC->GetOwnerActor()),
-		AttackPower, MotionValue, HitzoneDefense, PhysicalDamage, ElementPower, ElementHitzone,
+		AttackPower, MotionValue, PhysicalHitzone, PhysicalDamage, ElementPower, ElementHitzone,
 		ElementDamage, bCrit ? 1 : 0, FinalDamage, StaggerValue);
 
 	// ── 7. 只写 Meta Attribute，不直接改 Health/播放 Cue/发 Event ──

@@ -36,7 +36,7 @@ public:
 		double InSpawnWorldTime,
 		float InLifetime,
 		float InKinsectAttackPowerSnapshot,
-		float InDamageMultiplierSnapshot,
+		float InMotionValueSnapshot,
 		float InDamageContribution,
 		uint64 InSpawnSequenceID);
 
@@ -64,7 +64,7 @@ public:
 	float GetLifetime() const { return Lifetime; }
 	int32 GetLifetimeRevision() const { return LifetimeRevision; }
 	float GetKinsectAttackPowerSnapshot() const { return KinsectAttackPowerSnapshot; }
-	float GetDamageMultiplierSnapshot() const { return DamageMultiplierSnapshot; }
+	float GetMotionValueSnapshot() const { return MotionValueSnapshot; }
 	uint64 GetSpawnSequenceID() const { return SpawnSequenceID; }
 	const FWeaponRuntimeToken& GetRuntimeToken() const { return RuntimeToken; }
 	const FGuid& GetPowderID() const { return PowderID; }
@@ -127,7 +127,7 @@ private:
 	float KinsectAttackPowerSnapshot = 0.0f;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Powder", meta = (AllowPrivateAccess = "true"))
-	float DamageMultiplierSnapshot = 0.0f;
+	float MotionValueSnapshot = 0.0f;
 
 	UPROPERTY(VisibleInstanceOnly, BlueprintReadOnly, Category = "Powder", meta = (AllowPrivateAccess = "true"))
 	float DamageContribution = 0.0f;

@@ -6,8 +6,8 @@
 
 /**
  * Editor-only exporter for the native Pose Search trace emitted during an
- * opt-in runtime telemetry session. The implementation is a harmless stub in
- * non-editor targets, so gameplay telemetry never depends on TraceAnalysis.
+ * opt-in runtime telemetry session. This stable facade dispatches to a modular
+ * editor service; non-editor targets return false without TraceAnalysis.
  */
 class MHGZ_API FMHGZPoseSearchTelemetryExport
 {

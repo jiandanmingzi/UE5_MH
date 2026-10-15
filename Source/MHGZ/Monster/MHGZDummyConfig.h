@@ -30,12 +30,12 @@ struct FDummyHitzoneConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag ExtractColorTag;
 
-	/** Flesh quality: damage multiplier (0.2 = hard, 1.0 = weak spot). */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
-	float DefenseMultiplier = 1.0f;
+	/** Physical hitzone percent used when the typed physical table has no entry (100 = 100%). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "100.0"))
+	float DefenseMultiplier = 100.0f;
 
-	/** 斩/打/弹肉质倍率；缺项兼容旧 DefenseMultiplier。0.45表示肉质45。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	/** 斩/打/弹物理肉质百分数；缺项兼容 DefenseMultiplier，0免疫。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	TMap<EMHGZPhysicalDamageType, float> PhysicalHitzoneMultipliers;
 
 	/** 火/水/雷/冰/龙肉质倍率；缺项=0。0.20表示肉质20。 */
@@ -246,12 +246,18 @@ public:
 		for (int32 Index = 0; Index < InHitzones.Num(); ++Index)
 		{
 			const FDummyHitzoneConfig& HZ = InHitzones[Index];
+			if (!FMath::IsFinite(HZ.DefenseMultiplier)
+				|| HZ.DefenseMultiplier < 0.0f || HZ.DefenseMultiplier > 100.0f)
+			{
+				OutError = FString::Printf(TEXT("Hitzone[%d] DefenseMultiplier must be a physical hitzone percent in [0, 100]."), Index);
+				return false;
+			}
 			for (const auto& Entry : HZ.PhysicalHitzoneMultipliers)
 			{
 				if (static_cast<uint8>(Entry.Key) > static_cast<uint8>(EMHGZPhysicalDamageType::Shot)
-					|| !FMath::IsFinite(Entry.Value) || Entry.Value < 0.0f)
+					|| !FMath::IsFinite(Entry.Value) || Entry.Value < 0.0f || Entry.Value > 100.0f)
 				{
-					OutError = FString::Printf(TEXT("Hitzone[%d] physical flesh values must be valid types and finite >= 0."), Index);
+					OutError = FString::Printf(TEXT("Hitzone[%d] physical hitzone percents must use valid types and [0, 100]."), Index);
 					return false;
 				}
 			}

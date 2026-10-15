@@ -405,6 +405,14 @@ void AMHGZCharacter::Tick(float DeltaTime)
 	// before this Tick can clear locomotion intent for BlockMovement/aerial locks.
 	CaptureActionMoveInputFrameSnapshot();
 
+	// RB used to start Sheathe is still physically held after its pose commit.
+	// Do not require a second Started edge to request Sprint in the sheathed pose.
+	if (bSprintPressed && IsSheathedForSprint()
+		&& !GetWorldTimerManager().IsTimerActive(SprintHoldTimer))
+	{
+		bSprintHeld = true;
+	}
+
 	// 每帧更新拔刀态标记——AnimBP 读此值切换 Database_Armed / Database_Unarmed
 	{
 		AMHGZPlayerState* PS = GetPlayerState<AMHGZPlayerState>();
@@ -549,7 +557,7 @@ float AMHGZCharacter::CalcCruiseSpeed(float StickMagnitude) const
 	Settings.SprintCruiseSpeed = SprintCruise;
 	Settings.UnsheathedCruiseSpeed = RunCruise_Unsheathed;
 	return MHGZMotionMatching::QuantizeCruiseSpeed(Settings, StickMagnitude,
-		IsUnsheathedForLocomotion(), bSprintHeld);
+		IsUnsheathedForLocomotion(), bSprintHeld && IsSheathedForSprint());
 }
 
 bool AMHGZCharacter::IsUnsheathedForLocomotion() const
@@ -635,13 +643,13 @@ void AMHGZCharacter::Look(const FInputActionValue& Value)
 
 void AMHGZCharacter::SprintPressed(const FInputActionValue& Value)
 {
-	// RB（0.1s 判定）：仅收刀态记录按下；持刀态按下不启动
+	// Remember the physical edge even while RB is being used for Sheathe.
+	bSprintPressed = true;
 	if (!IsSheathedForSprint())
 	{
 		return;
 	}
 
-	bSprintPressed = true;
 	// While locomotion is already active, RB is a direct gait request. Waiting
 	// for the legacy hold timer here made Run -> Sprint appear to accelerate
 	// gradually even though the player had already committed to movement.

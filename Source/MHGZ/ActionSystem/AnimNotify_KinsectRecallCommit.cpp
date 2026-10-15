@@ -5,6 +5,7 @@
 #include "MHGZ.h"
 #include "MHGZAnimNotifyActionResolver.h"
 #include "MHGZInsectGlaiveKinsectAbilities.h"
+#include "MHGZSheatheAbility.h"
 
 void UAnimNotify_KinsectRecallCommit::Notify(USkeletalMeshComponent* MeshComp,
 	UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference)
@@ -16,6 +17,11 @@ void UAnimNotify_KinsectRecallCommit::Notify(USkeletalMeshComponent* MeshComp,
 			Cast<UMHGZRecallKinsectAbility>(Action.AbilityInstance.Get()))
 		{
 			Recall->CommitRecallKinsect(Action);
+		}
+		else if (UMHGZSheatheAbility* Sheathe =
+			Cast<UMHGZSheatheAbility>(Action.AbilityInstance.Get()))
+		{
+			Sheathe->CommitKinsectRecall(Action);
 		}
 	}
 	else

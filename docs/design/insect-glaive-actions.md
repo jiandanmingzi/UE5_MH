@@ -189,7 +189,7 @@ DescendingThrustAirControl
 KinsectAutoMarkSearchRadius / KinsectAutoMarkAttackInterval
 MarkedHitPowderCooldown = 10s
 PowderLifetime = 180s / PowderMaxCount = 100
-PowderDespawnDistance / PowderDamageMultiplier
+PowderDespawnDistance / PowderMotionValue（原始百分数；默认100，伤害=猎虫攻击力×动作值/100）
 PowderNaturalExplosionRadius = 150cm
 PowderGatherRadius = ArenaPlayableSideLength / 2
 PowderVortexDelay = 1s / PowderVortexExplosionRadius = 300cm

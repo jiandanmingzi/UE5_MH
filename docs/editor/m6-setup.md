@@ -159,8 +159,8 @@
 1. 已生成 `/Game/Weapons/InsectGlaive/BP/BP_IG_PowderCloud`，继承 `AIGPowderActor`，并已接入DA；筛选、伤害、寿命和爆炸事务仍由C++管理。
 2. 已生成 `/Game/Weapons/InsectGlaive/VFX/PS_IG_PowderRedCloud`：红色、不发光、近球状雾团；用户已确认外观。粒子只作表现，虫印黄色粒子与红色可消费虫粉分别引用。
 3. 所有表现组件NoCollision、SimulatePhysics=false、无Overlap战斗逻辑；不阻挡Pawn/Visibility/武器/Hitzone。
-4. DA已接入正式PowderActorClass与两个Cue。当前默认值：PowderLifetime=180s（按现行玩法合同固定）、PowderMaxCount=100、MarkedHitPowderCooldown=10s、PowderNaturalExplosionRadius=150cm、PowderVortexExplosionRadius=300cm、PowderVortexDelay=1s、PowderDamageMultiplier=1、PowderDespawnDistance=10000cm、PowderVortexDamageAt1/5/10=10/50/100。除固定寿命合同外，其余均为可编辑调参项。粉尘表现包络半径约75cm，与伤害球半径相互独立。
-5. 自动寻印和粉尘聚拢半径均为3000cm（训练场可走地面边长的一半），自动攻击间隔2s。以上字段可在`DA_IG_Combat`编辑；单团伤害仍按生成时猎虫攻击力快照×倍率。
+4. DA已接入正式PowderActorClass与两个Cue。当前默认值：PowderLifetime=180s（按现行玩法合同固定）、PowderMaxCount=100、MarkedHitPowderCooldown=10s、PowderNaturalExplosionRadius=150cm、PowderVortexExplosionRadius=300cm、PowderVortexDelay=1s、PowderMotionValue=100（原始百分数）、PowderDespawnDistance=10000cm、PowderVortexDamageAt1/5/10=10/50/100。除固定寿命合同外，其余均为可编辑调参项。粉尘表现包络半径约75cm，与伤害球半径相互独立。
+5. 自动寻印和粉尘聚拢半径均为3000cm（训练场可走地面边长的一半），自动攻击间隔2s。以上字段可在`DA_IG_Combat`编辑；单团伤害按生成时猎虫攻击力快照×`PowderMotionValue/100`。
 6. 到期180s自动一段爆炸；离玩家过远仅消失；同PowderID不能再被聚爆。聚爆刷新ExpireAt，旧到期Timer不得在原时刻引爆。
 7. 100团上限按当前计划“拒绝新团”；Available+Reserved共同计数。基于粒子数量设置表现预算，不能把100团逻辑上限改成只显示/计算最近5团。
 

@@ -28,7 +28,7 @@ bool FMHGZM6ScreenCenterLaunch::RunTest(const FString&)
 	FKinsectFlightRequest R;
 	R.RuntimeToken=H.Host->GetCurrentToken(); R.FlightInstanceID=FGuid::NewGuid();
 	R.TrajectoryMode=EKinsectTrajectoryMode::ToPoint; R.MaxDistance=3000; R.FlightSpeed=2000;
-	R.ArrivalRadius=10; R.MotionValue=0.2f; R.PostFlightPolicy=EKinsectPostFlightPolicy::Hover;
+	R.ArrivalRadius=10; R.MotionValue=20.0f; R.PostFlightPolicy=EKinsectPostFlightPolicy::Hover;
 	R.bProjectAttachedLaunchToAimRay=true; R.AimOriginSnapshot=Owner+FVector(-600,70,200);
 	R.DirectionSnapshot=FVector::ForwardVector; R.TargetPointSnapshot=R.AimOriginSnapshot+R.DirectionSnapshot*2000;
 	const FVector Before=H.Kinsect->GetActorLocation();

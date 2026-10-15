@@ -309,7 +309,7 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 		float DamageContribution,
 		EIGPowderSpawnPolicy SpawnPolicy = EIGPowderSpawnPolicy::None,
 		float KinsectAttackPowerSnapshot = 0.0f,
-		float DamageMultiplierSnapshot = 0.0f);
+		float MotionValueSnapshot = 0.0f);
 	void ApplyNaturalPowderExplosion(AIGPowderActor* Powder,
 		const FGuid& ExplosionID);
 	bool IsLeafExtractTag(const FGameplayTag& ExtractColor) const;

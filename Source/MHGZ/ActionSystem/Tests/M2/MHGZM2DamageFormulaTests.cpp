@@ -56,7 +56,7 @@ struct FDamageFormulaFixture
 		TargetAttributes->InitMaxHealth(10000.0f); TargetAttributes->InitHealth(10000.0f);
 		Hitzone = NewObject<UMHGZMonsterHitzoneComponent>(Target);
 		Target->AddInstanceComponent(Hitzone); Target->SetRootComponent(Hitzone);
-		Hitzone->RegisterComponent(); Hitzone->DefenseMultiplier = 0.45f;
+		Hitzone->RegisterComponent(); Hitzone->DefenseMultiplier = 45.0f;
 		Hitzone->ElementHitzoneMultipliers.Add(EMHGZElementType::Fire, 0.20f);
 		Router = NewObject<UMHGZHitFeedbackRouterComponent>(Target);
 		Target->AddInstanceComponent(Router); Router->RegisterComponent();
@@ -66,7 +66,7 @@ struct FDamageFormulaFixture
 		return true;
 	}
 
-	FGameplayEffectSpecHandle MakeSpec(float Motion = 0.20f, float ElementMotion = 2.0f,
+	FGameplayEffectSpecHandle MakeSpec(float Motion = 20.0f, float ElementMotion = 2.0f,
 		EMHGZDamageSourceType SourceType = EMHGZDamageSourceType::Weapon,
 		EMHGZPhysicalDamageType PhysicalType = EMHGZPhysicalDamageType::Sever,
 		bool bUseHitzone = true)
@@ -107,10 +107,10 @@ bool FMHGZDamageDualChannel::RunTest(const FString& Parameters)
 {
 	FDamageFormulaFixture F;
 	if (!TestTrue(TEXT("fixture builds"), F.Setup())) { return false; }
-	// 200*.2*1.32*.45=23.76 ->24; 20*2*1.15*.2=9.2 ->9.
+	// 200*(20/100)*1.32*(45/100)=23.76 ->24; 20*2*1.15*.2=9.2 ->9.
 	TestEqual(TEXT("real GE settles independently rounded physical + element"), F.Apply(F.MakeSpec()), 33.0f);
-	TestEqual(TEXT("changing physical MV does not scale elemental channel"), F.Apply(F.MakeSpec(0.40f)), 57.0f);
-	TestEqual(TEXT("element motion zero suppresses elemental damage"), F.Apply(F.MakeSpec(0.20f, 0.0f)), 24.0f);
+	TestEqual(TEXT("changing physical MV does not scale elemental channel"), F.Apply(F.MakeSpec(40.0f)), 57.0f);
+	TestEqual(TEXT("element motion zero suppresses elemental damage"), F.Apply(F.MakeSpec(20.0f, 0.0f)), 24.0f);
 	F.Profile.ElementType = EMHGZElementType::Water;
 	TestEqual(TEXT("unconfigured elemental hitzone does not fall back to physical"), F.Apply(F.MakeSpec()), 24.0f);
 	F.Profile.ElementType = EMHGZElementType::None;
@@ -149,17 +149,17 @@ bool FMHGZDamageTypedHitzone::RunTest(const FString& Parameters)
 	if (!TestTrue(TEXT("fixture builds"), F.Setup())) { return false; }
 	F.Profile.PhysicalSharpnessMultiplier = F.Profile.ElementSharpnessMultiplier = 1.0f;
 	F.SourceAttributes->InitAttackPower(10.0f); F.SourceAttributes->InitElementPower(10.0f);
-	F.Hitzone->DefenseMultiplier = 1.0f;
+	F.Hitzone->DefenseMultiplier = 100.0f;
 	F.Hitzone->ElementHitzoneMultipliers[EMHGZElementType::Fire] = 0.15f;
-	TestEqual(TEXT("round 1.5 physical + round 1.5 element =4, not round sum=3"), F.Apply(F.MakeSpec(0.15f, 1.0f)), 4.0f);
+	TestEqual(TEXT("round 1.5 physical + round 1.5 element =4, not round sum=3"), F.Apply(F.MakeSpec(15.0f, 1.0f)), 4.0f);
 	F.Hitzone->PhysicalHitzoneMultipliers.Add(EMHGZPhysicalDamageType::Blunt, 0.0f);
 	TestEqual(TEXT("explicit zero typed physical remains zero; element still applies"),
-		F.Apply(F.MakeSpec(0.15f, 1.0f, EMHGZDamageSourceType::Weapon, EMHGZPhysicalDamageType::Blunt)), 2.0f);
+		F.Apply(F.MakeSpec(15.0f, 1.0f, EMHGZDamageSourceType::Weapon, EMHGZPhysicalDamageType::Blunt)), 2.0f);
 	F.Hitzone->ElementHitzoneMultipliers[EMHGZElementType::Fire] = 0.0f;
 	TestEqual(TEXT("zero both hitzones must not manufacture minimum damage"),
-		F.Apply(F.MakeSpec(0.15f, 1.0f, EMHGZDamageSourceType::Weapon, EMHGZPhysicalDamageType::Blunt)), 0.0f);
+		F.Apply(F.MakeSpec(15.0f, 1.0f, EMHGZDamageSourceType::Weapon, EMHGZPhysicalDamageType::Blunt)), 0.0f);
 	TestEqual(TEXT("bypass physical does not bypass elemental immunity"),
-		F.Apply(F.MakeSpec(0.15f, 1.0f, EMHGZDamageSourceType::Weapon, EMHGZPhysicalDamageType::Blunt, false)), 2.0f);
+		F.Apply(F.MakeSpec(15.0f, 1.0f, EMHGZDamageSourceType::Weapon, EMHGZPhysicalDamageType::Blunt, false)), 2.0f);
 	F.Hitzone->ElementHitzoneMultipliers[EMHGZElementType::Fire] = 1.0f;
 	TestEqual(TEXT("zero motion still means explicitly non-damaging contact"), F.Apply(F.MakeSpec(0.0f)), 0.0f);
 	TestEqual(TEXT("negative motion still means non-damaging contact"), F.Apply(F.MakeSpec(-1.0f)), 0.0f);
@@ -177,12 +177,12 @@ bool FMHGZDamageOtherSources::RunTest(const FString& Parameters)
 	if (!TestTrue(TEXT("fixture builds"), F.Setup())) { return false; }
 	F.Profile.PhysicalSharpnessMultiplier = 9.0f;
 	F.Profile.ElementSharpnessMultiplier = 9.0f;
-	F.Hitzone->DefenseMultiplier = 0.5f;
+	F.Hitzone->DefenseMultiplier = 50.0f;
 	F.Hitzone->PhysicalHitzoneMultipliers.Add(EMHGZPhysicalDamageType::Sever, 0.0f);
-	auto KinsectSpec = F.MakeSpec(0.20f, 9.0f, EMHGZDamageSourceType::Kinsect);
+	auto KinsectSpec = F.MakeSpec(20.0f, 9.0f, EMHGZDamageSourceType::Kinsect);
 	KinsectSpec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(TEXT("Damage.AttackPower")), 47.0f);
-	TestEqual(TEXT("kinsect keeps its own attack, old generic hitzone and floor; no inherited element"), F.Apply(KinsectSpec), 4.0f);
-	auto PowderSpec = F.MakeSpec(1.0f, 9.0f, EMHGZDamageSourceType::Powder,
+	TestEqual(TEXT("kinsect uses AP×MV/100×physical hitzone/100 and floor; no inherited element"), F.Apply(KinsectSpec), 4.0f);
+	auto PowderSpec = F.MakeSpec(100.0f, 9.0f, EMHGZDamageSourceType::Powder,
 		EMHGZPhysicalDamageType::Sever, false);
 	PowderSpec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(TEXT("Damage.AttackPower")), 17.0f);
 	PowderSpec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(TEXT("Damage.CritOverride")), 0.0f);
@@ -267,8 +267,8 @@ bool FMHGZDamageGeneratedHitzone::RunTest(const FString& Parameters)
 	Part.Shape = EMHGZHitzoneShape::Box;
 	Part.HitzoneTag = FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Head"));
 	Part.ExtractColorTag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
-	Part.DefenseMultiplier = 0.01f;
-	Part.PhysicalHitzoneMultipliers.Add(EMHGZPhysicalDamageType::Blunt, 0.80f);
+	Part.DefenseMultiplier = 1.0f;
+	Part.PhysicalHitzoneMultipliers.Add(EMHGZPhysicalDamageType::Blunt, 80.0f);
 	Part.ElementHitzoneMultipliers.Add(EMHGZElementType::Fire, 0.20f);
 	Config->Hitzones.Add(Part);
 	auto* Dummy = F.World->SpawnActor<AMHGZTrainingDummy>();
@@ -288,8 +288,8 @@ bool FMHGZDamageGeneratedHitzone::RunTest(const FString& Parameters)
 		F.Hitzone->GetQueryCollisionComponent() != F.Hitzone);
 	TestTrue(TEXT("Box primitive resolves the configured metadata"),
 		UMHGZMonsterHitzoneComponent::Resolve(F.Hitzone->GetQueryCollisionComponent()) == F.Hitzone);
-	const auto Spec = F.MakeSpec(0.20f, 2.0f, EMHGZDamageSourceType::Weapon, EMHGZPhysicalDamageType::Blunt);
-	// 200*.2*1.32*.8=42.24 ->42; 20*2*1.15*.2=9.2 ->9.
+	const auto Spec = F.MakeSpec(20.0f, 2.0f, EMHGZDamageSourceType::Weapon, EMHGZPhysicalDamageType::Blunt);
+	// 200*(20/100)*1.32*(80/100)=42.24 ->42; 20*2*1.15*.2=9.2 ->9.
 	TestEqual(TEXT("generated typed flesh tables drive actual GE through Box hit"), F.Apply(Spec), 51.0f);
 	TestEqual(TEXT("combined hit routes one final total to number feedback"), F.Router->GetLastDamageNumberMagnitude(), 51.0f);
 	TestEqual(TEXT("only one damage-number cue is executed for two numeric channels"), F.Router->GetExecutedCueCount(), 1);

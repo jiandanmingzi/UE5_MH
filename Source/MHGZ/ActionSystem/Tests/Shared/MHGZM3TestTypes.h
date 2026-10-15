@@ -13,6 +13,9 @@ UCLASS()
 class AMHGZM3TestCharacter : public AMHGZCharacter
 {
 	GENERATED_BODY()
+public:
+	void PressSprintForTest();
+	void ReleaseSprintForTest();
 };
 
 UCLASS()

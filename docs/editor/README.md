@@ -17,8 +17,12 @@
 
 ## 文档
 
+当前移动接缝维护入口：[拔刀/收刀及MM/ABP修复](locomotion-maintenance-20261015.md)。§3～6保留首轮诊断依据，§7记录随后已保存的实现、技术检查和待局部PIE确认的范围，不从旧阶段标题恢复待办。
+
 | 文档 | 用途 |
 |---|---|
+| [montage-segment-blend.md](montage-segment-blend.md) | 已接线的蒙太奇内部惯性混合基底；按Montage元数据显式开启，不默认全量推广 |
+| [ground-attack-entry-fixes.md](ground-attack-entry-fixes.md) | 六组原作对照入口修正，保留蓄力/其他来源与出口相位；已保存，待局部视觉确认 |
 | [demo-setup.md](demo-setup.md) | 重构代码完成后的完整编辑器操作顺序 |
 | [m6-setup.md](m6-setup.md) | 本轮E6.1～E6.5：觉虫击/集约资产、HUD/准心、数字与视觉Cue、PIE；不含音效 |
 | [locomotion-refactor-setup.md](locomotion-refactor-setup.md) | 历史备选：CMC + 状态机路线的编辑器操作；当前纯 MM 路线下禁止执行 |

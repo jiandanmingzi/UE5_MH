@@ -120,7 +120,7 @@ namespace MHGZRecordedLocalTrajectory
 	 * 不要求单调、不要求末位移回零 —— 只要求「时间有序、数值有限」，
 	 * 这正是 §5.2 给三份 CV 的唯一格式约束。`OutLastKeySeconds` 回末键时间。
 	 */
-	bool ValidateCurve(const UCurveVector* Curve, float& OutLastKeySeconds);
+	MHGZ_API bool ValidateCurve(const UCurveVector* Curve, float& OutLastKeySeconds);
 
 	/** 局部右向：`WorldUp × D`。D 必须是已归一化的水平方向。 */
 	FVector ResolveRightVector(const FVector& LockedYawDirection);

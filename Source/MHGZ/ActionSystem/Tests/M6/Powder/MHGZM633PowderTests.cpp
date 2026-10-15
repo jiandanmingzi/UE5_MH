@@ -101,7 +101,7 @@ bool ConfigurePowder(FMHGZM3Harness& Harness, const float Multiplier = 1.0f)
 	Harness.CombatConfig->PowderActorClass = AIGPowderActor::StaticClass();
 	Harness.CombatConfig->PowderLifetime = 180.0f;
 	Harness.CombatConfig->PowderDamageContribution = 5.0f;
-	Harness.CombatConfig->PowderDamageMultiplier = Multiplier;
+	Harness.CombatConfig->PowderMotionValue = Multiplier * 100.0f;
 	return true;
 }
 
@@ -110,7 +110,7 @@ bool ApplyAndNotifyKinsectHit(FMHGZM3Harness& Harness,
 	const FGuid& AttackID, const FGuid& HitID,
 	const EIGPowderSpawnPolicy Policy, bool& bOutPowderSpawned)
 {
-	const bool bDamageApplied = Harness.Resource->ApplyKinsectDamage(Hit, 0.20f, HitID);
+	const bool bDamageApplied = Harness.Resource->ApplyKinsectDamage(Hit, 20.0f, HitID);
 	bOutPowderSpawned = bDamageApplied
 		&& Harness.Resource->HandleSuccessfulKinsectDamage(
 			Harness.Host->GetCurrentToken(), AttackID, HitID, Hit, Policy);
@@ -174,9 +174,9 @@ bool FMHGZM633PowderMarkedContactCooldownAndAwakenedBypass::RunTest(
 	{
 		TestEqual(TEXT("marked contact policy is recorded"), Powders[0].SpawnPolicy,
 			EIGPowderSpawnPolicy::MarkedContact);
-		TestTrue(TEXT("power and multiplier are snapshotted at creation"),
+		TestTrue(TEXT("power and raw-percent motion value are snapshotted at creation"),
 			FMath::IsNearlyEqual(Powders[0].KinsectAttackPowerSnapshot, 10.0f)
-			&& FMath::IsNearlyEqual(Powders[0].DamageMultiplierSnapshot, 0.5f)
+			&& FMath::IsNearlyEqual(Powders[0].MotionValueSnapshot, 50.0f)
 			&& FMath::IsNearlyEqual(Powders[0].DamageContribution, 5.0f));
 	}
 
@@ -415,8 +415,8 @@ bool FMHGZM633PowderNaturalExpiryTest::RunTest(const FString& Parameters)
 	SecondInsideHitzone->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	SecondInsideHitzone->SetCollisionResponseToAllChannels(ECR_Block);
 	SecondInsideHitzone->SetWorldLocation(FVector(41.0f, 0.0f, 2.0f));
-	Inside.Hitzone->DefenseMultiplier = 0.1f;
-	SecondInsideHitzone->DefenseMultiplier = 0.1f;
+	Inside.Hitzone->DefenseMultiplier = 10.0f;
+	SecondInsideHitzone->DefenseMultiplier = 10.0f;
 	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetCriticalRateAttribute(), 100.0f);
 	TestTrue(TEXT("control kinsect damage applies to the production training-dummy ASC"),
 		H.Resource->ApplyKinsectDamage(MakePowderHit(Inside,

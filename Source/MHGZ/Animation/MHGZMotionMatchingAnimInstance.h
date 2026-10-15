@@ -3,10 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Containers/Queue.h"
 #include "Animation/AnimExecutionContext.h"
 #include "Animation/AnimNodeReference.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/MHGZMotionMatchingMath.h"
+#include "Animation/MHGZLocomotionPhase.h"
+#include "Animation/MHGZMontageSegmentBlend.h"
 #include "Animation/TrajectoryTypes.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZMotionMatchingAnimInstance.generated.h"
@@ -16,6 +19,7 @@ class UPoseSearchDatabase;
 class UAnimSequenceBase;
 class UMHGZInstrumentedCharacterMovementComponent;
 struct FMotionMatchingAnimNodeReference;
+class FStructOnScope;
 
 /** Identifies the existing forward-only locomotion Motion Matching nodes in ABP_MH_Character. */
 UENUM(BlueprintType)
@@ -50,11 +54,18 @@ UCLASS(Blueprintable, Transient)
 class MHGZ_API UMHGZMotionMatchingAnimInstance : public UAnimInstance
 {
 	GENERATED_BODY()
+	friend class FMHGZMobileExitRouteTest;
+	friend class FMHGZLoopContinuityTest;
+	friend class FMHGZLocomotionEntryTest;
 
 public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUninitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+
+	/** Debug counter only: incremented once per requested slot group, never on every blend frame. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Montage Segment Blend")
+	int64 MontageSegmentBlendRequestSerial = 0;
 
 	/** Converts a world-facing correction into the current Mesh component basis. */
 	static bool BuildActionVisualPitchComponentRotation(const FVector& FacingWorld,
@@ -139,6 +150,17 @@ public:
 	 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	float MMMoveGaitQuery = 0.0f;
+
+	/** Exact indexed phase query, from the persistent cycle clock or one-shot Exit feet matching. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
+	FVector2D MMLoopPhaseQuery = FVector2D::ZeroVector;
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
+	FVector2D MMUnsheathedLoopPhaseQuery = FVector2D::ZeroVector;
+
+	/** Worker-thread search context only. Never changes animation data or delays an input. */
+	const UPoseSearchDatabase* GetLoopQueryDatabase(bool bUnsheathed) const;
+	bool WantsLoopEntryMatch(bool bUnsheathed) const;
+	void PublishLoopPhaseQuery(bool bUnsheathed, const FVector2D& Phase, FName Source);
 
 	/**
 	 * True while an action Montage or movement lock owns Root Motion. The AnimGraph must use this
@@ -297,7 +319,14 @@ public:
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query", meta=(ClampMin="0.0"))
 	float MMForceIdleReleaseHoldDuration = 0.05f;
 
+protected:
+	/** After real Montage advancement, before UE copies/clears requests for the graph. */
+	virtual void Montage_Advance(float DeltaSeconds) override;
+
 private:
+	/** Previous graph-update sample, also detects section seeks performed between updates. */
+	TArray<FMHGZMontageSegmentBlendSample> LastMontageSegmentBlendSamples;
+
 	void UpdateActionVisualPitch(const AMHGZCharacter* Character, float DeltaSeconds);
 	void ResetActionVisualPitchLocalState();
 
@@ -432,6 +461,10 @@ private:
 		bool bIsContinuing = false;
 		bool bIsLooping = false;
 		bool bIsMirrored = false;
+		FVector2D LoopPhaseQuery = FVector2D::ZeroVector;
+		FName LoopQuerySource;
+		int32 LoopHistoryEntriesRemoved = 0;
+		int32 PreBlendActivePlayers = 0;
 	};
 	TQueue<FMotionMatchingSelectionEvent, EQueueMode::Mpsc> MMPendingSelectionEvents;
 	FMotionMatchingSelectionEvent MMLatestSelection[2];
@@ -456,6 +489,10 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMSheathedSprintLoopOnlyDatabase;
 	UPROPERTY(Transient)
+	TObjectPtr<UPoseSearchDatabase> MMSheathedWalkLoopOnlyDatabase;
+	UPROPERTY(Transient)
+	TObjectPtr<UPoseSearchDatabase> MMUnsheathedLoopOnlyDatabase;
+	UPROPERTY(Transient)
 	TObjectPtr<UAnimSequenceBase> MMSheathedRunLoopSequence;
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimSequenceBase> MMSheathedSprintLoopSequence;
@@ -478,6 +515,25 @@ private:
 		EMHGZMotionMatchingHandoffType::None;
 	float MMSheathedActionExitSelectedTime = 0.0f;
 	float MMUnsheathedActionExitSelectedTime = 0.0f;
+	/** Cruise context after Start or action Exit, cleared by release/new Start/action; never holds input. */
+	bool bMMMobileExitCruise[2] = { false, false };
+	UPoseSearchDatabase* GetMobileExitLoopDatabase(EMHGZMotionMatchingNode Node) const;
+	FMHGZLocomotionPhaseClock MMLoopClock;
+	uint64 MMLoopClockFrame = MAX_uint64;
+	float MMNodeUpdateDelta[2] = { 0.f, 0.f };
+	bool bMMBaseBlendCaptured[2] = { false, false };
+	TSharedPtr<FStructOnScope> MMBaseBlend[2];
+	UPROPERTY(Transient)
+	TObjectPtr<UPoseSearchDatabase> MMLoopQueryDatabases[2];
+	bool bMMLoopEntryMatch[2] = { false, false };
+	FName MMLoopQuerySource[2];
+	int32 MMLoopHistoryEntriesRemoved[2] = { 0, 0 };
+	void PrepareLoopContinuity(const FAnimUpdateContext& Context, const FAnimNodeReference& Reference,
+		EMHGZMotionMatchingNode Node);
+	void InstallLoopDatabase(const FMotionMatchingAnimNodeReference& Reference,
+		EMHGZMotionMatchingNode Node, UPoseSearchDatabase* Database, bool bEntryMatch);
+	bool TryRouteStartToLoop(const FMotionMatchingAnimNodeReference& Reference, EMHGZMotionMatchingNode Node);
+	void ObserveLoopContinuity(const FAnimNodeReference& Reference, EMHGZMotionMatchingNode Node);
 
 	void ResetMMTemporalState(const FVector& CurrentLocation, bool bPreserveMoveInput = false);
 	void BuildFlatTrajectory(const FTransform& ActorTransform);

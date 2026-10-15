@@ -30,7 +30,7 @@ bool AIGPowderActor::InitializePowder(
 	const double InSpawnWorldTime,
 	const float InLifetime,
 	const float InKinsectAttackPowerSnapshot,
-	const float InDamageMultiplierSnapshot,
+	const float InMotionValueSnapshot,
 	const float InDamageContribution,
 	const uint64 InSpawnSequenceID)
 {
@@ -40,8 +40,8 @@ bool AIGPowderActor::InitializePowder(
 		|| !FMath::IsFinite(InSpawnWorldTime) || !FMath::IsFinite(InLifetime)
 		|| InLifetime <= 0.0f || !FMath::IsFinite(InKinsectAttackPowerSnapshot)
 		|| InKinsectAttackPowerSnapshot < 0.0f
-		|| !FMath::IsFinite(InDamageMultiplierSnapshot)
-		|| InDamageMultiplierSnapshot < 0.0f
+		|| !FMath::IsFinite(InMotionValueSnapshot)
+		|| InMotionValueSnapshot < 0.0f
 		|| !FMath::IsFinite(InDamageContribution)
 		|| InDamageContribution < 0.0f || InSpawnSequenceID == 0)
 	{
@@ -60,7 +60,7 @@ bool AIGPowderActor::InitializePowder(
 	Lifetime = InLifetime;
 	ExpireWorldTime = InSpawnWorldTime + InLifetime;
 	KinsectAttackPowerSnapshot = InKinsectAttackPowerSnapshot;
-	DamageMultiplierSnapshot = InDamageMultiplierSnapshot;
+	MotionValueSnapshot = InMotionValueSnapshot;
 	DamageContribution = InDamageContribution;
 	SpawnSequenceID = InSpawnSequenceID;
 	State = EIGPowderState::Available;
@@ -211,7 +211,7 @@ FIGPowderRuntimeSnapshot AIGPowderActor::MakeSnapshot(const double WorldTime) co
 		0.0, ExpireWorldTime - WorldTime));
 	Snapshot.DamageContribution = DamageContribution;
 	Snapshot.KinsectAttackPowerSnapshot = KinsectAttackPowerSnapshot;
-	Snapshot.DamageMultiplierSnapshot = DamageMultiplierSnapshot;
+	Snapshot.MotionValueSnapshot = MotionValueSnapshot;
 	Snapshot.State = State;
 	Snapshot.TerminalReason = TerminalReason;
 	Snapshot.LifetimeRevision = LifetimeRevision;

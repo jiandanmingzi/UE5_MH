@@ -10,6 +10,8 @@
 #include "ActionSystem/MHGZSheatheAbility.h"
 #include "ActionSystem/MHGZWeaponComboData.h"
 #include "AbilitySystemComponent.h"
+#include "MHGZCharacter.h"
+#include "InputActionValue.h"
 #include "../Shared/MHGZM3TestHarness.h"
 #include "../Shared/MHGZM4TestTypes.h"
 
@@ -416,6 +418,76 @@ bool FMHGZM4PlayerActionLocksGateDirectAndComboInput::RunTest(
 			Coordinator->GetCurrentState(), FName(TEXT("Idle")));
 	}
 
+	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZSheatheRecallsDeployedKinsect,
+	"MHGZ.Maintenance.Sheathe.RecallsDeployedKinsect",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZSheatheRecallsDeployedKinsect::RunTest(const FString& Parameters)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup()) { H.Teardown(); return false; }
+	H.Host->SetSheathed(false);
+	FKinsectFlightRequest Flight;
+	Flight.RuntimeToken = H.Host->GetCurrentToken();
+	Flight.TrajectoryMode = EKinsectTrajectoryMode::AlongDirection;
+	Flight.DirectionSnapshot = FVector::ForwardVector;
+	Flight.MaxDistance = 1000.f;
+	Flight.FlightSpeed = 2000.f;
+	Flight.ArrivalRadius = 50.f;
+	Flight.DamageMode = EKinsectDamageMode::SingleHit;
+	Flight.ExtractMode = EKinsectExtractMode::FirstHitOnly;
+	Flight.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
+	Flight.MotionValue = 10.f;
+	Flight.FlightInstanceID = FGuid::NewGuid();
+	TestTrue(TEXT("deploy kinsect before Sheathe"), H.Resource->DeployKinsect(Flight));
+	const auto Handle = H.GiveAbility(UMHGZM4TestSheatheAbility::StaticClass());
+	FWeaponInputSnapshot Input = M3::MakePosedInput(true, false);
+	Input.ResolvedInputTag = M3::Tag(TEXT("Input.Sheathe"));
+	TestTrue(TEXT("Sheathe starts while kinsect is deployed"), H.TryActivateWithInput(Handle, Input));
+	TestEqual(TEXT("Sheathe start also begins recall"), H.Kinsect->GetState(), EKinsectState::Returning);
+	if (auto* Active = GetActiveSheatheInstance(*H.ASC, Handle))
+	{
+		FWeaponActionToken Stale = Active->GetActionToken();
+		++Stale.ActivationSequenceID;
+		TestFalse(TEXT("stale notify cannot recall"), Active->CommitKinsectRecall(Stale));
+		TestTrue(TEXT("same-action notify is idempotent"), Active->CommitKinsectRecall(Active->GetActionToken()));
+		TestTrue(TEXT("Sheathe can still commit"), Active->CommitForTest());
+		Active->FinishNormallyForTest();
+	}
+	TestTrue(TEXT("recall does not undo Sheathe"), H.Host->IsSheathed());
+	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZSheatheRetainsSprintHold,
+	"MHGZ.Maintenance.Sheathe.RetainsSprintHold",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZSheatheRetainsSprintHold::RunTest(const FString& Parameters)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup(false, AMHGZM3TestCharacter::StaticClass())) { H.Teardown(); return false; }
+	auto* Character = CastChecked<AMHGZM3TestCharacter>(H.Character);
+	Character->SetPlayerState(H.PlayerState);
+	H.Host->SetSheathed(false);
+	Character->PressSprintForTest();
+	Character->Tick(1.f / 60.f);
+	TestFalse(TEXT("RB never requests Sprint while unsheathed"), Character->IsSprintHeld());
+	H.Host->SetSheathed(true);
+	Character->Tick(1.f / 60.f);
+	TestTrue(TEXT("held RB survives pose commit without a new press"), Character->IsSprintHeld());
+	TestEqual(TEXT("full stick after Sheathe requests Sprint"),
+		Character->GetQuantizedCruiseSpeedForRawMoveInput(1.f), 575.f);
+	Character->ReleaseSprintForTest();
+	TestFalse(TEXT("release clears held Sprint"), Character->IsSprintHeld());
+	TestEqual(TEXT("released RB returns full stick to Run"),
+		Character->GetQuantizedCruiseSpeedForRawMoveInput(1.f), 460.f);
 	H.Teardown();
 	return true;
 }

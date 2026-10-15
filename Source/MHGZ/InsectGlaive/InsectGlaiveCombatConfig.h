@@ -157,13 +157,13 @@ public:
 	float TripleDefenseMultiplier = 1.15f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.0"))
-	float SendKinsectMotionValue = 0.20f;
+	float SendKinsectMotionValue = 20.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.0"))
-	float DrawSendKinsectMotionValue = 0.20f;
+	float DrawSendKinsectMotionValue = 20.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.0"))
-	float AwakenedKinsectMotionValue = 0.30f;
+	float AwakenedKinsectMotionValue = 30.0f;
 
 	/** 觉虫击贯通对同一 Hitzone 重复命中的最小间隔（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.01"))
@@ -626,12 +626,16 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.01", ForceUnits = "cm"))
 	float PowderNaturalExplosionRadius = 150.0f;
 
-	/** Legacy M6.1 gather contribution. New powder uses Kinsect attack power times PowderDamageMultiplier. */
+	/** Legacy fixed test contribution; production powder creation uses kinsect power and PowderMotionValue. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.0"))
 	float PowderDamageContribution = 0.0f;
 
-	/** Natural/gather damage per powder = spawn-time Kinsect attack power × this value. Must be tuned before enabling powder. */
+	/** Powder action value as a raw percent; 100 means one full Kinsect attack-power unit. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.0"))
+	float PowderMotionValue = 100.0f;
+
+	/** Deprecated normalized multiplier retained for loading old DA data; runtime no longer reads it. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Legacy", meta = (DeprecatedProperty, ClampMin = "0.0"))
 	float PowderDamageMultiplier = 1.0f;
 
 	/** Distance beyond which this Runtime's powder is removed without damage; E6.2 default is 100m (10000cm). */

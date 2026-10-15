@@ -301,7 +301,7 @@ void ConfigureDescendingThrustTestSegments(
 		Region.EndSocketName = RootSocket;
 		Region.Radius = 24.0f;
 		Segment.Damage.DamageEffectClass = UMHGZDamageGameplayEffect::StaticClass();
-		Segment.Damage.MotionValue = 1.0f;
+		Segment.Damage.MotionValue = 10.0f;
 		Segment.Damage.BaseStaggerValue = 0.0f;
 		Segment.Damage.bRequiresHitToContinue = false;
 		Segment.Damage.bUseHitzoneDefense = false;
@@ -575,7 +575,7 @@ struct FDescendingThrustLifecycleHarness
 		TargetHitzone->HitzoneTag = DescLifecycleTag(TEXT("Hitzone.Head"));
 		TargetHitzone->ExtractColorTag = DescLifecycleTag(
 			TEXT("WeaponResource.IG.Extract.Red"));
-		TargetHitzone->DefenseMultiplier = 1.0f;
+		TargetHitzone->DefenseMultiplier = 100.0f;
 		TargetHitzone->StaggerRate = 1.0f;
 		TargetHitzone->SetCollisionObjectType(ECC_GameTraceChannel3);
 		TargetHitzone->SetCollisionResponseToAllChannels(ECR_Ignore);

@@ -110,6 +110,12 @@ GA 流程：
 
 > ⚠️ **命中时不可 Stop Montage 再 Play 新 Montage**——Stop 会强制终止 MotionWarping，导致根骨骼弹回参考位置、角色瞬移。必须用 Section 切换（`JumpToSection`），Warp Notify 自然结束。
 
+### 蒙太奇内部片段混合基底（已实现，2026-10-14）
+
+`UMHGZMontageSegmentBlendSettings`是可随常驻Montage保存/打包的显式元数据：启用开关和实际秒数Duration（默认候选0.06s，0关闭）。没有配置的Montage行为不变。AnimInstance在真实Montage推进后比较上一动画更新的实例ID、Slot和Sequence，在本帧UE请求表复制/清空之前按Group仅发一次惯性混合请求；Section跳转也按真实变化处理。不重新生成Montage，不插入停帧，不改变入口、播放倍率、通知或Root Motion提取。
+
+ABP的全身DefaultSlot及操虫UpperBody_IGAction后各有独立Inertialization，保留原动作俯仰和缓存链路。同序列循环/裁切、新实例、暂停、停止和不可见只更新Montage阶段不额外触发。现有动作尚未批量配置，此处不是招式视觉验收；配置与验证边界见[编辑器说明](../editor/montage-segment-blend.md)。原一帧桥接仍保存于资产，不能据通用基底完成宣称已替换。
+
 ## 移动动画系统（旧方案，已由 Motion Matching 替代）
 
 **设计原则：** 移动循环动画是纯视觉层——不开启 Root Motion、CMC 全权负责物理位移。AnimBP 通过 Speed（Velocity.Size()）驱动动画选择。GAS 仅通过 GE 修改 MoveSpeedMultiplier 间接影响 Speed。
@@ -628,7 +634,7 @@ class UMHGZAttackAbility : public UMHGZGameplayAbility
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | DamageEffectClass | TSubclassOf\<UGameplayEffect\> | UMHGZDamageGameplayEffect | Demo 通用原生伤害 GE；特殊来源仍复用同一 ExecCalc，不以空类静默跳过 |
-| MotionValue | FScalableFloat | 0 | ★ 动作值（倍率）。伤害段必须显式设置为正值；0 表示合法的无伤害命中，缺失不回退到 1 |
+| MotionValue | FScalableFloat | 0 | ★ 原始动作值百分数；10表示MV10。伤害段显式设置正值；0表示合法的无伤害命中，缺失不回退到1 |
 | PhysicalDamageType | EMHGZPhysicalDamageType | Sever | 显式选择斩/打/弹肉质，不从表现Cue推断 |
 | ElementMotionValue | FScalableFloat | 1 | 独立属性动作倍率；0禁用属性，不乘物理MotionValue |
 | PhysicalDamageMultiplier / ElementDamageMultiplier | FScalableFloat | 1 / 1 | 额外段内修正；不重复填写已由攻击力/属性值GE处理的加成 |

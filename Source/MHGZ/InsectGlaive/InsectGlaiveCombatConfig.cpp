@@ -306,7 +306,7 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 		CheckPositive(TEXT("MarkedHitPowderCooldown"), MarkedHitPowderCooldown);
 		CheckPositive(TEXT("PowderLifetime"), PowderLifetime);
 		CheckNonNegative(TEXT("PowderDamageContribution"), PowderDamageContribution);
-		CheckPositive(TEXT("PowderDamageMultiplier"), PowderDamageMultiplier);
+		CheckPositive(TEXT("PowderMotionValue"), PowderMotionValue);
 		CheckPositive(TEXT("PowderDespawnDistance"), PowderDespawnDistance);
 		CheckPositive(TEXT("PowderVortexExplosionRadius"), PowderVortexExplosionRadius);
 		if (!FMath::IsNearlyEqual(PowderLifetime, 180.0f, 0.001f))

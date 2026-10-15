@@ -6,6 +6,21 @@ again to stop. A red `[REC]` label stays in the top-left while recording; start
 and stop each show a confirmation bar. Each capture writes samples and events
 CSV files under `reframework/data/MHGZ_AerialTrajectoryRecorder`.
 
+From 1.12.0, capture health checks the existing hunter/motion samples without
+additional reflection scans. Three valid rows produce `[REC OK]`; no valid
+row for three wall-clock seconds produces a persistent `[REC WARNING]` and a
+`capture_health` event. Recovery is reported once. The warning does not stop
+or restart capture; zero valid rows are explicitly warned about when saving.
+Camera/controller support still uses the existing separate status columns.
+Update the installed autorun Lua from this source when deploying a recorder
+change; editing this repository does not update the game installation.
+
+On 2026-10-13, version 1.12.0 was deployed to the local MonsterHunterRise
+autorun directory and its SHA-256 was checked against this source. The previous
+1.11.0 file and the deployment manifest are retained under
+`Saved/Maintenance/RecorderDeploy/20261013-195135`. In-game capture health testing
+was deferred at the user's request; deployment is not a gameplay sign-off.
+
 From 1.10.0, keyboard polling uses Monster Hunter Rise's `via.hid.Keyboard`
 device on REFramework's `UpdateHID` callback first, then falls back to REFramework
 Windows virtual-key polling if the game HID device is unavailable. The floating

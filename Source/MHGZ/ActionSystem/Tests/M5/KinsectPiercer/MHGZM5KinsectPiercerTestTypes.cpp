@@ -38,7 +38,7 @@ void UMHGZM5KinsectPiercerGateProbeAbility::ApplyTestConfiguration()
 	{
 		FAttackSegmentConfig& Segment = AttackSegments[SegmentIndex];
 		Segment.Damage.DamageEffectClass = UGameplayEffect::StaticClass();
-		Segment.Damage.MotionValue = 1.0f;
+		Segment.Damage.MotionValue = 10.0f;
 		Segment.Damage.bRequiresHitToContinue = false;
 		Segment.MultiHitCount = 1;
 		Segment.MultiHitPolicy = EAttackMultiHitPolicy::ContactOnly;

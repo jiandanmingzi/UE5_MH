@@ -1113,7 +1113,7 @@ bool FMHGZM6AwakenedHunterFlightMarks::RunTest(const FString& Parameters)
 		Hit.Normal = Hit.ImpactNormal = -FVector::ForwardVector;
 		Ability->AttackSegments.SetNum(1);
 		Ability->AttackSegments[0].Damage.DamageEffectClass = UMHGZDamageGameplayEffect::StaticClass();
-		Ability->AttackSegments[0].Damage.MotionValue = 0.2f;
+		Ability->AttackSegments[0].Damage.MotionValue = 10.0f;
 		TestTrue(TEXT("preflight GE succeeds, but must not mark"), Ability->ApplyDamageForTest(Hit, 0));
 		TestFalse(TEXT("no mark before HunterFlight"), H.Resource->HasValidKinsectMark());
 		UAnimMontage* Montage = LoadObject<UAnimMontage>(nullptr,

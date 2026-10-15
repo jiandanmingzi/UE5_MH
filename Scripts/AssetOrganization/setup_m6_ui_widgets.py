@@ -117,6 +117,9 @@ def save_asset(asset):
 
 
 def main():
+    bridge = getattr(unreal, "MHGZUIAssetSetupLibrary", None)
+    if not callable(getattr(bridge, "build_e63_widget_blueprint", None)):
+        raise RuntimeError("UI Designer-tree bridge is unavailable; compile/restart the matching editor first")
     # A normal persisted asset is never overwritten. The only resume case is
     # the complete unsaved set produced by the immediately preceding failed run.
     interrupted_assets = find_interrupted_widget_set()

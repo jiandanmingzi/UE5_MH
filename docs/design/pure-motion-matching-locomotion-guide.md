@@ -1,5 +1,7 @@
 # 参考 Game Animation Sample 的 MHGZ Motion Matching 改进设计
 
+> **维护补充（2026-10-15，当前以此为准）：** Run/Sprint独立相位时钟、最近真实索引帧/0.001周期门槛保留；Start与Exit均按最终脚姿、脚速度和根速度选择Loop入口（两专用Schema17维）。入口使用受源剩余时长限制的活跃根运动交叉混合，只有Run↔Sprint快速改挡使用惯性混合；ABP用户保存的0.1s/MaxActiveBlends=2保留。四条移动Loop已做首尾短窗口姿势/速度闭合，时长、倍率、通知、曲线与累计Root Motion保持；普通Start/Stop Schema和权重、摇杆缓冲、松杆即时Stop、最终Pose History及ABP事务标志修复不变。最终增量编译、6项定向测试及6资产独立回载通过，仍待新版局部PIE观感确认；见[维护实施§9](../editor/locomotion-maintenance-20261015.md#9-新两份录制后的-startexit-与自然循环修复当前实现)。下文旧参数/旧门禁不得覆盖该维护基线，不重开全量回归。
+
 > **状态（2026-09-02）：** M4.5 / E4.2 已签收；M4.2.1 的代码与候选资产已完成并通过自动化，当前只等待 PIE Telemetry 验收。阶段门禁与下一步以 [阶段门禁](milestone-gates.md) 为准；M4.2.1 通过后才进入 M4.6。
 
 > **目的：** 在不放弃 MHGZ 的“前向 Root Motion + GAS 动作所有权 + 纯 Motion Matching 普通移动”路线的前提下，借鉴 UE5.6 Game Animation Sample（GASP）的**候选集组织**和**动作退出交接**方法，解决：

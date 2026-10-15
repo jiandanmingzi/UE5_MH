@@ -15,5 +15,6 @@ public class MHGZEditorTarget : TargetRules
 		// those anonymous namespaces during normal editor builds.
 		bUseUnityBuild = false;
 		ExtraModuleNames.Add("MHGZ");
+		ExtraModuleNames.Add("MHGZToolsEditor");
 	}
 }

@@ -14,7 +14,7 @@
 -- time scale.
 
 local SCRIPT_NAME = "MHGZ Aerial Trajectory Recorder"
-local SCRIPT_VERSION = "1.11.0"
+local SCRIPT_VERSION = "1.12.0"
 local OUTPUT_DIRECTORY = "MHGZ_AerialTrajectoryRecorder"
 local HOTKEY_CONFIG_FILE = "MHGZ_AerialTrajectoryRecorder_hotkey.txt"
 local VK_F9 = 0x78
@@ -36,6 +36,7 @@ local VK_RMENU = 0xA5
 local VERTICAL_AXIS = "Y"
 local PHASE_SPEED_THRESHOLD = 0.02
 local MOTION_LAYER_CAPTURE_COUNT = 5
+local CAPTURE_HEALTH_TIMEOUT_SECONDS = 3
 local NODE_VALUE_KEYWORDS = {
     "motion", "id", "frame", "time", "weight", "blend", "rate", "state",
 }
@@ -45,6 +46,12 @@ local state = {
     samples_file = nil,
     events_file = nil,
     sample_count = 0,
+    health_state = "idle",
+    health_message = "",
+    health_started_at = nil,
+    health_last_valid_at = nil,
+    health_valid_sample_count = 0,
+    health_problem = nil,
     event_count = 0,
     capture_time = 0.0,
     previous_sample = nil,
@@ -1633,6 +1640,7 @@ local function stop_capture(reason)
         return
     end
 
+    write_event("capture_health", "stopped; valid=" .. tostring(state.health_valid_sample_count))
     write_event("capture_stopped", reason or "F9")
 
     if state.samples_file ~= nil then
@@ -1648,7 +1656,11 @@ local function stop_capture(reason)
     state.samples_file = nil
     state.events_file = nil
     report_status(string.format("Capture stopped: %d samples written.", state.sample_count))
-    show_toast("[SAVED] " .. tostring(state.sample_count) .. " SAMPLES WRITTEN", 2.5, 0xFF00FF00)
+    if state.health_valid_sample_count == 0 then
+        show_toast("[REC WARNING] NO VALID HUNTER + MOTION SAMPLES", 5.0, 0xFF00AAFF)
+    else
+        show_toast("[SAVED] " .. tostring(state.sample_count) .. " SAMPLES WRITTEN", 2.5, 0xFF00FF00)
+    end
 end
 
 local function start_capture(trigger)
@@ -1679,6 +1691,12 @@ local function start_capture(trigger)
     state.samples_file = samples_file
     state.events_file = events_file
     state.sample_count = 0
+    state.health_state = "checking"
+    state.health_message = "Checking hunter + motion samples..."
+    state.health_started_at = os.time()
+    state.health_last_valid_at = nil
+    state.health_valid_sample_count = 0
+    state.health_problem = nil
     state.event_count = 0
     state.capture_time = 0.0
     state.previous_sample = nil
@@ -1733,6 +1751,8 @@ local function start_capture(trigger)
     events_file:write("event_index,capture_time_s,event,vertical_phase,details\n")
     write_event("capture_started", (trigger or "unknown trigger") .. "; raw hunter + primary camera world Transform capture")
     write_event("gamepad_input_schema", state.gamepad_backend .. "; buttons=" .. table.concat(gamepad_button_names, ","))
+    samples_file:flush()
+    events_file:flush()
     report_status("Capture started by " .. (trigger or "unknown trigger") .. ": " .. samples_path)
     show_toast("[REC] TRAJECTORY CAPTURE STARTED", 2.5, 0xFF00FFFF)
 end
@@ -1748,6 +1768,7 @@ end
 local function record_sample()
     local position, position_error = get_master_player_position()
     if position == nil then
+        state.health_problem = position_error or "hunter position unavailable"
         if state.last_error ~= position_error then
             state.last_error = position_error
             write_event("player_unavailable", position_error)
@@ -1869,7 +1890,18 @@ local function record_sample()
         table.insert(row, csv_text(captured_motion_value(layer_data.loop_ok, layer_data.is_loop)))
         table.insert(row, csv_text(layer_data.highest_node))
     end
-    state.samples_file:write(table.concat(row, ",") .. "\n")
+    local written, write_error = state.samples_file:write(table.concat(row, ",") .. "\n")
+    if written == nil then error("Sample CSV write failed: " .. tostring(write_error)) end
+    local first_layer = motion_layers.layers[1] or {}
+    local motion_available = (motion_layers.player_motion_old_id_ok and motion_layers.player_motion_old_id ~= nil) or
+        (first_layer.motion_ok and first_layer.motion_id ~= nil)
+    if motion_error == nil and motion_available then
+        state.health_valid_sample_count = state.health_valid_sample_count + 1
+        state.health_last_valid_at = os.time()
+        state.health_problem = nil
+    else
+        state.health_problem = motion_error or "motion ID unavailable"
+    end
 
     -- Preserve HID edges if UpdateHID ran more than once between rendered
     -- samples, then consume them exactly once in this CSV row.
@@ -1896,6 +1928,28 @@ local function record_sample()
     end
 end
 
+local function update_capture_health()
+    if not state.recording then return end
+    local now = os.time()
+    local last_valid = state.health_last_valid_at or state.health_started_at
+    local next_state, message
+    if state.health_valid_sample_count >= 3 and now - last_valid < CAPTURE_HEALTH_TIMEOUT_SECONDS then
+        next_state, message = "healthy", "[REC OK] Hunter + motion samples verified"
+    elseif now - last_valid >= CAPTURE_HEALTH_TIMEOUT_SECONDS then
+        next_state, message = "stalled", "[REC WARNING] No valid hunter/motion data for 3s"
+    else
+        return
+    end
+    if next_state == state.health_state then return end
+    state.health_state, state.health_message = next_state, message
+    write_event("capture_health", next_state .. "; valid=" .. tostring(state.health_valid_sample_count) ..
+        "; reason=" .. tostring(state.health_problem or "none"))
+    state.samples_file:flush()
+    state.events_file:flush()
+    report_status(message)
+    show_toast(message, 4.0, next_state == "healthy" and 0xFF00FF00 or 0xFF00AAFF)
+end
+
 local function draw_capture_feedback()
     local capture_key = key_name(state.capture_key_name)
     if state.recording then
@@ -1907,6 +1961,7 @@ local function draw_capture_feedback()
             34,
             0xFF0000FF
         )
+        draw.text(state.health_message, 32, 52, state.health_state == "stalled" and 0xFF00AAFF or 0xFFFFFFFF)
     elseif state.binding_capture_key then
         draw.filled_rect(20, 20, 530, 34, 0xA0000000)
         draw.outline_rect(20, 20, 530, 34, 0xFFFFAA00)
@@ -1933,11 +1988,12 @@ local function draw_quick_control_widget()
     -- in begin_window/end_window. Keep this small control visible even while
     -- the main REFramework menu is closed, so recording never depends on a key.
     imgui.set_next_window_pos({ 20, 66 }, 4)
-    imgui.set_next_window_size({ 360, 194 }, 4)
+    imgui.set_next_window_size({ 360, 218 }, 4)
     local contents_visible = imgui.begin_window("MHGZ Recorder Control", nil, nil)
     if contents_visible then
         if state.recording then
             imgui.text("Recording: " .. tostring(state.sample_count) .. " samples")
+            imgui.text(state.health_message)
             if imgui.button("STOP AND SAVE") then
                 toggle_capture("quick recorder window")
             end
@@ -2018,6 +2074,7 @@ local function on_frame_update()
 
     if state.recording then
         record_sample()
+        update_capture_health()
     end
 
     draw_capture_feedback()

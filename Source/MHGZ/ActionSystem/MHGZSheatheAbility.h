@@ -49,6 +49,9 @@ public:
 	/** Exact Montage-instance callback used by AnimNotify_SheatheCommit. */
 	bool CommitSheathe(const FWeaponActionToken& ActionToken);
 
+	/** Shares the existing recall transaction without activating a second GA. */
+	bool CommitKinsectRecall(const FWeaponActionToken& ActionToken);
+
 	virtual bool CanActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
@@ -99,6 +102,7 @@ private:
 	FWeaponOwnedTagToken SheathingToken;
 	bool bUsingWalkSection = false;
 	bool bSheatheCommitted = false;
+	bool bKinsectRecallCommitted = false;
 	bool bOwnsMontageRootMotion = false;
 	bool bEndingSheathe = false;
 

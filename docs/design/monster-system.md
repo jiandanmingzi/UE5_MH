@@ -74,7 +74,7 @@ struct FDummyHitzoneConfig
     UPROPERTY(EditAnywhere) FName BoneName;                    // 挂载骨骼
     UPROPERTY(EditAnywhere) FGameplayTag HitzoneTag;           // Hitzone.Head / Hitzone.Torso ...
     UPROPERTY(EditAnywhere) FGameplayTag ExtractColorTag;      // Extract.Red / Orange / White
-    UPROPERTY(EditAnywhere) float DefenseMultiplier = 1.0f;    // 肉质（0.2=坚硬 / 1.0=弱点）
+    UPROPERTY(EditAnywhere) float DefenseMultiplier = 100.0f;   // 物理肉质百分数，范围0-100
     UPROPERTY(EditAnywhere) float StaggerRate = 0.0f;          // 破坏值吸收率
     UPROPERTY(EditAnywhere) FVector RelativeLocation;           // 相对挂点位置
     UPROPERTY(EditAnywhere) float Radius = 30.0f;               // Sphere形状的半径
@@ -111,9 +111,9 @@ AMHGZTrainingDummy::ApplyConfig(UMHGZDummyConfig* Config)
 |------|------|------|
 | HitzoneTag | FGameplayTag | 部位标签（Hitzone.Head / Hitzone.Torso ...） |
 | ExtractColorTag | FGameplayTag | 该木桩部位提供的精华颜色；Demo 必须覆盖 Red/Orange/White |
-| DefenseMultiplier | float | 原物理肉质倍率；物理类型表缺项时兼容，猎虫仍沿用 |
-| PhysicalHitzoneMultipliers | TMap\<EMHGZPhysicalDamageType, float\> | 斩/打/弹肉质，0.45=肉质45；显式0免疫 |
-| ElementHitzoneMultipliers | TMap\<EMHGZElementType, float\> | 火/水/雷/冰/龙肉质，0.20=肉质20；缺项0，不回退物理 |
+| DefenseMultiplier | float | 物理肉质百分数0-100；物理类型表缺项时兼容回退 |
+| PhysicalHitzoneMultipliers | TMap\<EMHGZPhysicalDamageType, float\> | 斩/打/弹物理肉质百分数，45=肉质45；显式0免疫 |
+| ElementHitzoneMultipliers | TMap\<EMHGZElementType, float\> | 火/水/雷/冰/龙属性肉质仍用归一化倍率，0.20=肉质20；缺项0，不回退物理 |
 | StaggerRate | float | 破坏值吸收率 |
 
 武器攻击通过 Weapon Trace 查询 Hitzone；Aim 使用 Visibility 并验证命中组件 ObjectType=Hitzone；猎虫以前后帧 Capsule Sweep 显式查询 Hitzone Object。猎虫自身 Collision Root 只处理 WorldStatic 阻挡，不订阅 Hitzone Overlap。木桩的实体阻挡组件与 Hitzone 分离，Hitzone 不承担 Pawn 物理阻挡。

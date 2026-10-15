@@ -8,4 +8,4 @@
 DECLARE_LOG_CATEGORY_EXTERN(LogMHGZ, Log, All);
 
 /** Opt-in runtime capture for Motion Matching query diagnosis. */
-DECLARE_LOG_CATEGORY_EXTERN(LogMHGZMM, Log, All);
+MHGZ_API DECLARE_LOG_CATEGORY_EXTERN(LogMHGZMM, Log, All);

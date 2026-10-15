@@ -845,7 +845,7 @@ Content/
 | IG-10 | 普通猎虫回手时原子取出、清空并交付一次 PendingExtract | 主动召回和耐力归零不使已取得颜色失败；清空后下一次 Flight 能获取新颜色，迟到回调不能重复交付 |
 | IG-11 | 猎虫飞行结束条件统一为三种（撞墙/极限距离/普通命中）——贯穿放虫碰怪不终止 | 贯穿伤害需要猎虫完整穿过怪物身体；普通放虫命中后停止并 Hover，只有主动召回或耐力归零才回手；贯穿放虫只有墙或距离能让它停下 |
 | IG-12 | 送虫 GA 从 CombatConfig/ActivationContext 构造完整 `FKinsectFlightRequest`，Resource 原子提交 | 动作值属于招式不属于品种；删除 SetDamageParams+StartFlight 两步竞态，当前阶段暂不做品种数值分化 |
-| IG-12b | 猎虫伤害走玩家 ASC 的统一 GE 管道——不新增 GA、不给猎虫加 ASC | 复用现有伤害公式（AttackPower × MotionValue × HitzoneDefense）、GameplayCue 火花/音效/伤害数字管道。猎虫无"出招"概念，不需要 Ability 激活/取消生命周期 |
+| IG-12b | 猎虫伤害走玩家 ASC 的统一 GE 管道——不新增 GA、不给猎虫加 ASC | 复用统一GE及GameplayCue反馈；物理伤害为 `KinsectAttackPower × MotionValue/100 × PhysicalHitzone/100`。猎虫无"出招"概念，不需要 Ability 激活/取消生命周期 |
 | IG-13 | 猎虫击中怪物后的行为由 `EKinsectDamageMode` 控制——SingleHit 立刻停止，Piercing 继续飞行 | 普通放虫咬一口就原地悬停——玩家回收取得萃取。贯穿放虫穿过去才停——最大化贯穿伤害次数 |
 | IG-14 | 猎虫萃取行为通过 `EKinsectExtractMode` 枚举控制，由送虫 GA 传入 | 萃取策略属于招式设计范畴（伤害贯穿 vs 萃取贯穿 vs 混合），不硬编码在猎虫内部。一个 GA 可以送"纯伤害无萃取"的虫，另一个可以送"标准萃取贯穿"的虫 |
 | IG-15 | 不设贯穿颜色优先级；普通固定 FirstHitOnly，强化觉虫击固定 CollectPerValidHit | 成功贯通伤害收集不同颜色；同色去重；回手才逐色点灯，途中不直接授予猎人 |

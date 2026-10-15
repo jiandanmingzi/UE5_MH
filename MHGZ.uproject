@@ -13,6 +13,11 @@
 				"AIModule",
 				"UMG"
 			]
+		},
+		{
+			"Name": "MHGZToolsEditor",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
 		}
 	],
 	"Plugins": [
@@ -41,6 +46,14 @@
 		},
 		{
 			"Name": "PoseSearch",
+			"Enabled": true
+		},
+		{
+			"Name": "BlendStack",
+			"Enabled": true
+		},
+		{
+			"Name": "Chooser",
 			"Enabled": true
 		},
 		{

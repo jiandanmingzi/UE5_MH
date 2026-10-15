@@ -7,6 +7,8 @@
 #include "MHGZPlayerController.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Engine/World.h"
 #include "TimerManager.h"
 
 UMHGZAdvancingChargeAbility::UMHGZAdvancingChargeAbility()
@@ -22,6 +24,7 @@ void UMHGZAdvancingChargeAbility::ActivateAbility(
 	const FGameplayEventData* TriggerEventData)
 {
 	bChargeStarted = false;
+	ActiveChargeEntrySection = NAME_None;
 	bChargeRouteConfigured = false;
 	bReleaseStateCheckScheduled = false;
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
@@ -40,6 +43,10 @@ void UMHGZAdvancingChargeAbility::EndAbility(
 bool UMHGZAdvancingChargeAbility::StartAttackMontage(
 	ACharacter& Character, UAnimMontage* Montage, FName StartSection)
 {
+	// A dedicated source entry must own its own release route. Do not redirect
+	// Core/Charge starts back into an entry; default assets keep their old route.
+	ActiveChargeEntrySection = StartSection.IsNone() || StartSection == ChargeSection
+		|| StartSection == AttackSection ? ChargeEntrySection : StartSection;
 	return Super::StartAttackMontage(Character, Montage, StartSection)
 		&& ConfigureChargeRoute();
 }
@@ -75,15 +82,28 @@ bool UMHGZAdvancingChargeAbility::ConfigureChargeRoute()
 	}
 	UAnimInstance* AnimInstance = GetAttackAnimInstance();
 	UAnimMontage* Montage = AttackMontage;
-	if (!AnimInstance || !Montage || !Montage->IsValidSectionName(ChargeEntrySection)
+	if (!AnimInstance || !Montage || !Montage->IsValidSectionName(ActiveChargeEntrySection)
 		|| !Montage->IsValidSectionName(ChargeSection)
 		|| !Montage->IsValidSectionName(AttackSection))
 	{
 		return false;
 	}
-	AnimInstance->Montage_SetNextSection(ChargeEntrySection, ChargeSection, Montage);
+	const FName UnchargedExit = ResolveUnchargedExitSection(ActiveChargeEntrySection);
+	if (!Montage->IsValidSectionName(UnchargedExit) || UnchargedExit == ActiveChargeEntrySection
+		|| UnchargedExit == ChargeSection) { return false; }
+	AnimInstance->Montage_SetNextSection(ActiveChargeEntrySection, ChargeSection, Montage);
 	bChargeRouteConfigured = true;
+	// Buffered activation can happen after the physical keys were already
+	// released. Install the normal-speed route now, rather than entering Charge
+	// and immediately jumping over the optional continuation at its Notify.
+	ProceedToAttackIfAllReleased();
 	return true;
+}
+
+FName UMHGZAdvancingChargeAbility::ResolveUnchargedExitSection(const FName EntrySection) const
+{
+	if (const FName* Configured = UnchargedExitSectionByEntry.Find(EntrySection)) { return *Configured; }
+	return AttackSection;
 }
 
 bool UMHGZAdvancingChargeAbility::AreAllChargeReleaseControlsReleased() const
@@ -151,9 +171,10 @@ void UMHGZAdvancingChargeAbility::ProceedToAttackIfAllReleased()
 	if (UAnimInstance* AnimInstance = GetAttackAnimInstance())
 	{
 		const FName CurrentSection = AnimInstance->Montage_GetCurrentSection(AttackMontage);
-		if (CurrentSection == ChargeEntrySection && bChargeRouteConfigured)
+		if (CurrentSection == ActiveChargeEntrySection && bChargeRouteConfigured)
 		{
-			AnimInstance->Montage_SetNextSection(ChargeEntrySection, AttackSection, AttackMontage);
+			AnimInstance->Montage_SetNextSection(ActiveChargeEntrySection,
+				ResolveUnchargedExitSection(ActiveChargeEntrySection), AttackMontage);
 		}
 		else if (CurrentSection == ChargeSection)
 		{

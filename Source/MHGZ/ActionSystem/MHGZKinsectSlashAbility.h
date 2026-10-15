@@ -110,7 +110,7 @@ struct FKinsectSlashDanceEntryTuning
 			EditCondition = "!bUseCapturedTrajectory"))
 	FVector ExplicitLaunchVelocity = FVector::ZeroVector;
 
-	bool IsValid() const;
+	MHGZ_API bool IsValid() const;
 	FWeaponMovementRequest MakeRequest(const FWeaponActionToken& ActionToken,
 		const FVector& LaunchDirection, UObject* CurveOuter = nullptr) const;
 };

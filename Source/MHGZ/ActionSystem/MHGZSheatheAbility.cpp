@@ -7,6 +7,7 @@
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "AttributeSystem/Res_InsectGlaive.h"
 #include "GameFramework/Character.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 
@@ -160,6 +161,7 @@ void UMHGZSheatheAbility::ActivateAbility(
 
 	bEndingSheathe = false;
 	bSheatheCommitted = false;
+	bKinsectRecallCommitted = false;
 	bOwnsMontageRootMotion = false;
 	IdleBlockMovementToken = FWeaponOwnedTagToken();
 	SheathingToken = FWeaponOwnedTagToken();
@@ -208,7 +210,31 @@ void UMHGZSheatheAbility::ActivateAbility(
 		|| !StartSheatheMontage(*Character, ActiveSheatheMontage, ActiveSectionName))
 	{
 		RequestEndAction(EWeaponActionEndReason::Cancelled);
+		return;
 	}
+	// The Idle recall Notify sits at frame zero and can be delivered before its
+	// montage instance is registered. Start the same idempotent transaction here.
+	CommitKinsectRecall(GetActionToken());
+}
+
+bool UMHGZSheatheAbility::CommitKinsectRecall(const FWeaponActionToken& ActionToken)
+{
+	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	if (!IsActive() || bEndingSheathe || !IsActionActivationCommitted()
+		|| ActionToken != GetActionToken() || !Host
+		|| !Host->IsTokenCurrent(ActionToken.RuntimeToken))
+	{
+		return false;
+	}
+	if (!bKinsectRecallCommitted)
+	{
+		if (URes_InsectGlaive* Resource = Cast<URes_InsectGlaive>(Host->GetResourceProvider()))
+		{
+			Resource->RecallKinsect(); // Attached/missing kinsect never prevents Sheathe.
+		}
+		bKinsectRecallCommitted = true;
+	}
+	return true;
 }
 
 bool UMHGZSheatheAbility::StartSheatheMontage(ACharacter& Character,

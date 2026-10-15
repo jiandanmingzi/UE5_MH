@@ -2381,7 +2381,8 @@ bool URes_InsectGlaive::SpawnPowderForSuccessfulHit(
 		return false;
 	}
 	return SpawnPowderInternal(Runtime, SourceAttackID, HitID, Hit,
-		CombatConfig->PowderDamageContribution);
+		CombatConfig->PowderDamageContribution, EIGPowderSpawnPolicy::None,
+		CombatConfig->PowderDamageContribution, 100.0f);
 }
 
 bool URes_InsectGlaive::HandleSuccessfulKinsectDamage(
@@ -2455,14 +2456,15 @@ bool URes_InsectGlaive::HandleSuccessfulKinsectDamage(
 		return false;
 	}
 
-	if (!FMath::IsFinite(CombatConfig->PowderDamageMultiplier)
-		|| CombatConfig->PowderDamageMultiplier <= 0.0f)
+	if (!FMath::IsFinite(CombatConfig->PowderMotionValue)
+		|| CombatConfig->PowderMotionValue <= 0.0f)
 	{
 		RecordRejectedSpawn(TEXT("DamageConfigDisabled"));
 		return false;
 	}
 	const float AttackPowerSnapshot = GetModifiedKinsectAttackPower();
-	const float DamageSnapshot = AttackPowerSnapshot * CombatConfig->PowderDamageMultiplier;
+	const float MotionValueSnapshot = CombatConfig->PowderMotionValue;
+	const float DamageSnapshot = AttackPowerSnapshot * (MotionValueSnapshot / 100.0f);
 	if (!FMath::IsFinite(AttackPowerSnapshot) || AttackPowerSnapshot <= 0.0f
 		|| !FMath::IsFinite(DamageSnapshot) || DamageSnapshot <= 0.0f)
 	{
@@ -2471,7 +2473,7 @@ bool URes_InsectGlaive::HandleSuccessfulKinsectDamage(
 	}
 
 	if (!SpawnPowderInternal(Runtime, SourceAttackID, HitID, Hit, DamageSnapshot,
-		SpawnPolicy, AttackPowerSnapshot, CombatConfig->PowderDamageMultiplier))
+		SpawnPolicy, AttackPowerSnapshot, MotionValueSnapshot))
 	{
 		RecordRejectedSpawn(TEXT("SpawnFailedOrAtCapacity"));
 		return false;
@@ -2488,7 +2490,7 @@ bool URes_InsectGlaive::SpawnPowderInternal(
 	const FGuid& HitID, const FHitResult& Hit, const float DamageContribution,
 	const EIGPowderSpawnPolicy SpawnPolicy,
 	const float KinsectAttackPowerSnapshot,
-	const float DamageMultiplierSnapshot)
+	const float MotionValueSnapshot)
 {
 	UWorld* World = GetWorld();
 	if (bRuntimeShuttingDown || !CombatConfig || !World
@@ -2501,8 +2503,8 @@ bool URes_InsectGlaive::SpawnPowderInternal(
 		|| !FMath::IsFinite(DamageContribution) || DamageContribution < 0.0f
 		|| !FMath::IsFinite(KinsectAttackPowerSnapshot)
 		|| KinsectAttackPowerSnapshot < 0.0f
-		|| !FMath::IsFinite(DamageMultiplierSnapshot)
-		|| DamageMultiplierSnapshot < 0.0f)
+		|| !FMath::IsFinite(MotionValueSnapshot)
+		|| MotionValueSnapshot < 0.0f)
 	{
 		return false;
 	}
@@ -2611,7 +2613,7 @@ bool URes_InsectGlaive::SpawnPowderInternal(
 	const bool bInitialized = Powder->InitializePowder(this,
 		RuntimeContext.Controller.Get(), Runtime, FGuid::NewGuid(),
 		SourceAttackID, HitID, Hit, SpawnPolicy, SpawnTime, Lifetime,
-		KinsectAttackPowerSnapshot, DamageMultiplierSnapshot,
+		KinsectAttackPowerSnapshot, MotionValueSnapshot,
 		DamageContribution, SpawnID);
 	if (!bInitialized)
 	{
@@ -2868,7 +2870,8 @@ void URes_InsectGlaive::ApplyNaturalPowderExplosion(
 		TEXT("Damage.CritOverride"));
 	static const FGameplayTag DanceMultiplierTag = FGameplayTag::RequestGameplayTag(
 		TEXT("Damage.DanceMultiplier"));
-	const float FixedDamage = Powder->GetDamageContribution();
+	const float AttackPowerSnapshot = Powder->GetKinsectAttackPowerSnapshot();
+	const float MotionValueSnapshot = Powder->GetMotionValueSnapshot();
 	for (const FPowderTargetHit& Target : Targets)
 	{
 		UAbilitySystemComponent* TargetASC =
@@ -2902,8 +2905,8 @@ void URes_InsectGlaive::ApplyNaturalPowderExplosion(
 		{
 			continue;
 		}
-		Spec.Data->SetSetByCallerMagnitude(AttackPowerTag, FixedDamage);
-		Spec.Data->SetSetByCallerMagnitude(MotionValueTag, 1.0f);
+		Spec.Data->SetSetByCallerMagnitude(AttackPowerTag, AttackPowerSnapshot);
+		Spec.Data->SetSetByCallerMagnitude(MotionValueTag, MotionValueSnapshot);
 		Spec.Data->SetSetByCallerMagnitude(BaseStaggerTag, 0.0f);
 		Spec.Data->SetSetByCallerMagnitude(CritOverrideTag, 0.0f);
 		Spec.Data->SetSetByCallerMagnitude(DanceMultiplierTag, 1.0f);
@@ -3518,8 +3521,10 @@ void URes_InsectGlaive::ApplyPowderVortexDamageStage(
 		}
 		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(
 			TEXT("Damage.AttackPower")), Damage);
+		// Stage 1 is the existing fixed 1/5/10-powder threshold bonus; Stage 2
+		// passes an already summed set of per-powder AP×MV/100 snapshots.
 		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(
-			TEXT("Damage.MotionValue")), 1.0f);
+			TEXT("Damage.MotionValue")), 100.0f);
 		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(
 			TEXT("Damage.BaseStagger")), 0.0f);
 		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(

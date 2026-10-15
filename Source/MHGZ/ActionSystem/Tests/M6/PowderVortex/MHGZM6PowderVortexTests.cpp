@@ -49,7 +49,7 @@ UMHGZMonsterHitzoneComponent* AddHitzone(AActor& Actor,
 		Actor.SetRootComponent(Hitzone);
 	}
 	Hitzone->HitzoneTag = M3::Tag(TEXT("Hitzone.Head"));
-	Hitzone->DefenseMultiplier = 0.1f;
+	Hitzone->DefenseMultiplier = 10.0f;
 	Hitzone->SetSphereRadius(20.0f);
 	Hitzone->SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 	Hitzone->SetCollisionResponseToAllChannels(ECR_Ignore);

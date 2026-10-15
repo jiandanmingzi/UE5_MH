@@ -122,7 +122,7 @@ struct FAttackDamageConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TSubclassOf<class UGameplayEffect> DamageEffectClass;
 
-	/** ★ 动作值（倍率）。伤害段必须显式设置为正值；0 表示合法的无伤害命中，缺失不回退到 1。 */
+	/** ★ 原始动作值百分数：10 表示动作值10。伤害段须为正值；0 表示合法无伤害命中。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FScalableFloat MotionValue = 0.0f;
 

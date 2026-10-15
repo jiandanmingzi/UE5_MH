@@ -60,12 +60,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	FGameplayTag ExtractColorTag;
 
-	/** 肉质——伤害倍率（典型值 0.2~1.5） */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
-	float DefenseMultiplier = 1.0f;
+	/** 物理肉质百分数；100为100%吸收，类型表缺项时沿用此值。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone", meta = (ClampMin = "0.0", ClampMax = "100.0"))
+	float DefenseMultiplier = 100.0f;
 
-	/** 按斩/打/弹区分的归一化肉质，0.45=原作肉质45；未配置的类型沿用 DefenseMultiplier。 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone|Damage")
+	/** 按斩/打/弹区分的物理肉质百分数：45表示45%；显式0免疫。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone|Damage", meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	TMap<EMHGZPhysicalDamageType, float> PhysicalHitzoneMultipliers;
 
 	/** 五种属性的归一化肉质，0.20=肉质20；缺项为0，不从物理肉质推导属性弱点。 */
@@ -90,7 +90,7 @@ public:
 	void ConfigureQueryShape(EMHGZHitzoneShape Shape, const FVector& HalfExtent);
 	UPrimitiveComponent* GetQueryCollisionComponent() const;
 	static UMHGZMonsterHitzoneComponent* Resolve(UPrimitiveComponent* HitComponent);
-	float GetQueryBoundingRadius() const;
+	MHGZ_API float GetQueryBoundingRadius() const;
 	float GetClosestPointOnQueryCollision(const FVector& Point, FVector& OutPoint) const;
 
 	/** 强制恢复所有通道到常态 */

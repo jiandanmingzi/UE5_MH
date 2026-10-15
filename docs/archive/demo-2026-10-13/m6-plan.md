@@ -507,7 +507,7 @@ M6.2代码/资产生成门禁要求：构建通过；普通/三灯分支、消�
 - 每玩家当前Runtime最多 `PowderMaxCount` 团存活虫粉（默认100），Available和Reserved都计数。满额时拒绝新生成并记录CapRejected，不炸掉/替换旧团。此上限可在 `DA_IG_Combat` 调整。
 - 虫粉距离当前所属玩家超过 `PowderDespawnDistance` 时仅消失，不造成伤害；当前默认100m（10000cm），可在DA调整。世界关闭/卸装也仅作清理。目标怪物死亡不会把世界虫粉和虫印混为一起清掉。
 - 自然到期时，在虫粉当时位置，对 `PowderNaturalExplosionRadius`（默认150cm，即1.5m半径）球内怪物结算一次伤害，然后消费/销毁；无命中目标也照常销毁。对同一怪物多个Hitzone只选一笔真实Hit。
-- 单团固定伤害 `Di = KinsectAttackPowerSnapshot × PowderDamageMultiplier`，猎虫攻击力由已有 `GetModifiedKinsectAttackPower()` 在生成时快照；倍率默认1，可在DA调整。
+- 单团伤害按当前公式合同 `Di = KinsectAttackPowerSnapshot × PowderMotionValue/100`；猎虫攻击力由 `GetModifiedKinsectAttackPower()` 在生成时快照，`PowderMotionValue` 默认100（原始百分数）。本行取代本计划初版的倍率表达。
 - `Di` 不受肉质、猎人攻击力、红灯/三灯猎人增伤、舞踏或暴击影响。使用既有GE/ExecCalc，显式关闭HitzoneDefense且设置CritOverride=0；仍保留真实怪物Hit上下文。
 - 同一PowderID自然爆炸/聚爆消费/远距删除/关闭只能成功一种终止；先原子撤注册表和预留成员、记录消费原因及ExplosionID，再执行伤害/反馈/Destroy。
 - 刷新寿命时取消旧Timer并递增LifetimeRevision；旧到期回调不得让刷新后的虫粉在原截止点爆炸。预留前处理已到期虫粉，不能把本已到期的团刷新复活。
@@ -580,7 +580,7 @@ DamageAt1/5/10按已确认默认10/50/100写成显式配置阶梯表，禁止插
 | PowderLifetime | float | 180s；当前玩法合同固定，初始与聚拢刷新均遵循180s |
 | PowderMaxCount | int32 | 默认100，Available+Reserved一起计数，可调 |
 | PowderDespawnDistance | float | 默认100m（10000cm），玩家远距仅消失 |
-| PowderDamageMultiplier | float | 默认1，乘生成时猎虫攻击力，可调 |
+| PowderMotionValue | float | 当前字段；原始百分数，默认100，伤害为生成时猎虫攻击力×动作值/100 |
 | Powder visual envelope | generated particle parameters | 整体半径75cm；烟团最大中心半径66cm，粒子外缘约75cm |
 | PowderNaturalExplosionRadius | float | 默认150cm（1.5m），可调；仅伤害球半径 |
 | PowderGatherRadius | float | 3000cm（ArenaPlayableSideLength/2） |

@@ -11,7 +11,8 @@
  *
  * Entry 始终完整播放；若所有 ChargeReleaseControls 仍按住，则按 Montage 的
  * Entry → Charge 路由进入一次性拉伸后的蓄力段。任意时刻只有在这些控制都松开
- * 后才提前进入 Core。蓄力时长属于 Montage 的 Charge Section，而非运行时循环，
+ * 后才提前进入 Core；入口内松开可先经过显式配置的正常速度续段，避免漏掉源帧。
+ * 蓄力时长属于 Montage 的 Charge Section，而非运行时循环，
  * 因此可复用于不同动作的入口、按住键与蓄力表现。
  */
 UCLASS(BlueprintType, Blueprintable)
@@ -46,6 +47,13 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Charge")
 	FName AttackSection = FName(TEXT("Core"));
 
+	/** 可选：某入口在未蓄力时连续播完的正常速度段；未配置仍直接进入AttackSection。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Charge")
+	TMap<FName, FName> UnchargedExitSectionByEntry;
+
+	/** Read-only route resolution; does not jump, play, or create a Montage. */
+	FName ResolveUnchargedExitSection(FName EntrySection) const;
+
 	/** 必须全部松开才提前结束 Charge；通常为组合动作的各物理键。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Charge")
 	TArray<FGameplayTag> ChargeReleaseControls;
@@ -63,6 +71,7 @@ private:
 	void ProceedToAttackIfAllReleased();
 
 	bool bChargeStarted = false;
+	FName ActiveChargeEntrySection;
 	bool bChargeRouteConfigured = false;
 	bool bReleaseStateCheckScheduled = false;
 };

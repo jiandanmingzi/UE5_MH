@@ -52,7 +52,7 @@ FKinsectFlightRequest MakeAwakenedRequest(const FMHGZM3Harness& H)
 	Request.DamageMode = EKinsectDamageMode::Piercing;
 	Request.ExtractMode = EKinsectExtractMode::CollectPerValidHit;
 	Request.PostFlightPolicy = EKinsectPostFlightPolicy::ReturnToOwner;
-	Request.MotionValue = 0.30f;
+	Request.MotionValue = 30.0f;
 	Request.RehitInterval = 0.20f;
 	Request.FlightInstanceID = FGuid::NewGuid();
 	Request.PowderSpawnPolicy = EIGPowderSpawnPolicy::AwakenedPiercing;
@@ -185,7 +185,7 @@ bool FMHGZM6AwakenedKinsectPowderFollowsOnlySuccessfulPiercingDamage::RunTest(
 	H.CombatConfig->PowderActorClass = AIGPowderActor::StaticClass();
 	H.CombatConfig->PowderLifetime = 30.0f;
 	H.CombatConfig->PowderDamageContribution = 2.0f;
-	H.CombatConfig->PowderDamageMultiplier = 0.5f;
+	H.CombatConfig->PowderMotionValue = 50.0f;
 
 	const FVector StartLocation = H.Kinsect->GetActorLocation();
 	AActor* MissingASCActor = H.World->SpawnActor<AActor>(AActor::StaticClass(),
@@ -238,12 +238,12 @@ bool FMHGZM6AwakenedKinsectPowderFollowsOnlySuccessfulPiercingDamage::RunTest(
 		TestTrue(TEXT("powder source hit identity is a distinct valid per-hit id"),
 			Powders[0].SourceHitInstanceID.IsValid()
 				&& Powders[0].SourceHitInstanceID != Request.SourceAttackInstanceID);
-		TestTrue(TEXT("powder damage snapshots Kinsect attack power times the configured multiplier"),
+		TestTrue(TEXT("powder damage snapshots Kinsect power and raw-percent motion value"),
 			FMath::IsNearlyEqual(Powders[0].DamageContribution, 5.0f));
 		TestTrue(TEXT("powder stores the spawn-time Kinsect attack power"),
 			FMath::IsNearlyEqual(Powders[0].KinsectAttackPowerSnapshot, 10.0f));
-		TestTrue(TEXT("powder stores the exact configured multiplier snapshot"),
-			FMath::IsNearlyEqual(Powders[0].DamageMultiplierSnapshot, 0.5f));
+		TestTrue(TEXT("powder stores the exact configured raw-percent motion value"),
+			FMath::IsNearlyEqual(Powders[0].MotionValueSnapshot, 50.0f));
 		TestEqual(TEXT("powder snapshot records the cooldown-bypassing piercing policy"),
 			Powders[0].SpawnPolicy, EIGPowderSpawnPolicy::AwakenedPiercing);
 	}

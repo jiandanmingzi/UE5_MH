@@ -28,7 +28,7 @@ bool FMHGZM6AimedContactNotArrival::RunTest(const FString&)
 	R.RuntimeToken = H.Host->GetCurrentToken(); R.FlightInstanceID = FGuid::NewGuid();
 	R.TrajectoryMode = EKinsectTrajectoryMode::ToPoint;
 	R.TargetPointSnapshot = Origin + FVector(230, 0, 0); R.FlightSpeed = 2000;
-	R.MaxDistance = 1000; R.ArrivalRadius = 50; R.MotionValue = 0.2f;
+	R.MaxDistance = 1000; R.ArrivalRadius = 50; R.MotionValue = 20.0f;
 	R.ExtractMode = EKinsectExtractMode::FirstHitOnly;
 	R.bRequireHitzoneContactForArrival = true;
 	TestTrue(TEXT("aimed damaging flight starts"), H.Resource->DeployKinsect(R));

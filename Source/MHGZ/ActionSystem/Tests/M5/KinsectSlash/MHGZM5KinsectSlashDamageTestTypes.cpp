@@ -96,7 +96,7 @@ void UMHGZM5KinsectSlashDamageTestAbility::ConfigureForTest()
 	FAttackSegmentConfig& Segment = AttackSegments.AddDefaulted_GetRef();
 	Segment.Collision.HitzoneQueryTag = DamageGateTag(TEXT("Hitzone.Head"));
 	Segment.Damage.DamageEffectClass = UMHGZDamageGameplayEffect::StaticClass();
-	Segment.Damage.MotionValue = 1.0f;
+	Segment.Damage.MotionValue = 10.0f;
 	Segment.Damage.BaseStaggerValue = 10.0f;
 	Segment.MultiHitCount = 1;
 	Segment.MultiHitPolicy = EAttackMultiHitPolicy::ContactOnly;
@@ -104,7 +104,7 @@ void UMHGZM5KinsectSlashDamageTestAbility::ConfigureForTest()
 	{
 		FAttackSegmentConfig& WeaponSegment = AttackSegments.AddDefaulted_GetRef();
 		WeaponSegment.Damage.DamageEffectClass = UMHGZDamageGameplayEffect::StaticClass();
-		WeaponSegment.Damage.MotionValue = 1.0f;
+		WeaponSegment.Damage.MotionValue = 10.0f;
 		WeaponSegment.MultiHitCount = 1;
 		WeaponSegment.MultiHitPolicy = EAttackMultiHitPolicy::ContactOnly;
 		FWeaponTraceRegion& Region = WeaponSegment.Collision.TraceRegions.AddDefaulted_GetRef();
@@ -335,7 +335,7 @@ bool FMHGZM5KinsectSlashDamageTestHarness::Build()
 	Hitzone->SetSphereRadius(30.0f);
 	Hitzone->HitzoneTag = DamageGateTag(TEXT("Hitzone.Head"));
 	Hitzone->ExtractColorTag = DamageGateTag(TEXT("WeaponResource.IG.Extract.Red"));
-	Hitzone->DefenseMultiplier = 1.0f;
+	Hitzone->DefenseMultiplier = 100.0f;
 	Hitzone->StaggerRate = 1.0f;
 	Hitzone->RegisterComponent();
 

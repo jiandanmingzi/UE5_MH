@@ -166,7 +166,7 @@ bool FMHGZM6BoxHitzoneKinsectDamage::RunTest(const FString&)
 	Request.DirectionSnapshot = FVector::ForwardVector;
 	Request.MaxDistance = 1000.0f; Request.FlightSpeed = 2000.0f;
 	Request.ArrivalRadius = 40.0f;
-	Request.MotionValue = 0.20f;
+	Request.MotionValue = 20.0f;
 	Request.DamageMode = EKinsectDamageMode::SingleHit;
 	Request.ExtractMode = EKinsectExtractMode::FirstHitOnly;
 	Request.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;

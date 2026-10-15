@@ -98,7 +98,7 @@ struct FIGPowderRuntimeSnapshot
 	float KinsectAttackPowerSnapshot = 0.0f;
 
 	UPROPERTY(BlueprintReadOnly)
-	float DamageMultiplierSnapshot = 0.0f;
+	float MotionValueSnapshot = 0.0f;
 
 	UPROPERTY(BlueprintReadOnly)
 	EIGPowderState State = EIGPowderState::Available;

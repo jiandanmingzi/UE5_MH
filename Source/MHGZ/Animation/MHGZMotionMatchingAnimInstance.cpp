@@ -11,9 +11,12 @@
 #include "Animation/AnimInstanceProxy.h"
 #include "Animation/AnimSequenceBase.h"
 #include "Animation/MHGZMotionMatchingMath.h"
+#include "Animation/MHGZMontageSegmentBlend.h"
+#include "Animation/MHGZPoseSearchFeatureChannel_LoopPhase.h"
 #include "Animation/MHGZPoseSearchTelemetryExport.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "Engine/Engine.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/PlayerController.h"
@@ -29,6 +32,7 @@
 #include "Misc/Paths.h"
 #include "Movement/MHGZInstrumentedCharacterMovementComponent.h"
 #include "PoseSearch/MotionMatchingAnimNodeLibrary.h"
+#include "PoseSearch/AnimNode_MotionMatching.h"
 #include "PoseSearch/PoseSearchDatabase.h"
 #include "PoseSearch/PoseSearchResult.h"
 #include "PoseSearch/PoseSearchLibrary.h"
@@ -234,6 +238,8 @@ const UMHGZWeaponInputRouterComponent* GetInputRouter(const AMHGZCharacter* Char
 void UMHGZMotionMatchingAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
+	MontageSegmentBlendRequestSerial = 0;
+	LastMontageSegmentBlendSamples.Reset();
 	CachedCharacter = Cast<AMHGZCharacter>(TryGetPawnOwner());
 	bHasPreviousActorLocation = false;
 	bStartQueryActive = false;
@@ -281,6 +287,7 @@ void UMHGZMotionMatchingAnimInstance::NativeInitializeAnimation()
 
 void UMHGZMotionMatchingAnimInstance::NativeUninitializeAnimation()
 {
+	LastMontageSegmentBlendSamples.Reset();
 	if (CachedActionVisualPitchState.bValid)
 	{
 		if (AMHGZCharacter* Character = CachedCharacter.Get())
@@ -303,6 +310,33 @@ void UMHGZMotionMatchingAnimInstance::NativeUninitializeAnimation()
 	DiscardMMHandoffConsumptions();
 	DiscardMMActionIdleContextConsumptions();
 	Super::NativeUninitializeAnimation();
+}
+
+void UMHGZMotionMatchingAnimInstance::Montage_Advance(const float DeltaSeconds)
+{
+	// PreUpdateAnimation has set NeedsUpdate for a real graph update. Do not leave
+	// deferred requests behind when only off-screen Montages are being advanced.
+	if (DeltaSeconds <= 0.0f || !NeedsUpdate())
+	{
+		LastMontageSegmentBlendSamples.Reset();
+		Super::Montage_Advance(DeltaSeconds);
+		return;
+	}
+	Super::Montage_Advance(DeltaSeconds);
+	TArray<FMHGZMontageSegmentBlendSample> After;
+	FMHGZMontageSegmentBlend::Capture(MontageInstances, After);
+	TMap<FName, float> Requests;
+	FMHGZMontageSegmentBlend::BuildRequests(LastMontageSegmentBlendSamples, After, Requests);
+	LastMontageSegmentBlendSamples = MoveTemp(After);
+	for (const TPair<FName, float>& Request : Requests)
+	{
+		// Must precede UpdateMontageEvaluationData: that method copies and clears
+		// the instance map. Requesting in NativeUpdate would replay it next frame.
+		RequestSlotGroupInertialization(Request.Key, Request.Value);
+		++MontageSegmentBlendRequestSerial;
+		UE_LOG(LogAnimation, Verbose, TEXT("[MontageSegmentBlend] serial=%lld group=%s duration=%.4f"),
+			MontageSegmentBlendRequestSerial, *Request.Key.ToString(), Request.Value);
+	}
 }
 
 void UMHGZMotionMatchingAnimInstance::QueueMotionMatchingSelection(
@@ -338,20 +372,26 @@ void UMHGZMotionMatchingAnimInstance::QueueMotionMatchingSelection(
 	Event.bIsContinuing = SearchResult.bIsContinuingPoseSearch;
 	Event.bIsLooping = SearchResult.bLoop;
 	Event.bIsMirrored = SearchResult.bIsMirrored;
+	const int32 NodeIndex = static_cast<int32>(MotionMatchingNode);
+	Event.LoopPhaseQuery = NodeIndex == 0 ? MMLoopPhaseQuery : MMUnsheathedLoopPhaseQuery;
+	Event.LoopQuerySource = MMLoopQuerySource[NodeIndex];
+	Event.LoopHistoryEntriesRemoved = MMLoopHistoryEntriesRemoved[NodeIndex];
+	if (const auto* MM = AnimNodeReference.GetAnimNodePtr<FAnimNode_MotionMatching>())
+	{ Event.PreBlendActivePlayers = MM->AnimPlayers.Num(); }
 	MMPendingSelectionEvents.Enqueue(MoveTemp(Event));
 }
 
 void UMHGZMotionMatchingAnimInstance::OnSheathedMotionMatchingPreUpdate(
 	const FAnimUpdateContext& Context, const FAnimNodeReference& AnimNodeReference)
 {
-	(void)Context;
+	PrepareLoopContinuity(Context, AnimNodeReference, EMHGZMotionMatchingNode::Sheathed);
 	RouteMotionMatchingPreSearch(AnimNodeReference, EMHGZMotionMatchingNode::Sheathed);
 }
 
 void UMHGZMotionMatchingAnimInstance::OnUnsheathedMotionMatchingPreUpdate(
 	const FAnimUpdateContext& Context, const FAnimNodeReference& AnimNodeReference)
 {
-	(void)Context;
+	PrepareLoopContinuity(Context, AnimNodeReference, EMHGZMotionMatchingNode::Unsheathed);
 	RouteMotionMatchingPreSearch(AnimNodeReference, EMHGZMotionMatchingNode::Unsheathed);
 }
 
@@ -396,6 +436,10 @@ void UMHGZMotionMatchingAnimInstance::LoadActionExitDatabases()
 
 void UMHGZMotionMatchingAnimInstance::LoadSheathedLoopCandidateDatabases()
 {
+	MMSheathedWalkLoopOnlyDatabase = LoadObject<UPoseSearchDatabase>(nullptr,
+		TEXT("/Game/Blueprints/Characters/Demo/Animation/MotionMatching/PSD_MH_Shth_Walk_LoopOnly.PSD_MH_Shth_Walk_LoopOnly"));
+	MMUnsheathedLoopOnlyDatabase = LoadObject<UPoseSearchDatabase>(nullptr,
+		TEXT("/Game/Blueprints/Characters/Demo/Animation/MotionMatching/PSD_MH_UnSh_Walk_LoopOnly.PSD_MH_UnSh_Walk_LoopOnly"));
 	MMSheathedRunLoopOnlyDatabase = LoadObject<UPoseSearchDatabase>(nullptr,
 		SheathedRunLoopOnlyDatabasePath);
 	MMSheathedSprintLoopOnlyDatabase = LoadObject<UPoseSearchDatabase>(nullptr,
@@ -415,6 +459,15 @@ void UMHGZMotionMatchingAnimInstance::LoadSheathedLoopCandidateDatabases()
 
 void UMHGZMotionMatchingAnimInstance::ResetActionExitRouting()
 {
+	MMLoopClock.Reset();
+	MMLoopClockFrame = MAX_uint64;
+	MMLoopPhaseQuery = MMUnsheathedLoopPhaseQuery = FVector2D::ZeroVector;
+	for (int32 I = 0; I < 2; ++I)
+	{
+		MMLoopQueryDatabases[I] = nullptr;
+		bMMLoopEntryMatch[I] = false;
+	}
+	bMMMobileExitCruise[0] = bMMMobileExitCruise[1] = false;
 	MMSheathedActionExitRoute = EMHGZMMActionExitRoute::Move;
 	MMUnsheathedActionExitRoute = EMHGZMMActionExitRoute::Move;
 	MMSheathedActionExitSerial = 0;
@@ -428,6 +481,17 @@ void UMHGZMotionMatchingAnimInstance::ResetActionExitRouting()
 	MMActionIdleContextSerial = 0;
 	bMMRouteSheathedActionIdle = false;
 	bMMRouteUnsheathedActionIdle = false;
+}
+
+UPoseSearchDatabase* UMHGZMotionMatchingAnimInstance::GetMobileExitLoopDatabase(
+	const EMHGZMotionMatchingNode Node) const
+{
+	if (Node == EMHGZMotionMatchingNode::Unsheathed) { return MMUnsheathedLoopOnlyDatabase.Get(); }
+	if (MMSheathedTargetMoveGait == MHGZMotionMatching::EMHGZNormalMoveGait::Sprint)
+	{ return MMSheathedSprintLoopOnlyDatabase.Get(); }
+	if (MMSheathedTargetMoveGait == MHGZMotionMatching::EMHGZNormalMoveGait::Run)
+	{ return MMSheathedRunLoopOnlyDatabase.Get(); }
+	return MMSheathedWalkLoopOnlyDatabase.Get();
 }
 
 void UMHGZMotionMatchingAnimInstance::ResetSheathedNormalMoveCandidateRouting()
@@ -489,9 +553,8 @@ void UMHGZMotionMatchingAnimInstance::RouteSheathedNormalMovePreSearch(
 	if (UPoseSearchDatabase* CandidateDatabase =
 		GetSheathedLoopCandidateDatabase(DesiredCandidateSet))
 	{
-		UMotionMatchingAnimNodeLibrary::SetDatabaseToSearch(MotionMatchingReference,
-			CandidateDatabase,
-			EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose);
+		InstallLoopDatabase(MotionMatchingReference, EMHGZMotionMatchingNode::Sheathed,
+			CandidateDatabase, false);
 		MMSheathedNormalMoveCandidateSet = DesiredCandidateSet;
 		return;
 	}
@@ -631,6 +694,7 @@ void UMHGZMotionMatchingAnimInstance::RouteMotionMatchingPreSearch(
 
 	if (bNewCompatibleHandoff)
 	{
+		bMMMobileExitCruise[static_cast<int32>(MotionMatchingNode)] = false;
 		if (bMMActionIdleContextActive
 			&& bMMActionIdleContextUnsheathed
 				== (MotionMatchingNode == EMHGZMotionMatchingNode::Unsheathed))
@@ -657,7 +721,9 @@ void UMHGZMotionMatchingAnimInstance::RouteMotionMatchingPreSearch(
 	if (MotionMatchingNode == EMHGZMotionMatchingNode::Sheathed
 		&& Route != EMHGZMMActionExitRoute::Move)
 	{
-		ResetSheathedNormalMoveCandidateRouting();
+		// Drop the ordinary bank's routing state, not the current input's gait.
+		// The Exit tail needs that same gait to choose Walk/Run/Sprint Loop.
+		MMSheathedNormalMoveCandidateSet = MHGZMotionMatching::EMHGZNormalMoveCandidateSet::FullMove;
 	}
 
 	switch (Route)
@@ -677,6 +743,17 @@ void UMHGZMotionMatchingAnimInstance::RouteMotionMatchingPreSearch(
 
 	case EMHGZMMActionExitRoute::Move:
 	default:
+		if (TryRouteStartToLoop(MotionMatchingReference, MotionMatchingNode)) { return; }
+		if (bMMMobileExitCruise[static_cast<int32>(MotionMatchingNode)]
+			&& bMMHasLocomotionInput && !bMMStopRequestActive && !bStartQueryActive)
+		{
+			if (UPoseSearchDatabase* LoopDatabase = GetMobileExitLoopDatabase(MotionMatchingNode))
+			{
+				InstallLoopDatabase(MotionMatchingReference, MotionMatchingNode, LoopDatabase, false);
+				return;
+			}
+		}
+		bMMMobileExitCruise[static_cast<int32>(MotionMatchingNode)] = false;
 		if (MotionMatchingNode == EMHGZMotionMatchingNode::Sheathed)
 		{
 			RouteSheathedNormalMovePreSearch(MotionMatchingReference);
@@ -746,13 +823,11 @@ void UMHGZMotionMatchingAnimInstance::RouteMotionMatchingPreSearch(
 	if (Route == EMHGZMMActionExitRoute::ExitAndMove
 		&& ExitSelectedTime >= ExitDuration - ActionExitEndEpsilonSeconds)
 	{
-		if (UPoseSearchDatabase* MoveDatabase = GetMoveDatabase(MotionMatchingNode))
+		if (UPoseSearchDatabase* MoveDatabase = GetMobileExitLoopDatabase(MotionMatchingNode))
 		{
-			// The Exit's authored tail was already available to normal MM. If its
-			// continuing pose still owns the exact final sample, invalidate only that
-			// stale continuation and let the regular Move PSD resolve the next pose.
-			UMotionMatchingAnimNodeLibrary::SetDatabaseToSearch(MotionMatchingReference,
-				MoveDatabase, EPoseSearchInterruptMode::InterruptOnDatabaseChangeAndInvalidateContinuingPose);
+			// A low-rate update can skip the short safe window. Even at the exact
+			// end, keep the held-input handoff on Loop rather than re-opening Start.
+			InstallLoopDatabase(MotionMatchingReference, MotionMatchingNode, MoveDatabase, true);
 			return;
 		}
 	}
@@ -760,14 +835,12 @@ void UMHGZMotionMatchingAnimInstance::RouteMotionMatchingPreSearch(
 	if (Route == EMHGZMMActionExitRoute::ExitAndMove
 		&& ExitSelectedTime >= ExitDuration - ActionExitMoveTailSeconds)
 	{
-		if (UPoseSearchDatabase* MoveDatabase = GetMoveDatabase(MotionMatchingNode))
+		if (UPoseSearchDatabase* LoopDatabase = GetMobileExitLoopDatabase(MotionMatchingNode))
 		{
-			TArray<UPoseSearchDatabase*> Databases;
-			Databases.Reserve(2);
-			Databases.Add(ExitDatabase);
-			Databases.Add(MoveDatabase);
-			UMotionMatchingAnimNodeLibrary::SetDatabasesToSearch(MotionMatchingReference, Databases,
-				EPoseSearchInterruptMode::DoNotInterrupt);
+			// One database-change edge searches immediately, despite the 0.12s
+			// throttle. Entry blending is capped to the old player's remaining time.
+			// Never expose Start/Idle to an already-moving action tail.
+			InstallLoopDatabase(MotionMatchingReference, MotionMatchingNode, LoopDatabase, true);
 			return;
 		}
 	}
@@ -780,6 +853,7 @@ void UMHGZMotionMatchingAnimInstance::ObserveMotionMatchingPostSearch(
 	const FAnimNodeReference& AnimNodeReference,
 	const EMHGZMotionMatchingNode MotionMatchingNode)
 {
+	ObserveLoopContinuity(AnimNodeReference, MotionMatchingNode);
 	QueueMotionMatchingSelection(AnimNodeReference, MotionMatchingNode);
 
 	EAnimNodeReferenceConversionResult ConversionResult;
@@ -821,12 +895,12 @@ void UMHGZMotionMatchingAnimInstance::ObserveMotionMatchingPostSearch(
 		return;
 	}
 
-	// The only legal way out of an ExitAndMove route is a real winning candidate
-	// from the base Move PSD after the authored safe tail was opened. This keeps
-	// an Exit-only route isolated until it has reached its authored end.
+	// Held-input exits finish only after a real Loop candidate wins. Release is
+	// handled before this branch by the unchanged one-shot Stop path.
 	if (Route == EMHGZMMActionExitRoute::ExitAndMove
-		&& SearchResult.SelectedDatabase == GetMoveDatabase(MotionMatchingNode))
+		&& SearchResult.SelectedDatabase == GetMobileExitLoopDatabase(MotionMatchingNode))
 	{
+		bMMMobileExitCruise[static_cast<int32>(MotionMatchingNode)] = true;
 		Route = EMHGZMMActionExitRoute::Move;
 		GetActionExitSerial(MotionMatchingNode) = 0;
 		GetActionExitHandoffType(MotionMatchingNode) = EMHGZMotionMatchingHandoffType::None;
@@ -1136,6 +1210,12 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 		|| MMForceIdleReleaseHoldRemaining > KINDA_SMALL_NUMBER;
 	const bool bForceMMIdle = bMeasurementForceMMIdle || bStartInputSettling;
 	bMMForceIdle = bForceMMIdle;
+	if (bMMForceIdle)
+	{
+		bMMMobileExitCruise[0] = bMMMobileExitCruise[1] = false;
+		MMLoopPhaseQuery = FVector2D::ZeroVector;
+		MMLoopClock.Reset();
+	}
 	const bool bLeavingForcedMeasurement = !bMeasurementForceMMIdle && bWasForceMMIdle;
 	const bool bPreserveHandoffInput =
 		MHGZMotionMatching::ShouldPreserveHandoffInputAcrossMeasurementReset(
@@ -2933,7 +3013,7 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	const FString CombatEventsHeader = TEXT("SessionID,WorldTimeSeconds,Frame,EventSerial,Event,RuntimeGeneration,ActivationSequenceID,MarkID,CommandSerial,FlightID,SourceAttackID,HitID,PowderID,ReservationID,ExplosionID,StageIndex,StageAttackID,TargetActor,Hitzone,ImpactPointX,ImpactPointY,ImpactPointZ,SpawnPolicy,ResourceTag,Reason,ExpireAt,LifetimeRevision,MemberCount,Damage") LINE_TERMINATOR;
 	const FString UIEventsHeader = TEXT("SessionID,WorldTimeSeconds,Frame,EventSerial,Event,RuntimeGeneration,Reason,SubjectClass,Pawn,DroppedCount") LINE_TERMINATOR;
 	const FString MMQueryHeader = TEXT("WorldTimeSeconds,Frame,Unsheathed,IntentQuery,DistanceToStopQuery,StopGaitQuery,MoveGaitQuery,SheathedCandidateSet,SheathedTargetGait,LastNonZeroCruiseSpeed,StartQueryActive,StartQueryElapsed,StartQueryDuration,SheathedStopMode,LegacyStopMode,ExternalForceMMIdle,EffectiveForceMMIdle,ForceIdleReleaseHoldRemaining,StartInputSettleRemaining,HasLocomotionInput,StopRequestActive,ExitWantsMoveDatabase,ActionIdleContextActive,ActionIdleContextUnsheathed,ActionIdleContextSerial,SheathedActionExitRoute,UnsheathedActionExitRoute,SheathedActionExitSerial,UnsheathedActionExitSerial,SheathedExitSelectedTime,UnsheathedExitSelectedTime,PredictedDistance0,PredictedDistance0p2,PredictedDistance0p5,PredictedDistance0p8,PredictedDistance1p0") LINE_TERMINATOR;
-	const FString MMSelectionHeader = TEXT("Frame,Node,SelectedDatabase,SelectedAnimation,SelectedTime,SearchCost,WantedPlayRate,HasSelectionResult,IsContinuing,IsLooping,IsMirrored,QueryIntent,QueryDistanceToStop,QueryStopGait,QueryMoveGait,CandidateIntent,CandidateDistanceToStop,CandidateStopGait,CandidateMoveGait,IntentDelta,DistanceToStopDelta,StopGaitDelta,MoveGaitDelta,IntentWeightedSquaredEstimate,DistanceToStopWeightedSquaredEstimate,StopGaitWeightedSquaredEstimate,MoveGaitWeightedSquaredEstimate") LINE_TERMINATOR;
+	const FString MMSelectionHeader = TEXT("Frame,Node,SelectedDatabase,SelectedAnimation,SelectedTime,SearchCost,WantedPlayRate,HasSelectionResult,IsContinuing,IsLooping,IsMirrored,QueryIntent,QueryDistanceToStop,QueryStopGait,QueryMoveGait,CandidateIntent,CandidateDistanceToStop,CandidateStopGait,CandidateMoveGait,IntentDelta,DistanceToStopDelta,StopGaitDelta,MoveGaitDelta,IntentWeightedSquaredEstimate,DistanceToStopWeightedSquaredEstimate,StopGaitWeightedSquaredEstimate,MoveGaitWeightedSquaredEstimate,LoopPhaseQueryX,LoopPhaseQueryY,LoopQuerySource,LoopHistoryEntriesRemoved,PreBlendActivePlayers") LINE_TERMINATOR;
 	const FString AnimationHeader = TEXT("WorldTimeSeconds,Frame,ActiveActions,MontageRootMotionOwnerAction,MontageRootMotionOwned,ActiveMontage,ActiveMontageTime,ActiveMontageLength,ActiveMontagePlayRate,HandoffActive,HandoffType,HandoffSerial,HandoffRawMoveRight,HandoffRawMoveForward,HandoffHasRawMoveInput,HandoffHadRawMoveInputInMobilePhase,PendingStopAtHandoff,HandoffLastActiveRawMoveCruiseSpeed,AerialFallingMontage,AerialFallingMontageReferenced,AerialFallingRootMotionDisabledByHost,AerialFallingMontageInstanceFound,AerialFallingInstanceRootMotionDisabled,AerialLandingMontage,AerialLandingMontageReferenced,AerialLandingRootMotionDisabledByHost,AerialLandingMontageInstanceFound,AerialLandingInstanceRootMotionDisabled,CameraManagerClass,CameraViewPitch,CameraViewPitchMin,CameraViewPitchMax,ActionVisualPitchActive,ActionVisualPitchDegrees,ActionVisualPitchWeight,ActionVisualPitchComponentPitch,ActionVisualPitchComponentYaw,ActionVisualPitchComponentRoll,LockedDirectionX,LockedDirectionY,LockedDirectionZ,ActionActivationSequenceID,PitchSourceMontageInstanceID,PitchStateRevision,PitchStateValid,PitchStateReleasing,KinsectPiercerActive,KinsectPiercerActivationSequenceID,KinsectPiercerPhase,KinsectPiercerCurveElapsedSeconds,KinsectPiercerCurveCoveredSeconds,KinsectPiercerMovementLease,KinsectPiercerRecordedTrajectoryActive,KinsectPiercerActionMovementOwned,KinsectPiercerAerialAttackBudgetSpent,KinsectPiercerDanceSource,KinsectPiercerSourceTagPresent,KinsectPiercerLockedYawX,KinsectPiercerLockedYawY,KinsectPiercerMainMontageInstanceID,KinsectPiercerLandingMontageInstanceID,KinsectPiercerLandingMontageTimeSeconds,KinsectPiercerLandingRootMotionOwned,KinsectPiercerLandingRootMotionModeCaptured,KinsectPiercerAnimRootMotionMode,KinsectPiercerSegmentConfigCount,KinsectPiercerLastSuccessfulConfigIndex,KinsectPiercerSegment0SuccessfulTargets,KinsectPiercerSegment1SuccessfulTargets,KinsectPiercerSegment2SuccessfulTargets,")
 		TEXT("DescendingThrustActive,DescendingThrustActivationSequenceID,DescendingThrustPhase,DescendingThrustInputTag,DescendingThrustInputSourceControlTag,DescendingThrustInputSequenceID,DescendingThrustPhysicalPressDurationSeconds,DescendingThrustInputReleaseFallback,DescendingThrustPriorAerialSource,DescendingThrustPublishedAerialSource,DescendingThrustCurrentMontageSection,DescendingThrustMainMontageInstanceID,DescendingThrustLandingMontageInstanceID,DescendingThrustActionClockSeconds,DescendingThrustMovementLease,DescendingThrustRecordedTrajectoryActive,DescendingThrustActionMovementOwned,DescendingThrustLandingRootMotionOwned,DescendingThrustLandingRootMotionModeCaptured,DescendingThrustSavedAnimRootMotionMode,DescendingThrustCurrentAnimRootMotionMode,DescendingThrustLockedPlanarVelocityX,DescendingThrustLockedPlanarVelocityY,DescendingThrustLockedPlanarVelocityZ,DescendingThrustFrozenDanceDamageMultiplier,DescendingThrustLastSuccessfulSegmentIndex,DescendingThrustSegment0DamageInstanceID,DescendingThrustSegment1DamageInstanceID,DescendingThrustSegment2DamageInstanceID,DescendingThrustSegment3DamageInstanceID,DescendingThrustSegment0SuccessfulTargets,DescendingThrustSegment1SuccessfulTargets,DescendingThrustSegment2SuccessfulTargets,DescendingThrustSegment3SuccessfulTargets,")
 		TEXT("DescendingThrustCorrection0Frame,DescendingThrustCorrection0SnapshotValid,DescendingThrustCorrection0Applied,DescendingThrustCorrection0Consumed,DescendingThrustCorrection0AngleDegrees,DescendingThrustCorrection0TargetX,DescendingThrustCorrection0TargetY,DescendingThrustCorrection0TargetZ,DescendingThrustCorrection1Frame,DescendingThrustCorrection1SnapshotValid,DescendingThrustCorrection1Applied,DescendingThrustCorrection1Consumed,DescendingThrustCorrection1AngleDegrees,DescendingThrustCorrection1TargetX,DescendingThrustCorrection1TargetY,DescendingThrustCorrection1TargetZ,DescendingThrustCorrection2Frame,DescendingThrustCorrection2SnapshotValid,DescendingThrustCorrection2Applied,DescendingThrustCorrection2Consumed,DescendingThrustCorrection2AngleDegrees,DescendingThrustCorrection2TargetX,DescendingThrustCorrection2TargetY,DescendingThrustCorrection2TargetZ")
@@ -3258,7 +3338,7 @@ void UMHGZMotionMatchingAnimInstance::DrainMMSelectionEvents()
 		const float MoveGaitDelta = CandidateMoveGait - MMMoveGaitQuery;
 
 		TArray<FString> Fields;
-		Fields.Reserve(27);
+		Fields.Reserve(32);
 		Fields.Append({ FString::Printf(TEXT("%llu"), static_cast<unsigned long long>(Event.Frame)),
 			NodeName, ToCSVString(DatabasePath), ToCSVString(AnimationPath), ToCSVFloat(Event.AnimationTime),
 			ToCSVFloat(Event.SearchCost), ToCSVFloat(Event.WantedPlayRate), TEXT("1"),
@@ -3271,7 +3351,10 @@ void UMHGZMotionMatchingAnimInstance::DrainMMSelectionEvents()
 			ToCSVFloat(RuntimeTelemetryIntentWeight * FMath::Square(IntentDelta)),
 			ToCSVFloat(RuntimeTelemetryDistanceToStopWeight * FMath::Square(DistanceDelta)),
 			ToCSVFloat(RuntimeTelemetryStopGaitWeight * FMath::Square(StopGaitDelta)),
-			ToCSVFloat(RuntimeTelemetryMoveGaitWeight * FMath::Square(MoveGaitDelta)) });
+			ToCSVFloat(RuntimeTelemetryMoveGaitWeight * FMath::Square(MoveGaitDelta)),
+			ToCSVFloat(Event.LoopPhaseQuery.X), ToCSVFloat(Event.LoopPhaseQuery.Y),
+			ToCSVString(Event.LoopQuerySource.ToString()), FString::FromInt(Event.LoopHistoryEntriesRemoved),
+			FString::FromInt(Event.PreBlendActivePlayers) });
 		RuntimeTelemetryMMSelectionPendingRows.Add(FString::Join(Fields, TEXT(",")));
 	}
 }

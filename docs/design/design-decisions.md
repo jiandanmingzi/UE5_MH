@@ -94,7 +94,7 @@
 | 72 | 普通攻击的 `MaxCorrectionAngle` 是 Confirm 后、Montage 前的一次冻结输入 Yaw 瞬转 | 基础攻击不依赖 MotionWarping，不读取实时摇杆；蓄力等不进连招表的 GA 仍可复用此入口参数 |
 | 73 | MotionWarping 只服务有显式目标对齐需求的特殊动作 | 特殊 GA 必须自己建立目标、Notify 消费和清理；`FAttackSegmentConfig::MaxWarpAngle` 当前没有通用运行时消费者，不能作为普通多段攻击已可用功能 |
 | 74 | FAttackSegmentConfig 统一管理碰撞+伤害+多跳 | 每段独立持有碰撞参数、动作值、破坏值、多跳配置 |
-| 75 | 2026-10-13：普通武器升级为物理/属性双通道，分别取整后合并一次伤害 | 归一化MotionValue/肉质保持不变；Context快照斩味/属性类型/会心倍率，ASC快照实际属性值；猎虫/粉尘保留专用规则，见[伤害计算](exec-calc.md) |
+| 75 | 2026-10-13：普通武器、猎虫与虫粉采用显式百分数动作值；物理肉质以0–100保存 | 武器/猎虫各用MV/100与物理肉质/100；虫粉用猎虫攻击力×粉尘MV/100且不乘肉质；属性肉质保持原倍率语义。Context快照斩味/属性类型/会心倍率，ASC快照实际属性值；见[伤害计算](exec-calc.md) |
 | 76 | 单碰撞多跳伤害（MultiHitCount>1） | 登龙剑下批：1 次 Sweep + Timer 驱动多次 Apply |
 | 77 | 武器 Ability 基类分化——每种武器一个 C++ 中间类 | 约 50 行，持有 ResourceComponent 引用+覆写资源门控钩子 |
 | 78 | 武器资源子系统不统一具体数值模型；词条入口原方案由 #170 延期 | 各子类自行管理特有字段；当前 ApplyEntryModifier 还不能可靠处理多来源和目标参数 |

@@ -25,7 +25,7 @@ FKinsectFlightRequest MakeValidAlongDirectionRequest(const FMHGZM3Harness& H)
 	Request.DamageMode = EKinsectDamageMode::SingleHit;
 	Request.ExtractMode = EKinsectExtractMode::FirstHitOnly;
 	Request.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
-	Request.MotionValue = 0.2f;
+	Request.MotionValue = 20.0f;
 	Request.RehitInterval = 0.f;
 	Request.FlightInstanceID = FGuid::NewGuid();
 	return Request;
@@ -233,7 +233,7 @@ bool FMHGZM3KinsectPendingExtractAndReturn::RunTest(const FString& Parameters)
 	Request.DamageMode = EKinsectDamageMode::SingleHit;
 	Request.ExtractMode = EKinsectExtractMode::FirstHitOnly;
 	Request.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
-	Request.MotionValue = 0.2f;
+	Request.MotionValue = 20.0f;
 	Request.RehitInterval = 0.f;
 	Request.FlightInstanceID = FGuid::NewGuid();
 

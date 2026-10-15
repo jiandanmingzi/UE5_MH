@@ -141,7 +141,7 @@ Hitzone.LeftLeg            ← 左腿
 Hitzone.RightLeg           ← 右腿
 
 Hitzone子属性（每个部位碰撞体持有）：
-  DefenseMultiplier (float)  ← 肉质（伤害吸收率，0.2=坚硬/1.0=弱点）
+  DefenseMultiplier (float)  ← 物理肉质百分数（0-100；100=100%）
   StaggerRate (float)        ← 硬直肉质（破坏值吸收率）
   ExtractColorTag            ← 该怪物该部位的 Red/White/Orange；不由部位名称全局推断
 ```

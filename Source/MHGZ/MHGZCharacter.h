@@ -129,7 +129,7 @@ protected:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* MouseLookAction;
 
-	/** Sprint/Run Input Action (RB) — 仅收刀态生效，0.1s 判定见 SprintHoldThreshold */
+	/** RB physical hold is retained through Sheathe; Sprint is effective only while sheathed. */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* SprintAction;
 

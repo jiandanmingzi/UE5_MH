@@ -31,27 +31,16 @@ public class MHGZ : ModuleRules
 			"AnimGraphRuntime"
 		});
 
-		PrivateDependencyModuleNames.AddRange(new string[] { });
+		PrivateDependencyModuleNames.AddRange(new string[] { "BlendStack" });
 
 		if (Target.bBuildEditor)
 		{
-			if (Target.Platform == UnrealTargetPlatform.Win64)
-			{
-				PublicSystemLibraries.Add("Bcrypt.lib");
-			}
+			// Only runtime editor branches and archived in-module tests remain here.
 			PrivateDependencyModuleNames.AddRange(new string[] {
 				"AssetRegistry",
-				"AnimGraph",
 				"AnimationBlueprintLibrary",
-				"BlueprintGraph",
-				"Kismet",
-				"Json",
-				"PoseSearchEditor",
-				"TraceAnalysis",
-				"TraceServices",
 				"RenderCore", // Opt-in HUD render regression captures.
-				"UnrealEd",
-				"UMGEditor"
+				"UnrealEd"
 			});
 		}
 

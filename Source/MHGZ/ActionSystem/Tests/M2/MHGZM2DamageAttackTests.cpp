@@ -178,7 +178,7 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 		NewObject<UMHGZMonsterHitzoneComponent>(TargetActor);
 	Hitzone->BoneName = TEXT("head");
 	Hitzone->HitzoneTag = FGameplayTag::RequestGameplayTag(TEXT("Hitzone.Head"));
-	Hitzone->DefenseMultiplier = 0.5f;
+	Hitzone->DefenseMultiplier = 50.0f;
 	Hitzone->StaggerRate = 1.0f;
 	TargetActor->AddInstanceComponent(Hitzone);
 	TargetActor->SetRootComponent(Hitzone);
@@ -246,8 +246,8 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 	TestEqual(TEXT("IncomingCriticalFlag cleared"), TargetAttributes->GetIncomingCriticalFlag(), 0.f);
 	TestEqual(TEXT("IncomingHitSignal cleared"), TargetAttributes->GetIncomingHitSignal(), 0.f);
 
-	// 第二次：正动作值且使用肉质 → 50 伤害（100 × 1 × 0.5）。
-	if (!TestTrue(TEXT("positive-MotionValue hit applies"), ApplyHit(1.0f)))
+	// 第二次：动作值100、物理肉质50 → 50伤害（100 × 100/100 × 50/100）。
+	if (!TestTrue(TEXT("positive-MotionValue hit applies"), ApplyHit(100.0f)))
 	{
 		DestroyM2TestWorld(World);
 		return false;
@@ -262,8 +262,8 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 	TestEqual(TEXT("IncomingCriticalFlag cleared after second hit"), TargetAttributes->GetIncomingCriticalFlag(), 0.f);
 	TestEqual(TEXT("IncomingHitSignal cleared after second hit"), TargetAttributes->GetIncomingHitSignal(), 0.f);
 
-	// 第三次：显式关闭肉质修正 → 同一部位按 1.0 结算 100 伤害。
-	if (!TestTrue(TEXT("hitzone-defense-disabled hit applies"), ApplyHit(1.0f, false)))
+	// 第三次：显式关闭肉质修正 → 同一部位按100结算100伤害。
+	if (!TestTrue(TEXT("hitzone-defense-disabled hit applies"), ApplyHit(100.0f, false)))
 	{
 		DestroyM2TestWorld(World);
 		return false;

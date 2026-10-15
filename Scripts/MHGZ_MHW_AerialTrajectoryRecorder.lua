@@ -8,7 +8,7 @@
 -- columns remain blank. The recorder never reads or writes game memory.
 
 local SCRIPT_NAME = "MHGZ MHW Aerial Trajectory Recorder"
-local SCRIPT_VERSION = "0.2.7"
+local SCRIPT_VERSION = "0.2.8"
 -- Pin capture output to this installation so Steam's working directory does
 -- not silently send CSV files somewhere else.
 local GAME_LUA_DIRECTORY = "F:/games/Steam/steamapps/common/Monster Hunter World/Lua"
@@ -18,6 +18,7 @@ local XINPUT_LIVE_STATE_PATH = "D:/study/MH/MHGZ/Saved/AssetProbe/DescendingThru
 local CAPTURE_KEY = "F9"
 local FLUSH_EVERY_SAMPLES = 60
 local DIAGNOSTIC_HEARTBEAT_SECONDS = 5
+local CAPTURE_HEALTH_TIMEOUT_SECONDS = 3
 local AOB_REFRESH_MAX_ATTEMPTS_PER_CAPTURE = 2
 local AOB_REFRESH_RETRY_DELAY_SECONDS = 5
 local WORLD_UP_AXIS = "Y"
@@ -57,6 +58,8 @@ local state = {
     recording = false, pending_toggle = false, pending_toggle_reason = nil, previous_f9_down = false,
     previous_sample = nil, previous_buttons = {}, previous_action = nil,
     sample_count = 0, event_count = 0,
+    health_state = "idle", health_message = "",
+    health_valid_sample_count = 0, health_last_valid_clock = nil,
     samples_file = nil, events_file = nil,
     samples_path = nil, events_path = nil, run_serial = 0,
     last_game_time = nil, last_status = "Initializing LuaEngine data access",
@@ -645,6 +648,7 @@ end
 
 local function stop_capture(reason)
     if not state.recording then return end
+    write_event("capture_health", "stopped_valid_samples", nil, state.health_valid_sample_count)
     write_event("capture_stopped", reason or CAPTURE_KEY, nil, nil)
     close_files()
     state.recording, state.previous_sample, state.previous_action = false, nil, nil
@@ -661,9 +665,9 @@ local function stop_capture(reason)
         state.sampling_gaps_over_25ms,
         tostring(state.samples_path), tostring(state.events_path)))
     local valid_actor_samples = math.max(0, state.sample_count - state.unavailable_actor_sample_count)
-    if state.sample_count > 0 and valid_actor_samples == 0 then
+    if state.sample_count == 0 or state.health_valid_sample_count == 0 then
         notify_capture_status(string.format(
-            "已记录 %d 行输入数据，但猎人/动作数据为 0 行；本次不能用于动作分析",
+            "录制异常：共 %d 行，但有效猎人/动作轨迹为0行；请查看capture_health事件",
             state.sample_count))
     elseif valid_actor_samples < state.sample_count then
         notify_capture_status(string.format("录制停止：%d 行；角色数据 %d 行；平均 %.1f Hz",
@@ -709,6 +713,8 @@ local function start_capture(reason)
 
     state.samples_file, state.events_file = samples, events
     state.sample_count, state.event_count = 0, 0
+    state.health_state, state.health_message = "checking", "正在检查猎人/动作数据（最多3秒）"
+    state.health_valid_sample_count, state.health_last_valid_clock = 0, nil
     state.sampling_interval_count, state.sampling_interval_sum = 0, 0
     state.sampling_interval_max, state.sampling_gaps_over_25ms = 0, 0
     state.capture_start_game_time = nil
@@ -896,6 +902,10 @@ local function collect_sample()
     end
 
     if not write_cells(state.samples_file, row) then stop_capture("sample_write_error"); return end
+    if s._actor_state_ready and s._position_valid and s._orientation_valid and s.lmt_id ~= nil then
+        state.health_valid_sample_count = state.health_valid_sample_count + 1
+        state.health_last_valid_clock = os.time()
+    end
     if not state.first_sample_row_recorded then
         diagnostic_write("first_sample_written", "sample_index=" .. tostring(state.sample_count))
         state.first_sample_row_recorded = true
@@ -923,6 +933,30 @@ local function collect_sample()
     if state.sample_count % FLUSH_EVERY_SAMPLES == 0 then
         pcall(function() state.samples_file:flush(); state.events_file:flush() end)
     end
+end
+
+local function update_capture_health()
+    if not state.recording then return end
+    local now = os.time()
+    local last_valid = state.health_last_valid_clock or state.capture_start_clock
+    local next_state, message
+    if state.health_valid_sample_count >= 3 and now - last_valid < CAPTURE_HEALTH_TIMEOUT_SECONDS then
+        next_state, message = "healthy", "录制正常：猎人/动作数据已确认，F9停止保存"
+    elseif now - last_valid >= CAPTURE_HEALTH_TIMEOUT_SECONDS then
+        next_state, message = "stalled", "录制警告：连续3秒没有有效猎人/动作数据，请检查场景和数据源"
+    else
+        return
+    end
+    if next_state == state.health_state then return end
+    local old_state = state.health_state
+    state.health_state, state.health_message = next_state, message
+    write_event("capture_health", state.waiting_for_player_reason or "hunter_motion", old_state, next_state)
+    diagnostic_write("capture_health", "state=" .. next_state ..
+        "; valid_samples=" .. tostring(state.health_valid_sample_count) ..
+        "; reason=" .. tostring(state.waiting_for_player_reason or "none"))
+    pcall(function() state.samples_file:flush(); state.events_file:flush() end)
+    -- Reuse the existing one-shot capture notification, never a per-frame popup.
+    notify_capture_status(message)
 end
 
 function on_init()
@@ -980,7 +1014,10 @@ function on_time()
             state.pending_toggle_reason = nil
             toggle_capture(reason)
         end
-        if state.recording then collect_sample() end
+        if state.recording then
+            collect_sample()
+            update_capture_health()
+        end
     end)
     if not ok then
         state.last_error = tostring(err)
@@ -1001,6 +1038,7 @@ function on_imgui()
         ImGui.Text(SCRIPT_NAME .. " v" .. SCRIPT_VERSION)
         ImGui.Text(state.recording and ("录制中：" .. tostring(state.sample_count) .. " samples") or "空闲")
         if state.last_status ~= nil then ImGui.Text(state.last_status) end
+        if state.recording then ImGui.Text(state.health_message) end
         if state.recording then
             if ImGui.Button("STOP AND SAVE") then
                 state.pending_toggle, state.pending_toggle_reason = true, "ImGui"
