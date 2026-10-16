@@ -5,10 +5,77 @@
 #include "ActionSystem/MHGZAwakenedKinsectAttackAbility.h"
 #include "Animation/AnimMontage.h"
 #include "Components/BoxComponent.h"
+#include "AttributeSystem/MHGZAttributeSet.h"
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "InsectGlaive/Kinsect/KinsectCollisionComponent.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "../../Shared/MHGZM3TestHarness.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZKinsectFrontOnlyContact,
+	"MHGZ.Maintenance.Kinsect.FrontOnlyFlightContact",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZKinsectFrontOnlyContact::RunTest(const FString&)
+{
+	for (const EKinsectDamageMode Mode : { EKinsectDamageMode::SingleHit, EKinsectDamageMode::Piercing })
+	{
+		FMHGZM3Harness H;
+		if (!H.Setup(false, AMHGZM3TestCharacter::StaticClass(), true)) { return false; }
+		const FVector Origin = H.Kinsect->GetActorLocation();
+		const FVector Forward = FVector(1, 1, 0.5).GetSafeNormal();
+		auto SpawnTarget = [&H](const FVector& Location, const FGameplayTag Color)
+		{
+			AActor* Target = H.World->SpawnActor<AActor>();
+			UMHGZMonsterHitzoneComponent* Zone = NewObject<UMHGZMonsterHitzoneComponent>(Target);
+			Target->SetRootComponent(Zone); Target->AddInstanceComponent(Zone);
+			Zone->ExtractColorTag = Color; Zone->RegisterComponent(); Zone->SetSphereRadius(5);
+			Zone->SetWorldLocation(Location);
+			UAbilitySystemComponent* ASC = NewObject<UAbilitySystemComponent>(Target);
+			Target->AddInstanceComponent(ASC); ASC->RegisterComponent();
+			UMHGZAttributeSet* Attributes = NewObject<UMHGZAttributeSet>(Target);
+			ASC->AddAttributeSetSubobject(Attributes); ASC->InitAbilityActorInfo(Target, Target);
+			Attributes->InitMaxHealth(200); Attributes->InitHealth(200);
+			return Attributes;
+		};
+		const FGameplayTag Red = M3::Tag(TEXT("WeaponResource.IG.Extract.Red"));
+		UMHGZAttributeSet* Rear = SpawnTarget(Origin - Forward * 12,
+			M3::Tag(TEXT("WeaponResource.IG.Extract.Orange")));
+		UMHGZAttributeSet* Front = SpawnTarget(Origin + Forward * 120, Red);
+		FKinsectFlightRequest R;
+		R.RuntimeToken = H.Host->GetCurrentToken(); R.FlightInstanceID = FGuid::NewGuid();
+		R.SourceAttackInstanceID = FGuid::NewGuid(); R.DirectionSnapshot = Forward;
+		R.FlightSpeed = 2000; R.MaxDistance = 1000; R.ArrivalRadius = 10;
+		R.MotionValue = 10; R.DamageMode = Mode;
+		R.ExtractMode = Mode == EKinsectDamageMode::SingleHit
+			? EKinsectExtractMode::FirstHitOnly : EKinsectExtractMode::CollectPerValidHit;
+		if (!TestTrue(TEXT("test flight commits"), H.Resource->DeployKinsect(R)))
+		{ H.Teardown(); return false; }
+		TestTrue(TEXT("front uses visible mesh +Y including pitch"),
+			H.Kinsect->GetAttackForwardVector().Equals(Forward, 0.001));
+		H.Kinsect->Tick(0.016f);
+		TestEqual(TEXT("initial rear overlap cannot damage"), Rear->GetHealth(), 200.0f);
+		TestFalse(TEXT("initial rear overlap cannot collect cargo"), H.Kinsect->HasPendingExtract());
+		TestEqual(TEXT("rear overlap cannot spend the flight"), H.Kinsect->GetState(), EKinsectState::Flying);
+		// The target ends behind the current actor, but was in front at sweep TOI.
+		H.Kinsect->SetActorLocation(Origin + Forward * 200); H.Kinsect->Tick(0.016f);
+		TestTrue(TEXT("high speed forward contact still damages"), Front->GetHealth() < 200);
+		TestEqual(TEXT("the rear target remains undamaged"), Rear->GetHealth(), 200.0f);
+		TestTrue(TEXT("only the forward target supplies cargo"),
+			H.Kinsect->GetPendingExtractColor().MatchesTagExact(Red));
+		FHitResult Contact;
+		Contact.Location = Origin; Contact.ImpactPoint = Origin - Forward * 5;
+		TestFalse(TEXT("nonpenetrating rear contact is rejected"), H.Kinsect->IsAttackContactInFront(Contact));
+		Contact.ImpactPoint = Origin + Forward * 5;
+		TestTrue(TEXT("nonpenetrating front contact is accepted"), H.Kinsect->IsAttackContactInFront(Contact));
+		Contact.bStartPenetrating = true; Contact.ImpactNormal = Forward;
+		TestFalse(TEXT("rear penetration separating normal is rejected"), H.Kinsect->IsAttackContactInFront(Contact));
+		Contact.ImpactNormal = -Forward;
+		TestTrue(TEXT("front penetration separating normal is accepted"), H.Kinsect->IsAttackContactInFront(Contact));
+		TestTrue(TEXT("damage filtering never tilts terrain collision"),
+			H.Kinsect->GetActorUpVector().Equals(FVector::UpVector, 0.001));
+		H.Teardown();
+	}
+	return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZM6AimedContactNotArrival,
 	"MHGZ.M6.KinsectAim.ContactMustPrecedeArrival",

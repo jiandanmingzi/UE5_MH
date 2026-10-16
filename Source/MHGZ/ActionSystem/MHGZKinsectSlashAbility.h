@@ -236,6 +236,7 @@ private:
 	friend class FMHGZM5KinsectSlashLifecycleCancellationTest;
 	friend class FMHGZM5KinsectSlashDancePreparationGuardTest;
 	friend class FMHGZM5KinsectSlashReentrantDanceCommitTest;
+	friend class FMHGZKinsectSlashIndependentContactTest;
 	#endif
 
 	bool IsLiveAerialSlashStateValid(const UAbilitySystemComponent* ASC,
@@ -256,6 +257,7 @@ private:
 	USkeletalMeshComponent* FindKinsectSlashWeaponMesh(FName RequiredSocket) const;
 	bool IsKinsectActionAttachmentCurrent() const;
 	void ReleaseKinsectActionAttachment();
+	void HandleSuccessfulKinsectContact(const FHitResult& Hit);
 	bool LockAimAndDirection();
 	void ReleaseActionVisualPitch(EActionVisualPitchReleaseMode ReleaseMode);
 	bool StartDashMovement();
@@ -344,6 +346,8 @@ private:
 	bool bPendingDanceTransition = false;
 	bool bDamageResolveInProgress = false;
 	bool bCurrentDamageApplied = false;
+	// Segment 0 owns cargo only; segment 1 alone authorizes the 189 handoff.
+	bool bKinsectDamageApplied = false;
 	bool bSuccessfulDamage = false;
 	bool bExtractApplied = false;
 	bool bDanceEntryCommitted = false;

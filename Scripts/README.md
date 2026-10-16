@@ -81,6 +81,8 @@ TelemetryStop现要求真实录制结束后的首次自动导出成功，已移�
 
 入口重排复用此桥接的`rebuild_single_slot_montage`显式JSON配方：校验所有片段/Section/通知后才修改，不保存；通知复制使用新GUID与独立对象。`create_root_motion_copy`只创建原轨道不变的新常驻副本并开启Root Motion，拒绝已存在目标；`set_montage_segment_blend`设置元数据但不保存。六组地面入口调用者为`AssetOrganization/apply_ground_attack_entries.py`，默认只读，首次显式`--apply`或`-MHGZGroundEntriesApply`先备份；已有Saved检查点时仅验证。原作入口帧/倍率、蓄力例外及范围见[说明](../docs/editor/ground-attack-entry-fixes.md)，不为其他动作自动套用该配方。
 
+新增动作入口先复用现有Section；确需新增时优先整理在Montage前部，不默认向收招末尾追加起手。必须同步核对Section路由、通知/标签窗口及总长度。突进已按用户要求统一前部`Entry`并删除两段Idle尾部试验，历史清理验证识别此后续状态；不重放0/14帧专用入口旧Apply。
+
 ## AssetOrganization
 
 ABP连线/编译状态诊断复用`unreal.MHGZAnimationSeamLibrary.audit_anim_blueprint_graph(bp)`，返回真实节点与引脚文本，不编译或保存。第二参数`True`会模拟编辑器打开时的内存校正并报告缺失事务标志/首次置脏步骤；仅在独立Commandlet中使用，退出丢弃内存变更，禁止将诊断中的校正直接当作资产修复保存。2026-10-15使用实例与证据见[接缝维护诊断](../docs/editor/locomotion-maintenance-20261015.md)。

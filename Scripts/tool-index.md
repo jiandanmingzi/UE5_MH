@@ -88,13 +88,14 @@
 | [MHRise/build_truth_table.py](MHRise/build_truth_table.py) | 普通Python | Copyright MHGZ Project. All Rights Reserved. | 按需；先核对参数/写入范围 |
 | [MHRise/build_vault_curves.py](MHRise/build_vault_curves.py) | 普通Python | Copyright MHGZ Project. All Rights Reserved. | 按需；先核对参数/写入范围 |
 | [MHRise/discover_action_ids_by_input.py](MHRise/discover_action_ids_by_input.py) | 普通Python | Discover MHRise motion IDs associated with controller input transitions. | 按需；先核对参数/写入范围 |
-| [MHRise/MHGZ_AerialTrajectoryRecorder.lua](MHRise/MHGZ_AerialTrajectoryRecorder.lua) | 游戏Lua宿主 | MHGZ Aerial Trajectory Recorder | 按需；先核对参数/写入范围 |
+| [MHRise/MHGZ_AerialTrajectoryRecorder.lua](MHRise/MHGZ_AerialTrajectoryRecorder.lua) | 游戏Lua宿主 | F9轨迹/输入与独立animation.csv实际Motion节点、原生帧及可用切换请求；1.13.0修复空值错列 | 只读游戏状态；写配套录制文件；原生读取待短录验证，不把旧行为层当攻击帧 |
 | [MHRise/recorder_path.py](MHRise/recorder_path.py) | 普通Python | Locate the installed MHRise recorder data across development machines. | 公共模块；导入复用 |
 
 ## MHRise/tests
 
 | 工具 | 环境 | 用途简述 | 状态 |
 |---|---|---|---|
+| [MHRise/tests/test_recorder_animation_reader.py](MHRise/tests/test_recorder_animation_reader.py) | 普通Python + lupa | 执行真实Lua读取器的受限模拟、CSV行构造及Lua5.4/LuaJIT编译 | 定向工具测试；不启动游戏，不代替游戏内API验收 |
 | [MHRise/tests/test_action_motion_capture_audit.py](MHRise/tests/test_action_motion_capture_audit.py) | 普通Python | Synthetic tests for MHRise action-ID episode and frame-field auditing. | 定向测试；按需 |
 | [MHRise/tests/test_discover_action_ids_by_input.py](MHRise/tests/test_discover_action_ids_by_input.py) | 普通Python | Synthetic tests for controller-input to motion-ID discovery. | 定向测试；按需 |
 | [MHRise/tests/test_kinsect_piercer_curves.py](MHRise/tests/test_kinsect_piercer_curves.py) | 普通Python | Pure-function tests for the Enhanced Kinsect Piercer curve extractor. | 定向测试；按需 |

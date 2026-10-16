@@ -71,19 +71,30 @@ E0 不执行旧动作资产迁移，也不执行删除。记录保留资产的�
 
 `AMHGZCharacter` 原生创建 `HeadMesh` 与 `HairMesh`，默认分别使用
 `SKM_Demo_Head`、`SKM_Demo_Hair`。Body 的骨架含有 `Cog`/`Waist_00`/`Spine_00`，
-而 Head、Hair 直接从 `Root` 连到 `Spine_01`；虽有同名骨骼，父级拓扑并不相同，**不得**
-使用 Leader Pose 或 Copy Pose From Mesh。
+而 Head、Hair 直接从 `Root` 连到 `Spine_01`，父级拓扑不相同。
 
-`HeadMesh` 挂到 Body 的 `Head_00`，`HairMesh` 挂到 HeadMesh 的 `Head_00`。每个模块都以
-自身参考姿势中 `Head_00` 的组件空间逆变换作为 Relative Transform，因此模块自己的
-`Head_00` 与父级的动态 `Head_00` 精确重合，不存在 Socket 与完整骨架变换叠加的问题。
-模块使用参考姿势；运行时会显式清除旧 Leader Pose 绑定，避免 Blueprint 默认值中的旧
-序列化配置干扰骨骼附着。
+**2026-10-15 修正：** 两个模块均直接挂到 Body 组件（不选骨骼/Socket），Relative
+Transform 为 Identity，以 Body 为 Leader Pose，Follower 不独立更新姿势。UE 5.6 的
+`UpdateLeaderBoneMap` 按骨名映射；`SkeletalRender.cpp` 使用最终**组件空间**骨骼变换，
+而非直接复制不同祖先链的局部变换，因此此处可以使用 Leader Pose。身体缺少的面部、
+头发骨骼由模块自身的参考局部姿势接到动态共同祖先，不会全部落到 Root。
 
-现有身体动画继续绑定 `SK_Demo_Body`，无需因接入头部而重导。它们会经同名的
-身体动画的最终 `Head_00` 直接驱动头部与头发的位置和朝向；只要不做表情，头部特有的
-眼睛、眼皮和面部骨骼保持参考姿势即可。若以后要表情，为 `SK_Demo_Head` 建立只修改
-面部骨的专用 AnimBP，不必重导任何身体动作，也不要再复制 Body 的整套骨架姿势。
+旧“整个模块挂到 `Head_00` 并抵消参考变换”的方案已经移除。它虽能对齐头骨，却会
+让头部资产里的胸颈皮肤也随头骨刚性运动。真实 Head 有54骨，LOD0中61个顶点受
+`Spine_01`/`Neck_00` 蒙皮影响；现在胸、颈、头分别跟随对应骨骼，不再把胸颈当头部附件。
+Head/Hair 均无 Root 直接加权顶点，已核对共同胸颈骨的参考几何一致。
+
+构造、PostLoad、PostInitializeComponents、BeginPlay 均恢复此绑定，以覆盖旧 Blueprint
+保存的头骨挂点、独立 AnimBP、逆参考变换。现有身体动画仍绑定 `SK_Demo_Body`；本修复
+不重导模型/动画、不修改材质或 ABP/MM，也不增加表情或头发物理。不要恢复旧的
+“拓扑不同所以禁止 Leader Pose”结论；若未来需要独立面部动画，可另行使用组件空间
+Copy Pose（`bUseMeshPose=true`）基底，不能直接套用默认局部空间复制。
+
+最小验证：`MHGZ.Maintenance.Character.ModularHead` 检查实际角色 Blueprint 初始化、
+独立转头姿势、两条真实移动动画各三个时点，以及所有共享/独有骨骼的渲染蒙皮矩阵。
+2026-10-15 结果 Success、0测试错误/警告，证据在
+`Saved/Maintenance/HeadSeam20261015/Tests/index.json`。尚待 PIE 近距离观察颈部与衣领的
+动态接缝；技术测试不替代视觉签收。
 
 ### Demo 面部材质修复
 

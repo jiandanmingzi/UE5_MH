@@ -62,6 +62,36 @@ class FakeClient:
 
 
 class MaintenanceToolsTests(unittest.TestCase):
+    def test_latest_tujin_shared_entry_discards_only_unused_tail(self):
+        import importlib.util
+        path = Path(__file__).resolve().parents[1] / 'AssetOrganization/setup_montage_segment_blend.py'
+        spec = importlib.util.spec_from_file_location('segment_blend_for_pure_test', path)
+        subject = importlib.util.module_from_spec(spec)
+        with patch.dict(sys.modules, {'unreal': types.SimpleNamespace()}):
+            spec.loader.exec_module(subject)
+        recipe = {'segments': [{} for _ in range(6)], 'sections': [
+            {'name': 'Entry', 'time': 0, 'next': 'Charge'},
+            {'name': 'Charge', 'time': .4, 'next': 'Core'},
+            {'name': 'Core', 'time': 2.4, 'next': ''},
+            {'name': 'Entry_From_Idle', 'time': 4.2, 'next': 'Charge'},
+            {'name': 'Release_From_Idle', 'time': 4.2 + 55/120, 'next': 'Core'}],
+            'notifies': [{'start': 3.5, 'end': 4.2, 'old_index': 6}]}
+        recipe['segments'][4] = {
+            'asset': '/Game/AS_Unsh_TuJinHuiXuan.AS_Unsh_TuJinHuiXuan',
+            'source_start': 0, 'source_end': 55/60, 'play_rate': 1}
+        recipe['segments'][5] = dict(recipe['segments'][4], source_start=55/60, source_end=67/60)
+        updated = subject.current_tujin_idle_recipe(recipe)
+        self.assertEqual(recipe['segments'][4]['source_start'], 0)
+        self.assertEqual(len(recipe['segments']), 6)
+        self.assertEqual(updated['segments'], recipe['segments'][:4])
+        self.assertEqual(updated['sections'], recipe['sections'][:3])
+        self.assertEqual(updated['notifies'], recipe['notifies'])
+        recipe['segments'][4]['source_start'] = 14/60
+        self.assertEqual(subject.current_tujin_idle_recipe(recipe), updated)
+        recipe['notifies'][0]['end'] = 4.3
+        with self.assertRaises(RuntimeError):
+            subject.current_tujin_idle_recipe(recipe)
+
     def test_native_export_bom_decoding_is_lossless(self):
         text = 'Begin Object\n中文显示名\nEnd Object\n'
         self.assertEqual(values.decode_native_export(text.encode('utf-16')), text)

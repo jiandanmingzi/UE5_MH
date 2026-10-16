@@ -194,6 +194,28 @@ def verify_bridge_removal(current, baseline, recipe):
             raise RuntimeError('Notify source-phase retiming mismatch')
 
 
+def current_tujin_idle_recipe(recipe):
+    """Current shared Entry; discard superseded appended Idle/Release clips."""
+    updated = json.loads(json.dumps(recipe))
+    clips = updated['segments']
+    if len(clips) != 6 or any(not clips[i]['asset'].endswith(
+            'AS_Unsh_TuJinHuiXuan.AS_Unsh_TuJinHuiXuan') for i in (4, 5)):
+        raise RuntimeError('Unexpected historical TuJin idle layout')
+    if (min(abs(clips[4]['source_start'] - frame/60) for frame in (0, 14)) > 2e-5
+            or abs(clips[4]['source_end'] - 55/60) > 2e-5
+            or abs(clips[5]['source_start'] - 55/60) > 2e-5
+            or abs(clips[5]['source_end'] - 67/60) > 2e-5):
+        raise RuntimeError('Unexpected historical TuJin idle source cut')
+    sections = {row['name']: row for row in updated['sections']}
+    if list(sections) != ['Entry', 'Charge', 'Core', 'Entry_From_Idle', 'Release_From_Idle']:
+        raise RuntimeError('Unexpected historical TuJin sections')
+    if any(row['end'] > sections['Entry_From_Idle']['time'] + 2e-5 for row in updated['notifies']):
+        raise RuntimeError('Notify in discarded idle region needs an explicit plan')
+    updated['segments'] = clips[:4]
+    updated['sections'] = updated['sections'][:3]
+    return updated
+
+
 def remove_synthetic_bridges(args, root, hold_mode=False):
     from ue_asset_utils import montage_removal_recipe
     latest = root / 'Saved/Maintenance/AttackEntryHoldRemoval'
@@ -218,13 +240,20 @@ def remove_synthetic_bridges(args, root, hold_mode=False):
         baseline = json.loads((out / 'before.json').read_text(encoding='utf-8'))
         recipes = json.loads((out / 'recipes.json').read_text(encoding='utf-8'))
         for name, asset in assets.items():
-            verify_bridge_removal(montage_snapshot(asset, out, 'verify'), baseline['assets'][name], recipes[name])
+            recipe = recipes[name]
+            if hold_mode and name == 'AM_IG_TuJinHuiXuan':
+                recipe = current_tujin_idle_recipe(recipe)
+            verify_bridge_removal(montage_snapshot(asset, out, 'verify'), baseline['assets'][name], recipe)
         for name, asset in abilities.items():
             if ability_entry_maps(asset) != baseline['ga_after'][name]:
                 raise RuntimeError('GA entry routing mismatch: ' + name)
             if ability_unchanged_hash(asset, out, 'verify') != baseline['ga_unchanged'][name]:
                 raise RuntimeError('Unexpected non-entry GA edit: ' + name)
         for disk, digest in baseline['unchanged_files'].items():
+            shared_entry = root / 'Saved/Maintenance/TuJinSharedEntry20261015/applied.json'
+            if disk.replace('\\', '/') == 'Content/Blueprints/Ability/InsectGlaive/GA_IG_TuJinHuiXuanZhan.uasset' and shared_entry.exists():
+                # The later approved route cleanup saved this exact GA only.
+                digest = json.loads(shared_entry.read_text(encoding='utf-8'))['after_hashes'][disk.replace('\\', '/')]
             if sha(root / disk) != digest:
                 raise RuntimeError('Out-of-scope asset changed: ' + disk)
         report = json.loads(done.read_text(encoding='utf-8'))

@@ -22,6 +22,7 @@
 #include "CollisionShape.h"
 #include "Engine/SkeletalMesh.h"
 #include "Engine/World.h"
+#include "InsectGlaive/Kinsect/Kinsect.h"
 #include "MHGZPlayerState.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "Movement/MHGZInstrumentedCharacterMovementComponent.h"
@@ -34,6 +35,209 @@ FGameplayTag DamageTestTag(const TCHAR* Name)
 {
 	return FGameplayTag::RequestGameplayTag(FName(Name));
 }
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZKinsectSlashIndependentContactTest,
+	"MHGZ.Maintenance.KinsectSlash.IndependentContactsAndWeaponDance",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZKinsectSlashIndependentContactTest::RunTest(const FString& Parameters)
+{
+	(void)Parameters;
+	USkeletalMesh* Body = LoadObject<USkeletalMesh>(nullptr,
+		TEXT("/Game/Characters/Demo/Meshes/Body/SKM_Demo_Body.SKM_Demo_Body"));
+	USkeletalMesh* Glaive = LoadObject<USkeletalMesh>(nullptr,
+		TEXT("/Game/Weapons/InsectGlaive/Meshes/Glaive/SKM_IG_Glaive.SKM_IG_Glaive"));
+	UAnimMontage* Main = LoadObject<UAnimMontage>(nullptr,
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan.AM_IG_CaoChongZhan"));
+	UAnimMontage* Dance = LoadObject<UAnimMontage>(nullptr,
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_CaoChongZhan_Dance.AM_IG_CaoChongZhan_Dance"));
+	const UClass* AbilityClass = LoadClass<UMHGZKinsectSlashAbility>(nullptr,
+		TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_CaoChongZhan.GA_IG_CaoChongZhan_C"));
+	const UMHGZKinsectSlashAbility* Defaults = AbilityClass
+		? AbilityClass->GetDefaultObject<UMHGZKinsectSlashAbility>() : nullptr;
+	if (!TestTrue(TEXT("real body, weapon, both montages and three-segment GA load read-only"),
+		Body && Glaive && Main && Dance && Defaults && Defaults->AttackSegments.Num() == 3))
+	{
+		return false;
+	}
+	// Exercise both same-tick orderings plus an insect-only contact. Each gets a
+	// fresh equipped runtime and the real per-index socket sweep/dedup code.
+	for (int32 Order = 0; Order < 3; ++Order)
+	{
+		FMHGZM5KinsectSlashDamageTestHarness H;
+		if (!TestTrue(TEXT("equipped independent-contact harness builds"), H.Build()))
+		{
+			H.Teardown();
+			return false;
+		}
+		USkeletalMeshComponent* Mesh = H.Character->GetMesh();
+		Mesh->SetSkeletalMesh(Body);
+		Mesh->SetAnimInstanceClass(UAnimInstance::StaticClass());
+		H.ASC->RefreshAbilityActorInfo();
+		if (!TestTrue(TEXT("independent-contact ability activates"), H.ActivateAbility()))
+		{
+			H.Teardown();
+			return false;
+		}
+		UMHGZKinsectSlashAbility* Ability = H.Ability;
+		Ability->AttackSegments = Defaults->AttackSegments;
+		Ability->AttackMontage = Main;
+		Ability->DefaultEntrySection = Ability->HoverSectionName;
+		Ability->DanceMontage = Dance;
+		UAnimInstance* Anim = Mesh->GetAnimInstance();
+		if (!TestTrue(TEXT("real main montage registers"), Anim
+			&& Ability->UMHGZKinsectSlashAbility::StartAttackMontage(
+				*H.Character, Main, Ability->HoverSectionName)))
+		{
+			H.Teardown();
+			return false;
+		}
+		const FWeaponActionToken Token = Ability->GetActionToken();
+		const int32 MainID = Ability->SlashMontageInstanceID;
+		TestTrue(TEXT("real action locks aim"), Ability->HandleMontageEvent(
+			Token, MainID, EKinsectSlashMontageEvent::AimLock));
+		Anim->Montage_JumpToSection(Ability->DashSectionName, Main);
+		if (!TestTrue(TEXT("real dash movement starts"), Ability->HandleMontageEvent(
+			Token, MainID, EKinsectSlashMontageEvent::DashBegin)))
+		{
+			H.Teardown();
+			return false;
+		}
+		USkeletalMeshComponent* Weapon = NewObject<USkeletalMeshComponent>(H.Character);
+		H.Character->AddInstanceComponent(Weapon);
+		Weapon->ComponentTags.Add(TEXT("WeaponTrace"));
+		Weapon->SetSkeletalMesh(Glaive);
+		Weapon->RegisterComponent();
+		Weapon->AttachToComponent(Mesh, FAttachmentTransformRules::SnapToTargetNotIncludingScale);
+		Ability->bKinsectActionAttached = H.Resource->BeginKinsectActionAttachment(
+			Token, Weapon, TEXT("IG_Kinsect"));
+		if (!TestTrue(TEXT("real insect is action-attached at its configured socket"),
+			Ability->IsKinsectActionAttachmentCurrent()))
+		{
+			H.Teardown();
+			return false;
+		}
+		H.Hitzone->SetSphereRadius(1.0f);
+		const FVector Rear = Weapon->GetSocketLocation(TEXT("IG_RearTip"));
+		const FVector Root = Weapon->GetSocketLocation(TEXT("Root"));
+		const FVector Insect = Weapon->GetSocketLocation(TEXT("IG_Kinsect"));
+		const float WeaponRadius = Ability->AttackSegments[1].Collision.TraceRegions[0].Radius;
+		if (!TestTrue(TEXT("fixture separates the real insect socket from the rear weapon span"),
+			FMath::PointDistToSegment(Insect, Rear, Root) > WeaponRadius + 1.0f))
+		{
+			H.Teardown();
+			return false;
+		}
+		float PreviousHealth = H.TargetAttributes->GetHealth();
+		auto HitWindow = [&](const int32 Segment, const FVector& Point)
+		{
+			H.TargetActor->SetActorLocation(Point);
+			Ability->EnableCollision(Segment);
+			const float Health = H.TargetAttributes->GetHealth();
+			TestTrue(TEXT("this window alone submits its own real damage"), Health < PreviousHealth);
+			Ability->TickCollision(Segment, 0.0f);
+			TestEqual(TEXT("same segment cannot damage the same target twice"),
+				H.TargetAttributes->GetHealth(), Health);
+			PreviousHealth = Health;
+		};
+		if (Order == 1)
+		{
+			HitWindow(1, Rear);
+			TestTrue(TEXT("weapon alone queues Dance, without fabricating an insect hit/cargo"),
+				Ability->bPendingDanceTransition && !Ability->bKinsectDamageApplied
+				&& !H.Resource->GetKinsectActor()->HasPendingExtract());
+		}
+		// A zero-distance target at the exact insect origin has no front/back.
+		// Test the real window on both sides of the visible insect instead.
+		const FVector InsectForward = H.Resource->GetKinsectActor()->GetAttackForwardVector();
+		H.TargetActor->SetActorLocation(Insect - InsectForward * 10.0f);
+		Ability->EnableCollision(0);
+		TestEqual(TEXT("the insect's rear contact cannot damage"),
+			H.TargetAttributes->GetHealth(), PreviousHealth);
+		TestFalse(TEXT("rear contact does not spend the insect's independent contact"),
+			Ability->bKinsectDamageApplied);
+		Ability->DisableCollision(0);
+		if (Order == 2)
+		{
+			// Same monster, two parts: an invalid rear initial-overlap at t=0
+			// must not win actor dedup over the later valid forward sweep hit.
+			H.TargetActor->SetActorLocation(Insect + InsectForward * 50.0f);
+			UMHGZMonsterHitzoneComponent* RearPart = NewObject<UMHGZMonsterHitzoneComponent>(H.TargetActor);
+			H.TargetActor->AddInstanceComponent(RearPart);
+			RearPart->SetupAttachment(H.Hitzone);
+			RearPart->RegisterComponent(); RearPart->SetSphereRadius(1.0f);
+			RearPart->SetWorldLocation(Insect - InsectForward * 10.0f);
+			Ability->EnableCollision(0);
+			TestEqual(TEXT("rear part cannot damage before the front part is reached"),
+				H.TargetAttributes->GetHealth(), PreviousHealth);
+			Weapon->AddWorldOffset(InsectForward * 60.0f);
+			Ability->TickCollision(0, 0.016f);
+			TestTrue(TEXT("rear part cannot steal the same monster's later front contact"),
+				H.TargetAttributes->GetHealth() < PreviousHealth);
+			PreviousHealth = H.TargetAttributes->GetHealth();
+			Ability->TickCollision(0, 0.0f);
+			TestEqual(TEXT("front contact retains independent per-segment dedup"),
+				H.TargetAttributes->GetHealth(), PreviousHealth);
+		}
+		else
+		{
+			HitWindow(0, Insect + InsectForward * 10.0f);
+		}
+		TestTrue(TEXT("insect has its own success latch and captures cargo, not player extract"),
+			Ability->bKinsectDamageApplied && H.Resource->GetKinsectActor()->HasPendingExtract()
+			&& !H.Resource->HasExtract(H.Hitzone->ExtractColorTag));
+		if (Order != 1)
+		{
+			TestTrue(TEXT("insect-only contact leaves dash, pitch, montage and movement live"),
+				!Ability->bSuccessfulDamage && !Ability->bPendingDanceTransition
+				&& !Ability->QueuedDanceTransitionTimer.IsValid()
+				&& Ability->Phase == EKinsectSlashPhase::Dash && Ability->MovementTask
+				&& Ability->SlashMontageInstanceID == MainID);
+		}
+		if (Order == 2)
+		{
+			const auto DamageClass = Ability->AttackSegments[1].Damage.DamageEffectClass;
+			Ability->AttackSegments[1].Damage.DamageEffectClass = nullptr;
+			FHitResult Hit(H.TargetActor, H.Hitzone, Rear, FVector::UpVector);
+			TestFalse(TEXT("rejected weapon GE cannot authorize Dance"), Ability->ApplyDamage(Hit, 1));
+			TestFalse(TEXT("failed weapon GE leaves the Dance latch clear"), Ability->bSuccessfulDamage);
+			Ability->AttackSegments[1].Damage.DamageEffectClass = DamageClass;
+			Anim->Montage_JumpToSection(Ability->MissFallSectionName, Main);
+			Ability->EnterMissFallPhase();
+			Ability->DisableCollision(0);
+			TestTrue(TEXT("insect-only contact still permits the normal 188 terminal hold"),
+				Ability->HandleMontageEvent(Token, MainID, EKinsectSlashMontageEvent::HoldMissPose));
+			TestFalse(TEXT("insect-only miss returns the insect rather than leaving its action attachment"),
+				Ability->bKinsectActionAttached);
+			TestEqual(TEXT("insect-only miss grants no Dance stack"), H.Resource->GetDanceStacks(), 0);
+			H.Teardown();
+			continue;
+		}
+		if (Order == 0)
+		{
+			HitWindow(1, Rear);
+		}
+		TestTrue(TEXT("only successful dash weapon damage owns the pending transition"),
+			Ability->bSuccessfulDamage && Ability->bPendingDanceTransition
+			&& Ability->QueuedDanceTransitionTimer.IsValid());
+		Ability->HandleQueuedDanceTransition(Token, MainID);
+		if (!TestTrue(TEXT("the real 189 entry commits once at the weapon contact"),
+			Ability->bDanceEntryCommitted && Ability->Phase == EKinsectSlashPhase::DancePending
+			&& Ability->SlashMontageInstanceID != MainID && H.Resource->GetDanceStacks() == 1))
+		{
+			H.Teardown();
+			return false;
+		}
+		HitWindow(2, Weapon->GetSocketLocation(TEXT("IG_FrontTip")));
+		TestEqual(TEXT("independent 189 weapon damage cannot start a second Dance"),
+			H.Resource->GetDanceStacks(), 1);
+		TestFalse(TEXT("the third damage segment does not requeue the transition"),
+			Ability->bPendingDanceTransition);
+		H.Teardown();
+	}
+	return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
@@ -150,7 +354,7 @@ bool FMHGZM5KinsectSlashDamageResourceTest::RunTest(const FString& Parameters)
 		&& HealthAfterSecondWeaponHit < HealthAfterFirstWeaponHit);
 	TestFalse(TEXT("weapon contacts do not award kinsect extract"),
 		Harness.Resource->HasExtract(RedExtractTag));
-	TestFalse(TEXT("weapon contacts do not enter the kinsect-hit Dance branch"),
+	TestFalse(TEXT("weapon contacts outside Dash/Miss do not authorize Dance"),
 		Harness.Ability->bSuccessfulDamage || Harness.Ability->bPendingDanceTransition);
 
 	int32 RedExtractApplyCount = 0;
@@ -171,7 +375,7 @@ bool FMHGZM5KinsectSlashDamageResourceTest::RunTest(const FString& Parameters)
 	Harness.Ability->HandleProbeHitzoneContact(Harness.Ability->GetActionToken(), Hit);
 
 	TestFalse(TEXT("missing damage GE does not latch successful damage"),
-		Harness.Ability->bSuccessfulDamage);
+		Harness.Ability->bKinsectDamageApplied || Harness.Ability->bSuccessfulDamage);
 	TestFalse(TEXT("missing damage GE does not queue a Dance transition"),
 		Harness.Ability->bPendingDanceTransition);
 	TestFalse(TEXT("missing damage GE leaves no queued transition timer"),
@@ -191,11 +395,11 @@ bool FMHGZM5KinsectSlashDamageResourceTest::RunTest(const FString& Parameters)
 
 	TestTrue(TEXT("real damage GE changes target health"),
 		HealthAfterFirstHit < HealthBeforeDamage);
-	TestTrue(TEXT("real damage GE latches successful damage"),
-		Harness.Ability->bSuccessfulDamage);
-	TestTrue(TEXT("real damage GE latches the pending Dance transition"),
+	TestTrue(TEXT("insect GE latches only its independent contact"),
+		Harness.Ability->bKinsectDamageApplied && !Harness.Ability->bSuccessfulDamage);
+	TestFalse(TEXT("insect-only success does not queue Dance"),
 		Harness.Ability->bPendingDanceTransition);
-	TestTrue(TEXT("successful contact queues the transition for a later tick"),
+	TestFalse(TEXT("insect-only success leaves no transition timer"),
 		Harness.Ability->QueuedDanceTransitionTimer.IsValid());
 	TestTrue(TEXT("successful contact grants red extract"),
 		Harness.Resource->HasExtract(RedExtractTag));
@@ -209,8 +413,8 @@ bool FMHGZM5KinsectSlashDamageResourceTest::RunTest(const FString& Parameters)
 		FMath::IsNearlyEqual(Harness.TargetAttributes->GetHealth(), HealthAfterFirstHit));
 	TestEqual(TEXT("duplicate contact does not grant red extract again"),
 		RedExtractApplyCount, 1);
-	TestTrue(TEXT("duplicate contact leaves the success latch set"),
-		Harness.Ability->bSuccessfulDamage && Harness.Ability->bPendingDanceTransition);
+	TestTrue(TEXT("duplicate insect contact keeps only the cargo latch set"),
+		Harness.Ability->bKinsectDamageApplied && !Harness.Ability->bPendingDanceTransition);
 
 	// Exercise the real dance-movement Landed callback with test-owned phase setup.
 	// This does not invoke DanceBegin or mark the dance entry committed.
@@ -323,7 +527,7 @@ bool FMHGZM5KinsectSlashDamageResourceTest::RunTest(const FString& Parameters)
 		FHitResult NaturalHit(NaturalHarness.TargetActor, NaturalHarness.Hitzone,
 			FVector(25.0f, 0.0f, 0.0f), FVector::UpVector);
 		NaturalHit.bBlockingHit = true;
-		NaturalAbility->HandleProbeHitzoneContact(NaturalToken, NaturalHit);
+		NaturalAbility->ApplyDamage(NaturalHit, 1);
 		NaturalAbility->HandleQueuedDanceTransition(NaturalToken, PrimaryMontageID);
 		if (!TestTrue(TEXT("successful damage commits the real Dance entry and resets its budget"),
 			NaturalAbility->IsActive() && NaturalAbility->bDanceEntryCommitted

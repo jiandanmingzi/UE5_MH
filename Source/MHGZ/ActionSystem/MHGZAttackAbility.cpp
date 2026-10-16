@@ -1170,6 +1170,13 @@ void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
 					{
 						continue;
 					}
+					// Reject invalid contacts BEFORE per-actor earliest-hit selection.
+					// A rear Kinsect overlap must not hide a later front hit on another
+					// part of the same monster. ProcessSweepHit rechecks at submission.
+					if (!CanApplyCollisionHit(Hit, SegmentIndex))
+					{
+						continue;
+					}
 
 					const float FrameTime =
 						(static_cast<float>(TemporalStep) + Hit.Time) / TemporalStepCount;

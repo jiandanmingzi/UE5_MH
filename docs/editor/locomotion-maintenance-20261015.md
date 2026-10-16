@@ -181,7 +181,7 @@ UE5.6适配注意：`FMotionMatchingBlueprintBlendSettings`构造函数未导出
 
 当前仍需用户局部PIE确认Run↔Sprint普通/快速互切、两种翻滚及移动收刀接移动、Exit途中松杆；不重录无关招式，不启动全量回归、资产验证、打包或Git操作。
 
-## 9. 新两份录制后的 Start/Exit 与自然循环修复（当前实现）
+## 9. 新两份录制后的 Start/Exit 与自然循环修复（后续起步周期补丁见§10）
 
 本节覆盖§8中“所有Loop-only都惯性混合、只匹配双脚、源Loop未修改”的旧描述，§7/8保留为过程证据，不重复执行其Apply脚本。
 
@@ -210,3 +210,51 @@ UE5.6适配注意：`FMotionMatchingBlueprintBlendSettings`构造函数未导出
 - 失败仅用于定位并已修正：沙箱拒绝构建工具进入引擎目录，改为桌面权限下直接UBT；早期新测试夹具缺代理PreUpdate触发断言，未写资产；随后检查发现误把来源BlockTransition当退出锁，已移除。没有关闭运行时检查、放宽失败断言、删除全局缓存或更改机器配置。
 
 **仍待用户局部PIE观感确认：** 收刀Start→Loop、两种翻滚→移动、移动收刀→移动及稳定Loop换圈；顺带快速Run↔Sprint和途中松杆一次即可。技术检查不升级为视觉签收，不重开全量回归、其他GA/空中/伤害门禁，不提交/推送Git。
+
+## 10. GA后旧Start播放器被误认为完成（2026-10-16）
+
+最新`20261015-234059-BP_IG_Character_C_0-57851`有3次GA后直接Loop，均在GA前中断Walk Start：
+Start@0.3728/0.5005/0.4034s暂停后，恢复首回调在帧11564/12696/12950安装Loop-only并选Loop@0.5667s。
+当时满推但胶囊速度不足0.35cm/s，且没有Handoff；不能把这种情况解释为合法移动Exit巡航。
+
+§9的`TryRouteStartToLoop`此前只要求查询未激活且引擎播放器名称为Start。动作测量重置会清除查询，
+但全身Montage暂停的旧MM播放器仍然存在，导致错误授权。现补现有`bStartQueryObservedStart`条件：
+必须属于本次输入周期、确实观测过Start且既有Intent查询结束，才允许走一次Loop入口。测量重置和
+松杆会清掉该观测，不通过读取旧播放器重新取得资格；不锁满Start，不加GA后Idle或新输入等待。
+
+仅改该门槛和定向测试；保留§9的正常入口匹配、根混合、相位、Stop与MoveExit语义，没有写资产。
+增量编译及6项移动定向测试通过；测试项0错误，临时副本加载/同帧夹具共7警告，未声称全日志无警告。
+详见`Saved/Maintenance/PostAttackStart20261015/report.md`及`Tests/index.json`。新版仍待局部PIE视觉确认，
+不重复资产生成、全量回归或无关招式测试，不提交/推送Git。
+
+## 11. 白灯/三灯持刀普通移动倍率（2026-10-16）
+
+既有白灯和三灯GE写入`MoveSpeedMultiplier`，原移动链路此前没有消费它。现在在游戏线程读取有效属性，
+而不是判断单独White Tag（进入三灯会移除单灯GE）。默认白灯/三灯1.15，无加成1；不做两次倍率相乘。
+逻辑独立于灯UI和动画资产，位于`MHGZLocomotionSpeed.cpp`，由已有MM回调接入。
+
+持刀普通Move语境的Start/Loop/Stop使用额外播放倍率；收刀MM不写倍率，Idle/ActionIdle、空中、
+独占动作位移/蒙太奇根运动、功能动作Exit保持1。获批Exit退休到Loop/Stop的该帧才应用普通移动倍率；
+UE5.6只更新BlendStack最新播放器倍率，旧Exit播放器仍按原速混出。攻击蒙太奇与组件全局播放速率不改。
+倍率平滑由AnimBP继承默认值`MMUnsheathedSpeedInterpSpeed`控制，默认20、0表示直接切换；不缓冲输入。
+
+现有ABP的`OnUnsheathedMotionMatchingPreUpdate`在MM读取倍率前写入UE5.6的`PlayRateMultiplier`。
+该字段没有原生C++ setter，因此按项目既有MM状态读写方式缓存精确反射字段，只写运行时节点实例；
+采用赋值而不是累乘，初始化/反复加灯不会叠加到1.3225。无需新增加速节点或保存ABP。
+
+查询/时序合同：
+
+- Character的`TargetCruiseSpeed/DesiredSpeed`保持动画库原速单位，不额外乘灯倍率；原摇杆阈值和挡位不变。
+- `MMActualSpeed2D`仍记录世界真实速度，`MMQuerySpeed2D`除以上一帧实际应用倍率，
+  供轨迹预测、起步资格与Stop距离初始查询使用；倍率获得/消失帧不能用新目标倍率反算旧位移。
+- Start/Stop Intent仍跟随实际选择的源动画时间/曲线，无固定播放锁、额外计时器或二次时间倍率。
+- Loop入口只归一化脚和根的速度，不改脚位置或相位；Start/Exit混合时长按真实来源播放速率限制。
+- `MotionMatching/Query.csv`新增`UnsheathedMoveSpeedMultiplier`（平滑属性）、
+  `UnsheathedAppliedSpeedMultiplier`（实际额外倍率）、`QuerySpeed2D`、`ExpectedWorldCruiseSpeed`。
+  原`Selection.WantedPlayRate`是MM搜索自己的倍率，不包含这次额外乘数，不能单看它判断白灯是否生效。
+
+Development Editor增量编译成功，7项相关移动检查通过，0测试错误；EntryAndClosure夹具有7条既有警告，
+新`WhiteExtractSpeed`无测试错误/警告。真实GE验证白灯、三灯替换、失效平滑还原，以及Exit/动作/空中隔离；
+60帧原速1.15s=501.4965cm、加速1s=501.4964cm；120帧分别501.4962/501.4966cm，
+来自实际UE播放器与Root Motion提取，不是用速度公式推算。未做新PIE视觉验收；仅需观察白灯/三灯
+获得与失去、普通起停和翻滚接移动，不重开全量回归。证据`Saved/Maintenance/WhiteMoveSpeed20261016/`。

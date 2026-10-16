@@ -237,6 +237,8 @@ public:
 		uint64 ExpectedCommandSerial, uint64 ExpectedMarkSerial);
 	/** 已在虫印前方时登记自动接触请求，不伪造一次零长度飞行。 */
 	bool BeginAutomaticMarkContact(const FKinsectFlightRequest& Request);
+	/** 自动悬停时仅调整视觉朝向，不旋转靠地胶囊；请求身份必须仍有效。 */
+	bool FaceAutomaticMark(uint64 ExpectedCommandSerial, uint64 ExpectedMarkSerial);
 	/** 在当前虫印处进行真实 Hitzone 接触Trace并校验表面斑块，不直接应用伤害。 */
 	bool SweepAutomaticMarkContact(uint64 ExpectedCommandSerial,
 		uint64 ExpectedMarkSerial, const FWeaponRuntimeToken& RuntimeToken,
@@ -256,6 +258,10 @@ public:
 
 	// ── 查询 ──
 	EKinsectState GetState() const { return State; }
+	/** 猎虫模型本地 +Y 为头部方向，不能使用物理胶囊的 Actor +X。 */
+	FVector GetAttackForwardVector() const;
+	/** 用 Sweep 接触时的 Location 判断正面，而非本帧末的位置，避免高速穿过后漏判。 */
+	bool IsAttackContactInFront(const FHitResult& Hit) const;
 	bool HasPendingExtract() const { return !PendingExtractColors.IsEmpty(); }
 	/** 兼容普通单精华查询；多色显示必须读取完整容器。 */
 	FGameplayTag GetPendingExtractColor() const;

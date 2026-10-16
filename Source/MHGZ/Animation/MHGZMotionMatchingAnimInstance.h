@@ -57,6 +57,7 @@ class MHGZ_API UMHGZMotionMatchingAnimInstance : public UAnimInstance
 	friend class FMHGZMobileExitRouteTest;
 	friend class FMHGZLoopContinuityTest;
 	friend class FMHGZLocomotionEntryTest;
+	friend class FMHGZLocomotionSpeedTest;
 
 public:
 	virtual void NativeInitializeAnimation() override;
@@ -128,6 +129,28 @@ public:
 	/** Actual XY displacement of the actor, measured from Root Motion. Unit: cm/s. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	float MMActualSpeed2D = 0.0f;
+
+	/** Smoothed effective GAS movement multiplier, including the TripleUp replacement effect. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Speed")
+	float MMUnsheathedMoveSpeedMultiplier = 1.0f;
+
+	/** Extra rate actually installed on normal unsheathed MM; action Exit/Idle remain 1. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Speed")
+	float MMUnsheathedAppliedSpeedMultiplier = 1.0f;
+
+	/** Speed expressed in the unchanged source-animation/database clock, not world cm/s. */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Speed")
+	float MMQuerySpeed2D = 0.0f;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Speed")
+	float MMExpectedWorldCruiseSpeed = 0.0f;
+
+	/** Smooth buff gain/loss only; never buffers movement input or restarts a player. */
+	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Speed", meta=(ClampMin="0.0"))
+	float MMUnsheathedSpeedInterpSpeed = 20.0f;
+
+	float GetLocomotionPlaybackRateScale(bool bUnsheathed) const
+	{ return bUnsheathed ? MMUnsheathedAppliedSpeedMultiplier : 1.0f; }
 
 	/** Start=positive, cruise/idle=zero, stop=negative. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
@@ -528,6 +551,10 @@ private:
 	bool bMMLoopEntryMatch[2] = { false, false };
 	FName MMLoopQuerySource[2];
 	int32 MMLoopHistoryEntriesRemoved[2] = { 0, 0 };
+	bool bMMCanApplyUnsheathedSpeed = false;
+	float MMBaseCruiseSpeed = 0.0f;
+	void UpdateLocomotionSpeed(const AMHGZCharacter& Character, float DeltaSeconds);
+	void ApplyUnsheathedLocomotionSpeed(const FAnimNodeReference& Reference);
 	void PrepareLoopContinuity(const FAnimUpdateContext& Context, const FAnimNodeReference& Reference,
 		EMHGZMotionMatchingNode Node);
 	void InstallLoopDatabase(const FMotionMatchingAnimNodeReference& Reference,

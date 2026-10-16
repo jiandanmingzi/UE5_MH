@@ -502,6 +502,48 @@ bool AKinsect::BeginAutomaticMarkContact(const FKinsectFlightRequest& Request)
 	ReturnMarkSerial = 0;
 	LastTickLocation = GetActorLocation();
 	bHasDealtDamage = false;
+	return FaceAutomaticMark(Request.CommandSerial, Request.MarkSerial);
+}
+
+FVector AKinsect::GetAttackForwardVector() const
+{
+	return Mesh ? Mesh->GetRightVector().GetSafeNormal() : FVector::ZeroVector;
+}
+
+bool AKinsect::IsAttackContactInFront(const FHitResult& Hit) const
+{
+	const FVector Forward = GetAttackForwardVector();
+	// Initial-overlap sweeps do not have a surface ImpactPoint. Their separating
+	// normal points out of the target; its opposite points toward the contact.
+	const FVector ToContact = Hit.bStartPenetrating
+		? -Hit.ImpactNormal : Hit.ImpactPoint - Hit.Location;
+	return !Forward.IsNearlyZero() && !ToContact.ContainsNaN()
+		&& FVector::DotProduct(Forward, ToContact) > KINDA_SMALL_NUMBER;
+}
+
+bool AKinsect::FaceAutomaticMark(const uint64 ExpectedCommandSerial,
+	const uint64 ExpectedMarkSerial)
+{
+	if (State != EKinsectState::Hovering || !Mesh
+		|| ActiveRequest.CommandSource != EKinsectCommandSource::AutoMark
+		|| ActiveRequest.CommandSerial != ExpectedCommandSerial
+		|| ActiveRequest.MarkSerial != ExpectedMarkSerial
+		|| !ResourceComponent.IsValid()
+		|| !ResourceComponent->IsKinsectCommandCurrent(ActiveRequest))
+	{
+		return false;
+	}
+	FVector MarkLocation;
+	FVector MarkNormal;
+	if (!ResourceComponent->GetKinsectMarkSurfaceFrame(ExpectedMarkSerial,
+		MarkLocation, MarkNormal))
+	{
+		return false;
+	}
+	const FVector Direction = (MarkLocation - GetActorLocation()).GetSafeNormal();
+	if (Direction.IsNearlyZero()) { return false; }
+	const FQuat MeshFacingOffset(FVector::UpVector, -UE_HALF_PI);
+	Mesh->SetWorldRotation(Direction.ToOrientationQuat() * MeshFacingOffset);
 	return true;
 }
 
@@ -525,6 +567,18 @@ bool AKinsect::SweepAutomaticMarkContact(const uint64 ExpectedCommandSerial,
 	FVector MarkNormal;
 	if (!ResourceComponent->GetKinsectMarkSurfaceFrame(ExpectedMarkSerial,
 		MarkLocation, MarkNormal))
+	{
+		return false;
+	}
+	// The radial proxy trace below resolves a surface hit; it is NOT an unlimited
+	// attack ray. The real mark must first be within melee reach and in front of
+	// the Kinsect's visible head, including while hovering with zero velocity.
+	const FVector ToMark = MarkLocation - GetActorLocation();
+	// Reuse the committed approach endpoint: a low wall mark can require extra
+	// vertical clearance from the floor. A fixed distance to the surface would
+	// reject that valid approach. Five cm is the resource's existing arrival gate.
+	if (FVector::DistSquared(GetActorLocation(), ActiveRequest.TargetPointSnapshot) > 25.0f
+		|| FVector::DotProduct(ToMark, GetAttackForwardVector()) <= KINDA_SMALL_NUMBER)
 	{
 		return false;
 	}
@@ -787,7 +841,7 @@ void AKinsect::SweepHitzones(float DeltaTime)
 	{
 		UMHGZMonsterHitzoneComponent* Hitzone =
 			UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
-		if (!Hitzone)
+		if (!Hitzone || !IsAttackContactInFront(Hit))
 		{
 			continue;
 		}
@@ -1038,6 +1092,11 @@ void AKinsect::EndFlight(EKinsectFlightEndReason Reason)
 	else
 	{
 		StopAndHover();
+		if (Reason == EKinsectFlightEndReason::Arrival
+			&& EndedRequest.CommandSource == EKinsectCommandSource::AutoMark)
+		{
+			FaceAutomaticMark(EndedRequest.CommandSerial, EndedRequest.MarkSerial);
+		}
 	}
 	if (ResourceComponent.IsValid())
 	{

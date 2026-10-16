@@ -104,6 +104,43 @@ bool FMHGZLocomotionEntryTest::RunTest(const FString& Parameters)
 	auto* Start=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Characters/Demo/Anims/Sequences/Unarmed/Locomotion/AS_Shth_Run_Start"));
 	FAnimationUpdateSharedContext Shared;
 	FAnimationUpdateContext Context(&Proxy,1.f/120.f,&Shared);
+	// Captured GA resumes: a paused Start survived at these three source times,
+	// but the action's measurement reset had retired its semantic input cycle.
+	auto* ArmedStart=LoadObject<UAnimSequence>(nullptr,TEXT("/Game/Weapons/InsectGlaive/Anims/Sequences/Locomotion/AS_UnSh_Walk_Start"));
+	if (!TestNotNull(TEXT("Actual unsheathed Start"),ArmedStart)) { World->DestroyWorld(false); return false; }
+	for (EMHGZMotionMatchingNode Node : { EMHGZMotionMatchingNode::Sheathed, EMHGZMotionMatchingNode::Unsheathed })
+	{
+		const int32 I=static_cast<int32>(Node);
+		UAnimSequence* PausedStart=I==1 ? ArmedStart : Start;
+		for (float PausedTime : { .3728f, .5005f, .4034f })
+		{
+			MM->BlendTo(Context,PausedStart,PausedTime,false,false,nullptr,0.f);
+			Anim->bStartQueryObservedStart=true; // The interrupted pre-action cycle.
+			Anim->ResetMMTemporalState(Character->GetActorLocation());
+			Anim->bMMHasLocomotionInput=true;
+			Anim->bMMForceIdle=false;
+			Anim->bMMUnsheathedLocomotion=I==1;
+			Anim->bMMHandoffActive=false;
+			Anim->GetActionExitRoute(Node)=EMHGZMMActionExitRoute::Move;
+			Anim->bMMMobileExitCruise[I]=false;
+			Anim->PrepareLoopContinuity(FAnimUpdateContext(),Ref,Node);
+			TestTrue(TEXT("GA reset leaves the engine's old Start player intact"),MM->GetAnimAsset()==PausedStart);
+			TestFalse(TEXT("GA reset retires observation of the previous Start cycle"),Anim->bStartQueryObservedStart);
+			TestFalse(TEXT("Paused pre-action Start cannot authorize Loop-only"),Anim->TryRouteStartToLoop(MMRef,Node));
+			Anim->RouteMotionMatchingPreSearch(Ref,Node);
+			TestNull(TEXT("First action-release callback does not install a Loop query"),Anim->GetLoopQueryDatabase(I==1));
+			TestFalse(TEXT("No accidental cruise latch after action release"),Anim->bMMMobileExitCruise[I]);
+			// The next ordinary input edge still requests a fresh Start, without a
+			// new timer, forced-Idle hold, or waiting for the paused source to end.
+			Anim->bStartQueryActive=true; // NativeUpdateAnimation arms the edge before either stance helper.
+			if (I==1) { Anim->UpdateLegacyIntentQueries(true,true,false,1.f/120.f); }
+			else { Anim->UpdateSheathedIntentQueries(true,true,false,1.f/120.f,460.f); }
+			TestTrue(TEXT("Fresh input still arms Start"),Anim->bStartQueryActive);
+			TestEqual(TEXT("Fresh Start uses positive semantic"),Anim->MMIntentQuery,1.f);
+			TestFalse(TEXT("Fresh pending Start is not mistaken for completed Start"),Anim->TryRouteStartToLoop(MMRef,Node));
+		}
+	}
+	Anim->ResetMMTemporalState(Character->GetActorLocation());
 	MM->BlendTo(Context,Start,1.1081f,false,false,nullptr,0.f);
 	Anim->bMMHasLocomotionInput=true;
 	Anim->bMMForceIdle=Anim->bMMStopRequestActive=Anim->bMMUnsheathedLocomotion=false;
@@ -113,6 +150,7 @@ bool FMHGZLocomotionEntryTest::RunTest(const FString& Parameters)
 	Anim->MMNodeUpdateDelta[0]=1.f/120.f;
 	TestFalse(TEXT("Positive Start Intent never gets bypassed"),Anim->TryRouteStartToLoop(MMRef,EMHGZMotionMatchingNode::Sheathed));
 	Anim->bStartQueryActive=false;
+	Anim->bStartQueryObservedStart=true;
 	TestTrue(TEXT("Neutral Start tail uses the actual Loop entrance route"),Anim->TryRouteStartToLoop(MMRef,EMHGZMotionMatchingNode::Sheathed));
 	TestTrue(TEXT("Start receives final-pose entrance matching"),Anim->WantsLoopEntryMatch(false));
 	const auto* DurationProperty=FindFProperty<FFloatProperty>(FAnimNode_MotionMatching::StaticStruct(),TEXT("BlendTime"));

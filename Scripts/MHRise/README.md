@@ -6,6 +6,85 @@ again to stop. A red `[REC]` label stays in the top-left while recording; start
 and stop each show a confirmation bar. Each capture writes samples and events
 CSV files under `reframework/data/MHGZ_AerialTrajectoryRecorder`.
 
+## Animation-frame repair (1.13.0, 2026-10-15)
+
+The old `motion_l*` columns read `_IG_InsectBehavior`, **not necessarily the
+rendered attack clip**. In the 2026-10-14 ground-attack capture, all 5,968 rows
+of state160 had only layer0 bank0/id1/end1; the other layers and node summaries
+were empty. Previous source-entry frames fitted from root displacement are
+estimates, not directly captured animation-frame truth.
+
+F9 now writes a third companion file, `*_animation.csv`, with one row per
+observed node/layer/sample. It resolves the hunter's `via.motion.Motion`
+component (bounded to 32 hunter/descendant objects, 16 layers and 16 nodes per
+layer), reads `get_Layer`, `get_HighestWeightMotionNode`, node bank/ID/name,
+available node frame/end/speed/weight, and a separately labelled layer clock.
+Motion-list resources are read through `findMotionBank` when available.
+The read-only API references are [EMV Engine](https://github.com/alphazolam/EMV-Engine/blob/main/EMV%20Engine/reframework/autorun/EMV%20Engine/init.lua)
+and [Enhanced Model Viewer](https://github.com/alphazolam/EMV-Engine/blob/main/Enhanced%20Model%20Viewer/reframework/autorun/Enhanced%20Model%20Viewer.lua);
+EMV itself is **not** installed or required.
+
+- `frame_source=node` means the node's getter returned the clock.
+- `single_node_layer` is allowed only when a real count/array enumerates one
+  index0 node; a layer clock is never assigned to two blend participants.
+- `unavailable` stays blank. `node_enumeration=slot0_and_highest_only` explicitly
+  means incomplete enumeration; unknown native indices are not probed blindly.
+- `frame_units=engine_native_unscaled`: no multiplying elapsed seconds by60 or
+  blindly applying the UE asset's2x RateScale. Resource-name/length calibration
+  against imported clips is still required before calling a number a UE source frame.
+- Compatible `changeMotion(bank,id,startFrame,...)` overloads are observed via
+  read-only hooks on discovered layer types. `animation_change_requested` records
+  the requested start frame and preceding sample index; it does not prove the
+  request was accepted. `animation_first_observed` is only the first sampled
+  frame, not the requested start. Missing overloads remain unverified.
+- Animation availability is shown separately as `[ANIM READ]` or
+  `[ANIM WARNING]`; normal trajectory `[REC OK]` does not prove attack-frame
+  capture. Getter capabilities are emitted automatically in the events file
+  once per type/capture; **F8 is not required**. A short F9 capture is sufficient
+  for the first in-game API check; do not request the full attack matrix yet.
+
+The original samples header and35-column legacy motion tail remain compatible.
+Unknown controller bools now write an empty cell instead ofLua `nil`, fixing
+row shrinkage; false captured layer flags are preserved asfalse. New rows check
+their width before writing. Old recordings are not rewritten and missing input
+or attack-node frames cannot be restored from them.
+
+Local validation executes the actual Lua reader against read-only native-object
+doubles, tests the actual trajectory row builder, and compiles the whole script
+with Lua5.4 and LuaJIT2.1. These tests do **not** validate the installed game's
+native getters or guarantee complete blend-node coverage. Run the focused tests
+with `python -m unittest discover -s Scripts/MHRise/tests -p test_recorder_animation_reader.py -v`
+in an environment containing `lupa`; absence explicitly skips rather than claiming
+success. This maintenance task uses an isolated `Saved/Maintenance/RiseAnimationReader20261015/python_deps`
+installation, not a system Python package change.
+
+Deployment and game-runtime acceptance are separate. See
+`docs/using/current-status.md`; the first new in-game file must establish readable
+real clips/frames before re-recording the entry comparison.
+
+1.13.0 was deployed to the local Rise autorun path on2026-10-15. The old1.12.0
+copy, before/afterSHA-256 and test summary are saved under
+`Saved/Maintenance/RecorderDeploy/20261015-AnimationReader113/`. Source/installed
+hashes match;13 new local checks and4 existing action-audit checks passed.
+Runtime verification now covers captures `mhrise_20261015_213914_01` and
+`mhrise_20261015_214015_02`: actual `player00` clips have native node frames,
+names and weights with count-based enumeration; the short capture includes
+three simultaneous movement nodes with separate weights. All trajectory rows
+have189 columns and all animation rows30; neither capture reports a reader error.
+This verifies the observed nodes, not universal blend coverage for all moves.
+
+The36-second capture contains11 executions of `plw_InsectGlaive_100_160`.
+Their first sampled native frames range0.566–0.663 and their clocks advance at
+about60 native frames/s. Against the imported160 root track, all11 best fits
+use `UE source frame = 2 * native frame`, with zero additional frame offset
+among the tested offsets. This calibrates this clip's frame units; it is not a
+global conversion for every clip, nor proof of identical weapon/bone poses.
+Both compatible hooks were installed but **no change-request events occurred**;
+exact requested frame0 remains unobserved. First-sample evidence supports entry
+near the beginning, not an exact captured request of0.000. Do not trim the UE
+entry merely to hide its weapon pose mismatch and call that the original entry.
+Audit and import-source evidence: `Saved/Maintenance/RiseAnimationReader20261015/`.
+
 From 1.12.0, capture health checks the existing hunter/motion samples without
 additional reflection scans. Three valid rows produce `[REC OK]`; no valid
 row for three wall-clock seconds produces a persistent `[REC WARNING]` and a

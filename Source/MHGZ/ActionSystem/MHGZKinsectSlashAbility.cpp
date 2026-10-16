@@ -493,11 +493,17 @@ bool UMHGZKinsectSlashAbility::CanApplyCollisionHit(
 	{
 		return true;
 	}
-	if (bSuccessfulDamage || !IsCurrentAction(SlashActionToken)
+	if (bKinsectDamageApplied || !IsCurrentAction(SlashActionToken)
 		|| !IsKinsectActionAttachmentCurrent()
 		|| (Phase != EKinsectSlashPhase::Dash
 			&& Phase != EKinsectSlashPhase::MissFall)
 		|| !IsCurrentMontage(SlashActionToken, SlashMontageInstanceID))
+	{
+		return false;
+	}
+	const URes_InsectGlaive* Resource = GetIGResourceComponent();
+	const AKinsect* Kinsect = Resource ? Resource->GetKinsectActor() : nullptr;
+	if (!Kinsect || !Kinsect->IsAttackContactInFront(Hit))
 	{
 		return false;
 	}
@@ -1360,7 +1366,7 @@ void UMHGZKinsectSlashAbility::ClearDanceTimers()
 void UMHGZKinsectSlashAbility::HandleProbeHitzoneContact(
 	FWeaponActionToken ActionToken, FHitResult Hit)
 {
-	if (!IsCurrentAction(ActionToken) || bSuccessfulDamage || bDamageResolveInProgress
+	if (!IsCurrentAction(ActionToken) || bKinsectDamageApplied || bDamageResolveInProgress
 		|| (Phase != EKinsectSlashPhase::Dash && Phase != EKinsectSlashPhase::MissFall))
 	{
 		return;
@@ -1395,40 +1401,14 @@ void UMHGZKinsectSlashAbility::HandleProbeHitzoneContact(
 		ProbeTask->AcknowledgeSuccessfulContact(ActionToken);
 	}
 
-	// Keep the first successful GE result immutable. Section changes and probe
-	// teardown are queued outside the current Sweep callback stack.
-	SuccessfulHit = Hit;
-	bSuccessfulDamage = true;
-	PendingDanceFromMiss = Phase == EKinsectSlashPhase::MissFall;
-	bPendingDanceTransition = true;
-	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
-		!Host || !Host->SetAerialMovementSource(ActionToken, KinsectSlashHitSourceTag()))
-	{
-		UE_LOG(LogMHGZ, Warning,
-			TEXT("[KinsectSlash] Damage GE succeeded, but RuntimeHost could not publish the hit source tag; aborting action."));
-		CancelSlashAction(EWeaponActionEndReason::Interrupted,
-			TEXT("The successful hit source could not be recorded."));
-		return;
-	}
-	if (!IsCurrentAction(ActionToken))
-	{
-		return;
-	}
-	const FWeaponActionToken CapturedToken = ActionToken;
-	const int32 CapturedMontageID = SlashMontageInstanceID;
-	if (UWorld* World = GetWorld())
-	{
-		QueuedDanceTransitionTimer = World->GetTimerManager().SetTimerForNextTick(
-			FTimerDelegate::CreateUObject(this,
-				&UMHGZKinsectSlashAbility::HandleQueuedDanceTransition,
-				CapturedToken, CapturedMontageID));
-	}
+	// Deprecated probe callers still resolve only the insect's own contact.
+	// Never let this compatibility callback bypass the weapon-controlled handoff.
+	bDamageResolveInProgress = false;
 }
 
-void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
-	const FHitResult& Hit, const int32 SegmentIndex)
+void UMHGZKinsectSlashAbility::HandleSuccessfulKinsectContact(const FHitResult& Hit)
 {
-	if (SegmentIndex != 0 || bSuccessfulDamage)
+	if (bKinsectDamageApplied)
 	{
 		return;
 	}
@@ -1446,6 +1426,9 @@ void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
 	{
 		return;
 	}
+	const FWeaponActionToken CapturedToken = SlashActionToken;
+	// Latch before resource delegates: they can synchronously re-enter or cancel.
+	bKinsectDamageApplied = true;
 	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
 	{
 		if (!KinsectSlashPowderHitInstanceID.IsValid())
@@ -1460,9 +1443,13 @@ void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
 				EIGPowderSpawnPolicy::MarkedContact);
 		}
 	}
+	if (!IsCurrentAction(CapturedToken))
+	{
+		return;
+	}
 
-	// Compatibility path for tests/old callers only; production no longer creates
-	// the probe task. The AttackCollision path below owns its own queued handoff.
+	// Compatibility path for tests/old callers only; production uses the real
+	// attached insect and delivers its captured cargo when the insect returns.
 	if (bLegacyProbeCallback)
 	{
 		if (!bExtractApplied)
@@ -1481,22 +1468,59 @@ void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
 		return;
 	}
 
+	if (!bExtractApplied)
+	{
+		bExtractApplied = true;
+		if (URes_InsectGlaive* Resource = GetIGResourceComponent())
+		{
+			const UMHGZMonsterHitzoneComponent* Hitzone =
+				UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
+			if (Hitzone)
+			{
+				const bool bExtractGranted = Resource->CaptureActionKinsectExtract(CapturedToken, Hitzone);
+				UE_LOG(LogMHGZ, Display,
+					TEXT("[KinsectSlash] Segment 0 GE succeeded; cargo=%s color=%s (delivered on return; dash continues)"),
+					bExtractGranted ? TEXT("captured") : TEXT("not-applicable"),
+					*Hitzone->ExtractColorTag.ToString());
+			}
+		}
+	}
+}
+
+void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
+	const FHitResult& Hit, const int32 SegmentIndex)
+{
+	if (SegmentIndex == 0)
+	{
+		HandleSuccessfulKinsectContact(Hit);
+		return;
+	}
+	// The two weapon hits remain separate ContactOnly damage segments. Only the
+	// dash weapon's real GE success can stop the approach and authorize 189;
+	// neither an insect-only contact nor the later 189 hit can do so.
+	if (SegmentIndex != 1 || bSuccessfulDamage || bEndingSlash
+		|| !IsCurrentAction(SlashActionToken)
+		|| (Phase != EKinsectSlashPhase::Dash && Phase != EKinsectSlashPhase::MissFall)
+		|| !IsCurrentMontage(SlashActionToken, SlashMontageInstanceID))
+	{
+		return;
+	}
 	const UAnimInstance* AnimInstance = GetCurrentActorInfo()
 		? GetCurrentActorInfo()->GetAnimInstance() : nullptr;
 	const FName SourceSection = AnimInstance && ActiveSlashMontage
 		? AnimInstance->Montage_GetCurrentSection(ActiveSlashMontage) : NAME_None;
-	const bool bCanEnterDance = SourceSection == DashSectionName
-		|| SourceSection == MissFallSectionName;
-	bSuccessfulDamage = true;
-	if (bCanEnterDance)
+	if (SourceSection != DashSectionName && SourceSection != MissFallSectionName)
 	{
-		SuccessfulHit = Hit;
-		SuccessfulHitSourceSection = SourceSection;
-		SuccessfulHitSourceMontageInstanceID = SlashMontageInstanceID;
-		SuccessfulHitSourcePosition = AnimInstance->Montage_GetPosition(ActiveSlashMontage);
-		PendingDanceFromMiss = SourceSection == MissFallSectionName;
-		bPendingDanceTransition = true;
+		return;
 	}
+	const FWeaponActionToken CapturedToken = SlashActionToken;
+	bSuccessfulDamage = true;
+	SuccessfulHit = Hit;
+	SuccessfulHitSourceSection = SourceSection;
+	SuccessfulHitSourceMontageInstanceID = SlashMontageInstanceID;
+	SuccessfulHitSourcePosition = AnimInstance->Montage_GetPosition(ActiveSlashMontage);
+	PendingDanceFromMiss = SourceSection == MissFallSectionName;
+	bPendingDanceTransition = true;
 	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 		!Host || !Host->SetAerialMovementSource(SlashActionToken,
 			KinsectSlashHitSourceTag()))
@@ -1507,35 +1531,13 @@ void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
 			TEXT("The successful hit source could not be recorded."));
 		return;
 	}
-	if (!IsCurrentAction(SlashActionToken))
+	if (!IsCurrentAction(CapturedToken))
 	{
 		return;
 	}
-	if (SourceSection != DashSectionName && SourceSection != MissFallSectionName)
-	{
-		UE_LOG(LogMHGZ, Warning,
-			TEXT("[KinsectSlash] Segment 0 GE succeeded outside Dash187/Miss188; no dance handoff was queued."));
-		return;
-	}
-
-	if (!bExtractApplied)
-	{
-		bExtractApplied = true;
-		if (URes_InsectGlaive* Resource = GetIGResourceComponent())
-		{
-			const UMHGZMonsterHitzoneComponent* Hitzone =
-				UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
-			if (Hitzone)
-			{
-				const bool bExtractGranted = Resource->CaptureActionKinsectExtract(SlashActionToken, Hitzone);
-				UE_LOG(LogMHGZ, Display,
-					TEXT("[KinsectSlash] Damage GE succeeded; cargo=%s color=%s (delivered on return)"),
-					bExtractGranted ? TEXT("captured") : TEXT("not-applicable"),
-					*Hitzone->ExtractColorTag.ToString());
-			}
-		}
-	}
-	const FWeaponActionToken CapturedToken = SlashActionToken;
+	UE_LOG(LogMHGZ, Display,
+		TEXT("[KinsectSlash] Segment 1 GE succeeded; queued weapon-contact Dance insect_hit=%s position=%.4f s"),
+		bKinsectDamageApplied ? TEXT("true") : TEXT("false"), SuccessfulHitSourcePosition);
 	const int32 CapturedMontageID = SuccessfulHitSourceMontageInstanceID;
 	if (UWorld* World = GetWorld())
 	{
@@ -1565,8 +1567,8 @@ void UMHGZKinsectSlashAbility::HandleQueuedDanceTransition(
 		*SuccessfulHitSourceSection.ToString(), SuccessfulHitSourcePosition,
 		PendingDanceFromMiss ? TEXT("Miss188") : TEXT("Dash187"));
 
-	// End every old montage collision segment only after the current sweep has
-	// unwound, so an overlapping weapon segment may still commit on this tick.
+	// End the old windows only after the dash weapon's successful sweep unwinds.
+	// An overlapping insect segment can still independently commit on this tick.
 	DisableCollision();
 	ReleaseKinsectActionAttachment();
 
@@ -2109,6 +2111,7 @@ void UMHGZKinsectSlashAbility::ResetActivationState()
 	bPendingDanceTransition = false;
 	bDamageResolveInProgress = false;
 	bCurrentDamageApplied = false;
+	bKinsectDamageApplied = false;
 	bSuccessfulDamage = false;
 	bExtractApplied = false;
 	bDanceEntryCommitted = false;

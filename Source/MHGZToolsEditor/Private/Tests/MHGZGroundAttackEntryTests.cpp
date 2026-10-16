@@ -78,34 +78,41 @@ bool FGroundChargeEntryTest::RunTest(const FString& Parameters)
 {
 	UMHGZAdvancingChargeAbility* Ability = NewObject<UMHGZAdvancingChargeAbility>();
 	TestEqual(TEXT("Default release behavior stays Core"), Ability->ResolveUnchargedExitSection(TEXT("Entry")), FName(TEXT("Core")));
-	Ability->UnchargedExitSectionByEntry.Add(TEXT("Entry_From_Idle"), TEXT("Release_From_Idle"));
-	TestEqual(TEXT("Dedicated idle route preserves normal-speed middle frames"),
-		Ability->ResolveUnchargedExitSection(TEXT("Entry_From_Idle")), FName(TEXT("Release_From_Idle")));
+	Ability->UnchargedExitSectionByEntry.Add(TEXT("AlternateEntry"), TEXT("NormalContinuation"));
+	TestEqual(TEXT("Optional continuation remains supported independently of this asset"),
+		Ability->ResolveUnchargedExitSection(TEXT("AlternateEntry")), FName(TEXT("NormalContinuation")));
 	TestEqual(TEXT("Other entries retain original release behavior"), Ability->ResolveUnchargedExitSection(TEXT("Entry")), FName(TEXT("Core")));
 	UAnimMontage* Montage = LoadMontage(TEXT("AM_IG_TuJinHuiXuan"));
 	if (!TestNotNull(TEXT("TuJinHuiXuan"), Montage)) { return false; }
 	const auto& Clips = Montage->SlotAnimTracks[0].AnimTrack.AnimSegments;
-	if (!TestEqual(TEXT("Legacy four clips without synthetic bridge/hold plus two idle clips"), Clips.Num(), 6)) { return false; }
+	if (!TestEqual(TEXT("Shared front Entry and no appended idle clips"), Clips.Num(), 4)) { return false; }
 	TestTrue(TEXT("Existing charge source55..67 and two-second stretch preserved"),
 		FMath::IsNearlyEqual(Clips[2].AnimStartTime, 55.0f/60.0f, 0.00002f)
 		&& FMath::IsNearlyEqual(Clips[2].AnimEndTime, 67.0f/60.0f, 0.00002f)
 		&& FMath::IsNearlyEqual(Clips[2].GetLength(), 2.0f, 0.00002f));
-	TestTrue(TEXT("Idle entry begins160 at0"), FMath::IsNearlyZero(Clips[4].AnimStartTime));
-	TestEqual(TEXT("Idle normal entry is2x"), Clips[4].GetValidPlayRate(), 2.0f);
-	TestTrue(TEXT("Noncharged0..55..67..end has no skipped source frames"),
-		FMath::IsNearlyEqual(Clips[4].AnimEndTime, Clips[5].AnimStartTime)
-		&& FMath::IsNearlyEqual(Clips[5].AnimEndTime, Clips[3].AnimStartTime));
+	TestTrue(TEXT("Front Entry uses original306 from frame zero"),
+		Clips[0].GetAnimReference()->GetName() == TEXT("AS_Unsh_IdleTuJinHuiXuan")
+		&& FMath::IsNearlyZero(Clips[0].AnimStartTime));
+	TestEqual(TEXT("Original Entry is2x"), Clips[0].GetValidPlayRate(), 2.0f);
+	TestEqual(TEXT("No obsolete Idle section"), Montage->GetSectionIndex(TEXT("Entry_From_Idle")), INDEX_NONE);
+	TestEqual(TEXT("No obsolete normal-release section"), Montage->GetSectionIndex(TEXT("Release_From_Idle")), INDEX_NONE);
+	UClass* SavedClass = LoadClass<UMHGZAdvancingChargeAbility>(nullptr,
+		TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_TuJinHuiXuanZhan.GA_IG_TuJinHuiXuanZhan_C"));
+	if (!TestNotNull(TEXT("Saved TuJin GA class"), SavedClass)) { return false; }
+	const auto* SavedAbility = SavedClass->GetDefaultObject<UMHGZAdvancingChargeAbility>();
+	TestEqual(TEXT("Idle uses default shared Entry"), SavedAbility->DefaultEntrySection, FName(TEXT("Entry")));
+	TestFalse(TEXT("No obsolete Idle transition override"), SavedAbility->EntrySectionByTransitionID.Contains(TEXT("ForwardYB_TuJinHuiXuanZhan")));
+	TestFalse(TEXT("No obsolete Idle release override"), SavedAbility->UnchargedExitSectionByEntry.Contains(TEXT("Entry_From_Idle")));
 	FAnimMontageInstance Instance;
 	Instance.Initialize(Montage);
-	const int32 Idle = Montage->GetSectionIndex(TEXT("Entry_From_Idle"));
+	const int32 Entry = Montage->GetSectionIndex(TEXT("Entry"));
 	const int32 Charge = Montage->GetSectionIndex(TEXT("Charge"));
 	const int32 Core = Montage->GetSectionIndex(TEXT("Core"));
-	TestEqual(TEXT("Held idle entry naturally reaches Charge"), Instance.GetNextSectionID(Idle), Charge);
-	Instance.SetNextSectionName(TEXT("Entry_From_Idle"), TEXT("Release_From_Idle"));
-	TestEqual(TEXT("Release changes idle route only"), Instance.GetNextSectionID(Idle), Montage->GetSectionIndex(TEXT("Release_From_Idle")));
-	TestEqual(TEXT("Legacy entry still reaches Charge"), Instance.GetNextSectionID(Montage->GetSectionIndex(TEXT("Entry"))), Charge);
+	TestEqual(TEXT("Held shared entry naturally reaches Charge"), Instance.GetNextSectionID(Entry), Charge);
+	Instance.SetNextSectionName(TEXT("Entry"), TEXT("Core"));
+	TestEqual(TEXT("Released shared entry follows existing Core route"), Instance.GetNextSectionID(Entry), Core);
 	TestEqual(TEXT("Maximum charge still naturally reaches Core"), Instance.GetNextSectionID(Charge), Core);
-	TestEqual(TEXT("Core exits without playing appended idle entry"), Instance.GetNextSectionID(Core), INDEX_NONE);
+	TestEqual(TEXT("Core exits at the Montage end"), Instance.GetNextSectionID(Core), INDEX_NONE);
 	return true;
 }
 

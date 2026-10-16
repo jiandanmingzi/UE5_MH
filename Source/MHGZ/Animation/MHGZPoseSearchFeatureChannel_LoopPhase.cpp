@@ -75,6 +75,10 @@ void UMHGZPoseSearchFeatureChannel_LoopPhase::BuildQuery(UE::PoseSearch::FSearch
 		FFeatureVectorHelper::EncodeVector(Query, 14,
 			Context.GetSampleVelocity(0.f, 0.f, RootSchemaBoneIdx, RootSchemaBoneIdx,
 				DefaultRole, DefaultRole, false), EComponentStrippingVector::None, false);
+		// Query histories are in world seconds; indexed velocities are in source
+		// seconds. Normalize velocity only, never feet positions or cyclic phase.
+		const float Rate = Anim->GetLocomotionPlaybackRateScale(bUnsheathed);
+		for (int32 I = 8; I < 17; ++I) { Query[I] /= Rate; }
 		Source = TEXT("FinalPoseFeetEntry");
 	}
 	const FSearchIndex& Index = DB->GetSearchIndex();

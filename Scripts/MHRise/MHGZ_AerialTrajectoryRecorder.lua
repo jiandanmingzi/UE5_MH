@@ -3,8 +3,8 @@
 -- Read-only REFramework recorder for Monster Hunter Rise.
 -- F9 toggles a capture. F8 writes a read-only motion-state probe. F9 samples
 -- the master hunter's world Transform, the primary camera's world Transform and
--- the animation state evaluated on each relevant motion layer, so a single
--- capture contains trajectory, facing, camera and animation-frame data.
+-- legacy behavior-layer state. A separate *_animation.csv reads the actual
+-- via.motion.Motion component; unavailable node frames are never invented.
 -- Facing is sampled from the same Transform read as the position: without it a
 -- lateral displacement cannot be separated from a heading change, and every
 -- lateral figure needs an orientation guess.  The camera is sampled alongside
@@ -14,7 +14,7 @@
 -- time scale.
 
 local SCRIPT_NAME = "MHGZ Aerial Trajectory Recorder"
-local SCRIPT_VERSION = "1.12.0"
+local SCRIPT_VERSION = "1.13.0"
 local OUTPUT_DIRECTORY = "MHGZ_AerialTrajectoryRecorder"
 local HOTKEY_CONFIG_FILE = "MHGZ_AerialTrajectoryRecorder_hotkey.txt"
 local VK_F9 = 0x78
@@ -797,7 +797,7 @@ end
 
 local function csv_bool_number(value)
     if value == nil then
-        return nil
+        return ""
     end
     return value and 1 or 0
 end
@@ -1432,8 +1432,332 @@ local function read_runtime_motion_layers()
 end
 
 local function captured_motion_value(ok, value)
-    return ok and value or nil
+    if ok then return value end
+    return nil
 end
+
+-- BEGIN DIRECT MOTION READER (also executed by the isolated Lua tests).
+-- Read APIs reference: alphazolam/EMV-Engine, EMV Engine/init.lua and
+-- Enhanced Model Viewer.lua (get_Layer / get_HighestWeightMotionNode /
+-- getMotionNode(0) / get_Frame / findMotionBank). No EMV dependency or setters.
+local animation_capture = (function()
+    local R = { file = nil, rows = 0, valid_samples = 0, status = "[ANIM] Not checked",
+        hooks = {}, hook_count = 0, layer_addresses = {}, requests = {}, dropped_requests = 0 }
+    local MAX_LAYERS, MAX_NODES, MAX_OBJECTS = 16, 16, 32
+    local columns = { "sample_index", "capture_time_s", "render_callback", "action_state_id",
+        "component", "component_address", "layer", "layer_address", "node_index", "node_address",
+        "highest_weight", "bank_id", "bank_type", "motion_id", "motion_name", "motion_list",
+        "node_frame", "node_end_frame", "node_speed", "node_weight",
+        "layer_frame", "layer_end_frame", "layer_speed", "layer_weight", "motion_play_speed",
+        "frame", "frame_source", "frame_units", "node_enumeration", "read_status" }
+    local methods, catalogs, resources, previous = {}, {}, {}, {}
+    local pending_methods = {}
+
+    local function call(object, method, ...)
+        if object == nil then return nil end
+        local ok, value = pcall(object.call, object, method, ...)
+        if ok then return value end
+        return nil
+    end
+    local function address(object)
+        if object == nil then return "" end
+        local ok, value = pcall(object.get_address, object)
+        return ok and tostring(value) or ""
+    end
+    local function typename(object)
+        local td
+        -- get_type_definition is a REFramework wrapper API, not an engine method.
+        if object ~= nil then
+            local ok, value = pcall(object.get_type_definition, object)
+            if ok then td = value end
+        end
+        local ok, name = pcall(function() return td:get_full_name() end)
+        return ok and tostring(name) or "<unknown>", td
+    end
+    local function number(value)
+        if type(value) ~= "number" or value ~= value or math.abs(value) == math.huge then return nil end
+        return value
+    end
+    local function property(object, label, candidates)
+        local key = typename(object) .. ":" .. label
+        local selected = methods[key]
+        if selected == false then return nil end
+        if selected then return call(object, selected) end
+        for _, name in ipairs(candidates) do
+            local value = call(object, name)
+            if value ~= nil then methods[key] = name; return value end
+        end
+        methods[key] = false
+        return nil
+    end
+    local function elements(array, limit)
+        if array == nil then return nil end
+        if type(array) == "table" then
+            local result = {}
+            for i = 1, math.min(#array, limit) do result[i] = array[i] end
+            return result
+        end
+        local ok, result = pcall(array.get_elements, array)
+        if ok and type(result) == "table" then
+            local bounded = {}
+            for i = 1, math.min(#result, limit) do bounded[i] = result[i] end
+            return bounded
+        end
+        return nil
+    end
+    local function catalog(object)
+        local name, td = typename(object)
+        if catalogs[name] or td == nil then return end
+        catalogs[name] = true
+        local parts = { name }
+        for _ = 1, 4 do
+            if td == nil then break end
+            local ok, list = pcall(td.get_methods, td)
+            if ok and list then
+                for _, method in ipairs(list) do
+                    local mok, text = pcall(method.get_name, method)
+                    if mok and (tostring(text):find("Motion") or tostring(text):find("Frame") or
+                        tostring(text):find("Weight") or tostring(text):find("Speed")) then
+                        parts[#parts + 1] = tostring(text)
+                    end
+                end
+            end
+            local fok, fields = pcall(td.get_fields, td)
+            if fok and fields then
+                for i, field in ipairs(fields) do
+                    if i > 128 then break end
+                    local nok, text = pcall(field.get_name, field)
+                    if nok and (tostring(text):lower():find("frame") or tostring(text):lower():find("weight") or
+                        tostring(text):lower():find("motion") or tostring(text):lower():find("time")) then
+                        parts[#parts + 1] = "field:" .. tostring(text)
+                    end
+                end
+            end
+            local pok, parent = pcall(td.get_parent_type, td)
+            td = pok and parent or nil
+        end
+        write_event("animation_reader_capabilities", table.concat(parts, ";"))
+    end
+    local function write_row(row)
+        local values = {}
+        for _, name in ipairs(columns) do values[#values + 1] = csv_text(row[name]) end
+        assert(R.file:write(table.concat(values, ",") .. "\n"), "Animation CSV write failed")
+        R.rows = R.rows + 1
+    end
+    local function resolve_components(game_object)
+        local result, queue, seen = {}, { game_object }, {}
+        local motion_type = sdk.typeof("via.motion.Motion")
+        local index = 1
+        while index <= #queue and index <= MAX_OBJECTS do
+            local go = queue[index]; index = index + 1
+            local key = address(go)
+            if go ~= nil and not seen[key] then
+                seen[key] = true
+                local motion = call(go, "getComponent(System.Type)", motion_type)
+                if motion ~= nil then
+                    result[#result + 1] = { motion = motion, name = tostring(call(go, "get_Name") or "hunter") }
+                end
+                local transform = call(go, "get_Transform")
+                local child = call(transform, "get_Child")
+                local siblings = {}
+                while child ~= nil and #queue < MAX_OBJECTS and not siblings[address(child)] do
+                    siblings[address(child)] = true
+                    local child_go = call(child, "get_GameObject")
+                    if child_go then queue[#queue + 1] = child_go end
+                    child = call(child, "get_Next")
+                end
+            end
+        end
+        return result
+    end
+    local function motion_list(motion, bank_id, bank_type)
+        if bank_id == nil or bank_type == nil then return nil end
+        local key = address(motion) .. ":" .. tostring(bank_id) .. ":" .. tostring(bank_type)
+        if resources[key] ~= nil then return resources[key] or nil end
+        local bank = call(motion, "findMotionBank(System.UInt32, System.UInt32)", bank_id, bank_type)
+        local resource = call(bank, "get_MotionList")
+        local text = call(resource, "ToString()")
+        -- A missing resource may be transient while loading; do not cache failure.
+        if text ~= nil then resources[key] = tostring(text) end
+        return text
+    end
+    local function observe_requests(layer)
+        local _, td = typename(layer)
+        if td == nil or sdk.hook == nil or sdk.to_float == nil then return end
+        for _, signature in ipairs({
+            "changeMotion(System.UInt32, System.UInt32, System.Single)",
+            "changeMotion(System.UInt32, System.UInt32, System.Single, System.Single, via.motion.InterpolationMode, via.motion.InterpolationCurve)"
+        }) do
+            local key = tostring(td) .. signature
+            if pending_methods[key] == nil then
+                pending_methods[key] = false
+                local ok, method = pcall(td.get_method, td, signature)
+                if ok and method then
+                    local aok, method_address = pcall(method.get_address, method)
+                    local hook_key = aok and tostring(method_address) or key
+                    if not R.hooks[hook_key] then
+                        local hooked = pcall(sdk.hook, method, function(args)
+                            -- Observe only known hunter layers, never skip or replace game calls.
+                            if state.recording and R.file then
+                                pcall(function()
+                                    local object = sdk.to_managed_object(args[2])
+                                    local owner = R.layer_addresses[address(object)]
+                                    if owner ~= nil then
+                                        if #R.requests >= 256 then R.dropped_requests = R.dropped_requests + 1; return end
+                                        R.requests[#R.requests + 1] = {
+                                            owner = owner, after_sample = state.sample_count,
+                                            bank = sdk.to_int64(args[3]), motion = sdk.to_int64(args[4]),
+                                            frame = number(sdk.to_float(args[5])), signature = signature }
+                                    end
+                                end)
+                            end
+                            return sdk.PreHookResult.CALL_ORIGINAL
+                        end, function(retval) return retval end)
+                        if hooked then R.hooks[hook_key] = true; R.hook_count = R.hook_count + 1 end
+                    end
+                end
+            end
+        end
+    end
+    local function nodes_for(layer)
+        local nodes, seen = {}, {}
+        local highest = call(layer, "get_HighestWeightMotionNode")
+        local highest_address = address(highest)
+        local function add(node, index)
+            local key = address(node)
+            if node and key ~= "" and not seen[key] then
+                seen[key] = true; nodes[#nodes + 1] = { object = node, index = index, address = key }
+            end
+        end
+        -- Never probe unbounded native indices. Without a real count/array only
+        -- the documented index0 + highest node are read, explicitly labelled partial.
+        local array = property(layer, "nodes", { "get_MotionNodes", "get_MotionNode" })
+        local list = elements(array, MAX_NODES)
+        local mode = "slot0_and_highest_only"
+        if list then
+            mode = #list >= MAX_NODES and "array_capped" or "array"
+            for i, node in ipairs(list) do add(node, i - 1) end
+        else
+            local count = number(property(layer, "node_count", {
+                "get_MotionNodeCount", "getMotionNodeCount", "get_MotionNodeNum", "getMotionNodeNum" }))
+            if count and count >= 0 and count == math.floor(count) then
+                mode = count > MAX_NODES and "count_capped" or "count"
+                for i = 0, math.min(count, MAX_NODES) - 1 do add(call(layer, "getMotionNode", i), i) end
+            else
+                add(call(layer, "getMotionNode", 0), 0)
+            end
+        end
+        add(highest, "highest")
+        return nodes, highest_address, mode
+    end
+    local function flush_requests()
+        for _, request in ipairs(R.requests) do
+            write_event("animation_change_requested", request.owner .. ";bank=" .. tostring(request.bank) ..
+                ";motion=" .. tostring(request.motion) .. ";requested_start_frame=" .. tostring(request.frame) ..
+                ";after_sample=" .. tostring(request.after_sample) .. ";signature=" .. request.signature)
+        end
+        R.requests = {}
+    end
+
+    function R.start(path)
+        local file, err = io.open(path, "w")
+        if not file then return nil, err end
+        R.file, R.rows, R.valid_samples, R.requests, R.dropped_requests = file, 0, 0, {}, 0
+        R.layer_addresses, resources, previous, catalogs = {}, {}, {}, {}
+        R.status, R.last_status, R.last_error = "[ANIM CHECK] Waiting for real animation frames", nil, nil
+        R.file:write(table.concat(columns, ",") .. "\n")
+        return true
+    end
+    function R.sample(sample_index, time, action_id)
+        if not R.file then return end
+        local _, game_object = get_master_player_and_game_object()
+        local components = game_object and resolve_components(game_object) or {}
+        local valid, known_layers, last = false, {}, nil
+        for _, component in ipairs(components) do
+            local motion = component.motion
+            local layers = elements(call(motion, "get_Layer"), MAX_LAYERS)
+            if not layers then
+                layers = {}; local layer = call(motion, "getLayer", 0)
+                if layer then layers[1] = layer end
+            end
+            catalog(motion)
+            for layer_index, layer in ipairs(layers) do
+                catalog(layer)
+                local layer_address = address(layer)
+                known_layers[layer_address] = component.name .. ":L" .. tostring(layer_index - 1)
+                R.layer_addresses[layer_address] = known_layers[layer_address]
+                observe_requests(layer)
+                local nodes, highest, mode = nodes_for(layer)
+                local lf, le = number(call(layer, "get_Frame")), number(call(layer, "get_EndFrame"))
+                for _, node in ipairs(nodes) do
+                    local n = node.object
+                    catalog(n)
+                    local bank, id = number(call(n, "get_MotionBankID")), number(call(n, "get_MotionID"))
+                    local bank_type = number(call(n, "get_MotionBankType"))
+                    local frame = number(property(n, "frame", { "get_Frame", "get_MotionFrame" }))
+                    local ending = number(property(n, "end", { "get_EndFrame", "get_MotionEndFrame" }))
+                    local frame_source = frame ~= nil and "node" or "unavailable"
+                    -- A layer clock is not each blend participant's own clock.
+                    -- Only alias it when the engine enumerated exactly one node.
+                    if frame == nil and #nodes == 1 and node.index == 0 and (mode == "count" or mode == "array") then
+                        frame, frame_source = lf, "single_node_layer"
+                    end
+                    local usable = bank ~= nil and id ~= nil and frame ~= nil and
+                        ((ending or le or 0) > 1) and not (bank == 0 and id == 1 and (ending or le or 0) <= 1)
+                    local row = { sample_index = sample_index, capture_time_s = time,
+                        render_callback = state.frame_callback_count, action_state_id = action_id,
+                        component = component.name, component_address = address(motion),
+                        layer = layer_index - 1, layer_address = layer_address,
+                        node_index = node.index, node_address = node.address, highest_weight = node.address == highest and 1 or 0,
+                        bank_id = bank, bank_type = bank_type, motion_id = id,
+                        motion_name = call(n, "get_MotionName"), motion_list = motion_list(motion, bank, bank_type),
+                        node_frame = number(property(n, "frame", { "get_Frame", "get_MotionFrame" })),
+                        node_end_frame = ending,
+                        node_speed = number(property(n, "speed", { "get_Speed", "get_PlaySpeed" })),
+                        node_weight = number(property(n, "weight", { "get_Weight", "get_BlendWeight" })),
+                        layer_frame = lf, layer_end_frame = le, layer_speed = number(call(layer, "get_Speed")),
+                        layer_weight = number(property(layer, "weight", { "get_Weight", "get_BlendWeight" })),
+                        motion_play_speed = number(call(motion, "get_PlaySpeed")), frame = frame,
+                        frame_source = frame_source, frame_units = "engine_native_unscaled",
+                        node_enumeration = mode, read_status = usable and "readable" or "incomplete_or_placeholder" }
+                    write_row(row)
+                    if usable then valid, last = true, row end
+                    local track = layer_address .. ":" .. tostring(node.index)
+                    local identity = tostring(bank) .. ":" .. tostring(id) .. ":" .. node.address
+                    if previous[track] ~= identity then
+                        write_event("animation_first_observed", known_layers[layer_address] .. ";bank=" .. tostring(bank) ..
+                            ";motion=" .. tostring(id) .. ";frame=" .. tostring(frame) .. ";source=" .. frame_source ..
+                            ";not_a_requested_start_frame=true")
+                        previous[track] = identity
+                    end
+                end
+            end
+        end
+        R.layer_addresses = known_layers
+        flush_requests()
+        if valid then R.valid_samples = R.valid_samples + 1 end
+        local status = valid and "readable" or "unavailable"
+        R.status = valid and string.format("[ANIM READ] %s L%d %s:%s f=%.3f (%s)",
+            last.component, last.layer, tostring(last.bank_id), tostring(last.motion_id), last.frame, last.frame_source) or
+            "[ANIM WARNING] Real clip/frame unavailable; do not infer entry frames"
+        if R.last_status ~= status then
+            R.last_status = status
+            write_event("animation_reader_status", status .. ";components=" .. tostring(#components) ..
+                ";hooks=" .. tostring(R.hook_count))
+        end
+        if sample_index % 120 == 0 then R.file:flush() end
+    end
+    function R.stop()
+        if not R.file then return end
+        flush_requests()
+        write_event("animation_reader_summary", "rows=" .. tostring(R.rows) .. ";readable_samples=" ..
+            tostring(R.valid_samples) .. ";dropped_requests=" .. tostring(R.dropped_requests))
+        R.file:flush(); R.file:close(); R.file = nil
+        R.layer_addresses, R.requests, previous = {}, {}, {}
+    end
+    return R
+end)()
+-- END DIRECT MOTION READER.
 
 local function safe_field_type_name(field)
     local ok, type_definition = pcall(function()
@@ -1641,6 +1965,7 @@ local function stop_capture(reason)
     end
 
     write_event("capture_health", "stopped; valid=" .. tostring(state.health_valid_sample_count))
+    animation_capture.stop()
     write_event("capture_stopped", reason or "F9")
 
     if state.samples_file ~= nil then
@@ -1658,6 +1983,8 @@ local function stop_capture(reason)
     report_status(string.format("Capture stopped: %d samples written.", state.sample_count))
     if state.health_valid_sample_count == 0 then
         show_toast("[REC WARNING] NO VALID HUNTER + MOTION SAMPLES", 5.0, 0xFF00AAFF)
+    elseif animation_capture.valid_samples == 0 then
+        show_toast("[SAVED / ANIM WARNING] No usable real animation frames", 5.0, 0xFF00AAFF)
     else
         show_toast("[SAVED] " .. tostring(state.sample_count) .. " SAMPLES WRITTEN", 2.5, 0xFF00FF00)
     end
@@ -1673,6 +2000,7 @@ local function start_capture(trigger)
     local basename = string.format("mhrise_%s_%02d", timestamp, state.serial)
     local samples_path = OUTPUT_DIRECTORY .. "/" .. basename .. "_samples.csv"
     local events_path = OUTPUT_DIRECTORY .. "/" .. basename .. "_events.csv"
+    local animation_path = OUTPUT_DIRECTORY .. "/" .. basename .. "_animation.csv"
 
     local samples_file, samples_error = io.open(samples_path, "w")
     if samples_file == nil then
@@ -1684,6 +2012,13 @@ local function start_capture(trigger)
     if events_file == nil then
         samples_file:close()
         set_error("Cannot create " .. events_path .. ": " .. tostring(events_error))
+        return
+    end
+    local animation_ok, animation_error = animation_capture.start(animation_path)
+    if not animation_ok then
+        samples_file:close()
+        events_file:close()
+        set_error("Cannot create " .. animation_path .. ": " .. tostring(animation_error))
         return
     end
 
@@ -1748,9 +2083,12 @@ local function start_capture(trigger)
         table.insert(sample_header, prefix .. "highest_weight_node")
     end
     samples_file:write(table.concat(sample_header, ",") .. "\n")
+    state.sample_column_count = #sample_header
     events_file:write("event_index,capture_time_s,event,vertical_phase,details\n")
     write_event("capture_started", (trigger or "unknown trigger") .. "; raw hunter + primary camera world Transform capture")
     write_event("gamepad_input_schema", state.gamepad_backend .. "; buttons=" .. table.concat(gamepad_button_names, ","))
+    write_event("animation_reader_schema", "v1.13.0; file=" .. animation_path ..
+        ";frames=engine_native_unscaled;legacy_layers_are_not_attack_frame_truth")
     samples_file:flush()
     events_file:flush()
     report_status("Capture started by " .. (trigger or "unknown trigger") .. ": " .. samples_path)
@@ -1890,8 +2228,20 @@ local function record_sample()
         table.insert(row, csv_text(captured_motion_value(layer_data.loop_ok, layer_data.is_loop)))
         table.insert(row, csv_text(layer_data.highest_node))
     end
+    assert(#row == state.sample_column_count, "Sample CSV column count mismatch")
     local written, write_error = state.samples_file:write(table.concat(row, ",") .. "\n")
     if written == nil then error("Sample CSV write failed: " .. tostring(write_error)) end
+    local animation_ok, animation_error = pcall(animation_capture.sample,
+        state.sample_count, state.capture_time,
+        captured_motion_value(motion_layers.player_motion_old_id_ok, motion_layers.player_motion_old_id))
+    if not animation_ok then
+        animation_capture.status = "[ANIM ERROR] Read failed; trajectory capture continues"
+        animation_capture.last_status = "error"
+        if animation_capture.last_error ~= tostring(animation_error) then
+            animation_capture.last_error = tostring(animation_error)
+            write_event("animation_reader_error", animation_capture.last_error)
+        end
+    end
     local first_layer = motion_layers.layers[1] or {}
     local motion_available = (motion_layers.player_motion_old_id_ok and motion_layers.player_motion_old_id ~= nil) or
         (first_layer.motion_ok and first_layer.motion_id ~= nil)
@@ -1953,8 +2303,8 @@ end
 local function draw_capture_feedback()
     local capture_key = key_name(state.capture_key_name)
     if state.recording then
-        draw.filled_rect(20, 20, 560, 46, 0xB0000000)
-        draw.outline_rect(20, 20, 560, 46, 0xFF0000FF)
+        draw.filled_rect(20, 20, 730, 68, 0xB0000000)
+        draw.outline_rect(20, 20, 730, 68, 0xFF0000FF)
         draw.text(
             "[REC] TRAJECTORY CAPTURE  |  " .. capture_key .. ": STOP  |  Samples: " .. tostring(state.sample_count),
             32,
@@ -1962,6 +2312,8 @@ local function draw_capture_feedback()
             0xFF0000FF
         )
         draw.text(state.health_message, 32, 52, state.health_state == "stalled" and 0xFF00AAFF or 0xFFFFFFFF)
+        draw.text(animation_capture.status, 32, 69,
+            animation_capture.last_status == "readable" and 0xFF00FF00 or 0xFF00AAFF)
     elseif state.binding_capture_key then
         draw.filled_rect(20, 20, 530, 34, 0xA0000000)
         draw.outline_rect(20, 20, 530, 34, 0xFFFFAA00)
@@ -1972,14 +2324,14 @@ local function draw_capture_feedback()
         -- This distinguishes "script loaded" from "frame/draw callbacks alive".
         draw.filled_rect(20, 20, 500, 34, 0xA0000000)
         draw.outline_rect(20, 20, 500, 34, 0xFF00FFFF)
-        draw.text("[REC READY] " .. capture_key .. ": " .. (state.capture_key_down and "DOWN" or "UP") ..
+        draw.text("[REC READY v" .. SCRIPT_VERSION .. "] " .. capture_key .. ": " .. (state.capture_key_down and "DOWN" or "UP") ..
             " | Press key or click Recorder window", 30, 29, 0xFF00FFFF)
     end
 
     if state.toast_text ~= nil and os.clock() < state.toast_until then
-        draw.filled_rect(20, 78, 560, 48, 0xC0000000)
-        draw.outline_rect(20, 78, 560, 48, state.toast_color)
-        draw.text(state.toast_text, 32, 89, state.toast_color)
+        draw.filled_rect(20, 94, 730, 48, 0xC0000000)
+        draw.outline_rect(20, 94, 730, 48, state.toast_color)
+        draw.text(state.toast_text, 32, 105, state.toast_color)
     end
 end
 
@@ -1987,13 +2339,15 @@ local function draw_quick_control_widget()
     -- REFramework permits standalone ImGui windows from on_frame when wrapped
     -- in begin_window/end_window. Keep this small control visible even while
     -- the main REFramework menu is closed, so recording never depends on a key.
-    imgui.set_next_window_pos({ 20, 66 }, 4)
-    imgui.set_next_window_size({ 360, 218 }, 4)
+    imgui.set_next_window_pos({ 20, 148 }, 4)
+    imgui.set_next_window_size({ 540, 245 }, 4)
     local contents_visible = imgui.begin_window("MHGZ Recorder Control", nil, nil)
     if contents_visible then
+        imgui.text("Recorder v" .. SCRIPT_VERSION)
         if state.recording then
             imgui.text("Recording: " .. tostring(state.sample_count) .. " samples")
             imgui.text(state.health_message)
+            imgui.text(animation_capture.status)
             if imgui.button("STOP AND SAVE") then
                 toggle_capture("quick recorder window")
             end
@@ -2137,8 +2491,8 @@ re.on_draw_ui(function()
 
     imgui.text("Output: reframework/data/" .. OUTPUT_DIRECTORY)
     imgui.text("Samples: " .. tostring(state.sample_count))
-    imgui.text("F9 rows include layer state, the highest-weight action node, PlayerMotionControl ID,")
-    imgui.text("and the primary camera's world Transform (cam_* columns).")
+    imgui.text("F9: samples.csv = trajectory/input + legacy behavior layers; animation.csv = actual Motion nodes.")
+    imgui.text(animation_capture.status)
     imgui.text("F8 remains an optional verbose state probe for diagnostics.")
     if state.last_probe_path ~= nil then
         imgui.text("Last probe: " .. state.last_probe_path)

@@ -120,7 +120,8 @@ void UMHGZMotionMatchingAnimInstance::InstallLoopDatabase(const FMotionMatchingA
 			if (bEntryMatch)
 			{
 				Blend.BlendTime = FMHGZLocomotionBlendPolicy::EntryDuration(AuthoredDuration,
-					MM->GetCurrentAssetLength(), MM->GetAccumulatedTime(), MMNodeUpdateDelta[I]);
+					MM->GetCurrentAssetLength(), MM->GetAccumulatedTime(), MMNodeUpdateDelta[I],
+					MM->AnimPlayers.IsEmpty() ? 1.f : MM->AnimPlayers[0].GetPlayRate());
 			}
 			bool bValid = false;
 			UMotionMatchingAnimNodeLibrary::OverrideMotionMatchingBlendSettings(Reference, Blend, bValid);
@@ -138,10 +139,14 @@ bool UMHGZMotionMatchingAnimInstance::TryRouteStartToLoop(const FMotionMatchingA
 	EMHGZMotionMatchingNode Node)
 {
 	if (!bMMHasLocomotionInput || bMMForceIdle || bMMStopRequestActive || bStartQueryActive
+		|| !bStartQueryObservedStart
 		|| (Node == EMHGZMotionMatchingNode::Unsheathed) != bMMUnsheathedLocomotion) { return false; }
 	const auto* MM = Reference.GetAnimNodePtr<FAnimNode_MotionMatching>();
 	const auto* Source = MM ? Cast<UAnimSequenceBase>(MM->GetAnimAsset()) : nullptr;
 	if (!Source || !Source->GetName().Contains(TEXT("_Start"))) { return false; }
+	// A full-body action can pause this player's old Start while temporal reset
+	// clears the query. Inactive Intent alone is not a completed Start: require
+	// an observed Start in this input cycle, which reset/release explicitly retires.
 	// The existing Start Intent is the semantic gate. BlockTransition marks poses
 	// that cannot be FRESH candidates; it is not a lock on leaving the source.
 	if (UPoseSearchDatabase* Loop = GetMobileExitLoopDatabase(Node))

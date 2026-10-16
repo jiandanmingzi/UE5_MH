@@ -7,6 +7,8 @@
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "CollisionQueryParams.h"
+#include "Components/SkeletalMeshComponent.h"
+#include "Components/BoxComponent.h"
 #include "InsectGlaive/Kinsect/KinsectCollisionComponent.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "../../Shared/MHGZM3TestHarness.h"
@@ -194,9 +196,82 @@ bool FMHGZM632AutoMarkOnlyRunsDetachedAndUsesRealHit::RunTest(
 		EKinsectCommandSource::AutoMark);
 	TestTrue(TEXT("the active automatic request is current for this Runtime and mark"),
 		Harness.Resource->IsKinsectCommandCurrent(Harness.Kinsect->ActiveRequest));
+	FVector MarkNormal;
+	TestTrue(TEXT("marked surface frame remains valid"),
+		Harness.Resource->GetKinsectMarkSurfaceFrame(
+			Harness.Kinsect->ActiveRequest.MarkSerial, MovedMarkLocation, MarkNormal));
+	const FVector ToMark = (MovedMarkLocation - Harness.Kinsect->GetActorLocation()).GetSafeNormal();
+	TestTrue(TEXT("arrival faces the actual mark instead of the last travel heading"),
+		FVector::DotProduct(Harness.Kinsect->GetAttackForwardVector(), ToMark) > 0.999);
+	FHitResult Contact;
+	const FKinsectFlightRequest AutoRequest = Harness.Kinsect->ActiveRequest;
+	Harness.Kinsect->Mesh->AddWorldRotation(FRotator(0, 0, 180));
+	TestFalse(TEXT("the mark proxy cannot damage through the Kinsect's back"),
+		Harness.Kinsect->SweepAutomaticMarkContact(AutoRequest.CommandSerial,
+			AutoRequest.MarkSerial, AutoRequest.RuntimeToken, Contact));
+	TestFalse(TEXT("stale mark cannot change facing"),
+		Harness.Kinsect->FaceAutomaticMark(AutoRequest.CommandSerial, AutoRequest.MarkSerial + 1));
+	TickM632World(Harness, 1, 1.0f / 60.0f);
+	TestTrue(TEXT("hover refresh restores facing before the next attack interval"),
+		FVector::DotProduct(Harness.Kinsect->GetAttackForwardVector(), ToMark) > 0.999);
+	TestTrue(TEXT("front nearby marked surface still produces a real contact"),
+		Harness.Kinsect->SweepAutomaticMarkContact(AutoRequest.CommandSerial,
+			AutoRequest.MarkSerial, AutoRequest.RuntimeToken, Contact));
+	Harness.Kinsect->SetActorLocation(Harness.Kinsect->GetActorLocation() - ToMark * 200);
+	TestFalse(TEXT("mark-centered proxy ray cannot damage from afar"),
+		Harness.Kinsect->SweepAutomaticMarkContact(AutoRequest.CommandSerial,
+			AutoRequest.MarkSerial, AutoRequest.RuntimeToken, Contact));
 
 	Harness.Teardown();
 	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZKinsectLowMarkFrontContact,
+	"MHGZ.Maintenance.Kinsect.LowMarkFloorClearanceAndImmediateFacing",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZKinsectLowMarkFrontContact::RunTest(const FString&)
+{
+	FScopedM632FrameCounter FrameCounterGuard;
+	FMHGZM632Harness H;
+	if (!H.Setup()) { return false; }
+	H.CombatConfig->KinsectAutoMarkAttackInterval = 0.1f;
+	AActor* Floor = H.World->SpawnActor<AActor>();
+	UBoxComponent* Box = NewObject<UBoxComponent>(Floor);
+	Floor->SetRootComponent(Box); Floor->AddInstanceComponent(Box);
+	Box->SetBoxExtent(FVector(1500, 1500, 50));
+	Box->SetCollisionObjectType(ECC_WorldStatic);
+	Box->SetCollisionResponseToAllChannels(ECR_Block);
+	Box->SetCollisionEnabled(ECollisionEnabled::QueryOnly); Box->RegisterComponent();
+	Box->SetWorldLocation(FVector(0, 0, -50));
+	const FMHGZM632MarkTarget Target = SpawnM632MarkTarget(*H.World, FVector(300, 0, 0), true);
+	if (!TestNotNull(TEXT("low marked target exists"), Target.Attributes))
+	{ H.Teardown(); return false; }
+	const FVector MarkPoint(270, 0, 0);
+	FHitResult MarkHit = MakeM632MarkHit(Target, MarkPoint);
+	MarkHit.ImpactNormal = -FVector::ForwardVector;
+	TestTrue(TEXT("low side mark is established"), H.Resource->SetKinsectMarkFromMeleeHit(MarkHit));
+	TestTrue(TEXT("player deploys before automation"), H.Resource->DeployKinsect(MakeM632PlayerHoverRequest(H)));
+	H.Kinsect->Interrupt();
+	// Same floor-safe approach produced by ResolveAutomaticMarkApproachPoint:
+	// 32cm surface-normal standoff, raised to 34cm by the ground sweep.
+	H.Kinsect->SetActorLocation(FVector(238, 0, 34));
+	TickM632World(H, 1, 1.0f / 60.0f);
+	TestEqual(TEXT("already at the approach uses contact, not a new flight"),
+		H.Kinsect->GetState(), EKinsectState::Hovering);
+	TestEqual(TEXT("contact is owned by the current auto-mark request"),
+		H.Kinsect->ActiveRequest.CommandSource, EKinsectCommandSource::AutoMark);
+	TestTrue(TEXT("immediate contact faces the low mark in 3D"),
+		FVector::DotProduct(H.Kinsect->GetAttackForwardVector(),
+			(MarkPoint - H.Kinsect->GetActorLocation()).GetSafeNormal()) > 0.999);
+	const float Health = Target.Attributes->GetHealth();
+	TickM632World(H, 20, 1.0f / 60.0f);
+	TestTrue(TEXT("floor clearance does not disable a valid front contact"),
+		Target.Attributes->GetHealth() < Health);
+	TestTrue(TEXT("facing downward never tilts the physical capsule into the ground"),
+		H.Kinsect->GetActorUpVector().Equals(FVector::UpVector, 0.001));
+	H.Teardown(); return true;
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(

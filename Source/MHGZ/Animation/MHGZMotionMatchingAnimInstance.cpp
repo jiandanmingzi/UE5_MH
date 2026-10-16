@@ -254,6 +254,10 @@ void UMHGZMotionMatchingAnimInstance::NativeInitializeAnimation()
 	MMStartQueryElapsed = 0.0f;
 	MMStartQueryDuration = 0.0f;
 	MMActualSpeed2D = 0.0f;
+	MMQuerySpeed2D = MMExpectedWorldCruiseSpeed = 0.f;
+	MMUnsheathedMoveSpeedMultiplier = MMUnsheathedAppliedSpeedMultiplier = 1.f;
+	bMMCanApplyUnsheathedSpeed = false;
+	MMBaseCruiseSpeed = 0.f;
 	MMIntentQuery = 0.0f;
 	MMDistanceToStopQuery = 0.0f;
 	MMStopGaitQuery = 0.0f;
@@ -393,6 +397,7 @@ void UMHGZMotionMatchingAnimInstance::OnUnsheathedMotionMatchingPreUpdate(
 {
 	PrepareLoopContinuity(Context, AnimNodeReference, EMHGZMotionMatchingNode::Unsheathed);
 	RouteMotionMatchingPreSearch(AnimNodeReference, EMHGZMotionMatchingNode::Unsheathed);
+	ApplyUnsheathedLocomotionSpeed(AnimNodeReference);
 }
 
 void UMHGZMotionMatchingAnimInstance::OnSheathedMotionMatchingStateUpdated(
@@ -1096,6 +1101,9 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 	{
 		ResetActionVisualPitchLocalState();
 		MMActualSpeed2D = 0.0f;
+		MMQuerySpeed2D = MMExpectedWorldCruiseSpeed = 0.f;
+		MMUnsheathedMoveSpeedMultiplier = MMUnsheathedAppliedSpeedMultiplier = 1.f;
+		bMMCanApplyUnsheathedSpeed = false;
 		MMIntentQuery = 0.0f;
 		MMDistanceToStopQuery = 0.0f;
 		MMStopGaitQuery = 0.0f;
@@ -1159,6 +1167,7 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 	const FVector CurrentLocation = Character->GetActorLocation();
 	const UCharacterMovementComponent* MovementComponent = Character->GetCharacterMovement();
 	const bool bMovingOnGround = MovementComponent && MovementComponent->IsMovingOnGround();
+	UpdateLocomotionSpeed(*Character, DeltaSeconds);
 	const bool bExternalForceMMIdle = Character->bForceMMIdle;
 	const float PostActionIdleHoldDuration = CVarMHGZMMPostActionIdleHold.GetValueOnGameThread() != 0
 		? MMForceIdleReleaseHoldDuration
@@ -1192,7 +1201,7 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 		&& !bWasForceMMIdle
 		&& !bHadMoveInput
 		&& Character->bHasInput
-		&& MMActualSpeed2D <= MMStartEligibilitySpeed
+		&& MMQuerySpeed2D <= MMStartEligibilitySpeed
 		&& MMStartInputSettleRemaining <= KINDA_SMALL_NUMBER
 		&& MMStartInputSettleDuration > KINDA_SMALL_NUMBER;
 	if (bBeginStartInputSettle)
@@ -1263,6 +1272,10 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 	}
 
 	MMActualSpeed2D = FrameDistance / FMath::Max(DeltaSeconds, KINDA_SMALL_NUMBER);
+	// The measured displacement came from the previous graph update. Divide by
+	// that update's applied rate, never by the new target buff. PSD speeds and
+	// prediction horizons stay in their original source-animation units.
+	MMQuerySpeed2D = MMActualSpeed2D / GetLocomotionPlaybackRateScale(Character->bUnsheathed);
 
 	const bool bHasInput = Character->bHasInput;
 	bMMHasLocomotionInput = bHasInput;
@@ -1285,7 +1298,7 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 	bPreviousUnsheathedState = bUnsheathed;
 
 	const bool bInputStarted = !bHadMoveInput && bHasInput
-		&& MMActualSpeed2D <= MMStartEligibilitySpeed;
+		&& MMQuerySpeed2D <= MMStartEligibilitySpeed;
 	const bool bInputReleased = bHadMoveInput && !bHasInput;
 	MMMoveGaitQuery = bHasInput
 		? GetStopGaitCurveValue(GetGaitFromTargetSpeed(TargetSpeed)) : 0.0f;
@@ -1311,14 +1324,14 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 		UpdateLegacyIntentQueries(bHasInput, bInputStarted, bInputReleased, DeltaSeconds);
 	}
 
-	const float DecelerationReferenceSpeed = FMath::Max(MMActualSpeed2D,
+	const float DecelerationReferenceSpeed = FMath::Max(MMQuerySpeed2D,
 		MMLastNonZeroCruiseSpeed);
 	const float StopDeceleration = SelectStopDeceleration(bUnsheathed,
 		DecelerationReferenceSpeed);
 	if (bUnsheathed && LegacyStopMode == EMHGZLegacyStopMode::AwaitingStopCandidate)
 	{
-		MMDistanceToStopQuery = !bHasInput && MMActualSpeed2D > MMIdleSpeedThreshold
-			? MHGZMotionMatching::CalculateStopDistanceQuery(MMActualSpeed2D, StopDeceleration)
+		MMDistanceToStopQuery = !bHasInput && MMQuerySpeed2D > MMIdleSpeedThreshold
+			? MHGZMotionMatching::CalculateStopDistanceQuery(MMQuerySpeed2D, StopDeceleration)
 			: 0.0f;
 	}
 	else if (bUnsheathed && LegacyStopMode != EMHGZLegacyStopMode::FollowingStopCurve)
@@ -1329,10 +1342,10 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 	}
 
 	const float TrajectoryTargetSpeed = bHasInput ? TargetSpeed : 0.0f;
-	const float TrajectoryAcceleration = TrajectoryTargetSpeed >= MMActualSpeed2D
+	const float TrajectoryAcceleration = TrajectoryTargetSpeed >= MMQuerySpeed2D
 		? SelectStartAcceleration(bUnsheathed, TrajectoryTargetSpeed)
 		: StopDeceleration;
-	BuildPredictedTrajectory(Character->GetActorTransform(), MMActualSpeed2D,
+	BuildPredictedTrajectory(Character->GetActorTransform(), MMQuerySpeed2D,
 		TrajectoryTargetSpeed, TrajectoryAcceleration);
 
 	bMMStopRequestActive = SheathedStopMode != EMHGZSheathedStopMode::None
@@ -2720,6 +2733,9 @@ void UMHGZMotionMatchingAnimInstance::UpdateRuntimeTelemetry(const AMHGZCharacte
 		ToCSVFloat(GetPredictedForwardDistance(0.5f, Origin, TrajectoryForward)),
 		ToCSVFloat(GetPredictedForwardDistance(0.8f, Origin, TrajectoryForward)),
 		ToCSVFloat(GetPredictedForwardDistance(1.0f, Origin, TrajectoryForward)) });
+	MMQueryFields.Append({ ToCSVFloat(MMUnsheathedMoveSpeedMultiplier),
+		ToCSVFloat(MMUnsheathedAppliedSpeedMultiplier), ToCSVFloat(MMQuerySpeed2D),
+		ToCSVFloat(MMExpectedWorldCruiseSpeed) });
 	RuntimeTelemetryMMQueryPendingRows.Add(FString::Join(MMQueryFields, TEXT(",")));
 
 	TArray<FString> AnimationFields;
@@ -3012,7 +3028,7 @@ bool UMHGZMotionMatchingAnimInstance::StartRuntimeTelemetry(const AMHGZCharacter
 	const FString CapsuleHitsHeader = TEXT("WorldTimeSeconds,Frame,EventSerial,OtherActor,OtherComponent,LocationX,LocationY,LocationZ,ImpactPointX,ImpactPointY,ImpactPointZ,ImpactNormalX,ImpactNormalY,ImpactNormalZ,NormalX,NormalY,NormalZ") LINE_TERMINATOR;
 	const FString CombatEventsHeader = TEXT("SessionID,WorldTimeSeconds,Frame,EventSerial,Event,RuntimeGeneration,ActivationSequenceID,MarkID,CommandSerial,FlightID,SourceAttackID,HitID,PowderID,ReservationID,ExplosionID,StageIndex,StageAttackID,TargetActor,Hitzone,ImpactPointX,ImpactPointY,ImpactPointZ,SpawnPolicy,ResourceTag,Reason,ExpireAt,LifetimeRevision,MemberCount,Damage") LINE_TERMINATOR;
 	const FString UIEventsHeader = TEXT("SessionID,WorldTimeSeconds,Frame,EventSerial,Event,RuntimeGeneration,Reason,SubjectClass,Pawn,DroppedCount") LINE_TERMINATOR;
-	const FString MMQueryHeader = TEXT("WorldTimeSeconds,Frame,Unsheathed,IntentQuery,DistanceToStopQuery,StopGaitQuery,MoveGaitQuery,SheathedCandidateSet,SheathedTargetGait,LastNonZeroCruiseSpeed,StartQueryActive,StartQueryElapsed,StartQueryDuration,SheathedStopMode,LegacyStopMode,ExternalForceMMIdle,EffectiveForceMMIdle,ForceIdleReleaseHoldRemaining,StartInputSettleRemaining,HasLocomotionInput,StopRequestActive,ExitWantsMoveDatabase,ActionIdleContextActive,ActionIdleContextUnsheathed,ActionIdleContextSerial,SheathedActionExitRoute,UnsheathedActionExitRoute,SheathedActionExitSerial,UnsheathedActionExitSerial,SheathedExitSelectedTime,UnsheathedExitSelectedTime,PredictedDistance0,PredictedDistance0p2,PredictedDistance0p5,PredictedDistance0p8,PredictedDistance1p0") LINE_TERMINATOR;
+	const FString MMQueryHeader = TEXT("WorldTimeSeconds,Frame,Unsheathed,IntentQuery,DistanceToStopQuery,StopGaitQuery,MoveGaitQuery,SheathedCandidateSet,SheathedTargetGait,LastNonZeroCruiseSpeed,StartQueryActive,StartQueryElapsed,StartQueryDuration,SheathedStopMode,LegacyStopMode,ExternalForceMMIdle,EffectiveForceMMIdle,ForceIdleReleaseHoldRemaining,StartInputSettleRemaining,HasLocomotionInput,StopRequestActive,ExitWantsMoveDatabase,ActionIdleContextActive,ActionIdleContextUnsheathed,ActionIdleContextSerial,SheathedActionExitRoute,UnsheathedActionExitRoute,SheathedActionExitSerial,UnsheathedActionExitSerial,SheathedExitSelectedTime,UnsheathedExitSelectedTime,PredictedDistance0,PredictedDistance0p2,PredictedDistance0p5,PredictedDistance0p8,PredictedDistance1p0,UnsheathedMoveSpeedMultiplier,UnsheathedAppliedSpeedMultiplier,QuerySpeed2D,ExpectedWorldCruiseSpeed") LINE_TERMINATOR;
 	const FString MMSelectionHeader = TEXT("Frame,Node,SelectedDatabase,SelectedAnimation,SelectedTime,SearchCost,WantedPlayRate,HasSelectionResult,IsContinuing,IsLooping,IsMirrored,QueryIntent,QueryDistanceToStop,QueryStopGait,QueryMoveGait,CandidateIntent,CandidateDistanceToStop,CandidateStopGait,CandidateMoveGait,IntentDelta,DistanceToStopDelta,StopGaitDelta,MoveGaitDelta,IntentWeightedSquaredEstimate,DistanceToStopWeightedSquaredEstimate,StopGaitWeightedSquaredEstimate,MoveGaitWeightedSquaredEstimate,LoopPhaseQueryX,LoopPhaseQueryY,LoopQuerySource,LoopHistoryEntriesRemoved,PreBlendActivePlayers") LINE_TERMINATOR;
 	const FString AnimationHeader = TEXT("WorldTimeSeconds,Frame,ActiveActions,MontageRootMotionOwnerAction,MontageRootMotionOwned,ActiveMontage,ActiveMontageTime,ActiveMontageLength,ActiveMontagePlayRate,HandoffActive,HandoffType,HandoffSerial,HandoffRawMoveRight,HandoffRawMoveForward,HandoffHasRawMoveInput,HandoffHadRawMoveInputInMobilePhase,PendingStopAtHandoff,HandoffLastActiveRawMoveCruiseSpeed,AerialFallingMontage,AerialFallingMontageReferenced,AerialFallingRootMotionDisabledByHost,AerialFallingMontageInstanceFound,AerialFallingInstanceRootMotionDisabled,AerialLandingMontage,AerialLandingMontageReferenced,AerialLandingRootMotionDisabledByHost,AerialLandingMontageInstanceFound,AerialLandingInstanceRootMotionDisabled,CameraManagerClass,CameraViewPitch,CameraViewPitchMin,CameraViewPitchMax,ActionVisualPitchActive,ActionVisualPitchDegrees,ActionVisualPitchWeight,ActionVisualPitchComponentPitch,ActionVisualPitchComponentYaw,ActionVisualPitchComponentRoll,LockedDirectionX,LockedDirectionY,LockedDirectionZ,ActionActivationSequenceID,PitchSourceMontageInstanceID,PitchStateRevision,PitchStateValid,PitchStateReleasing,KinsectPiercerActive,KinsectPiercerActivationSequenceID,KinsectPiercerPhase,KinsectPiercerCurveElapsedSeconds,KinsectPiercerCurveCoveredSeconds,KinsectPiercerMovementLease,KinsectPiercerRecordedTrajectoryActive,KinsectPiercerActionMovementOwned,KinsectPiercerAerialAttackBudgetSpent,KinsectPiercerDanceSource,KinsectPiercerSourceTagPresent,KinsectPiercerLockedYawX,KinsectPiercerLockedYawY,KinsectPiercerMainMontageInstanceID,KinsectPiercerLandingMontageInstanceID,KinsectPiercerLandingMontageTimeSeconds,KinsectPiercerLandingRootMotionOwned,KinsectPiercerLandingRootMotionModeCaptured,KinsectPiercerAnimRootMotionMode,KinsectPiercerSegmentConfigCount,KinsectPiercerLastSuccessfulConfigIndex,KinsectPiercerSegment0SuccessfulTargets,KinsectPiercerSegment1SuccessfulTargets,KinsectPiercerSegment2SuccessfulTargets,")
 		TEXT("DescendingThrustActive,DescendingThrustActivationSequenceID,DescendingThrustPhase,DescendingThrustInputTag,DescendingThrustInputSourceControlTag,DescendingThrustInputSequenceID,DescendingThrustPhysicalPressDurationSeconds,DescendingThrustInputReleaseFallback,DescendingThrustPriorAerialSource,DescendingThrustPublishedAerialSource,DescendingThrustCurrentMontageSection,DescendingThrustMainMontageInstanceID,DescendingThrustLandingMontageInstanceID,DescendingThrustActionClockSeconds,DescendingThrustMovementLease,DescendingThrustRecordedTrajectoryActive,DescendingThrustActionMovementOwned,DescendingThrustLandingRootMotionOwned,DescendingThrustLandingRootMotionModeCaptured,DescendingThrustSavedAnimRootMotionMode,DescendingThrustCurrentAnimRootMotionMode,DescendingThrustLockedPlanarVelocityX,DescendingThrustLockedPlanarVelocityY,DescendingThrustLockedPlanarVelocityZ,DescendingThrustFrozenDanceDamageMultiplier,DescendingThrustLastSuccessfulSegmentIndex,DescendingThrustSegment0DamageInstanceID,DescendingThrustSegment1DamageInstanceID,DescendingThrustSegment2DamageInstanceID,DescendingThrustSegment3DamageInstanceID,DescendingThrustSegment0SuccessfulTargets,DescendingThrustSegment1SuccessfulTargets,DescendingThrustSegment2SuccessfulTargets,DescendingThrustSegment3SuccessfulTargets,")
@@ -3417,6 +3433,7 @@ void UMHGZMotionMatchingAnimInstance::ResetMMTemporalState(const FVector& Curren
 	MMStartQueryDuration = 0.0f;
 	MMActualSpeed2D = 0.0f;
 	MMIntentQuery = 0.0f;
+	MMQuerySpeed2D = 0.f;
 	MMDistanceToStopQuery = 0.0f;
 	MMStopGaitQuery = 0.0f;
 	MMMoveGaitQuery = 0.0f;

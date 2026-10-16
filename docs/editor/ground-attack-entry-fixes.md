@@ -1,6 +1,6 @@
 # 六组地面攻击入口修正
 
-2026-10-14。当前状态：**代码、资产保存、独立磁盘重载和三项定向技术检查已完成；本轮尚未进行PIE视觉签收。** 原作录制来源及推断边界见 `Saved/Maintenance/GroundAttackEntries/report.md`；修改证据和备份见 `Saved/Maintenance/GroundAttackEntryFix`。
+2026-10-15更新：**用户否定第14帧入口，Idle已统一使用前部原`Entry`；末尾两个Idle专用片段和Section已移除。** 原六组入口的代码、资产保存、独立磁盘重载和三项定向技术检查已完成；不因此重开全量验收。原作录制来源及推断边界见 `Saved/Maintenance/GroundAttackEntries/report.md`；原修改证据和备份见 `Saved/Maintenance/GroundAttackEntryFix`。
 
 ## 当前配置
 
@@ -13,7 +13,7 @@
 | 反向突进→上捞 | 独立`Entry_From_TuJinHuiXuanZhan_Back`播放完整305，再转第0帧`Core` | 两段均有效2×；内部惯性混合0.05s |
 | 上捞→袈裟 | GA专属边改用`Entry_From_TuCi`，119从第0帧连续播放；移除额外307相位 | 有效2×，不新增冻结；源/目标已有Montage混入混出保留 |
 | 拔刀斩 | 原300完整段保留；后续102从第67源帧进入，原结束源帧不变 | 两段仍有效2×；内部惯性混合0.05s |
-| 站立→突进回旋 | 独立`Entry_From_Idle`使用160第0–55帧；未蓄力时接`Release_From_Idle`第55–67帧，再接原`Core`第67帧至结束 | 普通路线完整连续2×；按住时改走原Charge，第55–67帧的两秒拉伸不变 |
+| 站立→突进回旋 | 与其他来源共用前部`Entry`：306第0–30帧→160第35–55帧；按住接`Charge`，提前松键则按既有规则接`Core` | Entry与Core有效2×；Charge第55–67帧的两秒拉伸不变 |
 
 横扫→上捞依旧是305→120第7帧，帧/倍率不变；它也共用上捞Montage的0.05s内部混合。原Core主体从15帧开始的错误已消除，`Core_From_Bridge`是在同一完整120片段内的第7帧Section，不是新增停帧。内部混合最初为0.06s，后续按用户要求随全部多序列Montage统一为0.05s；入口修正脚本的历史检查点不代表当前混合值。
 
@@ -21,11 +21,27 @@
 
 ## 蓄力兼容
 
-只给`ForwardYB_TuJinHuiXuanZhan`映射新的站立入口；突刺、袈裟来源仍走原`Entry`，六个既有片段及七个通知保留原源帧、倍率和时间，未做范围外入口清理。
+### 当前统一入口（2026-10-15）
 
-`UMHGZAdvancingChargeAbility`现在按实际启动入口设置Entry→Charge，并提供可选`UnchargedExitSectionByEntry`。本资产仅配置：`Entry_From_Idle → Release_From_Idle`。入口内已松开全部蓄力控制键时，播完入口后走正常速度第55–67帧，不漏帧；预输入激活时若物理键已经松开，也立即安装这条正常路线，避免先进入Charge再跳过续段。保持按住仍进入原Charge。Charge中松开仍立即进入Core，两秒最大蓄力/全部Y与B松开规则及反击逻辑没有改成原作无蓄力版本。
+第14帧只是姿态指标的最小值，用户目视仍发现武器瞬间脱离右手，因此该试验已否定。
+不再使用`Entry_From_Idle`/`Release_From_Idle`；它们对应的末尾两个片段也已删除，不仅是取消引用。
+Idle边移除专用GA入口覆盖，回退现有默认`Entry`；清除失效的未蓄力续段映射。
 
-没有改变旧动作的后摇源帧、Combo/Dodge窗口相对源帧或原混出配置。为了添加独立入口，Montage磁盘总长度变长，但Core的NextSection仍为None，不会收招后顺序播放新增站立入口；已由真实`FAnimMontageInstance`路由检查验证。
+当前物理顺序仅为前部原306入口、160第35–55帧、Charge第55–67帧、Core第67帧至末帧，
+共四片段、三个Section（Entry/Charge/Core）。不在收招后追加可选起手；以后确需独立入口时
+优先放在前部并同步检查所有Section/通知/标签窗口，不默认向Montage末尾拼接。
+
+按住：`Entry → Charge → Core`；Entry内已松开Y/B：`Entry → Core`；Charge内松开：立即进入Core。
+与原共享Entry行为一致，**不再保留Idle独有的正常速度55–67续段**。通用可选续段代码仍保留，
+但该GA不配置它；两秒最大蓄力、全部Y/B松开规则和反击逻辑不变。
+
+七个通知的GUID、轨道、配置与原动画相位保留：ChargeStarted对齐Charge起点；反击窗口从Core起点
+开放；三段AttackCollision、ComboWindow和DodgeAcceptWindow均留在Core，闪避窗口末端不超过实际末帧。
+GA除两处入口/续段映射外的导出内容保持一致，包括伤害和标签配置；未添加强制Idle或新输入限制。
+
+只备份/保存一份Montage与一份GA。事务及通知明细见`Saved/Maintenance/TuJinSharedEntry20261015/`。
+旧14帧试验仅保留历史证据，不再运行它的Apply/Verify。当前原生检查源已同步共享Entry；本轮不为
+资产整理编译C++或执行全量回归，运行时观感仍以局部PIE为准。
 
 ## 308资产与通知
 
@@ -43,6 +59,6 @@
 
 后续已批准的视觉桥接清理移除了突进旧Entry内的`EntryToCoreBlend`，其物理片段数由8变7，Section/通知整体扣除0.133333s，但源裁切、蓄力两秒及站立入口路由不变。当前只读验证识别`Saved/Maintenance/MontageBridgeRemoval`检查点并采用清理后配方；原生GroundEntries检查源码也同步了新片段索引和0.05s，不能用旧编译版本的8片段/0.06s断言判定当前资产错误。清理详情见[内部混合说明](montage-segment-blend.md)。
 
-再后续攻击Hold清理已移除突进EntryHold（当前6片段，Charge仍两秒）和袈裟TuJinEntryHold（当前2片段，突进来源直接映射`Entry_From_TuCi`），未改变剩余原动画帧。最新检查点为`Saved/Maintenance/AttackEntryHoldRemoval`；只读入口工具优先验证该已批准状态，原生检查源码同步6/2片段，下次编译生效。上述8/7片段记录是阶段历史，不是当前待恢复结构。
+再后续攻击Hold清理已移除突进EntryHold（该批完成时6片段，Charge仍两秒）和袈裟TuJinEntryHold（2片段，突进来源直接映射`Entry_From_TuCi`），未改变剩余原动画帧。该批检查点为`Saved/Maintenance/AttackEntryHoldRemoval`；后来突进统一Entry已进一步移除末尾两片段，**当前突进4片段**，以本页开头及`Saved/Maintenance/TuJinSharedEntry20261015`为准。旧8/7/6片段记录是阶段历史，不是待恢复结构；原生检查源已同步最新状态，下次常规编译生效。
 
-下一步仅短PIE观察这六组入口，重点是反向/普通上捞差别、拔刀67帧接缝，以及站立突进的普通松键/按住蓄力/蓄力中松开；不要求重验其他已签收系统。
+本轮只需局部PIE观察Idle→突进的起手、普通松键与按住蓄力；其他入口保留既有状态，不要求因这次整理重验六组或其他已签收系统。

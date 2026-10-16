@@ -82,13 +82,13 @@ class AMHGZCharacter : public ACharacter, public IAbilitySystemInterface
 	UCameraComponent* FollowCamera;
 
 	/**
-	 * 模块化头部。Body、Head 的共同骨骼名相同但祖先链不同，因此它以自身
-	 * Head_00 参考变换的逆矩阵挂到身体 Head_00，而不是 Copy Pose 全骨架。
+	 * 模块化头部。与 Body 使用同一组件空间，通过 Leader Pose 按同名骨骼的
+	 * 组件空间姿势驱动胸/颈/头蒙皮；独有面部骨保留相对动画祖先的参考姿势。
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<USkeletalMeshComponent> HeadMesh;
 
-	/** 头发模块。以与头部相同的方式挂到 HeadMesh 的 Head_00。 */
+	/** 头发模块。与头部一样直接跟随 Body 姿势，不再叠加 Head_00 挂点变换。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<USkeletalMeshComponent> HairMesh;
 

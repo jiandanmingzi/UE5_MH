@@ -1157,6 +1157,12 @@ void URes_InsectGlaive::UpdateAutomaticMarkBehavior()
 		StartAutomaticMarkSeek();
 		return;
 	}
+	// Keep facing the local mark between attacks as its component/bone moves.
+	// Only the visual mesh rotates: the physical capsule must stay floor-safe.
+	if (!KinsectActor->FaceAutomaticMark(AutoMarkCommandSerial, AutoMarkCommandMarkSerial))
+	{
+		return;
+	}
 	if (Now >= NextAutoMarkActionWorldTime)
 	{
 		PerformAutomaticMarkContactAttack();
