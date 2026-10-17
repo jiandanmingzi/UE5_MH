@@ -6,6 +6,8 @@
 #include "Blueprint/WidgetTree.h"
 #include "Components/ProgressBar.h"
 #include "Components/TextBlock.h"
+#include "Components/CanvasPanelSlot.h"
+#include "Components/PanelWidget.h"
 #include "MHGZHUDDrawing.h"
 
 void UMHGZAttributeBarWidget::NativeConstruct()
@@ -68,9 +70,34 @@ void UMHGZAttributeBarWidget::ResolveDefaultAttributes()
 
 void UMHGZAttributeBarWidget::OnValueUpdated_Implementation(float Current, float Max)
 {
+	DisplayMaxValue = FMath::IsFinite(Max) ? FMath::Max(0.0f, Max) : 0.0f;
 	DisplayRatio = Max > UE_SMALL_NUMBER ? FMath::Clamp(Current / Max, 0.0f, 1.0f) : 0;
 	if (ValueBar) { ValueBar->SetPercent(DisplayRatio); }
+	UpdateGaugeLayout();
 	InvalidateLayoutAndVolatility();
+}
+
+float UMHGZAttributeBarWidget::GetGaugeWidth() const
+{
+	return ReferenceMaxValue > UE_SMALL_NUMBER && FMath::IsFinite(ReferenceMaxValue)
+		&& FMath::IsFinite(ReferenceGaugeWidth)
+		? FMath::Max(0.0f, ReferenceGaugeWidth) * DisplayMaxValue / ReferenceMaxValue : 0.0f;
+}
+
+void UMHGZAttributeBarWidget::UpdateGaugeLayout()
+{
+	// HUD里条控件填充Overlay，Overlay由Canvas定位。一起调整布局宽度，
+	// 不缩放图标/条高，也不把超过200的部分画到固定620宽布局之外。
+	UCanvasPanelSlot* CanvasSlot = Cast<UCanvasPanelSlot>(Slot);
+	if (!CanvasSlot && GetParent())
+	{
+		CanvasSlot = Cast<UCanvasPanelSlot>(GetParent()->Slot);
+	}
+	if (CanvasSlot)
+	{
+		const FVector2D Size = CanvasSlot->GetSize();
+		CanvasSlot->SetSize(FVector2D(38.0f + GetGaugeWidth(), Size.Y));
+	}
 }
 
 int32 UMHGZAttributeBarWidget::NativePaint(const FPaintArgs& Args,
@@ -88,8 +115,10 @@ int32 UMHGZAttributeBarWidget::NativePaint(const FPaintArgs& Args,
 	const FLinearColor Tint = Style.GetColorAndOpacityTint() * GetColorAndOpacity();
 	const FLinearColor Fill = (bStamina ? FLinearColor(0.86f, 0.66f, 0.06f, 1)
 		: FLinearColor(0.14f, 0.58f, 0.24f, 1)) * Tint;
-	Gauge(Out, Layer, Geometry, FVector2D(36, Y), FMath::Max(1.0, Size.X - 38),
-		Height, DisplayRatio, Fill);
+	if (const float Width = GetGaugeWidth(); Width > UE_SMALL_NUMBER)
+	{
+		Gauge(Out, Layer, Geometry, FVector2D(36, Y), Width, Height, DisplayRatio, Fill);
+	}
 	const FVector2D Emblem(17, Size.Y * 0.5);
 	if (bStamina)
 	{

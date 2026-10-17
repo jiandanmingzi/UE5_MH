@@ -10,7 +10,8 @@
 /**
  * Instant 耐力成本 GE。
  * 修饰器：Stamina 属性 Additive，幅度为 SetByCaller（Data.Cost.Stamina）。
- * 调用方（GA / Drain Task）在 Spec 上写入负值幅度。
+ * 调用方（GA / Drain Task）写负值；ASC统一回复写正值。
+ * 保留类名和Data.Cost.Stamina以兼容既有成本资产，实质为有符号耐力变化。
  */
 UCLASS()
 class MHGZ_API UMHGZStaminaCostGameplayEffect : public UGameplayEffect

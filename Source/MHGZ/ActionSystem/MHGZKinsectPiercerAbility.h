@@ -158,7 +158,7 @@ public:
 protected:
 	virtual bool ValidateActionDependencies() const override;
 
-	/** 空中相位的武器段乘舞踏倍率；203 实际触地后按地面规则，不乘。 */
+	/** 整个 GA 的所有武器伤害段共用出招时的舞踏倍率，包括203地面段。 */
 	virtual FGameplayEffectSpecHandle MakeDamageSpec(
 		const FHitResult& Hit, int32 SegmentIndex) override;
 
@@ -195,6 +195,7 @@ protected:
 private:
 	#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 	friend class FMHGZKM5KinsectPiercerTest;
+	friend class FMHGZIGDanceDamageTest;
 	friend class FMHGZM5LandingDodgeHandoffTestAccess;
 	#endif
 
@@ -227,7 +228,6 @@ private:
 
 	// ── 命中额度 ──
 	void RecordDamagedTarget(int32 SegmentIndex, const AActor* Target);
-	bool IsAirPhase() const;
 
 	// ── 收尾 ──
 	void CompletePiercerAction();
@@ -282,8 +282,8 @@ private:
 	/** `SegmentIndex → 本次激活内已成功伤害的目标`。三段各自独立，允许窗口重叠。 */
 	TArray<TSet<TWeakObjectPtr<const AActor>>> DamagedTargetsPerSegment;
 
-	/** Commit 时快照的舞踏倍率；只作用于仍为空中相位的武器 Spec。 */
-	float AirDamageMultiplier = 1.0f;
+	/** Commit 时快照；触地清层不改变本次 GA 的任何伤害段。 */
+	float FrozenDanceDamageMultiplier = 1.0f;
 
 	FTimerHandle DiveWatchdogTimer;
 	FDelegateHandle RuntimeInvalidationDelegateHandle;

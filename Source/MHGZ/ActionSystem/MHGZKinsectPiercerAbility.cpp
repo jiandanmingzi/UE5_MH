@@ -141,6 +141,8 @@ const URes_InsectGlaive* ResolveResourceFromASC(const UAbilitySystemComponent* A
 
 UMHGZKinsectPiercerAbility::UMHGZKinsectPiercerAbility()
 {
+	// 200/201/203实录没有扣耐，且连空中段也以地面20点/秒回复。
+	StaminaRecoveryOverride = 20.f;
 	InputTag = WeaponRTYTag();
 	DefaultEntrySection = StartSectionName;
 
@@ -484,9 +486,8 @@ void UMHGZKinsectPiercerAbility::ActivateAbility(
 		return;
 	}
 
-	// 舞踏倍率在 Commit 时快照。它只作用于仍为空中相位的武器段（§7）；
-	// 203 实际触地后按地面规则结算，不乘。
-	AirDamageMultiplier = Resource->GetDanceDamageMultiplier();
+	// Commit 时冻结倍率，整个 GA 的所有武器段共用；203 触地清层不影响本次快照。
+	FrozenDanceDamageMultiplier = Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectPiercer);
 
 	if (!StartPhaseMovement(EKinsectPiercerPhase::Start200))
 	{
@@ -1099,12 +1100,6 @@ bool UMHGZKinsectPiercerAbility::IsCurrentAction(const FWeaponActionToken& Actio
 		&& Host->IsTokenCurrent(ActionToken.RuntimeToken);
 }
 
-bool UMHGZKinsectPiercerAbility::IsAirPhase() const
-{
-	return Phase == EKinsectPiercerPhase::Start200
-		|| Phase == EKinsectPiercerPhase::Dive201;
-}
-
 bool UMHGZKinsectPiercerAbility::HasDamagedTarget(const int32 SegmentIndex,
 	const AActor* Target) const
 {
@@ -1217,18 +1212,16 @@ FGameplayEffectSpecHandle UMHGZKinsectPiercerAbility::MakeDamageSpec(
 {
 	FGameplayEffectSpecHandle Spec = Super::MakeDamageSpec(Hit, SegmentIndex);
 	if (!Spec.IsValid() || !AttackSegments.IsValidIndex(SegmentIndex)
-		|| !IsAirPhase() || AirDamageMultiplier <= 0.0f)
+		|| FrozenDanceDamageMultiplier <= 0.0f)
 	{
 		return Spec;
 	}
 
-	// 空中武器段乘舞踏倍率；203 实际触地后按地面规则，不乘（§7）。
-	// 这里的相位判定是主判据 —— Host 清层发生在触地那一刻，但结算不该依赖
-	// 「清层一定早于建 Spec」这种时序假设。
+	// 全部伤害段使用同一出招快照，包含触地后的203；不再按空中/地面相位分流。
 	Spec.Data->SetSetByCallerMagnitude(
 		FGameplayTag::RequestGameplayTag(TEXT("Damage.MotionValue")),
 		AttackSegments[SegmentIndex].Damage.MotionValue.GetValueAtLevel(GetAbilityLevel())
-			* AirDamageMultiplier);
+			* FrozenDanceDamageMultiplier);
 	return Spec;
 }
 
@@ -1431,7 +1424,7 @@ void UMHGZKinsectPiercerAbility::ResetActivationState()
 	LastSuccessfulConfigIndex = INDEX_NONE;
 	DamagedTargetsPerSegment.Reset();
 	DamagedTargetsPerSegment.SetNum(3);
-	AirDamageMultiplier = 1.0f;
+	FrozenDanceDamageMultiplier = 1.0f;
 	bLandingLatched = false;
 	bSwitchingToLanding = false;
 	bLandingMontageActive = false;

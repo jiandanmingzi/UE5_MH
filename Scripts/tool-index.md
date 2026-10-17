@@ -10,6 +10,7 @@
 
 | 工具 | 环境 | 用途简述 | 状态 |
 |---|---|---|---|
+| [AssetOrganization/setup_player_initial_attributes.py](AssetOrganization/setup_player_initial_attributes.py) | UE Python | 创建可编辑的出生血耐初始化GE并接入BP_PlayerState.CoreAttributeEffects；保留其他默认值和已有GE。 | 默认独立回查；首次Apply备份PlayerState，不覆盖已有GE；日后调参直接编辑资产 |
 | [AssetOrganization/apply_damage_formula_units.py](AssetOrganization/apply_damage_formula_units.py) | UE Python | Apply the insect-glaive damage-unit migration to project assets. | 历史迁移/排错；勿自动重跑 |
 | [AssetOrganization/repair_locomotion_boundaries.py](AssetOrganization/repair_locomotion_boundaries.py) | UE Python | 四条Loop首尾闭合及两份专用PSS入口速度特征；复用C++桥接，保留时长/累计位移/曲线/通知。 | 默认只读验证；Apply仅一次，先备份，拒绝覆盖已有事务 |
 | [AssetOrganization/audit_animation_assets.py](AssetOrganization/audit_animation_assets.py) | UE Python | Write a read-only Unreal animation inventory to Saved/AssetOrganization. | 按需；先核对参数/写入范围 |
@@ -23,7 +24,7 @@
 | [AssetOrganization/run_m6_ui_remote.py](AssetOrganization/run_m6_ui_remote.py) | 普通Python | Compatibility entry point for the M6 UI setup and read-only probe. | 按需；先核对参数/写入范围 |
 | [AssetOrganization/run_weapon_move_asset_pinyin_migration.py](AssetOrganization/run_weapon_move_asset_pinyin_migration.py) | UE Python | Run the reviewed weapon-move asset rename manifest through AssetTools. | 历史迁移/排错；勿自动重跑 |
 | [AssetOrganization/setup_m6_ui_widgets.py](AssetOrganization/setup_m6_ui_widgets.py) | UE Python | Create and wire the E6.3 HUD Widget Blueprints in UE 5.6. | 按需；先核对参数/写入范围 |
-| [AssetOrganization/setup_montage_segment_blend.py](AssetOrganization/setup_montage_segment_blend.py) | UE Python | 默认审计Slot惯性混合；--configure-montages配置0.05s元数据；--remove-synthetic-bridges移除5个桥接；--remove-attack-holds移除10个攻击保持并更新4份GA入口；对应verify只读回查 | 默认只读；显式Apply才备份保存；检查点阻止重复；不删除序列、不动翻滚保持/蓄力 |
+| [AssetOrganization/setup_montage_segment_blend.py](AssetOrganization/setup_montage_segment_blend.py) | UE Python | 默认审计Slot惯性混合；--configure-montages配置0.05s；--weapon-grip接入ABP并配置飞圆310→117持械约束；--remove-synthetic-bridges移除5个桥接；--remove-attack-holds移除10个攻击保持并更新4份GA入口；对应verify只读回查 | 默认只读；显式Apply才备份保存；检查点阻止重复；不删除序列、不动翻滚保持/蓄力 |
 | [AssetOrganization/apply_ground_attack_entries.py](AssetOrganization/apply_ground_attack_entries.py) | UE Python | 六组地面入口显式配方，原相位通知重定位及308副本；保留突进蓄力/未点名来源 | 已应用；默认/已应用时仅审计，勿删除检查点盲目重跑 |
 | [AssetOrganization/trigger_mhgz_livecoding_compile.py](AssetOrganization/trigger_mhgz_livecoding_compile.py) | UE Python | Ask the open MHGZ editor to compile and apply its Live Coding patch. | 按需；先核对参数/写入范围 |
 | [AssetOrganization/verify_demo_structure.py](AssetOrganization/verify_demo_structure.py) | 普通Python | Verify the Git-tracked Content scaffold required by the combat demo. | 按需；先核对参数/写入范围 |

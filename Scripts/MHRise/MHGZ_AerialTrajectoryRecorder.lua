@@ -14,7 +14,7 @@
 -- time scale.
 
 local SCRIPT_NAME = "MHGZ Aerial Trajectory Recorder"
-local SCRIPT_VERSION = "1.13.0"
+local SCRIPT_VERSION = "1.14.0"
 local OUTPUT_DIRECTORY = "MHGZ_AerialTrajectoryRecorder"
 local HOTKEY_CONFIG_FILE = "MHGZ_AerialTrajectoryRecorder_hotkey.txt"
 local VK_F9 = 0x78
@@ -981,6 +981,7 @@ local function get_master_player_position()
         local forward = quaternion_forward(quaternion)
 
         return {
+            player = player,
             x = position.x,
             y = position.y,
             z = position.z,
@@ -1268,6 +1269,29 @@ local function safe_get_field_value(object, field_name)
     end)
     return ok, value
 end
+
+-- BEGIN HUNTER STAMINA READER: raw units only; no setters or guessed conversion.
+local function read_hunter_stamina(player)
+    local result = { available = false, source = "PlayerData._stamina/_staminaMax" }
+    local ok, data = pcall(function() return player:call("get_PlayerData") end)
+    if not ok or data == nil then
+        result.error = "get_PlayerData unavailable"
+        return result
+    end
+    local current_ok, current = pcall(function() return tonumber(data:get_field("_stamina")) end)
+    local maximum_ok, maximum = pcall(function() return tonumber(data:get_field("_staminaMax")) end)
+    local function finite(value)
+        return type(value) == "number" and value == value and value > -math.huge and value < math.huge
+    end
+    if not current_ok or not maximum_ok or not finite(current) or not finite(maximum)
+        or current < 0 or maximum <= 0 or current > maximum + 0.001 then
+        result.error = "stamina fields missing, nonfinite, or outside 0..max"
+        return result
+    end
+    result.available, result.current, result.maximum = true, current, maximum
+    return result
+end
+-- END HUNTER STAMINA READER.
 
 local function contains_node_value_keyword(text)
     local lower_text = string.lower(tostring(text or ""))
@@ -2082,6 +2106,11 @@ local function start_capture(trigger)
         table.insert(sample_header, prefix .. "loop")
         table.insert(sample_header, prefix .. "highest_weight_node")
     end
+    for _, column in ipairs({ "stamina_available", "stamina_raw", "stamina_max_raw",
+        "stamina_source", "stamina_error" }) do
+        table.insert(sample_header, column)
+    end
+    state.stamina_read_status = nil
     samples_file:write(table.concat(sample_header, ",") .. "\n")
     state.sample_column_count = #sample_header
     events_file:write("event_index,capture_time_s,event,vertical_phase,details\n")
@@ -2089,6 +2118,7 @@ local function start_capture(trigger)
     write_event("gamepad_input_schema", state.gamepad_backend .. "; buttons=" .. table.concat(gamepad_button_names, ","))
     write_event("animation_reader_schema", "v1.13.0; file=" .. animation_path ..
         ";frames=engine_native_unscaled;legacy_layers_are_not_attack_frame_truth")
+    write_event("stamina_reader_schema", "v1.14.0; units=raw_unscaled; no implicit /30 or /150; match same-frame action/input")
     samples_file:flush()
     events_file:flush()
     report_status("Capture started by " .. (trigger or "unknown trigger") .. ": " .. samples_path)
@@ -2168,6 +2198,15 @@ local function record_sample()
         write_event("motion_state_unavailable", motion_error)
     end
 
+    local stamina = read_hunter_stamina(position.player)
+    local stamina_status = stamina.available and "ok" or stamina.error
+    if state.stamina_read_status ~= stamina_status then
+        state.stamina_read_status = stamina_status
+        write_event("stamina_read_status", stamina_status)
+        show_toast(stamina.available and "[REC STAMINA OK] Raw values captured"
+            or "[REC STAMINA WARNING] Values unavailable; see events CSV", 3.0,
+            stamina.available and 0xFF00FF00 or 0xFF00FFFF)
+    end
     local row = {
         state.sample_count,
         csv_number(state.capture_time),
@@ -2228,6 +2267,11 @@ local function record_sample()
         table.insert(row, csv_text(captured_motion_value(layer_data.loop_ok, layer_data.is_loop)))
         table.insert(row, csv_text(layer_data.highest_node))
     end
+    table.insert(row, csv_bool_number(stamina.available))
+    table.insert(row, csv_number(stamina.current))
+    table.insert(row, csv_number(stamina.maximum))
+    table.insert(row, csv_text(stamina.source))
+    table.insert(row, csv_text(stamina.error))
     assert(#row == state.sample_column_count, "Sample CSV column count mismatch")
     local written, write_error = state.samples_file:write(table.concat(row, ",") .. "\n")
     if written == nil then error("Sample CSV write failed: " .. tostring(write_error)) end

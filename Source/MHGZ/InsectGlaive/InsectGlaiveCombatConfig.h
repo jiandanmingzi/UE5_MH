@@ -17,6 +17,16 @@ class AIGPowderActor;
 class UParticleSystem;
 class UAnimMontage;
 
+/** 只有明确列出的招式读取舞踏增伤；None 不提供任何加成。 */
+UENUM(BlueprintType)
+enum class EIGDanceDamageAction : uint8
+{
+	None,
+	KinsectSlash UMETA(DisplayName = "操虫斩"),
+	DescendingThrust UMETA(DisplayName = "急袭突刺"),
+	KinsectPiercer UMETA(DisplayName = "强化操虫穿刺")
+};
+
 /** 红灯（Red Extract）动作模式 */
 UENUM(BlueprintType)
 enum class EIGRedExtractMode : uint8
@@ -162,8 +172,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.0"))
 	float DrawSendKinsectMotionValue = 20.0f;
 
+	/** 觉虫击未消耗红灯时，猎虫每次成功命中的动作值；白/黄灯不改变本档。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.0"))
-	float AwakenedKinsectMotionValue = 30.0f;
+	float AwakenedKinsectMotionValue = 15.0f;
+
+	/** 消耗红灯但非三灯时的猎虫单次动作值。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.0"))
+	float AwakenedRedKinsectMotionValue = 30.0f;
+
+	/** 原子消耗完整三灯时的猎虫单次动作值；不再与红灯档叠乘。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.0"))
+	float AwakenedTripleKinsectMotionValue = 50.0f;
 
 	/** 觉虫击贯通对同一 Hitzone 重复命中的最小间隔（秒） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|MotionValues", meta = (ClampMin = "0.01"))
@@ -182,11 +201,26 @@ public:
 	float KinsectArrivalRadius = 50.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance", meta = (ClampMin = "0"))
-	int32 MaxDanceStacks = 0;
+	int32 MaxDanceStacks = 3;
 
-	/** 索引即层数；索引 0 必须为 1.0，长度必须为 MaxDanceStacks + 1 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance", meta = (ClampMin = "0.0"))
+	/** 仅为旧资产加载兼容保留；运行时不再读取通用倍率。 */
+	UPROPERTY(meta = (DeprecatedProperty, DeprecationMessage = "Use the three action-specific Dance multiplier arrays."))
 	TArray<float> DanceDamageMultipliers = { 1.0f };
+
+	/** 索引为舞踏层数（0/1/2/3）；仅武器段，出招时快照。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Damage", meta = (ClampMin = "1.0"))
+	TArray<float> KinsectSlashDanceDamageMultipliers = { 1.0f, 1.1f, 1.2f, 1.3f };
+
+	/** 四段武器伤害共用 Commit 清层前的快照，包括地面段。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Damage", meta = (ClampMin = "1.0"))
+	TArray<float> DescendingThrustDanceDamageMultipliers = { 1.0f, 1.1f, 1.3f, 1.5f };
+
+	/** 整个强化操虫穿刺 GA 的全部武器伤害段，包括203触地后；出招时快照。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Damage", meta = (ClampMin = "1.0"))
+	TArray<float> KinsectPiercerDanceDamageMultipliers = { 1.0f, 1.3f, 1.5f, 2.0f };
+
+	/** 按招式显式选择倍率；未列入的招式或无效配置安全回退为 1。 */
+	float GetDanceDamageMultiplier(EIGDanceDamageAction Action, int32 Stacks) const;
 
 	/** 舞踏弹跳的 BallisticVault 参数组；两种参数来源必须且只能启用一组。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dance|Movement")

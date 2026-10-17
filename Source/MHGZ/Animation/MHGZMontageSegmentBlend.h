@@ -22,6 +22,20 @@ public:
 	/** 实际秒数，不随动画倍率缩放；0 表示关闭。不会增加片段时长或延迟通知。 */
 	UPROPERTY(EditAnywhere, Category="内部片段混合", meta=(DisplayName="混合时间（秒）", ClampMin="0.0", UIMax="0.2"))
 	float Duration = 0.05f;
+
+	/** 只在显式来源→目标接缝稳住持械挂点；其他片段和蒙太奇默认不参与。 */
+	UPROPERTY(EditAnywhere, Category="持械约束", meta=(DisplayName="启用接缝持械约束"))
+	bool bEnableWeaponGripConstraint = false;
+
+	UPROPERTY(EditAnywhere, Category="持械约束", meta=(EditCondition="bEnableWeaponGripConstraint", DisplayName="来源序列"))
+	TObjectPtr<UAnimSequenceBase> WeaponGripFromSequence;
+
+	UPROPERTY(EditAnywhere, Category="持械约束", meta=(EditCondition="bEnableWeaponGripConstraint", DisplayName="目标序列"))
+	TObjectPtr<UAnimSequenceBase> WeaponGripToSequence;
+
+	/** 保持Duration后平滑交回原轨道；仅控制辅助骨，不延长动作或输入。 */
+	UPROPERTY(EditAnywhere, Category="持械约束", meta=(EditCondition="bEnableWeaponGripConstraint", DisplayName="约束退出时间（秒）", ClampMin="0.001", UIMax="0.1"))
+	float WeaponGripReleaseDuration = 1.f / 30.f;
 };
 
 /** Game-thread snapshots; never retain an FAnimMontageInstance across Montage_Advance. */
@@ -35,6 +49,24 @@ struct FMHGZMontageSegmentBlendSample
 	FName GroupName;
 	float Duration = 0.0f;
 	float Weight = 0.0f;
+	float DesiredWeight = 1.0f;
+};
+
+/** Instance-owned, game-thread envelope; only its scalar Alpha is read by the graph. */
+struct MHGZ_API FMHGZWeaponGripConstraint
+{
+	float Alpha = 0.f;
+	int64 Serial = 0;
+	void Clear();
+	void Update(TConstArrayView<FMHGZMontageSegmentBlendSample> Before,
+		TConstArrayView<FMHGZMontageSegmentBlendSample> After, float DeltaSeconds);
+private:
+	TWeakObjectPtr<UAnimMontage> OwnerMontage;
+	TWeakObjectPtr<UAnimSequenceBase> TargetSequence;
+	int32 InstanceID = INDEX_NONE;
+	float Elapsed = 0.f;
+	float HoldDuration = 0.f;
+	float ReleaseDuration = 0.f;
 };
 
 /** Pure transition policy shared by the update hook and directed tests. */

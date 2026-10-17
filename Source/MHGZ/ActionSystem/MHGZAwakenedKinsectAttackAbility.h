@@ -191,6 +191,7 @@ protected:
 
 private:
 	bool BuildPendingKinsectRequest(const FWeaponInputSnapshot& Input);
+	void ApplyConsumedExtractEffects(const class UInsectGlaiveCombatConfig& Config);
 	void RecallKinsectForThisAction();
 	bool StartHunterFlight(const FWeaponActionToken& ActionToken);
 	UFUNCTION()
@@ -231,6 +232,8 @@ private:
 	void ApplyHoldReleaseRouteIfReady();
 
 	bool bEmpoweredKinsectBranch = false;
+	/** 本次已消耗颜色的快照；三灯GE没有单色Tag，原子消费时显式记录三色。 */
+	FGameplayTagContainer ConsumedExtractSnapshot;
 	bool bKinsectLaunchCommitted = false;
 	bool bKinsectActionAttached = false;
 	bool bHoldReleaseCheckScheduled = false;

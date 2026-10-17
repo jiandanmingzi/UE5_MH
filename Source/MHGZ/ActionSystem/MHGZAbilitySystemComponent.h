@@ -27,6 +27,17 @@ class UMHGZAbilitySystemComponent : public UAbilitySystemComponent
 
 public:
 	UMHGZAbilitySystemComponent();
+	virtual void InitAbilityActorInfo(AActor* InOwnerActor, AActor* InAvatarActor) override;
+	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
+		FActorComponentTickFunction* ThisTickFunction) override;
+
+	/** 本机无技能Rise实测，单位为显示耐力点/秒；属性RegenRate仍是倍率。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Ability|Stamina", meta=(ClampMin="0"))
+	float GroundStaminaRecovery = 20.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Ability|Stamina", meta=(ClampMin="0"))
+	float AirStaminaRecovery = 10.f;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Ability|Stamina", meta=(ClampMin="0"))
+	float SprintStaminaDrain = 8.f;
 
 	// ═══════════════════════════════════════════
 	// 配置
@@ -110,6 +121,10 @@ public:
 		const FGameplayAbilitySpecHandle& Handle,
 		FWeaponAbilityActivationContext& OutContext);
 
+	/** 只读预检，不消费输入；供同一GA的不同输入成本查询。 */
+	const FWeaponAbilityActivationContext* FindPendingActivationContext(
+		const FGameplayAbilitySpecHandle& Handle) const { return PendingActivationContexts.Find(Handle); }
+
 	/**
 	 * Local-only weapon montage playback with a per-instance Blend In duration.
 	 * It keeps the ASC's current Montage/animating Ability bookkeeping so normal
@@ -122,6 +137,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual bool GetShouldTick() const override;
 
 private:
 	/** 已授予的武器 Ability Handle */

@@ -911,7 +911,7 @@ bool FMHGZM5KinsectPiercerDanceSourceMirrorTest::RunTest(const FString& Paramete
 		return false;
 	}
 	H.CombatConfig->MaxDanceStacks = 3;
-	H.CombatConfig->DanceDamageMultipliers = { 1.0f, 1.2f, 1.4f, 1.6f };
+	H.CombatConfig->KinsectPiercerDanceDamageMultipliers = { 1.0f, 1.3f, 1.5f, 2.0f };
 
 	TestFalse(TEXT("no source tag is mirrored before any dance stack"),
 		H.ASC->HasMatchingGameplayTag(KinsectSlashSource));
@@ -1252,7 +1252,7 @@ bool FMHGZM5KinsectPiercerEntryGateTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	H.CombatConfig->MaxDanceStacks = 3;
-	H.CombatConfig->DanceDamageMultipliers = { 1.0f, 1.2f, 1.4f, 1.6f };
+	H.CombatConfig->KinsectPiercerDanceDamageMultipliers = { 1.0f, 1.3f, 1.5f, 2.0f };
 
 	// 闸门要求角色有 Mesh + AnimInstance，与生产链一致（本招只查它**存在**）。
 	USkeletalMeshComponent* Mesh = H.Character->GetMesh();

@@ -47,6 +47,7 @@ FName PowderSpawnPolicyName(const EIGPowderSpawnPolicy Policy)
 	{
 	case EIGPowderSpawnPolicy::MarkedContact: return TEXT("MarkedContact");
 	case EIGPowderSpawnPolicy::AwakenedPiercing: return TEXT("AwakenedPiercing");
+	case EIGPowderSpawnPolicy::AwakenedEachHit: return TEXT("AwakenedEachHit");
 	default: return TEXT("None");
 	}
 }
@@ -1458,8 +1459,10 @@ bool URes_InsectGlaive::CaptureActionKinsectExtract(const FWeaponActionToken& Ac
 	return true;
 }
 
-bool URes_InsectGlaive::ConsumeSingleExtractsForAction(const FWeaponActionToken& Action)
+bool URes_InsectGlaive::ConsumeSingleExtractsForAction(const FWeaponActionToken& Action,
+	FGameplayTagContainer* OutConsumedExtracts)
 {
+	if (OutConsumedExtracts) { OutConsumedExtracts->Reset(); }
 	UAbilitySystemComponent* ASC = GetPlayerASC();
 	const UMHGZGameplayAbility* Ability = Cast<UMHGZGameplayAbility>(Action.AbilityInstance.Get());
 	if (!Action.IsValid() || !IsRuntimeRequestCurrent(Action.RuntimeToken) || !ASC
@@ -1473,11 +1476,16 @@ bool URes_InsectGlaive::ConsumeSingleExtractsForAction(const FWeaponActionToken&
 	const TMap<FGameplayTag, FActiveGameplayEffectHandle> Handles = ActiveExtractHandles;
 	bool bAllRemoved = true;
 	int32 RemovedCount = 0;
+	FGameplayTagContainer ConsumedExtracts;
 	for (const auto& Pair : Handles)
 	{
 		if (IsHandleActive(Pair.Value))
 		{
-			if (ASC->RemoveActiveGameplayEffect(Pair.Value)) { ++RemovedCount; }
+			if (ASC->RemoveActiveGameplayEffect(Pair.Value))
+			{
+				++RemovedCount;
+				ConsumedExtracts.AddTag(Pair.Key);
+			}
 			else { bAllRemoved = false; }
 		}
 		else { ActiveExtractHandles.Remove(Pair.Key); }
@@ -1490,6 +1498,7 @@ bool URes_InsectGlaive::ConsumeSingleExtractsForAction(const FWeaponActionToken&
 	Event.MemberCount = RemovedCount;
 	Event.Reason = bAllRemoved ? TEXT("AwakenedActivation") : TEXT("GameplayEffectRemovalFailed");
 	RecordCombatTelemetryEvent(MoveTemp(Event));
+	if (bAllRemoved && OutConsumedExtracts) { *OutConsumedExtracts = ConsumedExtracts; }
 	return bAllRemoved;
 }
 
@@ -2364,15 +2373,9 @@ void URes_InsectGlaive::ClearDanceStacks(EIGDanceClearReason Reason)
 	}
 }
 
-float URes_InsectGlaive::GetDanceDamageMultiplier() const
+float URes_InsectGlaive::GetDanceDamageMultiplier(const EIGDanceDamageAction Action) const
 {
-	if (!CombatConfig || CombatConfig->DanceDamageMultipliers.IsEmpty())
-	{
-		return 1.0f;
-	}
-	const int32 Index = FMath::Clamp(DanceStacks, 0,
-		CombatConfig->DanceDamageMultipliers.Num() - 1);
-	return FMath::Max(0.0f, CombatConfig->DanceDamageMultipliers[Index]);
+	return CombatConfig ? CombatConfig->GetDanceDamageMultiplier(Action, DanceStacks) : 1.0f;
 }
 
 bool URes_InsectGlaive::SpawnPowderForSuccessfulHit(
@@ -2456,7 +2459,8 @@ bool URes_InsectGlaive::HandleSuccessfulKinsectDamage(
 			return false;
 		}
 	}
-	else if (SpawnPolicy != EIGPowderSpawnPolicy::AwakenedPiercing)
+	else if (SpawnPolicy != EIGPowderSpawnPolicy::AwakenedPiercing
+		&& SpawnPolicy != EIGPowderSpawnPolicy::AwakenedEachHit)
 	{
 		RecordRejectedSpawn(TEXT("UnsupportedPolicy"));
 		return false;

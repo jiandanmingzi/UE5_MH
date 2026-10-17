@@ -55,6 +55,8 @@
 
 共享模块：`ue_remote.py`（主机执行入口）、`ue_asset_utils.py`（无UE依赖的类型适配）。定向维护工具测试：`python -m unittest discover -s Scripts/tests -p test_maintenance_tools.py`，不触发游戏回归。
 
+出生血耐配置：`AssetOrganization/setup_player_initial_attributes.py`只用于一次性创建/接入初始化GE，默认独立回查；不覆盖既有GE、不自动重跑Apply。日后调整出生值直接编辑`/Game/GameplayEffects/Core/GE_PlayerInitialAttributes`的四项Modifiers，具体见[出生血耐指导](../docs/editor/player-initial-attributes.md)。
+
 ## Editor工具模块
 
 移动接缝局部修复入口：`AssetOrganization/repair_locomotion_boundaries.py`。默认只读回查已保存事务；明确的 `-MHGZEntryRepairApply` 只允许首次执行，先备份四条指定Loop及两份专用PSS，再调用 `MHGZAnimationSeamLibrary` 的 `CloseLocomotionLoop/ConfigureLoopContinuitySchema`。不重建/保存ABP，不修改普通Start/Stop库。快照、保护资产哈希及独立回载证据在 `Saved/Maintenance/LocomotionEntryRepair20261015/`。遇已有意图/成功记录时先核对，不重复Apply。闭合工具使用DataModel自身的Controller，保留帧数、时长、内部段与累计Root Motion，只处理短边界的姿势及速度。
@@ -74,6 +76,8 @@ TelemetryStop现要求真实录制结束后的首次自动导出成功，已移�
 动画桥接Python入口为`unreal.MHGZAnimationSeamLibrary`，声明见[头文件](../Source/MHGZToolsEditor/Public/MHGZAnimationSeamLibrary.h)：`create_one_frame_bridge`创建同Skeleton的1/60s中间姿态资产，根位移取相邻实际播放速度均值；`insert_bridge`按明确片段索引插入/替换下一段；`trim_segment_start`裁切明确片段开头；`refresh_montage_length`只刷新已存在片段的总长度。只支持单Slot修改，生成接口拒绝已存在磁盘包；调用者还必须先检查AssetRegistry/未保存同名资产，备份目标、排除PIE/用户未保存编辑、明确源帧和有效倍率，再显式保存。操作**不幂等、不自动保存**；失败先核对后置条件。替换/裁切区间中含通知边界时拒绝操作，不压缩伤害窗口。桥接是在资产中烘焙，不创建运行时Montage。
 
 同一桥接另有`install_montage_segment_inertialization`：仅审计/幂等接入ABP动作Slot后的惯性混合，不改Montage片段、不自动保存。包装脚本`AssetOrganization/setup_montage_segment_blend.py`默认只读；默认模式处理ABP接线，`--configure-montages --apply --duration 0.05`备份后只保存`/Game`多序列Montage的内部混合元数据，`--verify-montages`只读回查已保存批次。关闭编辑器时用`-MHGZSegmentBlendMontages -MHGZSegmentBlendApply`写入0.05s，独立用`-MHGZSegmentBlendVerify`验证。批次检查点存在时拒绝重复应用；续接先验证，不能盲目重跑。当前基底已接通，不必重接线；招式通过Montage的`MHGZMontageSegmentBlendSettings`元数据单独开启，见[配置说明](../docs/editor/montage-segment-blend.md)。
+
+该脚本的`--weapon-grip --apply`仅在ABP的DefaultSlot惯性混合后接入持械约束，并显式配置飞圆310→117；不保存Combo、源序列或通知。Commandlet开关`-MHGZWeaponGrip -MHGZSegmentBlendApply`，只读回查`--verify-weapon-grip`/`-MHGZWeaponGripVerify`；事务位于`Saved/Maintenance/FeiYuanWeaponGrip`，已有检查点拒绝重复Apply。桥接`install_weapon_grip_constraint`只接线/编译或审计，不自动保存，拒绝部分接线。核对允许UE重载时重新计算LinkedSegmentLength缓存，但不忽略真实通知时间/配置。
 
 该脚本另有`--remove-synthetic-bridges`，仅移除已授权的飞圆/横扫/突进5个合成Blend片段，使用现有配方桥接重定位Section/通知；不删除序列、不处理EntryHold/蓄力。Commandlet审计开关`-MHGZSegmentBridgeRemoval`，叠加`-MHGZSegmentBlendApply`才备份/保存；`-MHGZSegmentBridgeVerify`独立只读回查。检查点已存在时拒绝重复Apply；旧0.05s批次和入口验证均识别本次已批准的移除，不盲目恢复历史片段。
 

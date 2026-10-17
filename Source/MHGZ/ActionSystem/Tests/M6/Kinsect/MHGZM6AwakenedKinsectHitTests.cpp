@@ -167,6 +167,55 @@ bool FMHGZM6AwakenedKinsectRequestRequiresExplicitPowderIdentityAndPiercing::Run
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZAwakenedYellowSingleHitPowder,
+	"MHGZ.Maintenance.AwakenedExtracts.YellowSingleHitCreatesPowderOnlyAfterDamage",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZAwakenedYellowSingleHitPowder::RunTest(const FString& Parameters)
+{
+	for (const bool bHasDamageTarget : { false, true })
+	{
+		FMHGZM3Harness H;
+		if (!TestTrue(TEXT("resource harness builds"), H.Setup())) { H.Teardown(); return false; }
+		H.CombatConfig->PowderActorClass = AIGPowderActor::StaticClass();
+		H.CombatConfig->PowderMotionValue = 50.0f;
+		const FVector Start = H.Kinsect->GetActorLocation();
+		AActor* Target = bHasDamageTarget
+			? H.World->SpawnActor<AMHGZTrainingDummy>(AMHGZTrainingDummy::StaticClass(), Start + FVector(190, 0, 0), FRotator::ZeroRotator)
+			: H.World->SpawnActor<AActor>(AActor::StaticClass(), Start + FVector(190, 0, 0), FRotator::ZeroRotator);
+		if (!TestNotNull(TEXT("contact actor exists"), Target)
+			|| !TestNotNull(TEXT("unmarked target hitzone exists"), AddHitzone(*Target, Start + FVector(190, 0, 0), M3::Tag(TEXT("WeaponResource.IG.Extract.White")))))
+		{
+			H.Teardown(); return false;
+		}
+		if (AMHGZTrainingDummy* Dummy = Cast<AMHGZTrainingDummy>(Target))
+		{
+			Dummy->GetAbilitySystemComponent()->InitAbilityActorInfo(Dummy, Dummy);
+			Dummy->GetAttributeSet()->InitMaxHealth(1000.0f);
+			Dummy->GetAttributeSet()->InitHealth(1000.0f);
+		}
+		FKinsectFlightRequest Request = MakeAwakenedRequest(H);
+		Request.DamageMode = EKinsectDamageMode::SingleHit;
+		Request.ExtractMode = EKinsectExtractMode::FirstHitOnly;
+		Request.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
+		Request.PowderSpawnPolicy = EIGPowderSpawnPolicy::AwakenedEachHit;
+		Request.MotionValue = 15.0f;
+		TestFalse(TEXT("no insect mark was required"), H.Resource->HasValidKinsectMark());
+		if (!TestTrue(TEXT("yellow powder does not require white/piercing/auto-return"), H.Resource->DeployKinsect(Request)))
+		{
+			H.Teardown(); return false;
+		}
+		H.Kinsect->SetActorLocation(Start + FVector(300, 0, 0));
+		H.Kinsect->Tick(0.016f);
+		TestEqual(TEXT("only successfully applied damage may leave powder"), H.Resource->GetPowderSnapshots().Num(), bHasDamageTarget ? 1 : 0);
+		TestEqual(TEXT("single contact still waits for hunter recall"), H.Kinsect->GetState(), EKinsectState::Hovering);
+		H.Kinsect->Tick(0.016f);
+		TestEqual(TEXT("same contact cannot duplicate powder"), H.Resource->GetPowderSnapshots().Num(), bHasDamageTarget ? 1 : 0);
+		H.Teardown();
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMHGZM6AwakenedKinsectPowderFollowsOnlySuccessfulPiercingDamage,
 	"MHGZ.M6.AwakenedKinsect.PowderAndExtractFollowSuccessfulDamageOnly",
@@ -220,7 +269,7 @@ bool FMHGZM6AwakenedKinsectPowderFollowsOnlySuccessfulPiercingDamage::RunTest(
 	}
 	FKinsectFlightRequest Request = MakeAwakenedRequest(H);
 	Request.MaxDistance = 1000.0f;
-	Request.PowderSpawnPolicy = EIGPowderSpawnPolicy::AwakenedPiercing;
+	Request.PowderSpawnPolicy = EIGPowderSpawnPolicy::AwakenedEachHit;
 	TestTrue(TEXT("powder-enabled flight deploys"), H.Resource->DeployKinsect(Request));
 	H.Kinsect->SetActorLocation(StartLocation + FVector(300.0f, 0.0f, 0.0f));
 	H.Kinsect->Tick(0.016f);
@@ -245,7 +294,7 @@ bool FMHGZM6AwakenedKinsectPowderFollowsOnlySuccessfulPiercingDamage::RunTest(
 		TestTrue(TEXT("powder stores the exact configured raw-percent motion value"),
 			FMath::IsNearlyEqual(Powders[0].MotionValueSnapshot, 50.0f));
 		TestEqual(TEXT("powder snapshot records the cooldown-bypassing piercing policy"),
-			Powders[0].SpawnPolicy, EIGPowderSpawnPolicy::AwakenedPiercing);
+			Powders[0].SpawnPolicy, EIGPowderSpawnPolicy::AwakenedEachHit);
 	}
 
 	H.Teardown();

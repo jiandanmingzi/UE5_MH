@@ -128,6 +128,7 @@ class MHGZ_API UMHGZKinsectSlashAbility : public UMHGZInsectGlaiveAbility
 
 public:
 	UMHGZKinsectSlashAbility();
+	virtual float GetStaminaRecoveryPerSecond() const override;
 
 	virtual bool CanActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
@@ -237,6 +238,8 @@ private:
 	friend class FMHGZM5KinsectSlashDancePreparationGuardTest;
 	friend class FMHGZM5KinsectSlashReentrantDanceCommitTest;
 	friend class FMHGZKinsectSlashIndependentContactTest;
+	friend class FMHGZIGDanceDamageTest;
+	friend class FMHGZStaminaCostsTest;
 	#endif
 
 	bool IsLiveAerialSlashStateValid(const UAbilitySystemComponent* ASC,
@@ -254,6 +257,8 @@ private:
 	bool IsLiveContinuationStateValid() const;
 	bool HasRequiredSections(const UAnimMontage* Montage) const;
 	bool HasRequiredDanceMontage() const;
+	virtual float GetInstantStaminaCost(const FGameplayAbilitySpecHandle Handle,
+		const FGameplayAbilityActorInfo* ActorInfo) const override;
 	USkeletalMeshComponent* FindKinsectSlashWeaponMesh(FName RequiredSocket) const;
 	bool IsKinsectActionAttachmentCurrent() const;
 	void ReleaseKinsectActionAttachment();
@@ -337,6 +342,7 @@ private:
 	FGuid KinsectSlashPowderHitInstanceID;
 	FName SuccessfulHitSourceSection = NAME_None;
 	float SuccessfulHitSourcePosition = 0.0f;
+	float FrozenDanceDamageMultiplier = 1.0f;
 	int32 SuccessfulHitSourceMontageInstanceID = INDEX_NONE;
 	bool bKinsectActionAttached = false;
 	bool bAimLocked = false;

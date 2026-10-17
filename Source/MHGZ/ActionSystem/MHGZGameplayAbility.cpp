@@ -72,7 +72,7 @@ void UMHGZGameplayAbility::ApplyCost(
 	const FGameplayAbilityActorInfo* ActorInfo,
 	const FGameplayAbilityActivationInfo ActivationInfo) const
 {
-	if (StaminaCostPolicy != EAbilityStaminaCostPolicy::Instant)
+	if (StaminaCostPolicy != EAbilityStaminaCostPolicy::Instant || bDeferInstantStaminaCost)
 	{
 		return;
 	}
@@ -186,6 +186,7 @@ void UMHGZGameplayAbility::ActivateAbility(
 	const bool bHasPendingContext =
 		MHGZASC && MHGZASC->ConsumePendingActivationContext(Handle, ConsumedContext);
 	ActivationContext = bHasPendingContext ? ConsumedContext : FWeaponAbilityActivationContext();
+	bDeferredStaminaPaid = false;
 	if (!bHasPendingContext && Host)
 	{
 		ActivationContext.RuntimeToken = Host->GetCurrentToken();
@@ -833,4 +834,41 @@ float UMHGZGameplayAbility::GetInstantStaminaCost(
 	const UMHGZAttributeSet* AttrSet = ASC->GetSet<UMHGZAttributeSet>();
 	const float DeductionRate = AttrSet ? AttrSet->GetStaminaDeductionRate() : 1.f;
 	return StaminaCost.GetValueAtLevel(GetAbilityLevel(Handle, ActorInfo)) * DeductionRate;
+}
+
+float UMHGZGameplayAbility::GetStaminaRecoveryPerSecond() const
+{
+	if (StaminaRecoveryOverride >= 0.f)
+	{
+		return StaminaRecoveryOverride;
+	}
+	// 已有持续消耗和消耗型闪避在动作结束前不同时回复。
+	return StaminaCostPolicy != EAbilityStaminaCostPolicy::None ? 0.f : -1.f;
+}
+
+bool UMHGZGameplayAbility::TryPayDeferredStaminaCost()
+{
+	if (bDeferredStaminaPaid || !bDeferInstantStaminaCost
+		|| StaminaCostPolicy != EAbilityStaminaCostPolicy::Instant)
+	{
+		return true;
+	}
+	if (!IsActive() || !CheckCost(CurrentSpecHandle, CurrentActorInfo, nullptr))
+	{
+		return false;
+	}
+	const float Cost = GetInstantStaminaCost(CurrentSpecHandle, CurrentActorInfo);
+	UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	FGameplayEffectSpecHandle Spec = Cost > 0.f ? MakeStaminaCostSpec(-Cost) : FGameplayEffectSpecHandle();
+	if (Cost > 0.f && (!ASC || !Spec.IsValid()))
+	{
+		return false;
+	}
+	// 先置位，防止属性回调重入导致同一Dash重复支付。
+	bDeferredStaminaPaid = true;
+	if (Spec.IsValid())
+	{
+		ASC->ApplyGameplayEffectSpecToSelf(*Spec.Data.Get());
+	}
+	return IsActive();
 }

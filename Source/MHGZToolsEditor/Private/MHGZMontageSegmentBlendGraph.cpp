@@ -5,6 +5,12 @@
 #include "Animation/MHGZMotionMatchingAnimInstance.h"
 #include "AnimationGraphSchema.h"
 #include "AnimGraphNode_Inertialization.h"
+#include "AnimGraphNode_LocalToComponentSpace.h"
+#include "AnimGraphNode_ComponentToLocalSpace.h"
+#include "AnimGraphNode_CopyBone.h"
+#include "Animation/Skeleton.h"
+#include "EdGraphNode_Comment.h"
+#include "K2Node_VariableGet.h"
 #include "AnimGraphNode_Slot.h"
 #include "AnimGraphNode_MotionMatching.h"
 #include "AnimGraphNode_Root.h"
@@ -25,12 +31,13 @@
 
 namespace
 {
-UEdGraphPin* PosePin(UEdGraphNode& Node, EEdGraphPinDirection Direction)
+UEdGraphPin* PosePin(UEdGraphNode& Node, EEdGraphPinDirection Direction,
+	UScriptStruct* PoseType = FPoseLink::StaticStruct())
 {
 	for (UEdGraphPin* Pin : Node.Pins)
 	{
 		if (Pin && Pin->Direction == Direction
-			&& Pin->PinType.PinSubCategoryObject.Get() == FPoseLink::StaticStruct()) { return Pin; }
+			&& Pin->PinType.PinSubCategoryObject.Get() == PoseType) { return Pin; }
 	}
 	return nullptr;
 }
@@ -292,4 +299,95 @@ bool UMHGZAnimationSeamLibrary::InstallMontageSegmentInertialization(UAnimBluepr
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 	FKismetEditorUtilities::CompileBlueprint(Blueprint);
 	return Blueprint->Status != BS_Error && InstallMontageSegmentInertialization(Blueprint, false);
+}
+
+bool UMHGZAnimationSeamLibrary::InstallWeaponGripConstraint(UAnimBlueprint* Blueprint, bool bApply)
+{
+	if (!Blueprint || !Blueprint->ParentClass || !Blueprint->TargetSkeleton
+		|| !Blueprint->ParentClass->IsChildOf(UMHGZMotionMatchingAnimInstance::StaticClass())
+		|| Blueprint->TargetSkeleton->GetReferenceSkeleton().FindBoneIndex(TEXT("L_Weapon_00")) == INDEX_NONE
+		|| Blueprint->TargetSkeleton->GetReferenceSkeleton().FindBoneIndex(TEXT("R_Weapon_00")) == INDEX_NONE) { return false; }
+	TArray<UEdGraph*> Graphs; Blueprint->GetAllGraphs(Graphs);
+	UEdGraph** Found = Graphs.FindByPredicate([](UEdGraph* G) { return G && G->GetFName() == TEXT("AnimGraph"); });
+	if (!Found) { return false; }
+	UEdGraph& Graph = **Found;
+	const auto FindMarked = [&Graph](const FString& Label) -> UEdGraphNode*
+	{
+		UEdGraphNode* Result = nullptr;
+		for (UEdGraphNode* Node : Graph.Nodes)
+		{
+			if (Node && Node->NodeComment == Label)
+			{ if (Result) { return nullptr; } Result = Node; }
+		}
+		return Result;
+	};
+	auto* Inertia = Cast<UAnimGraphNode_Inertialization>(FindMarked(Marker(TEXT("DefaultSlot"))));
+	UEdGraphPin* Source = Inertia ? PosePin(*Inertia, EGPD_Output) : nullptr;
+	if (!Source || Source->LinkedTo.Num() != 1) { return false; }
+	const FString Prefix(TEXT("MHGZ.WeaponGrip."));
+	const FName AlphaName = GET_MEMBER_NAME_CHECKED(UMHGZMotionMatchingAnimInstance, WeaponGripConstraintAlpha);
+	auto* ToComponent = Cast<UAnimGraphNode_LocalToComponentSpace>(FindMarked(Prefix + TEXT("Component")));
+	auto* Copy = Cast<UAnimGraphNode_CopyBone>(FindMarked(Prefix + TEXT("Copy")));
+	auto* ToLocal = Cast<UAnimGraphNode_ComponentToLocalSpace>(FindMarked(Prefix + TEXT("Local")));
+	auto* Getter = Cast<UK2Node_VariableGet>(FindMarked(Prefix + TEXT("Alpha")));
+	int32 MarkedCount = 0;
+	for (UEdGraphNode* Node : Graph.Nodes)
+	{ if (Node && Node->NodeComment.StartsWith(Prefix)) { ++MarkedCount; } }
+	const auto Linked = [](UEdGraphPin* A, UEdGraphPin* B)
+	{ return A && B && A->LinkedTo.Num() == 1 && B->LinkedTo.Num() == 1 && A->LinkedTo.Contains(B) && B->LinkedTo.Contains(A); };
+	if (MarkedCount)
+	{
+		if (MarkedCount != 4 || !ToComponent || !Copy || !ToLocal || !Getter) { return false; }
+		return Copy->Node.SourceBone.BoneName == TEXT("R_Weapon_00") && Copy->Node.TargetBone.BoneName == TEXT("L_Weapon_00")
+			&& Copy->Node.ControlSpace == BCS_ComponentSpace && Copy->Node.bCopyTranslation && Copy->Node.bCopyRotation
+			&& !Copy->Node.bCopyScale && Copy->Node.AlphaInputType == EAnimAlphaInputType::Float
+			&& Getter->VariableReference.GetMemberName() == AlphaName
+			&& Linked(Source, PosePin(*ToComponent, EGPD_Input))
+			&& Linked(PosePin(*ToComponent, EGPD_Output, FComponentSpacePoseLink::StaticStruct()),
+				PosePin(*Copy, EGPD_Input, FComponentSpacePoseLink::StaticStruct()))
+			&& Linked(PosePin(*Copy, EGPD_Output, FComponentSpacePoseLink::StaticStruct()),
+				PosePin(*ToLocal, EGPD_Input, FComponentSpacePoseLink::StaticStruct()))
+			&& Linked(Getter->FindPin(AlphaName), Copy->FindPin(TEXT("Alpha")))
+			&& PosePin(*ToLocal, EGPD_Output) && PosePin(*ToLocal, EGPD_Output)->LinkedTo.Num() == 1;
+	}
+	if (!bApply) { return false; }
+	const UEdGraphSchema* Schema = Graph.GetSchema();
+	UEdGraphPin* Consumer = Source->LinkedTo[0];
+	if (!Schema || Consumer->PinType.PinSubCategoryObject.Get() != FPoseLink::StaticStruct()) { return false; }
+	Blueprint->Modify(); Graph.Modify();
+	const auto Add = [&Graph, Inertia, &Prefix](UEdGraphNode* Node, const TCHAR* Suffix, int32 X, int32 Y)
+	{
+		Graph.AddNode(Node, true, false); Node->CreateNewGuid(); Node->PostPlacedNewNode();
+		Node->NodeComment = Prefix + Suffix; Node->bCommentBubbleVisible = true;
+		Node->NodePosX = Inertia->NodePosX + X; Node->NodePosY = Inertia->NodePosY + Y;
+		Node->AllocateDefaultPins();
+	};
+	ToComponent = NewObject<UAnimGraphNode_LocalToComponentSpace>(&Graph, NAME_None, RF_Transactional);
+	Copy = NewObject<UAnimGraphNode_CopyBone>(&Graph, NAME_None, RF_Transactional);
+	Copy->Node.SourceBone.BoneName = TEXT("R_Weapon_00"); Copy->Node.TargetBone.BoneName = TEXT("L_Weapon_00");
+	Copy->Node.bCopyTranslation = true; Copy->Node.bCopyRotation = true; Copy->Node.bCopyScale = false;
+	Copy->Node.ControlSpace = BCS_ComponentSpace; Copy->Node.Alpha = 0.f;
+	Copy->Node.AlphaInputType = EAnimAlphaInputType::Float;
+	ToLocal = NewObject<UAnimGraphNode_ComponentToLocalSpace>(&Graph, NAME_None, RF_Transactional);
+	Getter = NewObject<UK2Node_VariableGet>(&Graph, NAME_None, RF_Transactional);
+	Getter->VariableReference.SetSelfMember(AlphaName);
+	Add(ToComponent, TEXT("Component"), 190, 220); Add(Copy, TEXT("Copy"), 420, 220);
+	Add(ToLocal, TEXT("Local"), 720, 220); Add(Getter, TEXT("Alpha"), 370, 440);
+	Source->BreakLinkTo(Consumer);
+	if (!Schema->TryCreateConnection(Source, PosePin(*ToComponent, EGPD_Input))
+		|| !Schema->TryCreateConnection(PosePin(*ToComponent, EGPD_Output, FComponentSpacePoseLink::StaticStruct()),
+			PosePin(*Copy, EGPD_Input, FComponentSpacePoseLink::StaticStruct()))
+		|| !Schema->TryCreateConnection(PosePin(*Copy, EGPD_Output, FComponentSpacePoseLink::StaticStruct()),
+			PosePin(*ToLocal, EGPD_Input, FComponentSpacePoseLink::StaticStruct()))
+		|| !Schema->TryCreateConnection(Getter->FindPin(AlphaName), Copy->FindPin(TEXT("Alpha")))
+		|| !Schema->TryCreateConnection(PosePin(*ToLocal, EGPD_Output), Consumer)) { return false; }
+	UEdGraphNode_Comment* Comment = NewObject<UEdGraphNode_Comment>(&Graph, NAME_None, RF_Transactional);
+	Graph.AddNode(Comment, true, false); Comment->CreateNewGuid();
+	Comment->NodeComment = TEXT("飞圆斩310→117：惯性混合后持械约束（仅显式接缝启用）");
+	Comment->NodePosX = Inertia->NodePosX + 160; Comment->NodePosY = Inertia->NodePosY + 140;
+	Comment->NodeWidth = 850; Comment->NodeHeight = 430;
+	Comment->CommentColor = FLinearColor(.12f,.32f,.25f,1.f);
+	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	return Blueprint->Status != BS_Error && InstallWeaponGripConstraint(Blueprint, false);
 }

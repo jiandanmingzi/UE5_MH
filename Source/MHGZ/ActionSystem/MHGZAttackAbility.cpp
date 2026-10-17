@@ -23,6 +23,14 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #endif
 
+FCollisionShape FWeaponTraceRegion::MakeQueryShape() const
+{
+	const float SafeRadius = FMath::IsFinite(Radius) ? FMath::Max(1.0f, Radius) : 14.0f;
+	return FMath::IsFinite(HorizontalHalfWidth) && HorizontalHalfWidth > SafeRadius
+		? FCollisionShape::MakeCapsule(SafeRadius, HorizontalHalfWidth)
+		: FCollisionShape::MakeSphere(SafeRadius);
+}
+
 namespace
 {
 	constexpr float MaxCorrectionAngleOvershootToleranceDegrees = 90.0f;
@@ -181,6 +189,7 @@ EDataValidationResult UMHGZAttackAbility::IsDataValid(FDataValidationContext& Co
 		{
 			const FWeaponTraceRegion& Region = Segment.Collision.TraceRegions[RegionIndex];
 			if (Region.EndSocketName.IsNone() || Region.Radius <= 0.0f
+				|| !FMath::IsFinite(Region.HorizontalHalfWidth) || Region.HorizontalHalfWidth < 0.0f
 				|| Region.MaxSampleSpacing <= 0.0f || Region.MaxSampleCount <= 0
 				|| Region.MaxAngularStepDegrees <= 0.0f)
 			{
@@ -966,6 +975,7 @@ void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)
 		RuntimeRegion.StartSocketName = Region.StartSocketName;
 		RuntimeRegion.EndSocketName = Region.EndSocketName;
 		RuntimeRegion.Radius = FMath::Max(1.0f, Region.Radius);
+		RuntimeRegion.QueryShape = Region.MakeQueryShape();
 		RuntimeRegion.MaxSampleSpacing = FMath::Max(1.0f, Region.MaxSampleSpacing);
 		RuntimeRegion.MaxSampleCount = FMath::Clamp(Region.MaxSampleCount, 1, 32);
 		RuntimeRegion.MaxAngularStepDegrees = FMath::Clamp(
@@ -1129,9 +1139,11 @@ void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
 			FMath::CeilToInt(AngularDeltaDegrees /
 				FMath::Max(1.0f, RegionState.MaxAngularStepDegrees)), 1, 8);
 
-		// TraceRegions 全部按球形 Sweep 结算。
-		const FCollisionShape QueryShape = FCollisionShape::MakeSphere(RegionState.Radius);
-		const FQuat QueryRotation = FQuat::Identity;
+		// 默认仍为球形。可选横置胶囊只扩大水平截面积，不改变原竖向/前后厚度。
+		const FCollisionShape& QueryShape = RegionState.QueryShape;
+		const FQuat QueryRotation = QueryShape.IsCapsule()
+			? FQuat::FindBetweenNormals(FVector::UpVector, Character->GetActorRightVector().GetSafeNormal2D())
+			: FQuat::Identity;
 
 		for (int32 TemporalStep = 0; TemporalStep < TemporalStepCount; ++TemporalStep)
 		{
@@ -1194,8 +1206,17 @@ void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
 				{
 					DrawDebugLine(GetWorld(), SweepFrom, SweepTo, FColor::Red,
 						false, 0.15f, 0, 1.5f);
-					DrawDebugSphere(GetWorld(), SweepTo, RegionState.Radius, 12,
-						Hits.IsEmpty() ? FColor::Yellow : FColor::Green, false, 0.15f);
+					const FColor DebugColor = Hits.IsEmpty() ? FColor::Yellow : FColor::Green;
+					if (QueryShape.IsCapsule())
+					{
+						DrawDebugCapsule(GetWorld(), SweepTo, QueryShape.GetCapsuleHalfHeight(),
+							RegionState.Radius, QueryRotation, DebugColor, false, 0.15f);
+					}
+					else
+					{
+						DrawDebugSphere(GetWorld(), SweepTo, RegionState.Radius, 12,
+							DebugColor, false, 0.15f);
+					}
 				}
 			}
 		}

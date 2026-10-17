@@ -49,6 +49,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Cost")
 	FScalableFloat StaminaCostRate;
 
+	/** -1 使用地面/空中基础回复；>=0 为本动作每秒回复点数（再乘回复倍率）。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Cost", meta=(ClampMin="-1"))
+	float StaminaRecoveryOverride = -1.f;
+
+	/** Instant成本在动作内的已验证时刻支付，而非Commit；中途取消不扣未支付成本。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Cost")
+	bool bDeferInstantStaminaCost = false;
+
+	/** 当前动作的回复速率；负数表示使用环境基础值。 */
+	virtual float GetStaminaRecoveryPerSecond() const;
+
 	/** 武器专属资源成本规格（经 RuntimeHost 透传给 ResourceProvider 预留） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Cost")
 	TArray<FWeaponResourceCostSpec> WeaponResourceCosts;
@@ -232,11 +243,17 @@ protected:
 	/** 构造冷却 GE Spec（HasDuration，Duration 写入 Spec）。 */
 	FGameplayEffectSpecHandle MakeCooldownSpec(float Duration) const;
 
-private:
 	/** 当前等级下 Instant 策略的实际耐力成本（StaminaCost × StaminaDeductionRate）。 */
-	float GetInstantStaminaCost(
+	virtual float GetInstantStaminaCost(
 		const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo) const;
+
+	/** 幂等支付延后成本；支付前再次CheckCost，失败由具体动作安全退出。 */
+	bool TryPayDeferredStaminaCost();
+
+private:
+	friend class FMHGZStaminaCostsTest;
+	bool bDeferredStaminaPaid = false;
 
 	FWeaponActionToken CurrentActionToken;
 	FWeaponAbilityActivationContext ActivationContext;

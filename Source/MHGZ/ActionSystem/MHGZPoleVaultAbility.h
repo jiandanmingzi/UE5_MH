@@ -223,6 +223,7 @@ class MHGZ_API UMHGZPoleVaultAbility : public UMHGZInsectGlaiveAbility
 
 public:
 	UMHGZPoleVaultAbility();
+	virtual float GetStaminaRecoveryPerSecond() const override;
 
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
@@ -569,6 +570,7 @@ private:
 	TObjectPtr<UCurveVector> ActiveTrajectoryCurve;
 
 	bool bUseWhiteBackVault = false;
+	double StaminaArcRecoveryStartTime = -1.0;
 	/** Tracks the montage-local root-motion disable; EndAbility balances the push. */
 	bool bBackVaultVisualRootMotionDisabled = false;
 	bool bVisualFinished = false;

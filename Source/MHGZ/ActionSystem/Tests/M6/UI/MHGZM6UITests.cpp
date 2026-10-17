@@ -15,6 +15,7 @@
 #include "UI/MHGZInsectGlaiveResourceWidget.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "Components/Overlay.h"
+#include "Components/CanvasPanelSlot.h"
 #include "Engine/LocalPlayer.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "ImageUtils.h"
@@ -160,6 +161,7 @@ struct FMHGZM6HUDTestAccess
 	}
 	static bool Bound(UMHGZAttributeBarWidget* W, UAbilitySystemComponent* ASC) { return W && W->BoundASC == ASC; }
 	static float Ratio(UMHGZAttributeBarWidget* W) { return W ? W->DisplayRatio : -1; }
+	static float GaugeWidth(UMHGZAttributeBarWidget* W) { return W ? W->GetGaugeWidth() : -1; }
 	static bool Visible(UMHGZCrosshairWidget* W) { return W && W->bAimDisplayVisible; }
 	static EMHGZAimDisplayMode Mode(UMHGZCrosshairWidget* W) { return W->CurrentAimDisplayMode; }
 	static FIGResourceUISnapshot State(UMHGZInsectGlaiveResourceWidget* W) { return W->DisplayState; }
@@ -235,10 +237,22 @@ bool FMHGZM6UIEarlyContext::RunTest(const FString& Parameters)
 	TestTrue(TEXT("Panel has current resource snapshot"), Access::State(Panel).bHasKinsect);
 	F.H.Resource->ApplyExtract(M3::Tag(TEXT("WeaponResource.IG.Extract.White")));
 	TestTrue(TEXT("Panel receives live extract update"), Access::State(Panel).bWhite);
+	TestEqual(TEXT("health at max 200 retains the existing 582 body width"), Access::GaugeWidth(Access::Health(F.HUD)), 582.f);
+	TestEqual(TEXT("stamina at max 200 retains the existing body width"), Access::GaugeWidth(Access::Stamina(F.HUD)), 582.f);
+	F.H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetMaxHealthAttribute(), 100);
 	F.H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetHealthAttribute(), 53);
 	TestTrue(TEXT("Gauge receives live attribute update"), FMath::IsNearlyEqual(Access::Ratio(Access::Health(F.HUD)), 0.53f));
+	TestEqual(TEXT("max 100 halves the body width"), Access::GaugeWidth(Access::Health(F.HUD)), 291.f);
+	TestEqual(TEXT("layout follows the shorter body without scaling the emblem"), CastChecked<UCanvasPanelSlot>(Main->HealthBarSlot->Slot)->GetSize().X, 329.0);
 	F.H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetMaxHealthAttribute(), 200);
 	TestTrue(TEXT("Gauge also receives max-attribute update"), FMath::IsNearlyEqual(Access::Ratio(Access::Health(F.HUD)), 0.265f));
+	TestEqual(TEXT("current health changes fill, not total body length"), Access::GaugeWidth(Access::Health(F.HUD)), 582.f);
+	F.H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetMaxStaminaAttribute(), 300);
+	TestEqual(TEXT("max 300 extends the stamina body to 1.5 times"), Access::GaugeWidth(Access::Stamina(F.HUD)), 873.f);
+	TestEqual(TEXT("max above 200 expands the actual Canvas layout"), CastChecked<UCanvasPanelSlot>(Main->StaminaBarSlot->Slot)->GetSize().X, 911.0);
+	F.H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetStaminaAttribute(), 40);
+	TestEqual(TEXT("spending stamina does not shorten the total bar"), Access::GaugeWidth(Access::Stamina(F.HUD)), 873.f);
+	TestTrue(TEXT("spending stamina still updates the fill"), FMath::IsNearlyEqual(Access::Ratio(Access::Stamina(F.HUD)), 40.f / 300.f));
 	F.HUD->RefreshPawnContext();
 	Access::Ready(F.HUD, F.H.Host->GetCurrentToken(), F.H.Resource);
 	TestTrue(TEXT("Idempotent refresh retains the panel"), Access::Resource(F.HUD) == Panel);

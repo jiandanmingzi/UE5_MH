@@ -37,6 +37,14 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|UI|Attribute")
 	FGameplayAttribute MaxAttribute;
 
+	/** 此上限对应现有完整条长；只影响显示，不限制 GAS 属性。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|UI|Attribute", meta = (ClampMin = "1.0"))
+	float ReferenceMaxValue = 200.0f;
+
+	/** 上限为 ReferenceMaxValue 时的条身长度（Slate单位，不含左侧图标）。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|UI|Attribute", meta = (ClampMin = "1.0"))
+	float ReferenceGaugeWidth = 582.0f;
+
 	virtual void BindToASC(UAbilitySystemComponent* InASC) override;
 	virtual void UnbindFromASC() override;
 	virtual void OnValueUpdated_Implementation(float Current, float Max) override;
@@ -55,9 +63,12 @@ protected:
 	void PublishCurrentValues();
 	void ResolveDefaultAttributes();
 	void ResolveWidgetBindings();
+	float GetGaugeWidth() const;
+	void UpdateGaugeLayout();
 
 	FDelegateHandle CurrentAttributeHandle;
 	FDelegateHandle MaxAttributeHandle;
 	friend struct FMHGZM6HUDTestAccess;
 	float DisplayRatio = 0.0f;
+	float DisplayMaxValue = 0.0f;
 };

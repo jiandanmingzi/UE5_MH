@@ -168,6 +168,8 @@ const FVaultDirectionSeed GDirectionSeeds[] = {
 
 UMHGZPoleVaultAbility::UMHGZPoleVaultAbility()
 {
+	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
+	StaminaCost = FScalableFloat(25.f);
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.Weapon.RTA"));
 	// 四个方向都是「朝向锁死、只换行进方向」——任何朝向修正都会把整条路径转掉。
 	MaxCorrectionAngle = 0.0f;
@@ -594,6 +596,9 @@ bool UMHGZPoleVaultAbility::PrepareAttackMontage()
 bool UMHGZPoleVaultAbility::StartAttackMontage(ACharacter& Character,
 	UAnimMontage* Montage, FName StartSection)
 {
+	const FVaultProfile* StaminaProfile = ResolveVaultProfile();
+	StaminaArcRecoveryStartTime = GetWorld() && StaminaProfile
+		? GetWorld()->GetTimeSeconds() + StaminaProfile->JumpDuration : -1.0;
 	// This must happen before the montage task is activated.  In Walking mode,
 	// CMC constrains an animation Root Motion delta to the floor, so the Jump
 	// sequence can pose a pole-vault without ever raising the capsule.
@@ -627,6 +632,12 @@ bool UMHGZPoleVaultAbility::StartAttackMontage(ACharacter& Character,
 		bBackVaultVisualRootMotionDisabled = true;
 	}
 	return true;
+}
+
+float UMHGZPoleVaultAbility::GetStaminaRecoveryPerSecond() const
+{
+	return GetWorld() && StaminaArcRecoveryStartTime >= 0.0
+		&& GetWorld()->GetTimeSeconds() >= StaminaArcRecoveryStartTime ? 10.f : 0.f;
 }
 
 bool UMHGZPoleVaultAbility::PlayVaultMontage(ACharacter& Character,

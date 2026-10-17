@@ -64,7 +64,7 @@ bool FMHGZInsectGlaiveCombatValidationTest::RunTest(const FString& Parameters)
 {
 	UInsectGlaiveCombatConfig* Config = NewObject<UInsectGlaiveCombatConfig>();
 	Config->MaxDanceStacks = 2;
-	Config->DanceDamageMultipliers = { 1.0f };
+	Config->KinsectSlashDanceDamageMultipliers = { 1.0f };
 
 	FDataValidationContext Context;
 	TestEqual(TEXT("dance array mismatch is invalid"), Config->IsDataValid(Context), EDataValidationResult::Invalid);

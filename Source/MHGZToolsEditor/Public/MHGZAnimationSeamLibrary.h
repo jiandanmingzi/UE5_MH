@@ -39,6 +39,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category="MHGZ|Editor|Animation")
 	static bool InstallMontageSegmentInertialization(UAnimBlueprint* Blueprint, bool bApply);
 
+	/** DefaultSlot only: component-space CopyBone after its existing inertia. No save. */
+	UFUNCTION(BlueprintCallable, Category="MHGZ|Editor|Animation")
+	static bool InstallWeaponGripConstraint(UAnimBlueprint* Blueprint, bool bApply);
+
 	/** Graph/state export. Optional editor-open fixups are memory-only; use an isolated commandlet, never save. */
 	UFUNCTION(BlueprintCallable, Category="MHGZ|Editor|Animation")
 	static FString AuditAnimBlueprintGraph(UAnimBlueprint* Blueprint, bool bSimulateEditorOpen = false);

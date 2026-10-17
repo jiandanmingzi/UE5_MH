@@ -223,6 +223,8 @@ UMHGZDescendingThrustAbility::UMHGZDescendingThrustAbility()
 {
 	InputTag = WeaponRTTag();
 	DefaultEntrySection = StartSectionName;
+	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
+	StaminaCost = FScalableFloat(20.0f);
 
 	ActivationRequiredTags.AddTag(UnsheathedTag());
 	ActivationBlockedTags.AddTag(GroundedTag());
@@ -736,7 +738,7 @@ void UMHGZDescendingThrustAbility::ActivateAbility(
 		return;
 	}
 
-	FrozenDanceDamageMultiplier = Resource->GetDanceDamageMultiplier();
+	FrozenDanceDamageMultiplier = Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::DescendingThrust);
 	if (!FMath::IsFinite(FrozenDanceDamageMultiplier)
 		|| FrozenDanceDamageMultiplier <= 0.0f)
 	{

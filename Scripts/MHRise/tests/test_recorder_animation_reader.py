@@ -204,6 +204,7 @@ log = {info=function() end,error=function() end,warn=function() end}
         code = "local function csv_text(value)" + helpers + r'''
 local state = {sample_count=1,capture_time=.1,gamepad_snapshot={buttons={},pressed={},released={}}}
 local position, camera = {x=1,y=2,z=3}, nil
+local stamina = {available=false,source="PlayerData._stamina/_staminaMax",error="no player"}
 local motion_layers={layers={},player_motion_old_id_ok=true,player_motion_old_id=160}
 local function captured_motion_value(ok,value) if ok then return value end end
 local gamepad_button_names={'A','Y','RT'}
@@ -216,7 +217,11 @@ local function gamepad_button_column_name(name) return name end
         parsed = dict(zip(fields, values))
         self.assertEqual(float(parsed["player_motion_old_id"]), 160)
         self.assertEqual(parsed["input_gamepad_button_A_down"], "")
-        self.assertEqual(fields[-35], "motion_l0_bank_id")
+        self.assertEqual(fields[-40], "motion_l0_bank_id")
+        self.assertEqual(fields[-5:], ["stamina_available", "stamina_raw", "stamina_max_raw",
+                                      "stamina_source", "stamina_error"])
+        self.assertEqual(parsed["stamina_available"], "0")
+        self.assertEqual(parsed["stamina_raw"], "")
 
     def test_nil_hid_cells_and_false_flags_keep_fixed_csv_width(self):
         helpers = TEXT.split("local function csv_text(value)", 1)[1].split("local function write_event", 1)[0]
@@ -226,6 +231,44 @@ return #row, table.concat(row, ','), csv_text(false)
 '''
         count, row, flag = self.lua.execute(code)
         self.assertEqual((count, row, flag), (3, ",0,1", '"false"'))
+
+
+@unittest.skipIf(LuaRuntime is None, "Install lupa in an isolated test environment")
+class StaminaReaderTests(unittest.TestCase):
+    def setUp(self):
+        self.lua = LuaRuntime(unpack_returned_tuples=True)
+        reader = TEXT.split("-- BEGIN HUNTER STAMINA READER:", 1)[1].split("\n", 1)[1].split(
+            "-- END HUNTER STAMINA READER.", 1)[0]
+        self.read = self.lua.execute(reader + "\nreturn read_hunter_stamina")
+        self.player = self.lua.eval('''function(current, maximum)
+            local data={}
+            function data:get_field(name)
+                if name=="_stamina" then return current end
+                if name=="_staminaMax" then return maximum end
+                error("Unexpected field")
+            end
+            return {call=function(self,name) assert(name=="get_PlayerData"); return data end}
+        end''')
+
+    def test_raw_values_are_not_silently_scaled(self):
+        value = self.read(self.player(3600, 4500))
+        self.assertTrue(value.available)
+        self.assertEqual((value.current, value.maximum), (3600, 4500))
+
+    def test_empty_stamina_is_valid(self):
+        self.assertTrue(self.read(self.player(0, 4500)).available)
+
+    def test_missing_player_or_missing_fields_never_fabricate_zero(self):
+        for player in (None, self.player(None, 4500), self.player(100, None)):
+            value = self.read(player)
+            self.assertFalse(value.available)
+            self.assertIsNone(value.current)
+            self.assertIsNotNone(value.error)
+
+    def test_nonfinite_or_out_of_range_values_are_unavailable(self):
+        for current, maximum in ((-1, 4500), (1, 0), (5000, 4500), (float('nan'), 4500),
+                                 (float('inf'), 4500), (1, float('inf'))):
+            self.assertFalse(self.read(self.player(current, maximum)).available)
 
 
 if __name__ == "__main__":

@@ -11,19 +11,18 @@
 
 namespace
 {
-// Temporary M4.7 input/animation test pool. Keep the initial value and the
-// max-value clamp together so later Gameplay Effects cannot silently reduce it
-// back to the former 200-point test ceiling.
-constexpr float TestStaminaPool = 100000.0f;
+// 出生默认值，不是运行时硬上限；增益/装备仍通过 GAS 修改 Max 属性。
+constexpr float DefaultHealthPool = 200.0f;
+constexpr float DefaultStaminaPool = 200.0f;
 }
 
 UMHGZAttributeSet::UMHGZAttributeSet()
 {
 	// 基础值
-	InitHealth(100.f);
-	InitMaxHealth(100.f);
-	InitStamina(TestStaminaPool);
-	InitMaxStamina(TestStaminaPool);
+	InitHealth(DefaultHealthPool);
+	InitMaxHealth(DefaultHealthPool);
+	InitStamina(DefaultStaminaPool);
+	InitMaxStamina(DefaultStaminaPool);
 	InitStaminaRegenRate(1.0f);
 	InitStaminaDeductionRate(1.0f);
 	InitStaminaConsumptionRate(1.0f);
@@ -77,7 +76,7 @@ void UMHGZAttributeSet::ClampAttribute(const FGameplayAttribute& Attribute, floa
 	}
 	else if (Attribute == GetMaxStaminaAttribute())
 	{
-		NewValue = FMath::Clamp(NewValue, 1.f, TestStaminaPool);
+		NewValue = FMath::Max(NewValue, 1.f);
 	}
 	else if (Attribute == GetCriticalRateAttribute())
 	{

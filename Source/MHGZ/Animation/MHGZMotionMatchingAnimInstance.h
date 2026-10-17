@@ -68,6 +68,13 @@ public:
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Montage Segment Blend")
 	int64 MontageSegmentBlendRequestSerial = 0;
 
+	/** DefaultSlot惯性混合后的持械挂点校正，仅由显式接缝元数据授权。 */
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Weapon Grip")
+	float WeaponGripConstraintAlpha = 0.f;
+
+	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Weapon Grip")
+	int64 WeaponGripConstraintSerial = 0;
+
 	/** Converts a world-facing correction into the current Mesh component basis. */
 	static bool BuildActionVisualPitchComponentRotation(const FVector& FacingWorld,
 		const FVector& TargetWorld, const FQuat& MeshWorldRotation,
@@ -349,6 +356,7 @@ protected:
 private:
 	/** Previous graph-update sample, also detects section seeks performed between updates. */
 	TArray<FMHGZMontageSegmentBlendSample> LastMontageSegmentBlendSamples;
+	FMHGZWeaponGripConstraint WeaponGripConstraint;
 
 	void UpdateActionVisualPitch(const AMHGZCharacter* Character, float DeltaSeconds);
 	void ResetActionVisualPitchLocalState();

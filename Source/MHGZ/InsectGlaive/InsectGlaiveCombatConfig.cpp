@@ -74,6 +74,34 @@ const FVaultTuning* UInsectGlaiveCombatConfig::FindVaultTuning(
 	return nullptr;
 }
 
+float UInsectGlaiveCombatConfig::GetDanceDamageMultiplier(
+	const EIGDanceDamageAction Action, const int32 Stacks) const
+{
+	const TArray<float>* Multipliers = nullptr;
+	switch (Action)
+	{
+	case EIGDanceDamageAction::KinsectSlash:
+		Multipliers = &KinsectSlashDanceDamageMultipliers;
+		break;
+	case EIGDanceDamageAction::DescendingThrust:
+		Multipliers = &DescendingThrustDanceDamageMultipliers;
+		break;
+	case EIGDanceDamageAction::KinsectPiercer:
+		Multipliers = &KinsectPiercerDanceDamageMultipliers;
+		break;
+	default:
+		return 1.0f;
+	}
+	// 0 层永远不加成；缺失的层不借用另一个招式或较低层的数值。
+	const int32 Index = FMath::Clamp(Stacks, 0, FMath::Max(0, MaxDanceStacks));
+	if (Index == 0 || !Multipliers->IsValidIndex(Index))
+	{
+		return 1.0f;
+	}
+	const float Multiplier = (*Multipliers)[Index];
+	return FMath::IsFinite(Multiplier) && Multiplier >= 1.0f ? Multiplier : 1.0f;
+}
+
 #if WITH_EDITOR
 EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationContext& Context) const
 {
@@ -336,6 +364,14 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	CheckNonNegative(TEXT("SendKinsectMotionValue"), SendKinsectMotionValue);
 	CheckNonNegative(TEXT("DrawSendKinsectMotionValue"), DrawSendKinsectMotionValue);
 	CheckNonNegative(TEXT("AwakenedKinsectMotionValue"), AwakenedKinsectMotionValue);
+	CheckNonNegative(TEXT("AwakenedRedKinsectMotionValue"), AwakenedRedKinsectMotionValue);
+	CheckNonNegative(TEXT("AwakenedTripleKinsectMotionValue"), AwakenedTripleKinsectMotionValue);
+	if (AwakenedRedKinsectMotionValue < AwakenedKinsectMotionValue
+		|| AwakenedTripleKinsectMotionValue < AwakenedRedKinsectMotionValue)
+	{
+		AddError(LOCTEXT("InvalidAwakenedMotionValueOrder",
+			"Awakened Kinsect motion values must satisfy base <= red <= triple."));
+	}
 	CheckNonNegative(TEXT("DescendingThrustAirControl"), DescendingThrustAirControl);
 	CheckNonNegative(TEXT("AerialLandingHorizontalSpeed"), AerialLandingHorizontalSpeed);
 
@@ -380,31 +416,32 @@ EDataValidationResult UInsectGlaiveCombatConfig::IsDataValid(FDataValidationCont
 	}
 	else
 	{
-		const int32 ExpectedCount = MaxDanceStacks + 1;
-		if (DanceDamageMultipliers.Num() != ExpectedCount)
+		auto CheckDanceMultipliers = [&AddError, this](const TCHAR* Field,
+			const TArray<float>& Multipliers)
 		{
-			AddError(FText::Format(
-				LOCTEXT("InvalidDanceArrayLength", "DanceDamageMultipliers.Num() must be MaxDanceStacks + 1 (expected {0}, current {1})."),
-				FText::AsNumber(ExpectedCount), FText::AsNumber(DanceDamageMultipliers.Num())));
-		}
-		else if (DanceDamageMultipliers.Num() > 0)
-		{
-			if (!FMath::IsNearlyEqual(DanceDamageMultipliers[0], 1.0f, KINDA_SMALL_NUMBER))
+			if (Multipliers.Num() != MaxDanceStacks + 1)
 			{
-				AddError(FText::Format(
-					LOCTEXT("InvalidDanceBaseMultiplier", "DanceDamageMultipliers[0] must be 1.0 (current {0})."),
-					FText::AsNumber(DanceDamageMultipliers[0])));
+				AddError(FText::FromString(FString::Printf(
+					TEXT("%s.Num() must be MaxDanceStacks + 1 (expected %d, current %d)."),
+					Field, MaxDanceStacks + 1, Multipliers.Num())));
 			}
-			for (int32 Index = 0; Index < DanceDamageMultipliers.Num(); ++Index)
+			if (!Multipliers.IsEmpty()
+				&& !FMath::IsNearlyEqual(Multipliers[0], 1.0f, KINDA_SMALL_NUMBER))
 			{
-				if (!FMath::IsFinite(DanceDamageMultipliers[Index]) || DanceDamageMultipliers[Index] < 0.f)
+				AddError(FText::FromString(FString::Printf(TEXT("%s[0] must be 1.0."), Field)));
+			}
+			for (int32 Index = 0; Index < Multipliers.Num(); ++Index)
+			{
+				if (!FMath::IsFinite(Multipliers[Index]) || Multipliers[Index] < 1.0f)
 				{
-					AddError(FText::Format(
-						LOCTEXT("InvalidDanceMultiplier", "DanceDamageMultipliers[{0}] must be >= 0 (current {1})."),
-						FText::AsNumber(Index), FText::AsNumber(DanceDamageMultipliers[Index])));
+					AddError(FText::FromString(FString::Printf(
+						TEXT("%s[%d] must be finite and >= 1.0."), Field, Index)));
 				}
 			}
-		}
+		};
+		CheckDanceMultipliers(TEXT("KinsectSlashDanceDamageMultipliers"), KinsectSlashDanceDamageMultipliers);
+		CheckDanceMultipliers(TEXT("DescendingThrustDanceDamageMultipliers"), DescendingThrustDanceDamageMultipliers);
+		CheckDanceMultipliers(TEXT("KinsectPiercerDanceDamageMultipliers"), KinsectPiercerDanceDamageMultipliers);
 	}
 
 	FWeaponMovementRequest DanceVaultRequest;

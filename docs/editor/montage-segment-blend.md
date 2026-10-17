@@ -1,6 +1,6 @@
 # 蒙太奇内部片段惯性混合
 
-更新：2026-10-14。**通用基底已实现并接线；原22份多序列Montage的0.05s内部混合配置继续保留。已移除5个合成Blend与10个攻击EntryHold；其中4份Montage现为单序列，当前多序列数为18。独立磁盘重载检查通过，尚未做此次PIE视觉签收。** 本功能自身不自动改入口路由；已批准的清理与入口变化见下文和[六组入口修正](ground-attack-entry-fixes.md)。
+更新：2026-10-16。**通用基底已实现并接线；原22份多序列Montage的0.05s内部混合配置继续保留。已移除5个合成Blend与10个攻击EntryHold；其中4份Montage现为单序列，当前多序列数为18。本轮新增二连→飞圆310→117显式持械约束，代码/资产及定向检查完成，待局部PIE视觉确认。** 历史检查不自动重新成为门禁；当前签收以[状态入口](../using/current-status.md)为准。本功能自身不自动改入口路由；已批准的清理与入口变化见下文和[六组入口修正](ground-attack-entry-fixes.md)。
 
 本次扫描`/Game`共54份Montage，匹配16份虫棍攻击、1份收刀和5份持刀/收刀翻滚；其余32份保持不变。同一Sequence的不同裁切/循环不计作多个序列。完整资产名单及验证见`Saved/Maintenance/MontageSegmentBlendBatch/applied.json`和`disk-verify.json`；上捞/拔刀原0.06s也已更新为0.05s。
 
@@ -14,6 +14,40 @@
 混合发生在目标动画继续正常播放的过程中，不插入动画、不延长总时长，也不会先停住等待混合。时间按实际秒数计，不再乘 Sequence RateScale 或 Montage PlayRate。当前按用户要求统一配置0.05s，后续可按局部观感在单份资产中调整。
 
 当前使用同一 Montage 统一时间，作用于其不同序列接缝。批量配置阶段曾保留人工桥接，造成“原片段→桥接→目标”两次真实序列变化；随后按用户授权移除了飞圆、横扫、突进中的5个合成Blend片段，再移除8份攻击中的10个EntryHold。翻滚保持段、蓄力和功能性IP/RM资产保留。若未来需要按接缝覆盖时间或禁用某个接缝，应另行扩展配置，不靠文件名猜测。
+
+## 二连→飞圆310→117持械约束（2026-10-16）
+
+最新两份录制（133700正常、133736慢放）定位到310短衔接结束→117大回旋，不是GA启动，
+也不是304被错误播放；全程Slot权重1。真实ABP的最终混合姿势出现左右持械参考分离约45–78cm，
+而右参考相对右手只漂移约0.09cm。单纯延长身体混合不能保证两个辅助骨维持持械关系。
+
+当前已保存链路：DefaultSlot→原Inertialization→LocalToComponent→CopyBone→ComponentToLocal
+→原全身俯仰链路。CopyBone复制`R_Weapon_00`的位置/旋转到`L_Weapon_00`，不复制缩放，
+Alpha绑定原生`WeaponGripConstraintAlpha`。不移动手臂，不更改Weapon_L插槽或武器挂接，
+UpperBody独立链路保持不变。新增功能的Montage元数据默认关闭，仅飞圆资产明确开启：
+
+| 字段 | 当前值 |
+|---|---|
+| 启用接缝持械约束 | 开启（其他Montage默认关闭） |
+| 来源序列 | AS_Unsh_R_ErLianFeiYuan（310） |
+| 目标序列 | AS_Unsh_R_FeiYuan（117） |
+| 保持时间 | 复用该Montage内部混合Duration=0.05s |
+| 约束退出时间（秒） | 1/30s≈0.0333s，Smoothstep退出 |
+
+这些字段在Montage Details的`MHGZ 蒙太奇内部片段混合`元数据内可调，不需要新增通知。
+仅同实例、DefaultSlot实际发生指定来源→目标时启用一次；直接117、横扫304→117、同序列裁切、
+其他Montage不参与。混出、暂停、停止、目标退出、元数据关闭、初始化/卸载清除约束。
+保持/退出与身体混合使用同一动画更新时钟；没有输入死区、额外动画帧或时长补偿。
+
+实际ABP逐帧对照60/120FPS及0.2慢放：接缝峰值44.53/73.64/77.57cm→各1.27cm，
+完全约束阶段位置/旋转重合，退出后无大幅二次分离；所有非目标/非其子骨姿势、缩放、
+Montage时间、身体混合请求和根运动提取保持。7项定向检查通过，独立磁盘回载通过，
+**尚待二连→飞圆局部PIE观感确认**。两份录制没有横扫样本，本轮不自动给横扫套用约束。
+
+复用现有脚本`--weapon-grip --apply`，只保存ABP与飞圆元数据，已完成后不重复Apply；
+`--verify-weapon-grip`独立只读核对。Commandlet开关`-MHGZWeaponGrip -MHGZSegmentBlendApply`，
+只读`-MHGZWeaponGripVerify`。事务及精确回退备份在`Saved/Maintenance/FeiYuanWeaponGrip/applied.json`；
+技术证据`Saved/Maintenance/FeiYuanGripFix20261016/AcceptedTests`。不要复建旧合成Blend或改变入口帧。
 
 ## 已清理的合成混合片段
 
@@ -44,7 +78,7 @@
 
 ## 已接通的链路
 
-- `ABP_MH_Character`：`DefaultSlot → Inertialization → 原全身俯仰链路`。
+- `ABP_MH_Character`：`DefaultSlot → Inertialization → 显式接缝持械约束 → 原全身俯仰链路`（默认Alpha=0）。
 - 同一 ABP：`UpperBody_IGAction → 独立 Inertialization → 原缓存/上下身混合链路`。
 - 节点已保存；再次执行接线会先审计，不重复插入。MM 路由、Pose History、原 Slot、俯仰节点及后续连接保留。
 - `UMHGZMotionMatchingAnimInstance::Montage_Advance` 在 `Super` 推进后比较上一次动画更新与本次的真实实例ID、Slot、片段及序列；调用 `RequestSlotGroupInertialization` 后交给 UE 更新图。

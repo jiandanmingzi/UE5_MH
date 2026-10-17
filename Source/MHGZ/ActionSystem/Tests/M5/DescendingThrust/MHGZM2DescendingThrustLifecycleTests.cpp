@@ -832,10 +832,11 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 		return false;
 	}
 	H.CombatConfig->MaxDanceStacks = 3;
-	H.CombatConfig->DanceDamageMultipliers = { 1.0f, 1.2f, 1.4f, 1.6f };
+	H.CombatConfig->DescendingThrustDanceDamageMultipliers = { 1.0f, 1.1f, 1.3f, 1.5f };
 	const bool bDanceStackSeeded = H.Resource->AddDanceStack(
 		EIGDanceSource::KinsectSlash);
-	const float ExpectedFrozenMultiplier = H.Resource->GetDanceDamageMultiplier();
+	const float ExpectedFrozenMultiplier = H.Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::DescendingThrust);
+	const float StaminaBeforeActivation = H.ASC->GetNumericAttribute(UMHGZAttributeSet::GetStaminaAttribute());
 	if (!TestTrue(TEXT("one real Dance stack is present before Commit"), bDanceStackSeeded)
 		|| !TestTrue(*FString::Printf(TEXT("real GAS activation succeeds (%s)"),
 			*H.FailureStage), H.Activate()))
@@ -843,6 +844,8 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 		H.Teardown();
 		return false;
 	}
+	TestEqual(TEXT("production activation pays exactly 20 stamina at Commit"),
+		H.ASC->GetNumericAttribute(UMHGZAttributeSet::GetStaminaAttribute()), StaminaBeforeActivation - 20.f);
 	TestTrue(TEXT("confirmed aerial attack spends Host CantAttack"),
 		H.ASC->HasMatchingGameplayTag(DescLifecycleTag(
 			TEXT("Combat.State.Aerial.CantAttack"))));

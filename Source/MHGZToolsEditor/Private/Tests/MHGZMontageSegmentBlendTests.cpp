@@ -49,7 +49,12 @@ UAnimMontage* MakeMontage(UAnimSequence* A, UAnimSequence* B, bool bConfigured =
 	Section.SectionName = TEXT("Default");
 	Section.Link(Montage, 0.0f, 0);
 	Montage->RefreshCacheData();
-	if (bConfigured) { Montage->AddMetaData(NewObject<UMHGZMontageSegmentBlendSettings>(Montage)); }
+	if (bConfigured)
+	{
+		auto* Settings = NewObject<UMHGZMontageSegmentBlendSettings>(Montage);
+		Settings->Duration = .06f; // Fixture's explicit override, independent of the production default.
+		Montage->AddMetaData(Settings);
+	}
 	return Montage;
 }
 

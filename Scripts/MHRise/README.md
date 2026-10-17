@@ -8,6 +8,23 @@ CSV files under `reframework/data/MHGZ_AerialTrajectoryRecorder`.
 
 ## Animation-frame repair (1.13.0, 2026-10-15)
 
+### Hunter stamina capture (1.14.0, 2026-10-17)
+
+F9 now appends five columns to the trajectory CSV: `stamina_available`,
+`stamina_raw`, `stamina_max_raw`, `stamina_source`, `stamina_error`. The first189
+columns retain their positions; new files have194. The same-frame master hunter's
+`get_PlayerData()` supplies read-only `_stamina` and `_staminaMax`; raw values are
+not divided by30 or normalized to a guessed display cap. Missing/nonfinite/out-of-range
+values stay unavailable, never fabricated as zero. A `REC STAMINA OK` or warning
+toast and an event mark reader transitions. No player/game state is changed.
+
+The installed autorun script matches source1.14.0; the previous1.13.0 is backed up
+in `Saved/Maintenance/Stamina20261017/`. Seventeen focused checks passed, including
+both Lua compilers and the actual CSV builder. Runtime stamina capture is verified:
+`mhrise_20261017_160355_01` has23,624 valid stamina rows and no reader errors.
+Original costs/recovery must not be guessed from prior position-only
+captures; see [stamina reference](../../docs/reference/虫棍耐力参考与回填.md).
+
 The old `motion_l*` columns read `_IG_InsectBehavior`, **not necessarily the
 rendered attack clip**. In the 2026-10-14 ground-attack capture, all 5,968 rows
 of state160 had only layer0 bank0/id1/end1; the other layers and node summaries

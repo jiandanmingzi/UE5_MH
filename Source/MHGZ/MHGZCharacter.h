@@ -244,7 +244,10 @@ public:
 
 	/** True once the currently held RB input has activated Sprint. */
 	UFUNCTION(BlueprintPure, Category="Input")
-	bool IsSprintHeld() const { return bSprintHeld; }
+	bool IsSprintHeld() const { return bSprintHeld && !bSprintStaminaExhausted; }
+
+	bool ShouldConsumeSprintStamina() const;
+	void NotifySprintStaminaExhausted() { bSprintStaminaExhausted = true; }
 
 	// ── Motion Matching 期望速度 ────────────────────────────────
 
@@ -273,6 +276,7 @@ public:
 	bool bUnsheathed = false;
 
 private:
+	friend class FMHGZStaminaSprintTest;
 	// ── 速度计算 ────────────────────────────────────────────────
 
 	float CalcCruiseSpeed(float StickMagnitude) const;
@@ -335,6 +339,8 @@ private:
 
 	/** Sprint 是否按住中（判定窗口结束后仍按住）。 */
 	bool bSprintHeld = false;
+	/** 耗尽后本次RB按住不自动反复启停；松开RB解除。 */
+	bool bSprintStaminaExhausted = false;
 
 	/** RB 0.1s 判定窗口计时器。 */
 	FTimerHandle SprintHoldTimer;

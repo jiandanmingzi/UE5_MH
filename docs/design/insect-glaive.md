@@ -206,7 +206,7 @@ class AKinsect : public AActor
 |------|------|------|
 | 检测生命周期 | NotifyBegin→NotifyEnd 之间启用每帧 Socket Sweep，不创建临时组件 | 胶囊组件常驻于 AKinsect，飞行期间 Enable，停手臂时 Disable |
 | 适用场景 | 固定时长的 Montage 播放中的瞬时判定（0.1-0.5s 窗口） | 持续数秒飞行过程中的不定时命中 |
-| 碰撞形状 | 新配置使用一个或多个球形采样 Region；旧版单区域仍兼容 Sphere/Capsule/Box | 固定胶囊体（猎虫形体近似） |
+| 碰撞形状 | 一个或多个TraceRegion，默认球形采样；可选HorizontalHalfWidth将采样球横向扩为胶囊，保留竖向/前后厚度和Socket长度。旧版单区域形状字段不再读取 | 固定胶囊体（猎虫形体近似） |
 | 移动方式 | 跟随骨骼动画——碰撞体固定在 Socket 上随动画运动 | 独立飞行移动——`UProjectileMovementComponent` 驱动 |
 
 ### 猎虫品种系统（UInsectGlaiveKinsectData）
@@ -361,7 +361,7 @@ enum class EKinsectExtractMode : uint8
 };
 ```
 
-Demo 不设“红＞橙＞白”的隐式覆盖优先级。普通送虫和操虫斩仍只携带首个有效颜色；觉虫击无三灯时同普通单次猎虫模式，有三灯时进入强化贯通模式。强化的每次成功贯通伤害按真实部位收集红/白/橙不同颜色，同色重复不增加格数，不覆盖前色；途中不授予角色灯。召回/中断保留全部携带精华，真正回手时原子清空携带容器，再按各色调用普通 ApplyExtract，届时可形成新三灯。交付时若角色已有有效三灯，则仍按统一吞灯、不刷新规则处理。UI预留双色也是为了未来可携带两色的普通猎虫；本Demo普通容量没有扩成两色。
+Demo 不设“红＞橙＞白”的隐式覆盖优先级。普通送虫和操虫斩仍只携带首个有效颜色；觉虫击按本次实际消耗的颜色决定效果（2026-10-17）：无红灯每击MV15，消耗红灯且非三灯MV30，完整三灯MV50；消耗白灯即启用贯通及CollectPerValidHit，不要求完整三灯。每次成功贯通伤害按真实部位收集红/白/橙不同颜色，同色重复不增加格数，不覆盖前色；途中不授予角色灯。消耗黄灯（代码Orange）另使每次成功猎虫伤害产粉，与贯通独立。召回/中断保留全部携带精华，真正回手时原子清空携带容器，再按各色调用普通 ApplyExtract，届时可形成新三灯。交付时若角色已有有效三灯，则仍按统一吞灯、不刷新规则处理。UI预留双色也是为了未来可携带两色的普通猎虫；本Demo普通容量没有扩成两色。出招后新增灯不改写本次效果；速度与召回仍保留原完整三灯/非三灯规则，详见[动作设计§5.6](insect-glaive-actions.md#56-觉虫击地面-rtyb)。
 
 ### 飞行终止条件
 
@@ -466,7 +466,8 @@ GameplayCue.Hit.Kinsect              ← 猎虫命中反馈（小号火花+音�
   → Actor Tick: SweepHitzones(PreviousTransform, CurrentTransform)
     → 按 Hit.Time 处理真实 Hitzone HitResult
     → SingleHit：记录 FirstHitOnly 精华 + 伤害一次 + 停止并 Hover
-    → Piercing：按每 Hitzone 间隔伤害；强化觉虫击每次成功伤害收集不同颜色、产粉并继续飞行
+    → Piercing：按每 Hitzone 间隔伤害并继续飞行；觉虫击消耗白灯后逐击收集不同颜色
+    → 成功伤害统一评估产粉：觉虫击消耗黄灯后逐击产粉；无黄灯仍走普通虫印区域/冷却规则
   → 若仍 Flying，再处理 PendingWorldHit/距离/到点终止
 
 召回（持刀 LT+B / 耐力归零）
@@ -606,7 +607,7 @@ ApplyExtract(Color)
 
 - 每名玩家的Resource只持有一个局部虫印：地面虫印斩指定有效武器段、急袭突刺地面第一击成功提交伤害时创建/替换。以真实命中点为中心，沿目标表面切向覆盖100×100cm（半宽50cm），与约1m视觉云团对齐；持续90s。死亡、到期、新印替换才按玩法规则清除，收虫/收刀不清。销毁目标和Runtime关闭仅作技术清理。
 - 自动虫印攻击不主动让Attached猎虫离手；猎虫已离手、没有高优先级指令且虫印在寻印范围内时才启动。玩家送虫/定点攻击、召回、招式附着与觉虫击等先执行，猎虫请求完成且仍在外才恢复自动寻印；不能仅以猎人Montage结束判定玩家指令完成。
-- 所有猎虫成功伤害入口共用产粉策略。实际命中虫印局部区域受Runtime共享10s冷却；三灯觉虫击成功贯通命中独立产粉、不受此冷却和虫印限制。同HitID至多一团；武器段不因命中虫印而产粉。
+- 所有猎虫成功伤害入口共用产粉策略。实际命中虫印局部区域受Runtime共享10s冷却；觉虫击消耗黄灯后，单击或贯通的每次成功伤害均独立产粉，不受此冷却和虫印限制。无黄灯保留普通虫印产粉规则；同HitID至多一团，仍受粉尘容量限制；武器段不因命中虫印而产粉。
 - 虫粉世界空间位置独立于怪物，每团保存生成时猎虫攻击力形成的固定伤害快照。存活180s、远距只消失、最多100团；自然到期一次直径1m固定伤害，不吃肉质。
 - 粉尘聚爆以冻结准心目标为中心，由Resource持有猎虫指令及聚爆事务。到达后收集范围内本玩家全部虫粉、刷新180s寿命，1s后以直径2m结算数量阶梯伤害和各团固定伤害之和两段。操虫/收虫抢占取消；猎人正常Montage结束不取消已提交事务。完整参数、去重和出口见M6计划。
 
@@ -739,7 +740,7 @@ Combat.Branch.TripleUp                ← 三灯连招分支
 | 突进回旋斩 | `Input.Weapon.YB` + `Forward` | 地面方向节点，Priority 高于四连印斩 | 前+Y+B |
 | 粉尘集约 | `Input.Weapon.LTYB` | 地面动作节点 | 持刀地面LT+Y+B；降龙已移出Demo，空中不配置该动作派生 |
 | 猎虫滑翔 | `Input.Weapon.RTY` | 地面动作节点 | 有虫印追虫印，否则短距前飞 |
-| 觉虫击 | `Input.Weapon.RTYB` | 持刀地面；TripleUp 不作激活前置 | 有效三灯时原子消费并走强化贯通；无三灯时仍发动普通猎虫单次命中 |
+| 觉虫击 | `Input.Weapon.RTYB` | 持刀地面；TripleUp 不作激活前置 | 成功出招消耗所有现有灯并冻结效果：MV15/红灯30/完整三灯50；白灯贯通，黄灯逐击产粉 |
 
 > **输入目标规则（2026-10-03）：** 收刀状态一般不能进行猎虫瞄准送/收虫，唯一例外是地面RT“拔刀并正前方放虫”。持刀单RT在限定时间内松开且未被获胜组合消费时才输出；地面进入虫印斩，空中合法Falling阶段进入急袭突刺，其余上下文拒绝。两者共用一个物理RT释放所有者，不保留旧空中按下单键条目；现状/迁移见[急袭突刺方案§4](../archive/demo-2026-10-13/急袭突刺实现计划.md#4-输入与-combo)。收刀态按住RB奔跑；仅持刀地面按RB才立即纳刀，空中不派发Input.Sheathe。所有组合先形成唯一InputTag，再由状态、方向和Priority分流；完整动作表见[insect-glaive-actions.md §3](insect-glaive-actions.md#3-输入与方向判定)。
 
@@ -793,7 +794,7 @@ Content/
 │   ├── GA_IG_AdvancingRoundslash.uasset     ← 突进回旋斩/反击舞踏
 │   ├── GA_IG_PowderVortex.uasset            ← 粉尘集约
 │   ├── GA_IG_KinsectGlide.uasset            ← 猎虫滑翔
-│   ├── GA_IG_JueChongJi.uasset   ← 觉虫击（有三灯时消耗并强化；无三灯仍可普通发动）
+│   ├── GA_IG_JueChongJi.uasset   ← 觉虫击（消耗现有灯；红灯增伤、白灯贯通、黄灯逐击产粉；完整三灯MV50）
 │   ├── GA_IG_CaoChongZhan.uasset            ← 操虫斩
 │   ├── GA_IG_QiangHuaCaoChongChuanCi.uasset         ← 强化操虫穿刺（已生成，本轮平地可玩范围已签收；旧规划名EnhancedKinsectSpiker不再使用）
 │   └── GA_IG_JiXiTuCi.uasset        ← 急袭突刺（持刀Falling，RT限时松开；本招M1/M2/M3/E1/M4/E2已验收）
@@ -859,7 +860,7 @@ Content/
 | IG-12b | 猎虫伤害走玩家 ASC 的统一 GE 管道——不新增 GA、不给猎虫加 ASC | 复用统一GE及GameplayCue反馈；物理伤害为 `KinsectAttackPower × MotionValue/100 × PhysicalHitzone/100`。猎虫无"出招"概念，不需要 Ability 激活/取消生命周期 |
 | IG-13 | 猎虫击中怪物后的行为由 `EKinsectDamageMode` 控制——SingleHit 立刻停止，Piercing 继续飞行 | 普通放虫咬一口就原地悬停——玩家回收取得萃取。贯穿放虫穿过去才停——最大化贯穿伤害次数 |
 | IG-14 | 猎虫萃取行为通过 `EKinsectExtractMode` 枚举控制，由送虫 GA 传入 | 萃取策略属于招式设计范畴（伤害贯穿 vs 萃取贯穿 vs 混合），不硬编码在猎虫内部。一个 GA 可以送"纯伤害无萃取"的虫，另一个可以送"标准萃取贯穿"的虫 |
-| IG-15 | 不设贯穿颜色优先级；普通固定 FirstHitOnly，强化觉虫击固定 CollectPerValidHit | 成功贯通伤害收集不同颜色；同色去重；回手才逐色点灯，途中不直接授予猎人 |
+| IG-15 | 不设贯穿颜色优先级；普通放虫固定 FirstHitOnly，觉虫击由本次消耗白灯决定 CollectPerValidHit | 无白灯仍为FirstHitOnly；白灯贯通的成功伤害收集不同颜色，同色去重，回手才逐色点灯，途中不直接授予猎人 |
 | IG-16 | SingleHit/Piercing 统一使用前后帧 Hitzone Object Capsule Sweep | Overlap 在高速飞行下可能漏判，且全局冷却会让不同部位互相阻塞；Sweep 保留真实 HitResult，Piercing 按 Hitzone 组件记录间隔 |
 | IG-17 | 猎虫移动用 `UProjectileMovementComponent`（`bAutoActivate=false`），不继承 APawn | 当前回归由 Returning Tick 手动追踪 OwnerActor 并更新 Velocity；不使用 HomingTargetComponent |
 | IG-18 | 猎虫输入与攻击输入都经同一协调器，但使用 LT/RT 组合 Tag 和显式取消窗口 | 收刀RT是唯一收刀放虫入口；持刀LT+Y/LT+B不与普通Y/B争抢。粉尘集约仅在地面配置LT+Y+B；急袭突刺目标为持刀Falling阶段RT限时松开，组合消费优先 |
@@ -874,9 +875,9 @@ Content/
 | 0a | 装备虫棍→猎虫 Spawn 并吸附手臂 | Kinsect Actor 存在；State=Attached；碰撞体 Disable；无动画 |
 | 0b | 送虫→猎虫 Detach 并沿准心飞出 | State=Flying；Collision Root/Projectile UpdatedComponent 正确；Hitzone Sweep 启用；耐力开始扣减 |
 | 0c | 普通放虫命中怪物→造成 1 次伤害并记录首次颜色 | SingleHit Sweep 只结算最早有效 Hitzone；随后立即停止伤害/Sweep 并 Hover，不自动回手；主动召回或耐力归零后交付 |
-| 0c2 | 觉虫击贯穿多个 Hitzone | Piercing按每Hitzone间隔结算并继续飞行；成功伤害保留真实Hit、先收集多色并产粉；回手后交付 |
+| 0c2 | 觉虫击消耗白灯后贯穿多个 Hitzone | Piercing按每Hitzone间隔结算并继续飞行；成功伤害保留真实Hit、先收集多色，回手后交付；消耗黄灯才享逐击独立产粉，无黄灯仍按虫印区域/冷却判定 |
 | 0c3 | 觉虫击猎虫离开 Hitzone | 后续 Sweep 不再命中时立即停止对该部位伤害，不存在缓存目标 Timer |
-| 0c4 | 觉虫击同一部位多次有效命中 | 每次成功提交伤害后恰好 ApplyExtract 一次、生成粉尘一次并走 HitFeedbackRouter；命中次数受每 Hitzone Config 间隔限制，伤害提交失败时三者均不发生 |
+| 0c4 | 觉虫击白灯贯通同一部位多次有效命中 | 每次成功伤害走HitFeedbackRouter并收集携带精华，同色去重、不立即ApplyExtract；若消耗黄灯则每次留一团粉尘（容量允许时）；重复命中受每Hitzone间隔限制，失败伤害不收集、不产粉 |
 | 0d | 有 PendingExtract 的猎虫返回玩家（主动召回或耐力归零） | 到达→Attached→原子取出并清 Pending→ApplyExtract 一次→UI 灯亮起，Active Tag 清理 |
 | 0d2 | 无 PendingExtract 的猎虫被主动召回 | 到达→AttachToPlayer→无灯 Apply→UI 无变化，耐力进入附着恢复逻辑 |
 | 0e | 猎虫飞行/悬停中穿透怪物身体 | Pawn 通道 Ignore→猎虫不被怪物物理阻挡，可在怪物身体附近悬停 |
@@ -903,8 +904,8 @@ Content/
 | 9 | Classic 模式有红灯→完整动作组 | 协调器匹配 RequiredTags 含红灯的正常动作转移 |
 | 10 | Classic 无红灯 / NumericOnly 任意灯状态 | 前者匹配弱化动作组；后者始终使用同一完整动作组，只改变数值 |
 | 11 | 三灯状态下发动攻击→特殊挥刀音效播放 | `UMHGZInsectGlaiveAbility::ActivateAbility` 检测 TripleUp Tag → `PlaySound2D(TripleUpSwingSound)`；空挥也播放 |
-| 12 | 觉虫击：三灯存在→Commit→原子消耗 | 旧灯一次性归零；强化贯通成功伤害收集多色并留下粉尘；猎虫回手交付三色后才可重新形成三灯 |
-| 13 | 觉虫击：无三灯→普通模式 | RTYB 仍可发动；不扣三灯，猎虫执行普通单次命中/单次取精华，不进入贯通；M6.3新增规则下，仅命中虫印局部区域且10s冷却通过时可产粉，不享受贯通逐击产粉特权 |
+| 12 | 觉虫击：三灯存在→Commit→原子消耗 | 旧灯一次性归零；每击MV50、贯通收集多色、成功伤害逐击产粉；回手交付后才可重新形成三灯；沿用三灯飞行速度和请求终点召回策略 |
+| 13 | 觉虫击：无三灯→按消耗颜色组合 | RTYB仍可发动并清现有单灯；无红MV15、有红MV30；白灯启用贯通/逐击携带，黄灯启用无虫印/无普通冷却产粉；均无则单击/首色及普通虫印产粉；非三灯速度与猎人飞行结束召回不变 |
 | 14 | 操虫斩在三灯期间命中橙色部位 | 走统一 ApplyExtract；Orange 被吞，三灯剩余时间和状态完全不变 |
 | 15 | 降龙验收项取消（2026-10-01） | 已移出当前Demo，不再作为M5门禁 |
 | 16 | Demo 配置引用 WeaponResource 词条 | Data Validation/内容审计拒绝；本轮不得依赖未修复的 ApplyEntryModifier |

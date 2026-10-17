@@ -100,7 +100,9 @@ UMHGZAirDodgeAbility::UMHGZAirDodgeAbility()
 	ActivationRequiredTags.AddTag(
 		FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial.Falling")));
 
-	// 真值源没有耐力数据，刻意不抄地面翻滚那 25 点：抄了就等于凭空发明一个消耗。
+	// 2026-10-17无技能实录：137扣750原始单位（25点），动作中不回复。
+	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
+	StaminaCost = FScalableFloat(25.f);
 }
 
 FWeaponMovementRequest UMHGZAirDodgeAbility::BuildAirDodgeRequest(

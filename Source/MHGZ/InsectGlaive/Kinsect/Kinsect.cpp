@@ -199,6 +199,11 @@ bool AKinsect::IsFlightRequestValid(const FKinsectFlightRequest& Request) const
 	{
 		return false;
 	}
+	if (Request.PowderSpawnPolicy == EIGPowderSpawnPolicy::AwakenedEachHit
+		&& Request.DamageMode == EKinsectDamageMode::None)
+	{
+		return false;
+	}
 	if (Request.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection)
 	{
 		if (Request.DirectionSnapshot.ContainsNaN() ||

@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "CollisionShape.h"
 #include "Engine/HitResult.h"
 #include "ActionSystem/MHGZActionDirectionCorrectionTypes.h"
 #include "MHGZDamageTypes.h"
@@ -33,7 +34,7 @@ enum class EAttackMultiHitPolicy : uint8
  * 例如虫棍前端和后端同时横扫。
  */
 USTRUCT(BlueprintType)
-struct FWeaponTraceRegion
+struct MHGZ_API FWeaponTraceRegion
 {
 	GENERATED_BODY()
 
@@ -48,6 +49,12 @@ struct FWeaponTraceRegion
 	/** 球形 Sweep 半径（厘米）。球体不受武器旋转朝向影响，适合高速长武器。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace", meta = (ClampMin = "1.0"))
 	float Radius = 14.0f;
+
+	/** 可选水平横向半宽（cm）；0保留球形。大于Radius时横置胶囊，仅沿角色左右方向加宽，不改变竖向/前后厚度和Socket轨迹长度。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace", meta = (ClampMin = "0.0", Units = "cm"))
+	float HorizontalHalfWidth = 0.0f;
+
+	FCollisionShape MakeQueryShape() const;
 
 	/** 棍身相邻采样点的最大间距；运行时还会限制为不超过 2 × Radius。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Trace", meta = (ClampMin = "1.0"))
@@ -501,6 +508,7 @@ private:
 		FName StartSocketName;
 		FName EndSocketName;
 		float Radius = 14.0f;
+		FCollisionShape QueryShape;
 		float MaxSampleSpacing = 20.0f;
 		float MaxAngularStepDegrees = 15.0f;
 		int32 MaxSampleCount = 16;

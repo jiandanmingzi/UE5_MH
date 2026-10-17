@@ -52,6 +52,24 @@ const FGameplayTag& TripleUpCostTag()
 	return Tag;
 }
 
+const FGameplayTag& AwakenedRedExtractTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
+	return Tag;
+}
+
+const FGameplayTag& AwakenedWhiteExtractTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"));
+	return Tag;
+}
+
+const FGameplayTag& AwakenedOrangeExtractTag()
+{
+	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
+	return Tag;
+}
+
 const FGameplayTag& YControlTag()
 {
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
@@ -138,6 +156,7 @@ void UMHGZAwakenedKinsectAttackAbility::ActivateAbility(
 	const FGameplayEventData* TriggerEventData)
 {
 	bEmpoweredKinsectBranch = false;
+	ConsumedExtractSnapshot.Reset();
 	bKinsectLaunchCommitted = false;
 	bKinsectActionAttached = false;
 	bHoldReleaseCheckScheduled = false;
@@ -198,6 +217,7 @@ void UMHGZAwakenedKinsectAttackAbility::EndAbility(
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 	StartFallbackFallingAfterActionEnd(Host, bNeedsFallbackFalling);
 	bEmpoweredKinsectBranch = false;
+	ConsumedExtractSnapshot.Reset();
 	bKinsectLaunchCommitted = false;
 	bKinsectActionAttached = false;
 	bHoldReleaseRouteApplied = false;
@@ -327,6 +347,10 @@ bool UMHGZAwakenedKinsectAttackAbility::ValidateActionDependencies() const
 		|| Config->AwakenedAimCorrectionAngle > 90.f
 		|| !FMath::IsFinite(Config->AwakenedKinsectMotionValue)
 		|| Config->AwakenedKinsectMotionValue < 0.f
+		|| !FMath::IsFinite(Config->AwakenedRedKinsectMotionValue)
+		|| Config->AwakenedRedKinsectMotionValue < Config->AwakenedKinsectMotionValue
+		|| !FMath::IsFinite(Config->AwakenedTripleKinsectMotionValue)
+		|| Config->AwakenedTripleKinsectMotionValue < Config->AwakenedRedKinsectMotionValue
 		|| !FMath::IsFinite(Config->AwakenedHunterFlightDurationSeconds)
 		|| Config->AwakenedHunterFlightDurationSeconds <= 0.f
 		|| !FMath::IsFinite(Config->AwakenedHunterFlightSpeed)
@@ -380,16 +404,25 @@ bool UMHGZAwakenedKinsectAttackAbility::PrepareActivationWeaponResourceCosts(
 {
 	OutCosts.Reset();
 	bEmpoweredKinsectBranch = false;
+	ConsumedExtractSnapshot.Reset();
 	URes_InsectGlaive* Resource = GetIGResourceComponent();
 	if (!Resource)
 	{
 		return false;
 	}
 
-	if (!Resource->IsTripleUpActive())
+	bEmpoweredKinsectBranch = Resource->IsTripleUpActive();
+	for (const FGameplayTag& Color : { AwakenedRedExtractTag(), AwakenedWhiteExtractTag(), AwakenedOrangeExtractTag() })
 	{
-		// No TripleUp still selects ordinary flight. Single lamps are cleared only
-		// after successful action commit in PrepareAttackMontage, never at preflight.
+		if (bEmpoweredKinsectBranch || Resource->HasExtract(Color))
+		{
+			ConsumedExtractSnapshot.AddTag(Color);
+		}
+	}
+	if (!bEmpoweredKinsectBranch)
+	{
+		// Preflight only previews the colors. Actual successful consumption below
+		// replaces this snapshot, so later resource changes cannot rewrite launch effects.
 		return BuildPendingKinsectRequest(GetWeaponActivationContext().Input);
 	}
 
@@ -431,10 +464,16 @@ bool UMHGZAwakenedKinsectAttackAbility::PrepareAttackMontage()
 	}
 
 	bKinsectActionAttached = true;
-	if (!Resource->ConsumeSingleExtractsForAction(GetActionToken()))
+	FGameplayTagContainer ConsumedSingles;
+	if (!Resource->ConsumeSingleExtractsForAction(GetActionToken(), &ConsumedSingles))
 	{
 		return false;
 	}
+	if (!bEmpoweredKinsectBranch)
+	{
+		ConsumedExtractSnapshot = ConsumedSingles;
+	}
+	ApplyConsumedExtractEffects(*Config);
 	return true;
 }
 
@@ -476,36 +515,36 @@ bool UMHGZAwakenedKinsectAttackAbility::BuildPendingKinsectRequest(
 		? AwakenedKinsectTripleUpFlightSpeed
 		: AwakenedKinsectOrdinaryFlightSpeed;
 	PendingKinsectRequest.ArrivalRadius = Config->KinsectArrivalRadius;
-	PendingKinsectRequest.MotionValue = Config->AwakenedKinsectMotionValue;
 	PendingKinsectRequest.FlightInstanceID = FGuid::NewGuid();
 	if (!PendingKinsectRequest.FlightInstanceID.IsValid())
 	{
 		return false;
 	}
 
-	if (bEmpoweredKinsectBranch)
-	{
-		PendingKinsectRequest.DamageMode = EKinsectDamageMode::Piercing;
-		PendingKinsectRequest.ExtractMode = EKinsectExtractMode::CollectPerValidHit;
-		PendingKinsectRequest.PostFlightPolicy = EKinsectPostFlightPolicy::ReturnToOwner;
-		PendingKinsectRequest.RehitInterval = Config->AwakenedPierceHitInterval;
-		PendingKinsectRequest.PowderSpawnPolicy = EIGPowderSpawnPolicy::AwakenedPiercing;
-		PendingKinsectRequest.SourceAttackInstanceID = AwakenedAttackInstanceID;
-	}
-	else
-	{
-		PendingKinsectRequest.DamageMode = EKinsectDamageMode::SingleHit;
-		PendingKinsectRequest.ExtractMode = EKinsectExtractMode::FirstHitOnly;
-		// The insect may hit a monster, floor, or reach its range before the hunter
-		// finishes 199. Hold it at that endpoint; HunterFlight completion/interruption
-		// owns the explicit recall.
-		PendingKinsectRequest.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
-		PendingKinsectRequest.RehitInterval = 0.f;
-		PendingKinsectRequest.PowderSpawnPolicy = EIGPowderSpawnPolicy::MarkedContact;
-		PendingKinsectRequest.SourceAttackInstanceID = AwakenedAttackInstanceID;
-	}
+	ApplyConsumedExtractEffects(*Config);
 
 	return Resource->CanDeployKinsect(PendingKinsectRequest);
+}
+
+void UMHGZAwakenedKinsectAttackAbility::ApplyConsumedExtractEffects(
+	const UInsectGlaiveCombatConfig& Config)
+{
+	const bool bRed = ConsumedExtractSnapshot.HasTagExact(AwakenedRedExtractTag());
+	const bool bWhite = ConsumedExtractSnapshot.HasTagExact(AwakenedWhiteExtractTag());
+	const bool bOrange = ConsumedExtractSnapshot.HasTagExact(AwakenedOrangeExtractTag());
+	PendingKinsectRequest.MotionValue = bEmpoweredKinsectBranch
+		? Config.AwakenedTripleKinsectMotionValue
+		: (bRed ? Config.AwakenedRedKinsectMotionValue : Config.AwakenedKinsectMotionValue);
+	PendingKinsectRequest.DamageMode = bWhite ? EKinsectDamageMode::Piercing : EKinsectDamageMode::SingleHit;
+	PendingKinsectRequest.ExtractMode = bWhite ? EKinsectExtractMode::CollectPerValidHit : EKinsectExtractMode::FirstHitOnly;
+	PendingKinsectRequest.RehitInterval = bWhite ? Config.AwakenedPierceHitInterval : 0.0f;
+	PendingKinsectRequest.PowderSpawnPolicy = bOrange
+		? EIGPowderSpawnPolicy::AwakenedEachHit : EIGPowderSpawnPolicy::MarkedContact;
+	// Piercing and powder are independent from travel speed and endpoint recall.
+	// Non-Triple requests still hover until the hunter's flight-ending recall.
+	PendingKinsectRequest.PostFlightPolicy = bEmpoweredKinsectBranch
+		? EKinsectPostFlightPolicy::ReturnToOwner : EKinsectPostFlightPolicy::Hover;
+	PendingKinsectRequest.SourceAttackInstanceID = AwakenedAttackInstanceID;
 }
 
 bool UMHGZAwakenedKinsectAttackAbility::ResolveLockedAimDirection(

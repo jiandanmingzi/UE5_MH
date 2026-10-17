@@ -239,6 +239,9 @@ void UMHGZMotionMatchingAnimInstance::NativeInitializeAnimation()
 {
 	Super::NativeInitializeAnimation();
 	MontageSegmentBlendRequestSerial = 0;
+	WeaponGripConstraint = {};
+	WeaponGripConstraintAlpha = 0.f;
+	WeaponGripConstraintSerial = 0;
 	LastMontageSegmentBlendSamples.Reset();
 	CachedCharacter = Cast<AMHGZCharacter>(TryGetPawnOwner());
 	bHasPreviousActorLocation = false;
@@ -291,6 +294,9 @@ void UMHGZMotionMatchingAnimInstance::NativeInitializeAnimation()
 
 void UMHGZMotionMatchingAnimInstance::NativeUninitializeAnimation()
 {
+	WeaponGripConstraint = {};
+	WeaponGripConstraintAlpha = 0.f;
+	WeaponGripConstraintSerial = 0;
 	LastMontageSegmentBlendSamples.Reset();
 	if (CachedActionVisualPitchState.bValid)
 	{
@@ -322,6 +328,8 @@ void UMHGZMotionMatchingAnimInstance::Montage_Advance(const float DeltaSeconds)
 	// deferred requests behind when only off-screen Montages are being advanced.
 	if (DeltaSeconds <= 0.0f || !NeedsUpdate())
 	{
+		WeaponGripConstraint.Clear();
+		WeaponGripConstraintAlpha = 0.f;
 		LastMontageSegmentBlendSamples.Reset();
 		Super::Montage_Advance(DeltaSeconds);
 		return;
@@ -331,6 +339,9 @@ void UMHGZMotionMatchingAnimInstance::Montage_Advance(const float DeltaSeconds)
 	FMHGZMontageSegmentBlend::Capture(MontageInstances, After);
 	TMap<FName, float> Requests;
 	FMHGZMontageSegmentBlend::BuildRequests(LastMontageSegmentBlendSamples, After, Requests);
+	WeaponGripConstraint.Update(LastMontageSegmentBlendSamples, After, DeltaSeconds);
+	WeaponGripConstraintAlpha = WeaponGripConstraint.Alpha;
+	WeaponGripConstraintSerial = WeaponGripConstraint.Serial;
 	LastMontageSegmentBlendSamples = MoveTemp(After);
 	for (const TPair<FName, float>& Request : Requests)
 	{

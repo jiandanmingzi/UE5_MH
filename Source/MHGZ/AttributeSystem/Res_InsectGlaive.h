@@ -8,6 +8,7 @@
 #include "MHGZWeaponResourceComponent.h"
 #include "InsectGlaive/IGPowderTypes.h"
 #include "InsectGlaive/IGResourceUITypes.h"
+#include "InsectGlaive/InsectGlaiveCombatConfig.h"
 #include "Res_InsectGlaive.generated.h"
 
 class AIGMarkProjectile;
@@ -136,8 +137,9 @@ public:
 	/** Action-attached hit uses the same single cargo and return delivery as ordinary send. */
 	bool CaptureActionKinsectExtract(const FWeaponActionToken& Action,
 		const UMHGZMonsterHitzoneComponent* Hitzone);
-	/** Called only after successful action commit; does not touch carried cargo. */
-	bool ConsumeSingleExtractsForAction(const FWeaponActionToken& Action);
+	/** After successful commit; optionally returns the colors actually consumed, not carried cargo. */
+	bool ConsumeSingleExtractsForAction(const FWeaponActionToken& Action,
+		FGameplayTagContainer* OutConsumedExtracts = nullptr);
 
 	UFUNCTION(BlueprintPure, Category = "MHGZ|IG")
 	bool HasExtract(FGameplayTag ExtractType) const;
@@ -204,9 +206,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MHGZ|IG|Dance")
 	EIGDanceSource GetDanceSource() const { return DanceSource; }
 
-	/** 当前层数对应的配置倍率；无效/未配置时安全回退 1.0。 */
+	/** 当前层数对应的招式专属倍率；未指定招式或配置无效时为 1.0。 */
 	UFUNCTION(BlueprintPure, Category = "MHGZ|IG|Dance")
-	float GetDanceDamageMultiplier() const;
+	float GetDanceDamageMultiplier(EIGDanceDamageAction Action = EIGDanceDamageAction::None) const;
 
 	// ── 武器资源成本 Reservation ───────────────────────────────
 	virtual bool CanReserveCosts(const TArray<FWeaponResourceCostSpec>& Specs) const override;

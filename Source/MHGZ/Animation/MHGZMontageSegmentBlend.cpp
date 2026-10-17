@@ -32,7 +32,66 @@ void FMHGZMontageSegmentBlend::Capture(const TArray<FAnimMontageInstance*>& Inst
 			Sample.GroupName = Montage->GetGroupName();
 			Sample.Duration = Settings->Duration;
 			Sample.Weight = Instance->GetWeight();
+			Sample.DesiredWeight = Instance->GetDesiredWeight();
 		}
+	}
+}
+
+void FMHGZWeaponGripConstraint::Clear()
+{
+	Alpha = 0.f;
+	OwnerMontage.Reset(); TargetSequence.Reset(); InstanceID = INDEX_NONE;
+	Elapsed = HoldDuration = ReleaseDuration = 0.f;
+}
+
+void FMHGZWeaponGripConstraint::Update(
+	const TConstArrayView<FMHGZMontageSegmentBlendSample> Before,
+	const TConstArrayView<FMHGZMontageSegmentBlendSample> After, const float DeltaSeconds)
+{
+	if (!FMath::IsFinite(DeltaSeconds) || DeltaSeconds <= 0.f) { Clear(); return; }
+	if (InstanceID != INDEX_NONE)
+	{
+		const bool bStillOwned = After.ContainsByPredicate([this](const auto& Sample)
+		{
+			const auto* Montage = Sample.Montage.Get();
+			const auto* Settings = Montage ? Montage->template FindMetaDataByClass<UMHGZMontageSegmentBlendSettings>() : nullptr;
+			return Sample.Montage == OwnerMontage && Sample.InstanceID == InstanceID
+				&& Sample.Sequence == TargetSequence && Sample.SlotName == TEXT("DefaultSlot")
+				&& Settings && Settings->bEnabled && Settings->bEnableWeaponGripConstraint
+				&& Sample.Weight > ZERO_ANIMWEIGHT_THRESH && Sample.DesiredWeight > ZERO_ANIMWEIGHT_THRESH;
+		});
+		if (!bStillOwned) { Clear(); }
+		else
+		{
+			Elapsed += DeltaSeconds;
+			const float T = FMath::Clamp((Elapsed - HoldDuration) / ReleaseDuration, 0.f, 1.f);
+			Alpha = 1.f - T * T * (3.f - 2.f * T);
+			if (T >= 1.f) { Clear(); }
+		}
+	}
+	for (const auto& Current : After)
+	{
+		const UAnimMontage* Montage = Current.Montage.Get();
+		const auto* Settings = Montage ? Montage->FindMetaDataByClass<UMHGZMontageSegmentBlendSettings>() : nullptr;
+		if (!Settings || !Settings->bEnabled || !Settings->bEnableWeaponGripConstraint
+			|| Current.SlotName != TEXT("DefaultSlot") || Current.Weight <= ZERO_ANIMWEIGHT_THRESH
+			|| Current.DesiredWeight <= ZERO_ANIMWEIGHT_THRESH
+			|| !Settings->WeaponGripFromSequence || !Settings->WeaponGripToSequence
+			|| Settings->WeaponGripFromSequence == Settings->WeaponGripToSequence
+			|| !FMath::IsFinite(Settings->Duration) || Settings->Duration <= 0.f
+			|| !FMath::IsFinite(Settings->WeaponGripReleaseDuration) || Settings->WeaponGripReleaseDuration <= 0.f
+			|| Current.Sequence.Get() != Settings->WeaponGripToSequence.Get()) { continue; }
+		const auto* Previous = Before.FindByPredicate([&Current](const auto& Candidate)
+		{
+			return Candidate.Montage == Current.Montage && Candidate.InstanceID == Current.InstanceID
+				&& Candidate.SlotName == Current.SlotName;
+		});
+		if (!Previous || Previous->Sequence.Get() != Settings->WeaponGripFromSequence.Get()
+			|| Previous->SegmentIndex == Current.SegmentIndex || Previous->Weight <= ZERO_ANIMWEIGHT_THRESH) { continue; }
+		OwnerMontage = Current.Montage; TargetSequence = Current.Sequence; InstanceID = Current.InstanceID;
+		Elapsed = 0.f; HoldDuration = Settings->Duration; ReleaseDuration = Settings->WeaponGripReleaseDuration;
+		Alpha = 1.f; ++Serial;
+		break;
 	}
 }
 

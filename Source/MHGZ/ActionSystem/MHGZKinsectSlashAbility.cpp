@@ -218,6 +218,9 @@ FWeaponMovementRequest FKinsectSlashDanceEntryTuning::MakeRequest(
 
 UMHGZKinsectSlashAbility::UMHGZKinsectSlashAbility()
 {
+	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
+	StaminaCost = FScalableFloat(50.f);
+	bDeferInstantStaminaCost = true;
 	InputTag = WeaponBTag();
 	DefaultEntrySection = HoverSectionName;
 
@@ -227,6 +230,25 @@ UMHGZKinsectSlashAbility::UMHGZKinsectSlashAbility()
 	ActivationBlockedTags.AddTag(DeadTag());
 	ActivationBlockedTags.AddTag(HitstunTag());
 	ActivationBlockedTags.AddTag(KnockdownTag());
+}
+
+float UMHGZKinsectSlashAbility::GetInstantStaminaCost(const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo) const
+{
+	const UMHGZAbilitySystemComponent* ASC = ActorInfo
+		? Cast<UMHGZAbilitySystemComponent>(ActorInfo->AbilitySystemComponent.Get()) : nullptr;
+	const FWeaponAbilityActivationContext* Pending = ASC ? ASC->FindPendingActivationContext(Handle) : nullptr;
+	const FWeaponAbilityActivationContext& Context = Pending ? *Pending : GetWeaponActivationContext();
+	// 本轮只有RT+B样本。单B原有零成本先保留，不把瞄准成本冒称单B真值。
+	return Context.Input.ResolvedInputTag.MatchesTagExact(WeaponRTBTag())
+		? Super::GetInstantStaminaCost(Handle, ActorInfo) : 0.f;
+}
+
+float UMHGZKinsectSlashAbility::GetStaminaRecoveryPerSecond() const
+{
+	if (bLanded) return 20.f;
+	return Phase == EKinsectSlashPhase::DanceFromDash || Phase == EKinsectSlashPhase::DanceFromMiss
+		? 4.f : 0.f;
 }
 
 bool UMHGZKinsectSlashAbility::CanActivateAbility(
@@ -338,8 +360,19 @@ FGameplayEffectSpecHandle UMHGZKinsectSlashAbility::MakeDamageSpec(
 	const FHitResult& Hit, const int32 SegmentIndex)
 {
 	FGameplayEffectSpecHandle Spec = Super::MakeDamageSpec(Hit, SegmentIndex);
-	if (SegmentIndex != 0 || !Spec.IsValid())
+	if (!Spec.IsValid())
 	{
+		return Spec;
+	}
+	if (SegmentIndex != 0)
+	{
+		if (AttackSegments.IsValidIndex(SegmentIndex))
+		{
+			Spec.Data->SetSetByCallerMagnitude(
+				FGameplayTag::RequestGameplayTag(TEXT("Damage.MotionValue")),
+				AttackSegments[SegmentIndex].Damage.MotionValue.GetValueAtLevel(GetAbilityLevel())
+					* FrozenDanceDamageMultiplier);
+		}
 		return Spec;
 	}
 
@@ -613,6 +646,11 @@ void UMHGZKinsectSlashAbility::ActivateAbility(
 	}
 
 	SlashActionToken = GetActionToken();
+	// 本次命中可增加舞踏，但不能反过来加强本次 189 的后续武器段。
+	if (const URes_InsectGlaive* Resource = GetIGResourceComponent())
+	{
+		FrozenDanceDamageMultiplier = Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectSlash);
+	}
 	const FGameplayTag ResolvedInput = GetWeaponActivationContext().Input.ResolvedInputTag;
 	AimSource = ResolvedInput.MatchesTagExact(WeaponBTag())
 		? EKinsectSlashAimSource::WeaponB : EKinsectSlashAimSource::KinsectAim;
@@ -1168,6 +1206,10 @@ FWeaponMovementRequest UMHGZKinsectSlashAbility::MakeDashMovementRequest() const
 
 bool UMHGZKinsectSlashAbility::StartDashMovement()
 {
+	if (!TryPayDeferredStaminaCost())
+	{
+		return false;
+	}
 	if (HoverMovementTask)
 	{
 		if (!HoverMovementTask->EndHoverForImmediateMovementHandoff(GetActionToken()))
@@ -2102,6 +2144,7 @@ void UMHGZKinsectSlashAbility::ResetActivationState()
 	KinsectSlashPowderHitInstanceID.Invalidate();
 	SuccessfulHitSourceSection = NAME_None;
 	SuccessfulHitSourcePosition = 0.0f;
+	FrozenDanceDamageMultiplier = 1.0f;
 	SuccessfulHitSourceMontageInstanceID = INDEX_NONE;
 	bKinsectActionAttached = false;
 	bAimLocked = false;

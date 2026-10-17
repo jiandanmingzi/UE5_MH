@@ -9,9 +9,81 @@
 #include "GameplayEffect.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "AttributeSystem/MHGZAttributeSet.h"
+#include "MHGZAbilityCostGameplayEffects.h"
+#include "MHGZCharacter.h"
+#include "GameFramework/CharacterMovementComponent.h"
 
 UMHGZAbilitySystemComponent::UMHGZAbilitySystemComponent()
 {
+	PrimaryComponentTick.bCanEverTick = true;
+}
+
+void UMHGZAbilitySystemComponent::InitAbilityActorInfo(AActor* InOwnerActor, AActor* InAvatarActor)
+{
+	Super::InitAbilityActorInfo(InOwnerActor, InAvatarActor);
+	UpdateShouldTick();
+}
+
+bool UMHGZAbilitySystemComponent::GetShouldTick() const
+{
+	// GAS默认可能在没有Montage/AbilityTask时停Tick；站定回耐也必须更新。
+	return (Cast<ACharacter>(GetAvatarActor()) && GetOwner() && GetOwner()->HasAuthority())
+		|| Super::GetShouldTick();
+}
+
+void UMHGZAbilitySystemComponent::TickComponent(float DeltaTime, ELevelTick TickType,
+	FActorComponentTickFunction* ThisTickFunction)
+{
+	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	ACharacter* Character = Cast<ACharacter>(GetAvatarActor());
+	const UMHGZAttributeSet* Attributes = GetSet<UMHGZAttributeSet>();
+	if (!Character || !GetOwner() || !GetOwner()->HasAuthority() || !Attributes
+		|| Attributes->GetHealth() <= 0.f || DeltaTime <= 0.f || !FMath::IsFinite(DeltaTime)
+		|| HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Dead"))))
+	{
+		return;
+	}
+	const UCharacterMovementComponent* Movement = Character->GetCharacterMovement();
+	const bool bAir = Movement && (Movement->IsFalling() || Movement->IsFlying());
+	float Recovery = bAir ? AirStaminaRecovery : GroundStaminaRecovery;
+	// 一个ASC拥有回复结算；动作只描述本相位，不各自开Timer或直接写耐力。
+	// 显式Override可以高于环境基础值（200/201在空中仍按20回复）。
+	bool bActionOverride = false;
+	for (const FGameplayAbilitySpec& Spec : GetActivatableAbilities())
+	{
+		if (!Spec.IsActive()) continue;
+		for (UGameplayAbility* Instance : Spec.GetAbilityInstances())
+		{
+			const UMHGZGameplayAbility* Action = Cast<UMHGZGameplayAbility>(Instance);
+			if (!Action || !Action->IsActive() || !Action->IsActionActivationCommitted()) continue;
+			const float Override = Action->GetStaminaRecoveryPerSecond();
+			if (Override >= 0.f)
+			{
+				Recovery = bActionOverride ? FMath::Min(Recovery, Override) : Override;
+				bActionOverride = true;
+			}
+		}
+	}
+	AMHGZCharacter* Hunter = Cast<AMHGZCharacter>(Character);
+	const bool bSprint = Hunter && Hunter->ShouldConsumeSprintStamina();
+	const float Rate = bSprint ? -SprintStaminaDrain * Attributes->GetStaminaConsumptionRate()
+		: Recovery * Attributes->GetStaminaRegenRate();
+	const float Before = Attributes->GetStamina();
+	const float After = FMath::Clamp(Before + Rate * DeltaTime, 0.f, Attributes->GetMaxStamina());
+	if (!FMath::IsNearlyEqual(Before, After))
+	{
+		FGameplayEffectSpecHandle Change = MakeOutgoingSpec(UMHGZStaminaCostGameplayEffect::StaticClass(), 1.f, MakeEffectContext());
+		if (Change.IsValid())
+		{
+			Change.Data->SetSetByCallerMagnitude(UMHGZStaminaCostGameplayEffect::GetStaminaCostSetByCallerTag(), After - Before);
+			ApplyGameplayEffectSpecToSelf(*Change.Data.Get());
+		}
+	}
+	if (bSprint && Attributes->GetStamina() <= 0.f)
+	{
+		Hunter->NotifySprintStaminaExhausted();
+	}
 }
 
 void UMHGZAbilitySystemComponent::BeginPlay()

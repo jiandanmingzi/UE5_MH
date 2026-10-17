@@ -527,7 +527,7 @@ float AMHGZCharacter::CalcCruiseSpeed(float StickMagnitude) const
 	Settings.SprintCruiseSpeed = SprintCruise;
 	Settings.UnsheathedCruiseSpeed = RunCruise_Unsheathed;
 	return MHGZMotionMatching::QuantizeCruiseSpeed(Settings, StickMagnitude,
-		IsUnsheathedForLocomotion(), bSprintHeld && IsSheathedForSprint());
+		IsUnsheathedForLocomotion(), IsSprintHeld() && IsSheathedForSprint());
 }
 
 bool AMHGZCharacter::IsUnsheathedForLocomotion() const
@@ -644,6 +644,16 @@ void AMHGZCharacter::ClearSprintHeld()
 	GetWorldTimerManager().ClearTimer(SprintHoldTimer);
 	bSprintPressed = false;
 	bSprintHeld = false;
+	bSprintStaminaExhausted = false;
+}
+
+bool AMHGZCharacter::ShouldConsumeSprintStamina() const
+{
+	const UMHGZWeaponRuntimeHostComponent* Host = GetWeaponRuntimeHost();
+	return IsSprintHeld() && IsSheathedForSprint() && RawMoveInput.Size() >= SprintInputThreshold
+		&& GetCharacterMovement()->IsMovingOnGround() && GetVelocity().SizeSquared2D() > 1.f
+		&& !ShouldBlockMovement() && (!Host || (!Host->IsActionMovementOwned()
+			&& !Host->IsMontageRootMotionOwned() && !Host->IsAerialLanding()));
 }
 
 void AMHGZCharacter::OnSprintHoldTimerExpired()

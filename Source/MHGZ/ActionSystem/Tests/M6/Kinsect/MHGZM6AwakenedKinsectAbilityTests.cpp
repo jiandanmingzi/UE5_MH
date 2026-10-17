@@ -186,10 +186,11 @@ bool FMHGZM6AwakenedKinsectConditionalTripleBranch::RunTest(
 	}
 		TestTrue(TEXT("ordinary request is idempotent for the same action"),
 			OrdinaryAbility->CommitKinsectLaunch(OrdinaryAbility->GetActionToken()));
-		TestEqual(TEXT("ordinary branch performs one non-piercing hit"),
-			H.Kinsect->ActiveRequest.DamageMode, EKinsectDamageMode::SingleHit);
-		TestEqual(TEXT("ordinary branch keeps first-hit extraction"),
-			H.Kinsect->ActiveRequest.ExtractMode, EKinsectExtractMode::FirstHitOnly);
+		TestEqual(TEXT("consumed white grants piercing without requiring TripleUp"),
+			H.Kinsect->ActiveRequest.DamageMode, EKinsectDamageMode::Piercing);
+		TestEqual(TEXT("white piercing collects each successful hit"),
+			H.Kinsect->ActiveRequest.ExtractMode, EKinsectExtractMode::CollectPerValidHit);
+		TestEqual(TEXT("consumed red selects the 30 MV tier"), H.Kinsect->ActiveRequest.MotionValue, 30.0f);
 		TestEqual(TEXT("ordinary branch holds the insect at a hit/range endpoint until HunterFlight ends"),
 			H.Kinsect->ActiveRequest.PostFlightPolicy,
 			EKinsectPostFlightPolicy::Hover);
@@ -231,7 +232,8 @@ bool FMHGZM6AwakenedKinsectConditionalTripleBranch::RunTest(
 			H.Kinsect->ActiveRequest.ExtractMode, EKinsectExtractMode::CollectPerValidHit);
 		TestEqual(TEXT("empowered branch uses the cooldown-bypassing piercing powder policy"),
 			H.Kinsect->ActiveRequest.PowderSpawnPolicy,
-			EIGPowderSpawnPolicy::AwakenedPiercing);
+			EIGPowderSpawnPolicy::AwakenedEachHit);
+		TestEqual(TEXT("TripleUp selects the 50 MV tier once"), H.Kinsect->ActiveRequest.MotionValue, 50.0f);
 		TestTrue(TEXT("empowered request carries a source attack identity"),
 			H.Kinsect->ActiveRequest.SourceAttackInstanceID.IsValid());
 		TestTrue(TEXT("TripleUp changes speed to 1.5x ordinary"),
@@ -250,6 +252,72 @@ bool FMHGZM6AwakenedKinsectConditionalTripleBranch::RunTest(
 		H.Resource->HasExtract(M3::Tag(TEXT("WeaponResource.IG.Extract.Orange"))));
 
 	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMHGZAwakenedConsumedExtractMatrix,
+	"MHGZ.Maintenance.AwakenedExtracts.EightCombinationsFreezeActualConsumption",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZAwakenedConsumedExtractMatrix::RunTest(const FString& Parameters)
+{
+	const FGameplayTag Colors[] = { M3::Tag(TEXT("WeaponResource.IG.Extract.Red")),
+		M3::Tag(TEXT("WeaponResource.IG.Extract.White")), M3::Tag(TEXT("WeaponResource.IG.Extract.Orange")) };
+	for (int32 Mask = 0; Mask < 8; ++Mask)
+	{
+		FMHGZM3Harness H;
+		if (!TestTrue(TEXT("real resource/GA harness builds"),
+			H.Setup(false, AMHGZM6AwakenedKinsectTestCharacter::StaticClass()))
+			|| !TestNotNull(TEXT("weapon socket is available"), AddKinsectWeaponSocketForTest(*H.Character)))
+		{
+			H.Teardown(); return false;
+		}
+		const FGameplayAbilitySpecHandle Handle = H.GiveAbility(UMHGZM6AwakenedKinsectAbilityTestDouble::StaticClass());
+		for (int32 Index = 0; Index < 3; ++Index)
+		{
+			if (Mask & (1 << Index))
+			{
+				TestTrue(TEXT("selected hunter lamp is granted"), H.Resource->ApplyExtract(Colors[Index]));
+			}
+		}
+		const FWeaponInputSnapshot Input = MakeAwakenedInput(Mask + 1);
+		if (!TestTrue(TEXT("all eight lamp combinations can activate"), H.TryActivateWithInput(Handle, Input)))
+		{
+			H.Teardown(); return false;
+		}
+		UMHGZM6AwakenedKinsectAbilityTestDouble* Ability = FindAwakenedInstance(*H.ASC, Handle);
+		if (!TestNotNull(TEXT("active exact GA instance"), Ability)) { H.Teardown(); return false; }
+		Ability->SetReleaseAimSnapshotForTest(Input.ActorForward, Input.Aim.Direction, Input.Aim.TargetPoint);
+		Ability->SetKinsectFlightDurationForTest(1.0f);
+		if (!TestTrue(TEXT("production attachment path consumes the actual single lamps"), Ability->PrepareKinsectAttachmentForTest()))
+		{
+			H.Teardown(); return false;
+		}
+		TestFalse(TEXT("all original hunter lamps are consumed before launch"), H.Resource->IsTripleUpActive());
+		for (const FGameplayTag& Color : Colors)
+		{
+			TestFalse(TEXT("no original single color is left behind"), H.Resource->HasExtract(Color));
+		}
+		// New buffs obtained after the confirmed consumption must not rewrite this shot.
+		TestTrue(TEXT("new lamps can arrive while the action winds up"), AddTripleUp(*H.Resource));
+		if (!TestTrue(TEXT("launch uses the frozen consumed colors"), Ability->CommitKinsectLaunch(Ability->GetActionToken())))
+		{
+			H.Teardown(); return false;
+		}
+		const FKinsectFlightRequest& Request = H.Kinsect->ActiveRequest;
+		const bool bTriple = Mask == 7, bRed = (Mask & 1) != 0, bWhite = (Mask & 2) != 0, bOrange = (Mask & 4) != 0;
+		TestEqual(*FString::Printf(TEXT("mask %d: correct per-hit MV"), Mask), Request.MotionValue, bTriple ? 50.0f : bRed ? 30.0f : 15.0f);
+		TestEqual(TEXT("white alone decides piercing"), Request.DamageMode, bWhite ? EKinsectDamageMode::Piercing : EKinsectDamageMode::SingleHit);
+		TestEqual(TEXT("white collects cargo per successful hit"), Request.ExtractMode, bWhite ? EKinsectExtractMode::CollectPerValidHit : EKinsectExtractMode::FirstHitOnly);
+		TestEqual(TEXT("yellow alone enables unmarked per-hit powder"), Request.PowderSpawnPolicy, bOrange ? EIGPowderSpawnPolicy::AwakenedEachHit : EIGPowderSpawnPolicy::MarkedContact);
+		TestEqual(TEXT("only piercing owns a repeat interval"), Request.RehitInterval, bWhite ? H.CombatConfig->AwakenedPierceHitInterval : 0.0f);
+		TestEqual(TEXT("speed is unchanged and still depends only on full TripleUp"), Request.FlightSpeed, bTriple ? 3111.8595f : 2074.573f);
+		TestEqual(TEXT("endpoint recall policy is unchanged"), Request.PostFlightPolicy, bTriple ? EKinsectPostFlightPolicy::ReturnToOwner : EKinsectPostFlightPolicy::Hover);
+		TestTrue(TEXT("newly acquired TripleUp is not consumed by the already frozen launch"), H.Resource->IsTripleUpActive());
+		Ability->RequestEndAction(EWeaponActionEndReason::Normal);
+		H.Teardown();
+	}
 	return true;
 }
 

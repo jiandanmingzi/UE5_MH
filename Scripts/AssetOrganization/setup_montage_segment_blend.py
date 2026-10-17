@@ -13,6 +13,9 @@ Commandlet switches: -MHGZSegmentBridgeRemoval / -MHGZSegmentBridgeVerify.
 --remove-attack-holds removes ten approved attack EntryHolds, merging collapsed
 Sections and remapping four GA entry maps; dodge holds and source assets are untouched.
 Commandlet switches: -MHGZAttackHoldRemoval / -MHGZAttackHoldVerify.
+--weapon-grip installs the post-inertialization grip correction and opts in only
+FeiYuan's explicit ErLian entry->Core seam. --verify-weapon-grip is read-only.
+Commandlet switches: -MHGZWeaponGrip / -MHGZWeaponGripVerify; apply remains explicit.
 """
 import argparse
 import hashlib
@@ -451,6 +454,125 @@ def configure_montages(args, root):
     unreal.log('[MontageSegmentBlendBatch] ' + json.dumps(result, ensure_ascii=False))
 
 
+def configure_weapon_grip(args, root):
+    """Two-asset transaction; never touch Combo, source clips or notify layout."""
+    out = root / 'Saved/Maintenance/FeiYuanWeaponGrip'
+    out.mkdir(parents=True, exist_ok=True)
+    bp_path = '/Game/Blueprints/Characters/Demo/Animation/ABP_MH_Character'
+    montage_path = '/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_FeiYuan'
+    sequence_base = '/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/'
+    from_path = sequence_base + 'AS_Unsh_R_ErLianFeiYuan'
+    to_path = sequence_base + 'AS_Unsh_R_FeiYuan'
+    blueprint, montage = unreal.load_asset(bp_path), unreal.load_asset(montage_path)
+    if blueprint is None or montage is None:
+        raise RuntimeError('Grip target asset missing')
+    install = unreal.MHGZAnimationSeamLibrary.install_weapon_grip_constraint
+    def disk(path):
+        return root / ('Content/' + path.removeprefix('/Game/').split('.')[0] + '.uasset')
+    def settings():
+        values = [v for v in unreal.AnimationLibrary.get_meta_data(montage)
+                  if isinstance(v, unreal.MHGZMontageSegmentBlendSettings)]
+        if len(values) != 1:
+            raise RuntimeError('Expected exactly one existing blend metadata')
+        return values[0]
+    def verify(baseline):
+        from ue_asset_utils import decode_native_export
+        if not install(blueprint, False):
+            raise RuntimeError('Grip graph does not match approved wiring')
+        item = settings()
+        if (not item.get_editor_property('enabled')
+                or abs(item.get_editor_property('duration') - .05) > 1e-6
+                or not item.get_editor_property('enable_weapon_grip_constraint')
+                or item.get_editor_property('weapon_grip_from_sequence').get_path_name().split('.')[0] != from_path
+                or item.get_editor_property('weapon_grip_to_sequence').get_path_name().split('.')[0] != to_path
+                or abs(item.get_editor_property('weapon_grip_release_duration') - 1 / 30) > 1e-6):
+            raise RuntimeError('Grip metadata mismatch')
+        current = montage_snapshot(montage, out, 'verify')
+        # UE rebuilds cached FAnimLinkableElement::SegmentLength on reload;
+        # a 0.383334->0.383333 rounding is not a notify timing edit. Compare
+        # everything else byte-for-byte, excluding only this derived cache and
+        # the deliberately edited metadata object.
+        def canonical(phase):
+            path = out / phase / (montage_path.removeprefix('/Game/').replace('/', '__') + '.copy')
+            text = decode_native_export(path.read_bytes())
+            label = re.escape(settings().get_name())
+            text = re.sub(r'(?ms)^\s*Begin Object [^\n]*\bName="' + label
+                          + r'"[^\n]*\n.*?^\s*End Object\r?\n', '', text)
+            text = re.sub(r'(?m)^\s*MetaData\(\d+\)=[^\n]*\b' + label + r"'[^\n]*\n", '', text)
+            return re.sub(r'\bSegmentLength=[-+0-9.eE]+', 'SegmentLength=RECOMPUTED', text)
+        if canonical('before') != canonical('verify') or any(
+                current[key] != baseline['montage'][key]
+                for key in ('segments', 'sections', 'length', 'settings', 'slots', 'sequences')):
+            raise RuntimeError('Montage timing/sections/notifies/blending changed')
+        for path, digest in baseline['unchanged'].items():
+            if sha(root / path) != digest:
+                raise RuntimeError('Out-of-scope asset changed: ' + path)
+    applied = out / 'applied.json'
+    if args.verify_weapon_grip or applied.exists():
+        if args.apply:
+            raise RuntimeError('Grip transaction exists; use read-only verification')
+        baseline = json.loads((out / 'before.json').read_text(encoding='utf-8'))
+        result = json.loads(applied.read_text(encoding='utf-8'))
+        verify(baseline)
+        for path, digest in result['saved_hashes'].items():
+            if sha(disk(path)) != digest:
+                raise RuntimeError('Saved target has changed: ' + path)
+        result['disk_verified'] = True
+        (out / 'disk-verify.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+        unreal.log('[WeaponGrip] Independent saved graph/metadata/notify verification passed')
+        return
+    snapshot = montage_snapshot(montage, out, 'before')
+    if not args.apply:
+        unreal.log('[WeaponGrip] ' + json.dumps({'graph_installed': install(blueprint, False), 'montage': snapshot}, ensure_ascii=False))
+        return
+    if (out / 'before.json').exists():
+        raise RuntimeError('Incomplete grip transaction; inspect progress before retry')
+    if unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_game_world() is not None:
+        raise RuntimeError('Stop PIE before graph modification')
+    dirty = unreal.EditorLoadingAndSavingUtils.get_dirty_content_packages()
+    if any(a.get_outermost() in dirty for a in (blueprint, montage)):
+        raise RuntimeError('Target has unsaved edits')
+    item = settings()
+    if not snapshot['settings']['enabled'] or abs(snapshot['settings']['duration'] - .05) > 1e-6:
+        raise RuntimeError('Expected approved existing 0.05s blend')
+    if snapshot['segments'][0]['asset'].split('.')[0] != from_path or snapshot['segments'][3]['asset'].split('.')[0] != to_path:
+        raise RuntimeError('Expected explicit ErLian->Core layout')
+    paths = {disk(p).relative_to(root) for p in snapshot['sequences']}
+    paths.add(Path('Content/Weapons/InsectGlaive/Data/DA_IG_Combo.uasset'))
+    backup = root / 'Saved/AssetBackups' / ('FeiYuanWeaponGrip-' + str(time.time_ns()))
+    baseline = {'montage': snapshot, 'backup': str(backup),
+                'unchanged': {str(p): sha(root / p) for p in paths}}
+    for path in (bp_path, montage_path):
+        for suffix in ('.uasset', '.uexp', '.ubulk'):
+            source = disk(path).with_suffix(suffix)
+            if source.exists():
+                target = backup / source.relative_to(root)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, target)
+                if sha(source) != sha(target):
+                    raise RuntimeError('Grip backup mismatch')
+    (out / 'before.json').write_text(json.dumps(baseline, ensure_ascii=False, indent=2), encoding='utf-8')
+    (backup / 'manifest.json').write_text(json.dumps(baseline, ensure_ascii=False, indent=2), encoding='utf-8')
+    if not install(blueprint, True):
+        raise RuntimeError('Graph install/compile failed; discard this process without saving')
+    item.set_editor_property('enable_weapon_grip_constraint', True)
+    item.set_editor_property('weapon_grip_from_sequence', unreal.load_asset(from_path))
+    item.set_editor_property('weapon_grip_to_sequence', unreal.load_asset(to_path))
+    item.set_editor_property('weapon_grip_release_duration', 1 / 30)
+    montage.modify()
+    verify(baseline)
+    saved = {}
+    for path, asset in ((bp_path, blueprint), (montage_path, montage)):
+        if not unreal.EditorAssetLibrary.save_loaded_asset(asset, only_if_is_dirty=False):
+            raise RuntimeError('Grip save failed: ' + path)
+        saved[path] = sha(disk(path))
+        (out / 'progress.json').write_text(json.dumps(saved, indent=2), encoding='utf-8')
+    result = {'backup': str(backup), 'saved_hashes': saved, 'hold': .05, 'release': 1 / 30,
+              'from': from_path, 'to': to_path}
+    (out / 'applied.json').write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')
+    unreal.log('[WeaponGrip] Saved only ABP_MH_Character and AM_IG_FeiYuan')
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--apply', action='store_true')
@@ -460,6 +582,8 @@ def main():
     parser.add_argument('--verify-bridge-removal', action='store_true')
     parser.add_argument('--remove-attack-holds', action='store_true')
     parser.add_argument('--verify-attack-holds', action='store_true')
+    parser.add_argument('--weapon-grip', action='store_true')
+    parser.add_argument('--verify-weapon-grip', action='store_true')
     parser.add_argument('--duration', type=float, default=0.05)
     args, _ = parser.parse_known_args()
     # UE commandlet switches are not included in Python sys.argv. A dedicated,
@@ -472,11 +596,18 @@ def main():
     args.verify_bridge_removal = args.verify_bridge_removal or '-MHGZSegmentBridgeVerify' in switches
     args.remove_attack_holds = args.remove_attack_holds or '-MHGZAttackHoldRemoval' in switches
     args.verify_attack_holds = args.verify_attack_holds or '-MHGZAttackHoldVerify' in switches
+    args.weapon_grip = args.weapon_grip or '-MHGZWeaponGrip' in switches
+    args.verify_weapon_grip = args.verify_weapon_grip or '-MHGZWeaponGripVerify' in switches
     root = Path(unreal.Paths.project_dir())
     sys.path.insert(0, str(root / 'Scripts'))
     if sum((args.configure_montages, args.verify_montages, args.remove_synthetic_bridges, args.verify_bridge_removal,
-            args.remove_attack_holds, args.verify_attack_holds)) > 1:
+            args.remove_attack_holds, args.verify_attack_holds, args.weapon_grip, args.verify_weapon_grip)) > 1:
         raise RuntimeError('Choose exactly one asset operation')
+    if args.weapon_grip or args.verify_weapon_grip:
+        if args.verify_weapon_grip and args.apply:
+            raise RuntimeError('Verification is read-only')
+        configure_weapon_grip(args, root)
+        return
     if args.remove_attack_holds or args.verify_attack_holds:
         if args.verify_attack_holds and args.apply:
             raise RuntimeError('Verification is read-only')
