@@ -9,6 +9,10 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PrimitiveComponent.h"
 #include "Components/CapsuleComponent.h"
+#include "Components/AudioComponent.h"
+#include "InsectGlaive/InsectGlaiveCombatConfig.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 #include "Engine/World.h"
 
 bool AKinsect::ResolveScreenCenterLaunchOrigin(const FVector& CameraOrigin,
@@ -58,6 +62,62 @@ AKinsect::AKinsect()
 	Movement->ProjectileGravityScale = 0.f; // 无重力
 	Movement->bShouldBounce = false;        // 不反弹
 	Movement->bRotationFollowsVelocity = true;
+
+	FlightAudio = CreateDefaultSubobject<UAudioComponent>(TEXT("FlightAudio"));
+	FlightAudio->SetupAttachment(RootComponent);
+	FlightAudio->bAutoActivate = false;
+}
+
+USoundBase* AKinsect::ResolveFlightLoopSound() const
+{
+	const bool bFree = State == EKinsectState::Flying || State == EKinsectState::Hovering
+		|| State == EKinsectState::Returning || State == EKinsectState::ActionReturning
+		|| State == EKinsectState::ActionWaiting;
+	const FWeaponRuntimeToken& Runtime = IsSlashActionControlled() ? ActionAttachmentToken.RuntimeToken
+		: State == EKinsectState::Returning
+		? ReturnRuntimeToken : ActiveRequest.RuntimeToken;
+	if (!bFree || !ResourceComponent.IsValid()
+		|| !ResourceComponent->IsRuntimeRequestCurrent(Runtime)) return nullptr;
+	const UInsectGlaiveCombatConfig* Config = ResourceComponent->GetCombatConfig();
+	USoundBase* Sound = Config ? Config->KinsectFlightLoopSound.Get() : nullptr;
+	return Sound && Sound->IsLooping() ? Sound : nullptr;
+}
+
+void AKinsect::RefreshFlightAudio(const bool bPlayLaunch)
+{
+	if (!FlightAudio) return;
+	USoundBase* Loop = ResolveFlightLoopSound();
+	if (FlightAudio->Sound != Loop)
+	{
+		FlightAudio->Stop();
+		FlightAudio->SetSound(Loop);
+	}
+	if (!Loop)
+	{
+		FlightAudio->Stop();
+	}
+	else if (!FlightAudio->IsPlaying()) FlightAudio->Play();
+	if (bPlayLaunch && State == EKinsectState::Flying && ResourceComponent.IsValid()
+		&& ResourceComponent->IsRuntimeRequestCurrent(ActiveRequest.RuntimeToken))
+	{
+		const UInsectGlaiveCombatConfig* Config = ResourceComponent->GetCombatConfig();
+		USoundBase* Launch = Config ? Config->KinsectLaunchSound.Get() : nullptr;
+		if (Launch && !Launch->IsLooping())
+		{
+			UGameplayStatics::SpawnSoundAttached(Launch, RootComponent, NAME_None,
+				FVector::ZeroVector, EAttachLocation::KeepRelativeOffset, true);
+		}
+	}
+}
+
+void AKinsect::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	if (FlightAudio)
+	{
+		FlightAudio->Stop();
+		FlightAudio->SetSound(nullptr);
+	}
+	Super::EndPlay(EndPlayReason);
 }
 
 void AKinsect::BeginPlay()
@@ -79,6 +139,12 @@ void AKinsect::BeginPlay()
 void AKinsect::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
+	RefreshFlightAudio();
+	if (State == EKinsectState::ActionReturning)
+	{
+		TickSlashPreparation(DeltaTime);
+		return;
+	}
 
 	if (State != EKinsectState::Flying && State != EKinsectState::Returning)
 	{
@@ -230,7 +296,7 @@ bool AKinsect::IsFlightRequestValid(const FKinsectFlightRequest& Request) const
 bool AKinsect::CanBeginFlight(const FKinsectFlightRequest& Request) const
 {
 	return IsFlightRequestValid(Request) && Movement && Collision
-		&& State != EKinsectState::ActionAttached;
+		&& !ActionAttachmentToken.IsValid();
 }
 
 bool AKinsect::BeginFlight(const FKinsectFlightRequest& Request)
@@ -254,7 +320,7 @@ bool AKinsect::BeginFlightInternal(
 	if (!IsFlightRequestValid(Request)
 		|| (bFromActionAttachment
 			? !IsActionAttachmentOwnedBy(*ActionAttachmentOwner)
-			: State == EKinsectState::ActionAttached))
+			: ActionAttachmentToken.IsValid()))
 	{
 		return false;
 	}
@@ -334,6 +400,7 @@ bool AKinsect::BeginFlightInternal(
 	Collision->EnableKinsectCollision();
 
 	ActionAttachmentToken = FWeaponActionToken();
+	ResetSlashPreparation();
 	ActiveRequest = Request;
 	ReturnRuntimeToken = FWeaponRuntimeToken();
 	ReturnCommandSerial = 0;
@@ -345,6 +412,7 @@ bool AKinsect::BeginFlightInternal(
 	bHasDealtDamage = false;
 	HitzoneHitTimers.Reset();
 	State = EKinsectState::Flying;
+	RefreshFlightAudio(true);
 	if (Request.bProjectAttachedLaunchToAimRay)
 	{
 		UE_LOG(LogTemp, Display, TEXT("[KinsectAim] centerLaunch=%d origin=%s target=%s direction=%s"),
@@ -356,7 +424,7 @@ bool AKinsect::BeginFlightInternal(
 
 void AKinsect::Interrupt()
 {
-	if (State == EKinsectState::Attached || State == EKinsectState::ActionAttached)
+	if (State == EKinsectState::Attached || ActionAttachmentToken.IsValid())
 	{
 		return;
 	}
@@ -384,7 +452,7 @@ void AKinsect::Interrupt()
 bool AKinsect::StartReturn(const uint64 CommandSerial,
 	const EKinsectCommandSource Source)
 {
-	if (State == EKinsectState::Attached || State == EKinsectState::ActionAttached
+	if (State == EKinsectState::Attached || ActionAttachmentToken.IsValid()
 		|| State == EKinsectState::Returning)
 	{
 		return State == EKinsectState::Returning; // 幂等
@@ -450,12 +518,13 @@ void AKinsect::StartReturnInternal()
 	{
 		StopAndHover();
 	}
+	RefreshFlightAudio();
 }
 
 void AKinsect::ForceRecall(const uint64 CommandSerial,
 	const EKinsectCommandSource Source)
 {
-	if (State == EKinsectState::ActionAttached)
+	if (ActionAttachmentToken.IsValid())
 	{
 		if (ResourceComponent.IsValid())
 		{
@@ -655,8 +724,10 @@ void AKinsect::AttachToPlayer(USceneComponent* InAttachComponent, FName InSocket
 	Movement->Deactivate();
 	PendingWorldHit.Reset();
 	State = EKinsectState::Attached;
+	RefreshFlightAudio();
 	bHasLastReturnRelativeLocation = false;
 	ActionAttachmentToken = FWeaponActionToken();
+	ResetSlashPreparation();
 	ReturnRuntimeToken = FWeaponRuntimeToken();
 	ReturnCommandSerial = 0;
 	ReturnCommandSource = EKinsectCommandSource::None;
@@ -675,7 +746,8 @@ bool AKinsect::BeginActionAttachment(const FWeaponActionToken& ActionToken,
 	if (!ActionToken.IsValid() || !ResourceComponent.IsValid()
 		|| !ResourceComponent->IsRuntimeRequestCurrent(ActionToken.RuntimeToken)
 		|| !WeaponMesh || SocketName.IsNone() || !WeaponMesh->DoesSocketExist(SocketName)
-		|| !Collision || !Movement || State == EKinsectState::ActionAttached)
+		|| !Collision || !Movement || State == EKinsectState::ActionAttached
+		|| (ActionAttachmentToken.IsValid() && ActionAttachmentToken != ActionToken))
 	{
 		return false;
 	}
@@ -704,7 +776,118 @@ bool AKinsect::BeginActionAttachment(const FWeaponActionToken& ActionToken,
 	ActionAttachmentToken = ActionToken;
 	ReturnRuntimeToken = FWeaponRuntimeToken();
 	State = EKinsectState::ActionAttached;
+	RefreshFlightAudio();
 	return true;
+}
+
+bool AKinsect::BeginSlashPreparation(const FWeaponActionToken& ActionToken,
+	USkeletalMeshComponent* WeaponMesh, const FName SocketName,
+	const float AvailableReturnTime, const bool bHasRequiredStamina)
+{
+	if (!ActionToken.IsValid() || !ResourceComponent.IsValid()
+		|| !ResourceComponent->IsRuntimeRequestCurrent(ActionToken.RuntimeToken)
+		|| ActionAttachmentToken.IsValid() || !WeaponMesh || SocketName.IsNone()
+		|| !WeaponMesh->DoesSocketExist(SocketName) || !Collision || !Movement
+		|| !FMath::IsFinite(AvailableReturnTime) || AvailableReturnTime < 0.f)
+	{
+		return false;
+	}
+	const bool bWasOnArm = State == EKinsectState::Attached;
+	const FVector Target = WeaponMesh->GetSocketLocation(SocketName);
+	const float Speed = GetReturnSpeed();
+	const float Distance = FVector::Distance(GetActorLocation(), Target);
+	if (Target.ContainsNaN() || !FMath::IsFinite(Distance)) { return false; }
+	if (bWasOnArm && bHasRequiredStamina)
+	{
+		if (!BeginActionAttachment(ActionToken, WeaponMesh, SocketName)) { return false; }
+	}
+	else
+	{
+		// Freeze the old flight/return before claiming this action. No stale attack
+		// sweep, auto-mark request or world collision may move the waiting insect.
+		Movement->StopMovementImmediately();
+		Movement->Deactivate();
+		Collision->DisableKinsectCollision();
+		PendingWorldHit.Reset();
+		HitzoneHitTimers.Reset();
+		bHasDealtDamage = false;
+		ActiveRequest = FKinsectFlightRequest();
+		ActiveRequest.RuntimeToken = ActionToken.RuntimeToken;
+		ReturnRuntimeToken = FWeaponRuntimeToken();
+		ReturnCommandSerial = 0;
+		if (!bWasOnArm)
+		{
+			DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+			const bool bCanArrive = bHasRequiredStamina && FMath::IsFinite(Speed)
+				&& Speed > 0.f && Distance <= Speed * AvailableReturnTime;
+			State = bCanArrive ? EKinsectState::ActionReturning : EKinsectState::ActionWaiting;
+			SetFlightVisualFacing(true);
+		}
+		ActionAttachmentToken = ActionToken;
+	}
+	bSlashPreparation = true;
+	SlashAttachMesh = WeaponMesh;
+	SlashAttachSocket = SocketName;
+	SlashReturnTimeRemaining = AvailableReturnTime;
+	RefreshFlightAudio();
+	return true;
+}
+
+void AKinsect::ResetSlashPreparation()
+{
+	bSlashPreparation = false;
+	SlashAttachMesh.Reset();
+	SlashAttachSocket = NAME_None;
+	SlashReturnTimeRemaining = 0.f;
+}
+
+void AKinsect::FinalizeSlashPreparation(const FWeaponActionToken& ActionToken)
+{
+	if (IsActionControlOwnedBy(ActionToken) && bSlashPreparation)
+	{
+		SlashReturnTimeRemaining = 0.f;
+		if (State == EKinsectState::ActionReturning) { State = EKinsectState::ActionWaiting; }
+	}
+}
+
+void AKinsect::TickSlashPreparation(const float DeltaTime)
+{
+	if (!ResourceComponent.IsValid()
+		|| !ResourceComponent->IsKinsectActionControlCurrent(ActionAttachmentToken)
+		|| !SlashAttachMesh.IsValid() || !SlashAttachMesh->DoesSocketExist(SlashAttachSocket))
+	{
+		State = EKinsectState::ActionWaiting;
+		return;
+	}
+	const float StepTime = FMath::Min(FMath::Max(0.f, DeltaTime), SlashReturnTimeRemaining);
+	const FVector Target = SlashAttachMesh->GetSocketLocation(SlashAttachSocket);
+	const FVector ToTarget = Target - GetActorLocation();
+	const float Step = GetReturnSpeed() * StepTime;
+	if (Target.ContainsNaN() || !FMath::IsFinite(Step) || Step < 0.f)
+	{
+		State = EKinsectState::ActionWaiting;
+		return;
+	}
+	SlashReturnTimeRemaining = FMath::Max(0.f, SlashReturnTimeRemaining - StepTime);
+	if (ToTarget.Size() <= Step)
+	{
+		// Attach only on actual arrival. This bypasses world collision, not speed.
+		BeginActionAttachment(ActionAttachmentToken, SlashAttachMesh.Get(), SlashAttachSocket);
+	}
+	else
+	{
+		SetActorLocation(GetActorLocation() + ToTarget.GetSafeNormal() * Step,
+			false, nullptr, ETeleportType::TeleportPhysics);
+		SetActorRotation(ToTarget.Rotation());
+		if (SlashReturnTimeRemaining <= 0.f) { State = EKinsectState::ActionWaiting; }
+	}
+}
+
+bool AKinsect::IsActionControlOwnedBy(const FWeaponActionToken& ActionToken) const
+{
+	return ActionToken.IsValid() && ActionAttachmentToken == ActionToken
+		&& (State == EKinsectState::ActionAttached || State == EKinsectState::ActionReturning
+			|| State == EKinsectState::ActionWaiting || (bSlashPreparation && State == EKinsectState::Attached));
 }
 
 bool AKinsect::EndActionAttachmentAndReturn(
@@ -714,13 +897,22 @@ bool AKinsect::EndActionAttachmentAndReturn(
 	const uint64 CommandSerial,
 	const EKinsectCommandSource Source)
 {
-	if (!IsActionAttachmentOwnedBy(ActionToken) || !ResourceComponent.IsValid()
+	if (!IsActionControlOwnedBy(ActionToken) || !ResourceComponent.IsValid()
 		|| !RuntimeToken.IsValid()
 		|| RuntimeToken != ActionToken.RuntimeToken
 		|| !ResourceComponent->IsRuntimeRequestCurrent(RuntimeToken)
 		|| !FMath::IsFinite(ArrivalRadius) || ArrivalRadius <= 0.0f)
 	{
 		return false;
+	}
+	const bool bLeaveInPlace = bSlashPreparation && State != EKinsectState::ActionAttached
+		&& (Source == EKinsectCommandSource::Action || State == EKinsectState::Attached);
+	ResetSlashPreparation();
+	if (bLeaveInPlace)
+	{
+		ActionAttachmentToken = FWeaponActionToken();
+		if (State != EKinsectState::Attached) { State = EKinsectState::Hovering; }
+		return true;
 	}
 
 	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
@@ -739,7 +931,9 @@ bool AKinsect::IsActionAttachmentOwnedBy(
 	const FWeaponActionToken& ActionToken) const
 {
 	return State == EKinsectState::ActionAttached
-		&& ActionAttachmentToken.IsValid() && ActionAttachmentToken == ActionToken;
+		&& ActionAttachmentToken.IsValid() && ActionAttachmentToken == ActionToken
+		&& GetRootComponent() && GetRootComponent()->GetAttachParent()
+		&& !GetRootComponent()->GetAttachSocketName().IsNone();
 }
 
 FGameplayTag AKinsect::GetPendingExtractColor() const
@@ -780,6 +974,11 @@ bool AKinsect::CapturePendingExtractColor(const FGameplayTag ExtractColor,
 float AKinsect::GetFlightSpeed() const
 {
 	return KinsectData ? KinsectData->FlightSpeed : FALLBACK_FLIGHT_SPEED;
+}
+
+float AKinsect::GetReturnSpeed() const
+{
+	return KinsectData ? KinsectData->ReturnSpeed : FALLBACK_RETURN_SPEED;
 }
 
 float AKinsect::GetHoverDrainRate() const

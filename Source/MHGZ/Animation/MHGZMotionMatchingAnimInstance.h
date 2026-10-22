@@ -58,11 +58,15 @@ class MHGZ_API UMHGZMotionMatchingAnimInstance : public UAnimInstance
 	friend class FMHGZLoopContinuityTest;
 	friend class FMHGZLocomotionEntryTest;
 	friend class FMHGZLocomotionSpeedTest;
+	friend class FMHGZDirectionalDodgeStartTest;
 
 public:
 	virtual void NativeInitializeAnimation() override;
 	virtual void NativeUninitializeAnimation() override;
 	virtual void NativeUpdateAnimation(float DeltaSeconds) override;
+
+	/** One-shot movement takeover from an exact directional IdleExit; not a mobile Exit/Loop handoff. */
+	bool RequestDirectionalDodgeLocomotionStart(const FWeaponActionToken& SourceAction);
 
 	/** Debug counter only: incremented once per requested slot group, never on every blend frame. */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Montage Segment Blend")
@@ -402,6 +406,9 @@ private:
 	bool bPreviousUnsheathedState = false;
 	bool bWasForceMMIdle = false;
 	bool bStartInputSettling = false;
+	FWeaponActionToken PendingDirectionalDodgeStart;
+	/** Consumed only by the unsheathed pre-search callback, never a persistent forced-search mode. */
+	bool bMMForceDirectionalStartSearch = false;
 	float MMForceIdleReleaseHoldRemaining = 0.0f;
 	float MMStartInputSettleRemaining = 0.0f;
 	float MMStartQueryElapsed = 0.0f;

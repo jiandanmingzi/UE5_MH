@@ -13,6 +13,10 @@ class UAbilityTask_MHGZStaminaDrain;
 class UMHGZAbilitySystemComponent;
 class UMHGZWeaponRuntimeHostComponent;
 class USkeletalMeshComponent;
+class USoundBase;
+class UAnimNotify_SwingSound;
+class UMHGZWeaponDefinition;
+struct FStreamableHandle;
 
 /**
  * UMHGZGameplayAbility — 所有 Action Ability 的 M1 基类
@@ -36,6 +40,11 @@ public:
 	/** 绑定的输入标签（ASC 输入快照按此精确匹配） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Input")
 	FGameplayTag InputTag;
+
+	/** 仅控制本GA能否由缓存输入触发；关闭不影响合法窗口内的即时输入，也不禁止本招期间缓存其它招式。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Input",
+		meta = (DisplayName = "允许被预输入触发"))
+	bool bAllowPreInputActivation = true;
 
 	/** 耐力消耗策略：None / Instant（单次）/ PerSecond（Drain 任务按实际时间结算） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Cost")
@@ -79,6 +88,10 @@ public:
 	/** 挥刀风声身份标签 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Audio")
 	FGameplayTag AudioIdentityTag;
+
+	/** 按实际Montage通知播放挥击声；迁移后的GA同时停用旧的激活即播三灯钩子。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Ability|Audio")
+	bool bUseAuthoredSwingAudio = false;
 
 	/**
 	 * Explicitly authored exit families this Action may hand to Motion Matching.
@@ -181,6 +194,10 @@ public:
 
 	UMHGZWeaponRuntimeHostComponent* GetRuntimeHost() const;
 
+	/** Only the registered Mesh+Montage instance and committed Action may dispatch. */
+	bool HandleSwingSound(const FWeaponActionToken& Action, USkeletalMeshComponent* Mesh,
+		int32 MontageInstanceID, const UAnimNotify_SwingSound& Recipe);
+
 	// ------------------------------------------------------------------
 	// M4.4 authored Root Motion Phase / Motion Matching Handoff contract
 	// ------------------------------------------------------------------
@@ -200,6 +217,9 @@ public:
 		EMHGZMotionMatchingHandoffType HandoffType);
 
 protected:
+	/** Explicit legacy compatibility only; a sound event is not an attack segment. */
+	virtual USoundBase* GetLegacySwingSound(int32 SegmentIndex) const { return nullptr; }
+
 	/** Infrastructure/forced-reaction abilities override this explicitly. */
 	virtual bool ShouldIgnorePlayerActionLocks() const { return false; }
 
@@ -252,6 +272,22 @@ protected:
 	bool TryPayDeferredStaminaCost();
 
 private:
+	friend class FMHGZSwingAudioTests;
+	void PrepareSwingSoundOverrides();
+	void RefreshLoadedSwingSounds(const FWeaponActionToken& ExpectedAction);
+	void ResetSwingSoundOverrides();
+	bool IsSwingSoundActionCurrent(const FWeaponActionToken& Action) const;
+	USoundBase* ResolveSwingSound(const FWeaponActionToken& Action,
+		USkeletalMeshComponent* Mesh, int32 MontageInstanceID,
+		const UAnimNotify_SwingSound& Recipe) const;
+
+	UPROPERTY(Transient)
+	TMap<FGameplayTag, TObjectPtr<USoundBase>> LoadedSwingSoundOverrides;
+	UPROPERTY(Transient)
+	TObjectPtr<UMHGZWeaponDefinition> PreparedSwingWeapon;
+	TSharedPtr<FStreamableHandle> SwingSoundLoadHandle;
+	TSet<FGameplayTag> MissingSwingSoundKeys;
+
 	friend class FMHGZStaminaCostsTest;
 	bool bDeferredStaminaPaid = false;
 

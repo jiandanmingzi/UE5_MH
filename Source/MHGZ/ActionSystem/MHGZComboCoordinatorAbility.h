@@ -10,6 +10,7 @@
 
 class UMHGZWeaponComboData;
 class UMHGZWeaponRuntimeHostComponent;
+class UMHGZDodgeAbility;
 
 /** Maintained, no-cost weapon FSM. Physical input never enters this class. */
 UCLASS(BlueprintType, Blueprintable)
@@ -62,10 +63,15 @@ public:
 	/** A non-combo Action finished Commit; its new action boundary discards preinput. */
 	void OnDirectActionConfirmed();
 
+	/** Exact ground Dodge release point; directional IdleExit precedes movement, forward waits for normal End. */
+	void OnDodgePreInputWindowOpened(const FWeaponActionToken& SourceActionToken);
+	/** GAS can cancel without RequestEndAction; reject that source before its weak instance dies. */
+	void DiscardDodgePreInput(const FWeaponActionToken& SourceActionToken);
+
 	/**
 	 * Direct (non-Input.Weapon) actions may opt into the shared one-slot preinput
 	 * buffer after their normal activation attempt failed solely because their
-	 * action-side accept window is not open.  Dodge is the current direct user.
+	 * action-side accept window is not open. Target GA defaults control eligibility.
 	 */
 	bool TryBufferDirectInput(const FWeaponInputSnapshot& Input);
 
@@ -79,7 +85,7 @@ public:
 	//
 	// 与上面地面 DodgeAccept 那套**并列**、互不借用：空中走点通知的 latch
 	// （UAnimNotify_IG_AerialHandoff → NotifyAerialHandoff），地面走 NotifyState 的窗口。
-	// Input.AirDodge 自身仍不预输入；其它 Input.Weapon 空中动作可使用共享预输入槽，
+	// Input.AirDodge 默认关闭预输入，可在其GA中开启；其它 Input.Weapon 空中动作可使用共享预输入槽，
 	// 但只有在 IG_AerialHandoff 尚未恢复 Falling 门时才缓存候选边。
 
 	/**
@@ -118,6 +124,10 @@ private:
 	{
 		FWeaponInputSnapshot Snapshot;
 		double ExpireAt = 0.0;
+		/** Non-combo Dodge sources cannot leak their command into a later action. */
+		FWeaponActionToken DodgeSourceAction;
+		/** Set by exact normal End before GAS marks an InstancedPerExecution source as garbage. */
+		bool bDodgeSourceCompletedNormally = false;
 	};
 
 	UPROPERTY()
@@ -139,11 +149,13 @@ private:
 	const FComboTransition* FindBestMatch(const FWeaponInputSnapshot& Input,
 		bool bIgnoreAcceptWindows = false,
 		bool bAllowAerialHandoffPreInput = false,
-		bool bAllowEarlyDescendingThrust = false) const;
+		bool bAllowEarlyDescendingThrust = false,
+		bool bAllowDodgePreInput = false) const;
 	bool TransitionRequirementsPass(const FComboTransition& Transition,
 		const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows = false,
 		bool bAllowAerialHandoffPreInput = false,
-		bool bAllowEarlyDescendingThrust = false) const;
+		bool bAllowEarlyDescendingThrust = false,
+		bool bAllowDodgePreInput = false) const;
 	bool ExecuteTransition(const FComboTransition& Transition,
 		const FWeaponInputSnapshot& Input, const FWeaponActionToken* SourceAction = nullptr,
 		const FWeaponActionToken* AerialHandoffSourceAction = nullptr);
@@ -157,14 +169,19 @@ private:
 	void GrantActiveTransitionTags(const FComboTransition& Transition);
 	void ReleaseActiveTransitionTags();
 	void CloseWindowsFor(const FWeaponActionToken& ActionToken);
-	bool CacheCombatInput(const FWeaponInputSnapshot& Input);
+	bool CacheCombatInput(const FWeaponInputSnapshot& Input,
+		const FWeaponActionToken* DodgeSource = nullptr);
+	bool SupportsPreInput(const FComboTransition* Transition) const;
+	bool SupportsDirectPreInput(const FWeaponInputSnapshot& Input) const;
+	UMHGZDodgeAbility* FindLockedDodgePreInputSource() const;
 	bool CanBufferAerialHandoffInput(const FWeaponInputSnapshot& Input) const;
 	const FWeaponActionToken* GetLiveEarlyDescendingThrustSource() const;
 	bool HasLiveBufferedCombatInput();
 	void ClearBufferedCombatInput();
 	void TryConsumeBufferedCombatInput(bool bAllowDirectInput,
 		const FWeaponActionToken* AerialHandoffSourceAction = nullptr,
-		bool bAllowEarlyDescendingThrust = false);
+		bool bAllowEarlyDescendingThrust = false,
+		const FWeaponActionToken* DodgeSource = nullptr);
 	void ResetComboTimeout();
 	void OnComboTimeout();
 	UMHGZWeaponRuntimeHostComponent* GetRuntimeHost() const;

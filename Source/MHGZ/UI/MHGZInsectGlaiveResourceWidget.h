@@ -33,6 +33,11 @@ public:
 		const FIGResourceUISnapshot& State);
 	/** Read-only display adapter; never grants or accumulates gameplay extracts. */
 	static TArray<FGameplayTag> GetDisplayedCargoColors(const FIGResourceUISnapshot& State);
+	/** Delivered lamp warning intensity (not alpha); TripleUp shares one countdown. */
+	static float GetExtractWarningIntensity(const FIGResourceUISnapshot& State, int32 ExtractIndex);
+	/** Pale/desaturated warning colour, always preserving the supplied opacity. */
+	static FLinearColor GetExtractWarningColor(const FIGResourceUISnapshot& State,
+		int32 ExtractIndex, const FLinearColor& BaseColor);
 
 protected:
 	UPROPERTY(meta = (BindWidgetOptional))

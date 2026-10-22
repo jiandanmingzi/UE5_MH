@@ -4,6 +4,7 @@
 
 #include "AbilitySystemComponent.h"
 #include "ActionSystem/MHGZDescendingThrustAbility.h"
+#include "ActionSystem/MHGZDodgeAbility.h"
 #include "ActionSystem/MHGZKinsectPiercerAbility.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
@@ -38,6 +39,7 @@
 #include "PoseSearch/PoseSearchLibrary.h"
 #include "ProfilingDebugging/TraceAuxiliary.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
+#include "UObject/StructOnScope.h"
 
 namespace
 {
@@ -252,6 +254,8 @@ void UMHGZMotionMatchingAnimInstance::NativeInitializeAnimation()
 	bPreviousUnsheathedState = false;
 	bWasForceMMIdle = false;
 	bStartInputSettling = false;
+	PendingDirectionalDodgeStart = {};
+	bMMForceDirectionalStartSearch = false;
 	MMForceIdleReleaseHoldRemaining = 0.0f;
 	MMStartInputSettleRemaining = 0.0f;
 	MMStartQueryElapsed = 0.0f;
@@ -294,6 +298,8 @@ void UMHGZMotionMatchingAnimInstance::NativeInitializeAnimation()
 
 void UMHGZMotionMatchingAnimInstance::NativeUninitializeAnimation()
 {
+	PendingDirectionalDodgeStart = {};
+	bMMForceDirectionalStartSearch = false;
 	WeaponGripConstraint = {};
 	WeaponGripConstraintAlpha = 0.f;
 	WeaponGripConstraintSerial = 0;
@@ -702,6 +708,33 @@ void UMHGZMotionMatchingAnimInstance::RouteMotionMatchingPreSearch(
 	float& ExitSelectedTime = GetActionExitSelectedTime(MotionMatchingNode);
 	const bool bNodeMatchesCurrentStance =
 		(MotionMatchingNode == EMHGZMotionMatchingNode::Unsheathed) == bMMUnsheathedLocomotion;
+	if (MotionMatchingNode == EMHGZMotionMatchingNode::Unsheathed
+		&& bMMForceDirectionalStartSearch && bNodeMatchesCurrentStance
+		&& bMMHasLocomotionInput && !bMMForceIdle && !bMMHandoffActive)
+	{
+		bMMForceDirectionalStartSearch = false;
+		ClearActionIdleRoute(MotionMatchingNode);
+		bMMMobileExitCruise[1] = false;
+		if (bMMBaseBlendCaptured[1])
+		{
+			auto& Blend = *reinterpret_cast<FMotionMatchingBlueprintBlendSettings*>(MMBaseBlend[1]->GetStructMemory());
+			const float AuthoredDuration = Blend.BlendTime;
+			const bool bAuthoredInertialBlend = Blend.bUseInertialBlend;
+			// The outgoing full-body montage supplies the requested 0.1s fade.
+			// A second Idle->Start MM fade underneath would reintroduce an Idle hump.
+			Blend.BlendTime = 0.f;
+			Blend.bUseInertialBlend = false;
+			bool bValid = false;
+			UMotionMatchingAnimNodeLibrary::OverrideMotionMatchingBlendSettings(MotionMatchingReference, Blend, bValid);
+			Blend.BlendTime = AuthoredDuration;
+			Blend.bUseInertialBlend = bAuthoredInertialBlend;
+		}
+		// This update already has a fresh positive Start query. Do not continue an
+		// old Idle/player or wait for the ordinary search throttle before using it.
+		UMotionMatchingAnimNodeLibrary::ResetDatabasesToSearch(MotionMatchingReference,
+			EPoseSearchInterruptMode::ForceInterruptAndInvalidateContinuingPose);
+		return;
+	}
 	const UPoseSearchDatabase* PendingExitDatabase = bNodeMatchesCurrentStance
 		? GetExitDatabase(MotionMatchingNode, MMHandoffType) : nullptr;
 	const bool bNewCompatibleHandoff = bMMHandoffActive && bNodeMatchesCurrentStance
@@ -1093,9 +1126,23 @@ void UMHGZMotionMatchingAnimInstance::UpdateActionVisualPitch(
 	}
 }
 
+bool UMHGZMotionMatchingAnimInstance::RequestDirectionalDodgeLocomotionStart(
+	const FWeaponActionToken& SourceAction)
+{
+	const AMHGZCharacter* Character = Cast<AMHGZCharacter>(TryGetPawnOwner());
+	const UMHGZWeaponRuntimeHostComponent* Host = Character ? Character->GetWeaponRuntimeHost() : nullptr;
+	const UMHGZDodgeAbility* Source = Cast<UMHGZDodgeAbility>(SourceAction.AbilityInstance.Get());
+	if (!SourceAction.IsValid() || !Host || !Host->IsActionRegistered(SourceAction)
+		|| !Source || Source->GetActionToken() != SourceAction || !Source->IsDirectionalRecoveryOpen())
+	{ return false; }
+	PendingDirectionalDodgeStart = SourceAction;
+	return true;
+}
+
 void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSeconds)
 {
 	Super::NativeUpdateAnimation(DeltaSeconds);
+	bMMForceDirectionalStartSearch = false;
 
 	// Motion Matching state callbacks may run on the animation thread. Consume their
 	// latest results here, on the AnimInstance update thread, before producing the
@@ -1110,6 +1157,7 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 	}
 	if (!IsValid(Character))
 	{
+		PendingDirectionalDodgeStart = {};
 		ResetActionVisualPitchLocalState();
 		MMActualSpeed2D = 0.0f;
 		MMQuerySpeed2D = MMExpectedWorldCruiseSpeed = 0.f;
@@ -1192,6 +1240,22 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 		MMForceIdleReleaseHoldRemaining = FMath::Max(0.0f,
 			MMForceIdleReleaseHoldRemaining - FMath::Max(DeltaSeconds, 0.0f));
 	}
+	bool bStartFromDirectionalDodge = false;
+	if (PendingDirectionalDodgeStart.ActivationSequenceID != 0 && DeltaSeconds > 0.f)
+	{
+		const UMHGZWeaponRuntimeHostComponent* Host = Character->GetWeaponRuntimeHost();
+		// The source has now retired. Any new action, stance/runtime change or real
+		// input release cancels this one-shot request rather than resurrecting it later.
+		// Do not require the retired AbilityInstance to survive a GC to retain its identity.
+		bStartFromDirectionalDodge = Host
+			&& Host->IsTokenCurrent(PendingDirectionalDodgeStart.RuntimeToken)
+			&& !Host->HasRegisteredAction() && bMovingOnGround
+			&& !Host->IsSheathed() && Character->bUnsheathed && Character->bHasInput
+			&& Character->HasRawMovementInput()
+			&& !bExternalForceMMIdle && !bMMHandoffActive
+			&& MMForceIdleReleaseHoldRemaining <= KINDA_SMALL_NUMBER;
+		PendingDirectionalDodgeStart = {};
+	}
 
 	// The post-action Idle hold is a legacy comparison aid and defaults to disabled.
 	// Even with it disabled, bWasForceMMIdle causes one measurement-only reset when
@@ -1206,6 +1270,7 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 		MMStartInputSettleRemaining = 0.0f;
 	}
 	const bool bBeginStartInputSettle = !bExternalForceMMIdle
+		&& !bStartFromDirectionalDodge
 		// The first released Root-Motion measurement frame is an action boundary,
 		// not a fresh physical stick edge. Mobile Handoff recovery below decides
 		// whether it remains cruise or becomes exactly one Stop.
@@ -1245,7 +1310,7 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 	const bool bPublishActionIdleContext =
 		MHGZMotionMatching::ShouldPublishActionIdleContextOnMeasurementRelease(
 			bLeavingForcedMeasurement, bMMHandoffActive, Character->bHasInput);
-	if (MHGZMotionMatching::ShouldResetMotionMeasurement(bMeasurementForceMMIdle,
+	if (bStartFromDirectionalDodge || MHGZMotionMatching::ShouldResetMotionMeasurement(bMeasurementForceMMIdle,
 		bWasForceMMIdle, bMovingOnGround, bHasPreviousActorLocation, DeltaSeconds))
 	{
 		ResetMMTemporalState(CurrentLocation, bPreserveHandoffInput);
@@ -1263,6 +1328,23 @@ void UMHGZMotionMatchingAnimInstance::NativeUpdateAnimation(const float DeltaSec
 		else
 		{
 			RefreshActionIdleRouteFlags();
+		}
+		if (bStartFromDirectionalDodge)
+		{
+			// Discard the final action displacement, not the new locomotion intent.
+			// Prime Start before this update returns; otherwise a zero/flat query
+			// searches Idle, then falsely starts the analogue-settle timer next frame.
+			bMMForceIdle = false;
+			bHadMoveInput = true;
+			bHasPreviousUnsheathedState = true;
+			bPreviousUnsheathedState = true;
+			MMMoveGaitQuery = GetStopGaitCurveValue(GetGaitFromTargetSpeed(Character->TargetCruiseSpeed));
+			MMLastNonZeroCruiseSpeed = Character->TargetCruiseSpeed;
+			UpdateLegacyIntentQueries(true, true, false, 0.f);
+			BuildPredictedTrajectory(Character->GetActorTransform(), 0.f,
+				Character->TargetCruiseSpeed, SelectStartAcceleration(true, Character->TargetCruiseSpeed));
+			ClearActionIdleRoute(EMHGZMotionMatchingNode::Unsheathed);
+			bMMForceDirectionalStartSearch = true;
 		}
 		bWasForceMMIdle = bMeasurementForceMMIdle;
 		UpdateRuntimeTelemetry(Character, DeltaSeconds);

@@ -136,6 +136,14 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Audio")
 	TObjectPtr<USoundBase> KinsectDepletedSound;
 
+	/** 离手移动的短音；只有飞行请求提交成功才播放，不绑定猎人蒙太奇。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Audio")
+	TObjectPtr<USoundBase> KinsectLaunchSound;
+
+	/** 自由飞行/悬停/返航期间的循环；回手、武器附着、失效或销毁时停止。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Audio")
+	TObjectPtr<USoundBase> KinsectFlightLoopSound;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Extract|Tuning", meta = (ClampMin = "0.01"))
 	float WhiteExtractDuration = 90.0f;
 
@@ -525,7 +533,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Mark|Automation", meta = (ClampMin = "0.0", ForceUnits = "s"))
 	float KinsectAutoMarkAttackInterval = 2.0f;
 
-	/** 命中虫印后两次可产粉的最小间隔；觉虫击贯通产粉不受此冷却约束。 */
+	/** 普通手动/招式猎虫命中虫印的产粉间隔；自动寻印攻击和觉虫击黄灯逐击产粉不检查或占用此冷却。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Tuning", meta = (ClampMin = "0.01", ForceUnits = "s"))
 	float MarkedHitPowderCooldown = 10.0f;
 

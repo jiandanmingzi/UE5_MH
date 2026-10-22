@@ -370,7 +370,8 @@ bool UMHGZAwakenedKinsectAttackAbility::ValidateActionDependencies() const
 		|| Config->AwakenedPierceHitInterval <= 0.f
 		|| !FMath::IsFinite(Config->KinsectArrivalRadius)
 		|| Config->KinsectArrivalRadius <= 0.f
-		|| Kinsect->GetState() == EKinsectState::ActionAttached)
+		|| Kinsect->GetState() == EKinsectState::ActionAttached
+		|| Kinsect->IsSlashActionControlled())
 	{
 		return false;
 	}

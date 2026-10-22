@@ -33,6 +33,8 @@
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "Math/RotationMatrix.h"
+#include "Kismet/GameplayStatics.h"
+#include "Sound/SoundBase.h"
 
 #include "Engine/EngineTypes.h"
 
@@ -48,6 +50,7 @@ FName PowderSpawnPolicyName(const EIGPowderSpawnPolicy Policy)
 	case EIGPowderSpawnPolicy::MarkedContact: return TEXT("MarkedContact");
 	case EIGPowderSpawnPolicy::AwakenedPiercing: return TEXT("AwakenedPiercing");
 	case EIGPowderSpawnPolicy::AwakenedEachHit: return TEXT("AwakenedEachHit");
+	case EIGPowderSpawnPolicy::AutoMarkContact: return TEXT("AutoMarkContact");
 	default: return TEXT("None");
 	}
 }
@@ -226,6 +229,7 @@ void URes_InsectGlaive::InitializeRuntime(const FWeaponRuntimeContext& Context)
 	ClearOwnedPowders(EWeaponRuntimeEndReason::RuntimeShutdown);
 	Super::InitializeRuntime(Context);
 	bRuntimeShuttingDown = false;
+	LastExtractSoundCommandSerial = 0;
 	bHasPublishedUISnapshot = false;
 	KinsectCommandSerial = 0;
 	KinsectCommandSource = EKinsectCommandSource::None;
@@ -302,8 +306,10 @@ void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 	}
 
 	const EKinsectState State = KinsectActor->GetState();
+	const bool bSlashAwayFromArm = KinsectActor->IsSlashActionControlled()
+		&& State != EKinsectState::Attached;
 	const float PreviousStamina = KinsectStamina;
-	if (State == EKinsectState::Flying)
+	if (State == EKinsectState::Flying || bSlashAwayFromArm)
 	{
 		KinsectStamina = FMath::Max(0.f,
 			KinsectStamina - KinsectData->FlightDrainRate * DeltaTime);
@@ -320,13 +326,13 @@ void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 	}
 	else if (State == EKinsectState::ActionAttached)
 	{
-		// 临时动作附着等同普通 Attached：不消耗飞行耐力，并继续恢复耐力。
+		// 非操虫斩的临时附着保持旧规则；操虫斩离臂耗耐已在上方处理。
 		KinsectStamina = FMath::Min(MaxKinsectStamina,
 			KinsectStamina + KinsectData->StaminaRegenRate * DeltaTime);
 	}
 
 	if (PreviousStamina > 0.f && KinsectStamina <= 0.f
-		&& (State == EKinsectState::Flying || State == EKinsectState::Hovering))
+		&& (State == EKinsectState::Flying || State == EKinsectState::Hovering || bSlashAwayFromArm))
 	{
 		bDepletionEdgeTriggered = true;
 		PlayResourceSound(CombatConfig ? CombatConfig->KinsectDepletedSound : nullptr);
@@ -564,7 +570,7 @@ bool URes_InsectGlaive::RecallKinsect(const EKinsectCommandSource Source)
 	{
 		return false;
 	}
-	if (KinsectActor->GetState() == EKinsectState::ActionAttached)
+	if (KinsectActionAttachmentToken.IsValid())
 	{
 		return EndKinsectActionAttachmentAndReturn(KinsectActionAttachmentToken, Source);
 	}
@@ -627,10 +633,43 @@ bool URes_InsectGlaive::IsKinsectActionAttachmentCurrent(
 		&& KinsectActor->IsActionAttachmentOwnedBy(ActionToken);
 }
 
+bool URes_InsectGlaive::BeginKinsectSlashPreparation(
+	const FWeaponActionToken& ActionToken, USkeletalMeshComponent* WeaponMesh,
+	const FName SocketName, const float AvailableReturnTime)
+{
+	if (bRuntimeShuttingDown || !ActionToken.IsValid()
+		|| !IsRuntimeRequestCurrent(ActionToken.RuntimeToken)
+		|| !KinsectActor || !KinsectData || !KinsectAttachComponent.IsValid()
+		|| KinsectActionAttachmentToken.IsValid())
+	{
+		return false;
+	}
+	const bool bHasRequiredStamina = FMath::IsFinite(KinsectStamina)
+		&& FMath::IsFinite(MaxKinsectStamina) && MaxKinsectStamina > 0.f
+		&& KinsectStamina >= MaxKinsectStamina * 0.2f;
+	if (!KinsectActor->BeginSlashPreparation(ActionToken, WeaponMesh, SocketName,
+		AvailableReturnTime, bHasRequiredStamina))
+	{
+		return false;
+	}
+	AdvanceKinsectCommand(EKinsectCommandSource::Action);
+	KinsectActionAttachmentToken = ActionToken;
+	SetKinsectActiveTag(KinsectActor->IsDeployed());
+	return true;
+}
+
+bool URes_InsectGlaive::IsKinsectActionControlCurrent(const FWeaponActionToken& ActionToken) const
+{
+	return !bRuntimeShuttingDown && ActionToken.IsValid()
+		&& ActionToken == KinsectActionAttachmentToken
+		&& IsRuntimeRequestCurrent(ActionToken.RuntimeToken)
+		&& KinsectActor && KinsectActor->IsActionControlOwnedBy(ActionToken);
+}
+
 bool URes_InsectGlaive::EndKinsectActionAttachmentAndReturn(
 	const FWeaponActionToken& ActionToken, const EKinsectCommandSource Source)
 {
-	if (!IsKinsectActionAttachmentCurrent(ActionToken) || !CombatConfig
+	if (!IsKinsectActionControlCurrent(ActionToken) || !CombatConfig
 		|| !KinsectAttachComponent.IsValid()
 		|| (Source != EKinsectCommandSource::Action
 			&& Source != EKinsectCommandSource::Player
@@ -645,6 +684,14 @@ bool URes_InsectGlaive::EndKinsectActionAttachmentAndReturn(
 		ActionToken, RuntimeContext.RuntimeToken, ArrivalRadius,
 		CommandSerial, Source);
 	KinsectActionAttachmentToken = FWeaponActionToken();
+	SetKinsectActiveTag(KinsectActor->IsDeployed());
+	if (bReturnStarted && KinsectActor->GetState() == EKinsectState::Hovering
+		&& KinsectStamina <= 0.f)
+	{
+		// A slash can freeze an already exhausted Returning insect. Once its
+		// hold ends, restore the system recall instead of stranding a zero pool.
+		RecallKinsect(EKinsectCommandSource::System);
+	}
 	if (!bReturnStarted)
 	{
 		// Defensive recovery for invalid return tuning/target: restore the original
@@ -1053,7 +1100,7 @@ bool URes_InsectGlaive::PerformAutomaticMarkContactAttack()
 	{
 		HandleSuccessfulKinsectDamage(RuntimeContext.RuntimeToken,
 			AttackInstanceID, HitInstanceID, Hit,
-			EIGPowderSpawnPolicy::MarkedContact);
+			EIGPowderSpawnPolicy::AutoMarkContact);
 	}
 	return bDamageApplied;
 }
@@ -1225,6 +1272,26 @@ bool URes_InsectGlaive::CaptureExtractFromKinsectHit(
 	return true;
 }
 
+void URes_InsectGlaive::PlayExtractCollectedSound(const uint64 CommandSerial)
+{
+	if (!CombatConfig || !CombatConfig->ExtractCollectedSound
+		|| (CommandSerial != 0 && CommandSerial == LastExtractSoundCommandSerial)) return;
+	// 多色携带在同一次回手逐色结算，但同一交付提示只播一次。
+	// Serial 0 是旧的直接授予入口，不用全局“本帧去重”吞掉独立授予。
+	LastExtractSoundCommandSerial = CommandSerial;
+	// This is physical delivery at the insect's return location, not a 2D UI cue.
+	// Other resource/UI sounds retain the original 2D route.
+	ACharacter* Character = RuntimeContext.Character.Get();
+	USkeletalMeshComponent* Mesh = Character ? Character->GetMesh() : nullptr;
+	if (Mesh && Mesh->DoesSocketExist(CombatConfig->KinsectAttachSocket)
+		&& !CombatConfig->ExtractCollectedSound->IsLooping())
+	{
+		UGameplayStatics::SpawnSoundAttached(CombatConfig->ExtractCollectedSound,
+			Mesh, CombatConfig->KinsectAttachSocket, FVector::ZeroVector,
+			EAttachLocation::KeepRelativeOffset, true);
+	}
+}
+
 bool URes_InsectGlaive::ApplyExtractInternal(
 	const FGameplayTag ExtractColor, const FHitResult* SourceHit,
 	const FGuid& SourceAttackID, const FGuid& HitID, const uint64 CommandSerial)
@@ -1261,7 +1328,7 @@ bool URes_InsectGlaive::ApplyExtractInternal(
 	// 三灯期间所有吸收入口都统一吞灯，绝不生成/缓存/刷新任何 GE。
 	if (IsTripleUpActive())
 	{
-		PlayResourceSound(CombatConfig->ExtractCollectedSound);
+		PlayExtractCollectedSound(CommandSerial);
 		RecordAttempt(TEXT("IgnoredDuringTripleUp"));
 		return true;
 	}
@@ -1270,7 +1337,7 @@ bool URes_InsectGlaive::ApplyExtractInternal(
 	RecordAttempt(bApplied ? FName(TEXT("Granted")) : FName(TEXT("GameplayEffectRejected")));
 	if (bApplied)
 	{
-		PlayResourceSound(CombatConfig->ExtractCollectedSound);
+		PlayExtractCollectedSound(CommandSerial);
 		CheckAndActivateTripleUp();
 		BroadcastExtractState();
 		ExecuteResourceFeedbackCue(ExtractGainedCueTag(), ExtractColor);
@@ -2425,7 +2492,8 @@ bool URes_InsectGlaive::HandleSuccessfulKinsectDamage(
 	}
 
 	const double Now = GetWorld()->GetTimeSeconds();
-	if (SpawnPolicy == EIGPowderSpawnPolicy::MarkedContact)
+	if (SpawnPolicy == EIGPowderSpawnPolicy::MarkedContact
+		|| SpawnPolicy == EIGPowderSpawnPolicy::AutoMarkContact)
 	{
 		if (!HasValidKinsectMark())
 		{
@@ -2452,7 +2520,8 @@ bool URes_InsectGlaive::HandleSuccessfulKinsectDamage(
 			RecordRejectedSpawn(TEXT("OutsideMarkPatch"));
 			return false;
 		}
-		if (LastMarkedContactPowderWorldTime >= 0.0
+		if (SpawnPolicy == EIGPowderSpawnPolicy::MarkedContact
+			&& LastMarkedContactPowderWorldTime >= 0.0
 			&& Now - LastMarkedContactPowderWorldTime < CombatConfig->MarkedHitPowderCooldown)
 		{
 			RecordRejectedSpawn(TEXT("SharedCooldown"));
@@ -2933,7 +3002,7 @@ bool URes_InsectGlaive::StartPowderVortex(const FWeaponActionToken& Action,
 		|| !IsRuntimeRequestCurrent(Action.RuntimeToken)
 		|| !Host || !Host->IsActionRegistered(Action)
 		|| !CombatConfig || !KinsectActor || !KinsectData
-		|| KinsectActor->GetState() == EKinsectState::ActionAttached
+		|| KinsectActionAttachmentToken.IsValid()
 		|| AimSnapshot.Context != EWeaponAimSnapshotContext::Kinsect
 		|| !IsFiniteVector(AimSnapshot.TargetPoint)
 		|| !FMath::IsFinite(CombatConfig->PowderGatherRadius)

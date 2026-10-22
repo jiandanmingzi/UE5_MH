@@ -7,6 +7,7 @@
 #include "MHGZAbilityCostGameplayEffects.h"
 #include "MHGZAbilitySystemComponent.h"
 #include "MHGZComboCoordinatorAbility.h"
+#include "MHGZDodgeAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "AbilitySystemComponent.h"
@@ -192,6 +193,12 @@ void UMHGZGameplayAbility::ActivateAbility(
 		ActivationContext.RuntimeToken = Host->GetCurrentToken();
 		ActivationContext.ActivationSequenceID = Host->AllocateActivationSequenceID();
 	}
+	if (const UMHGZDodgeAbility* Recovery =
+		UMHGZDodgeAbility::FindOpenActionRecovery(MHGZASC, this))
+	{
+		// Per-activation override only: leave all attack/dodge assets alone.
+		ActivationContext.MontageBlendInTime = Recovery->DirectionalIdleExitBlendTime;
+	}
 
 	// 2. 构建 ActionToken 候选；缺少序列号时由 Host 分配。
 	CurrentActionToken.RuntimeToken = ActivationContext.RuntimeToken;
@@ -325,8 +332,19 @@ void UMHGZGameplayAbility::ActivateAbility(
 		RequestEndAction(EWeaponActionEndReason::Interrupted);
 		return;
 	}
+	// A rejected dependency/cost/transition must never cancel the old recovery.
+	// Yield only after this successor has committed and registered successfully,
+	// before its subclass starts a montage or acquires root-motion ownership.
+	if (UMHGZDodgeAbility* Recovery =
+		UMHGZDodgeAbility::FindOpenActionRecovery(MHGZASC, this))
+	{
+		Recovery->CompleteDirectionalRecoveryForAction();
+	}
 
 	// 9. PerSecond 耐力消耗任务。
+	// Audio is optional: start async preparation before any subclass plays its
+	// Montage, never synchronously load or delay the action for missing audio.
+	PrepareSwingSoundOverrides();
 	if (StaminaCostPolicy == EAbilityStaminaCostPolicy::PerSecond)
 	{
 		StaminaDrainTask = UAbilityTask_MHGZStaminaDrain::StartStaminaDrain(this);
@@ -346,6 +364,7 @@ void UMHGZGameplayAbility::EndAbility(
 	}
 	bMHGZEndCleanupDone = true;
 	bIsActionActivationCommitted = false;
+	ResetSwingSoundOverrides();
 	MotionMatchingPhaseState = FMotionMatchingPhaseState();
 
 	// 1. 结束耐力消耗任务。

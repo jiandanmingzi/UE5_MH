@@ -6,6 +6,349 @@ again to stop. A red `[REC]` label stays in the top-left while recording; start
 and stop each show a confirmation bar. Each capture writes samples and events
 CSV files under `reframework/data/MHGZ_AerialTrajectoryRecorder`.
 
+## Legacy host compatibility repair (1.21.0, 2026-10-19)
+
+Deployed after normal exit, with1.20 backups/hashes under
+`Saved/Maintenance/RecorderDeploy/20261019-Combat121/`. PID30288 loaded1.21 with
+engine_context_stack and the new native queue; load snapshot has no drops/errors.
+Capture `mhrise_20261019_145235_02` passed all three targeted repairs:28 complete
+damage/pre/post groups,66 selected flow fields, no errors/coverage warnings or
+queue loss, valid F9 save. Evidence:
+`Saved/Audio/RiseIG/NativeBridge/Combat121/Capture145235-Audit/findings.md`.
+Do not repeat startup/short recording.27/28 hit sounds have a unique complete
+join; one reused emitter stays unknown. Final Media is still not captured.
+
+- Prefer official hook storage; otherwise use sdk.get_thread_context with exact
+  pre-argument token validation and independent bounded stacks (64 contexts,
+  depth32). Recursion/interleaving, uncaptured nested calls, drained pre rows and
+  F9 epochs are protected. POST_ERROR exposes absent/broken capabilities. Engine
+  context tokens never masquerade as Windows thread IDs.
+- Selected scalar capacity96 includes prioritized StaminaDamage/StunDamage.
+  Container-only part metadata stays explicitly `container_only_unexpanded`, not
+  a read failure or a claim of complete part traversal. Other bounds unchanged.
+- Only the native object queue changed to a bounded MPSC sequence ring, removing
+  consumer-lock contention. Full/retry losses remain distinct and explicit; gaps
+  still invalidate complete joins. Native Post/condition queues and CSV columns
+  are unchanged.
+- 89 audio Lua checks,17 animation/stamina,10 combat-audit checks and3 native
+  CTests pass. Original recorder blocks outside combat/version are unchanged.
+  Existing test dependencies: set PYTHONPATH to
+  `Saved/Maintenance/RiseAnimationReader20261015/python_deps` for lupa2.8.
+
+Rollback only while the game is closed: restore the backed-up1.20 Lua/DLL.
+
+## Combat completeness repair (1.20.0, historical evidence)
+
+Latest short capture `mhrise_20261019_134722_03` partially works, NOT accepted:
+42 raw native hit edges match42 damage callbacks, but post snapshots0 and21
+recording-time object gap markers. Current host lacks the assumed hook-storage
+capability; missing-API handling and the lossy object queue require repair before
+any new recording. Evidence: `Saved/Audio/RiseIG/NativeBridge/Combat120/Capture134722-Audit/findings.md`.
+The load-only checkpoint below is historical, not a capture pass.
+
+Built/tested and deployed after normal game exit; runtime1.20 loaded in PID33060.
+Only the original recorder Lua and bridge DLL were replaced, with1.19 backups
+and hashes in `Saved/Maintenance/RecorderDeploy/20261019-Combat120/manifest.json`.
+81 audio Lua checks,17 animation/stamina checks,3 native CTests,10 combat-audit
+checks and19 existing mapping checks pass. Original F9/sampling/animation/inputs/
+stamina and native Post/condition formats remain unchanged.
+
+- Field profiles prioritize required descriptors instead of declaration order;
+  `_EffectMaterialType` is no longer lost at the end of the sound type. DamageRS
+  and bounded snow.hit/snow.enemy nested data are sampled. Remaining bounds or
+  absent required data are explicit in `field_coverage` and live coverage warnings.
+  Profiles allow64 selected scalars, up to8 metadata parent types,4 nested
+  references/two levels; not an unlimited world-object walk. Descriptor-only
+  `combat_field_schema.txt` records the actual profiles without F8.
+- `*_hits.csv` retains its original29 columns and appends DamageRS type/fields,
+  coverage, post sound values and thread ID (34 total). The additional
+  `hit_sound_context_post` row reads after hitTrigger updates material/strength.
+  Official per-call hook storage handles recursion, drained pre rows and F9 epoch
+  changes; post rows do not count as independent damage callbacks.
+- `*_audio_objects.csv` now has15 columns, keeping the first10 names. The
+  `container_trigger_context` kind carries actual owner/emitter/trigger arguments
+  and, only for a signature-guarded exact nested caller chain, HitInfo/thread
+  context pointers. Trigger ID is NOT EventID. Raw pooled HitInfo pointers are
+  not unique transaction IDs; reused/ambiguous identities stay unresolved.
+- `rise_audio_capture_map.py --audit-combat` separates same-emitter requests from
+  declared bank defaults and unknowns; it never borrows another object's Switch.
+  The prior capture has a verified root-container default for group3805839008,
+  value1804647490, but that is NOT a recorded setter or final-Media selection.
+
+Rollback only after exiting Rise: restore the saved1.19 Lua/DLL. Never unload a
+pinned bridge live. New fields, callchain contexts and save health need a small
+runtime check; no full-moveset re-recording yet. The load snapshot in
+`Saved/Audio/RiseIG/NativeBridge/Combat120/Runtime33060/` shows all observers ready,
+1250 trigger calls and no entry errors, but no actual hits yet. Three object-queue
+drops occurred before F9 (Post/condition drops0); this is not a zero-loss claim.
+Capture start establishes a new drop baseline and an initial unknown row. Any
+new recording-time loss emits a gap and makes the offline join fail closed.
+
+## Independent hit/object-key capture (1.19.0, historical evidence)
+
+Short-capture update: `mhrise_20261019_123713_02` verified44 independent damage
+callbacks (41 hunter/3 kinsect) plus44 separately-labelled sound contexts,1130
+Post/key exact-ID matches,17675 condition rows and2153 object rows. Seven CSVs
+have no ragged rows and stop normally; zero read exceptions/drops. Evidence and
+hashes: `Saved/Audio/RiseIG/NativeBridge/Combat119/Capture123713/audit.json`.
+Basic capture is accepted, NOT complete attribution: generic32-field/four-parent
+caps truncate required raw data, part-info has no captured scalars, temporary hit
+emitters lack a proved hit parent, and one hit Switch is only observed on the
+target's different audio object. No full-moveset recording or repeated short
+recording is needed before these gaps are addressed. Startup notes below are historical.
+
+1.19 is built/tested and installed with verified hashes. Process1512 verified
+loading:661 Post requests,1987 numeric conditions,1410 object-key/lifecycle calls,
+zero drops/gaps/errors. Both managed listeners are installed, but actual hit
+callbacks/fields and a short empty-swing/hit recording remain unverified; do not
+record the full moveset yet. Evidence: `Saved/Audio/RiseIG/NativeBridge/Combat119/Runtime1512/`.
+76 audio Lua checks,17 animation/stamina checks and3 native CTests pass.
+Backup/deployment: `Saved/Maintenance/RecorderDeploy/20261019-Combat119/manifest.json`.
+
+- F9 additionally writes `*_hits.csv`: the exact damage-side callback and the
+  separate Wwise `hitTrigger` sound-context callback. These are different kinds;
+  the second is NOT another independent hit. Attack/target GameObject addresses
+  and names, hit position, raw scalar fields of attack/damage shape, part-info,
+  damage-flow and sound material context are copied while parameters are alive.
+  Unknown fields stay unknown; raw names are not guessed to mean segment/part or
+  final resolved damage. Times are last-completed Lua sample estimates, not QPC.
+- The Lua collector has512 preallocated row slots and32 cached type schemas,
+  each limited to32 scalar fields/four parent types. No managed object survives
+  in queued rows. No file IO occurs in these SDK callbacks; frame/stop drains.
+  `combat_capture_live.txt` reports installed listeners vs actual callbacks/errors
+  without F9. Exact method descriptors are required; unavailable/ambiguous/shared
+  native entries fail closed. It never hooks generic property getters.
+- Native `*_audio_objects.csv` observes the verified engine
+  `(GameObject*, UInt32 sub-ID) -> UInt64 key` return, plus audio-object
+  register/unregister requests. Pointer and numeric-ID namespaces are separate
+  full-width decimal columns. These raw keys can be joined to Post by exact ID;
+  owner labels require independently matching live object identities. No nearest
+  time/distance guess, no null-stub resolver, no claim of final Media selection.
+  The initial row explicitly has no pre-F9 baseline; drops write gap markers.
+- Native entry copies only scalars, no object dereference/Lua/file IO. Its8192
+  queue and optional profile-guarded hook are isolated from existing Post/condition
+  files. Existing F9/trajectory/input/stamina/animation CSV structures are unchanged.
+
+Rollback: exit the game, restore the saved1.18.1 Lua and1.18 DLL to their original
+autorun/plugins paths. Never unload/replace the pinned DLL while Rise is running.
+
+## Numeric audio conditions (1.18.0, historical evidence 2026-10-18)
+
+Lua and NativeBridge1.18 are built, tested, deployed and observed in process2960:
+5965 numeric requests,53 cached keys (13 State/19 Switch/21 RTPC),zero drops/gaps,
+without F9. Evidence: `Saved/Audio/RiseIG/NativeBridge/Conditions118/Runtime2960/`.
+F9 behavior and all original sample/animation CSV columns
+remain unchanged. Native condition requests now get a separate
+`*_audio_context.csv`; before/after F9, `audio_native_context_live.txt` reports
+actual observed IDs/targets, current process PID, counts, losses and gaps, with
+at most64 preview rows. No recording is needed to verify basic hook activity.
+
+The new file distinguishes global State, object Switch and object/global RTPC
+requests. RTPC target float bits, duration, curve and bypass are copied without
+changing any arguments or original return values. The initial row explicitly
+marks pre-hook conditions unknown; baseline rows are previously observed
+requests, not assumed zero/default values or confirmed final sound selections.
+Object registration/unregistration, parameter reset, queue loss/QPC barriers and
+bounded-history overflow invalidate stale observations. Callback work remains
+allocation-free scalar copying; files/caches are handled outside hooks.
+
+3 native CTests,63 audio Lua tests and17 animation/stamina tests pass; full script
+compiles in Lua5.4/LuaJIT. Backup/deployment manifest:
+`Saved/Maintenance/RecorderDeploy/20261018-AudioContext118/manifest.json`.
+See [NativeBridge](../Audio/NativeBridge/README.md) for exact ABI/profile evidence
+and rollback. At that milestone emitter ownership, independent damage transactions, interpolated
+RTPC current values and final Media are **not** implemented. The supported build's
+reflected GameObjectID resolver is a null stub; never use it as ownership proof.
+The automatic descriptor preflight now also includes the two parameter types
+actually found in the damage-side callback (15 explicit types total).
+Lua1.18.1 additionally fixes descriptor offsets to the official
+`REField.get_offset_from_base` API and reports offset errors. That metadata-only
+fix was verified loaded in process36304 on2026-10-19 (correct offsets including
+HitInfo AttackObject40/DamageObject48/Position64). This did not itself implement hits.
+The1.18 F9 condition CSV has not yet been captured in the actual game.
+
+## Audio context preflight (1.17.1, 2026-10-18)
+
+Historical step: Lua **1.17.1** with the verified1.17 bridge.
+This is the first prerequisite for the authorized condition/emitter/hit upgrade,
+**not completed runtime condition or damage capture**. Original F9, trajectory,
+input, stamina, animation and native-audio client blocks are text-identical to
+1.17.0 except the version and the two new preflight/UI calls.
+
+The first frame automatically exports `mhrise_audio_context_<timestamp>_boot.txt`;
+no F8, F9 or attack is required. Thirteen explicit Wwise/condition/damage types
+are inspected, with method addresses, declaring owners, exact parameter types,
+and field offsets **from descriptors only**. No game method is invoked, no live
+object field is read and no new hook is installed. Missing descriptors and
+truncation are explicit; the report does not infer initial values or Media IDs.
+Limits: 2048 methods, 256 fields and 16 parameters per type/method, no inherited
+type walk. Large player/enemy types are filtered to hit/damage names; WwiseManager
+uses an exact method-name allowlist. Export runs once even on failure.
+
+60 audio-focused checks pass, including actual LuaJIT userdata metadata vectors
+and whole-script Lua5.4/LuaJIT compilation. Backup/hash manifest:
+`Saved/Maintenance/RecorderDeploy/20261018-AudioContext1171/manifest.json`.
+Runtime report and numeric native entry verification remain pending: start Rise
+and remain in an operable scene, without recording. Do not ask for another full
+move-set recording until the new collector's fields have actual-value evidence.
+
+## Audio interface discovery (1.15.0, 2026-10-17)
+
+**Current 1.17.0:** the authorized native bridge has been built/tested/deployed;
+game loading/IPC/native calls and the first F9 CSV are verified: 1508 rows,
+73 EventIDs, no drops/errors; 26 IDs/352 calls match the limited M1 inventory.
+Action/variant/hit-sound assignments remain incomplete. It preserves F9,
+adds `*_audio_native.csv` and `[AUDIO NATIVE]` live acknowledgement, and leaves
+the original trajectory/input/animation/stamina columns unchanged. See
+[NativeBridge](../Audio/NativeBridge/README.md) for the pinned game profile,
+tests, output semantics, installation and rollback. No repeated capture is
+currently needed; next resolve action/variant and real-hit sources from this capture.
+The earlier Lua observation files below are diagnostic only, not EventID truth.
+
+**1.15.1 correction:** the first real boot report found all 12 types but exposed
+a probe bug: REFramework returns `std::vector` descriptor lists as userdata,
+and the table-only checks rejected methods/fields/parameter lists. The fix
+copies only bounded container lengths/indices for both tables and userdata;
+unsupported containers stay explicit errors, not empty success. This matches
+the [actual REFramework bindings](https://github.com/praydog/REFramework/blob/master/src/mods/bindings/Sdk.cpp).
+The 2026-10-18 `000440_boot` report verified the fix on the actual game:
+12 types and 184 keyword candidates, with readable signatures. Enumeration
+limits still apply; this is not an exhaustive method dump or playback evidence.
+Evidence/backup: `Saved/Maintenance/RecorderDeploy/20261017-AudioProbe1151/`.
+
+This section describes the **metadata-only prerequisite**, separate from the
+1.16.0 observation listeners below.
+The first frame after script load automatically writes
+`mhrise_audio_probe_<timestamp>_boot.txt` into the same recorder data directory.
+No F8, F9, attacks, active hunter or full recording is needed for this report.
+Starting F9 capture also writes a same-basename `*_audio_probe.txt` companion
+and an `audio_probe_metadata` event. Existing 194-column samples and animation
+CSV schemas are unchanged.
+
+The probe inspects descriptors for 13 known Wwise/related types (including
+`RequestInfo` from 1.16.1), at most two
+inheritance levels, 192 methods and 64 fields per type, and 16 parameters per
+method. It records names, static/instance flags, return/parameter types and
+names, field **types only**, plus explicit missing/truncated/incomplete markers.
+Metadata is cached once per script session, not re-enumerated per sample.
+`signature_complete` means descriptor information was available, **not** that
+the method is safely hookable. No audio methods, field values, setters,
+native arguments or audio hooks are accessed. Export errors are isolated from
+trajectory capture, with a visible `[AUDIO PROBE ERROR]`; automatic failure is
+not retried every frame, while F9 can retry writing the cached report.
+
+In 1.16.0 the metadata report uses `probe_installs_audio_hooks=0` and points to
+the separate listener report. Earlier reports' `audio_hooks=0` described the
+then-current 1.15 probe. Do not interpret descriptors as playback evidence,
+hook unknown overloads by keyword, or sweep methods every frame.
+
+References: [RETypeDefinition metadata](https://cursey.github.io/reframework-book/api/types/RETypeDefinition.html)
+and [REMethodDefinition metadata](https://cursey.github.io/reframework-book/api/types/REMethodDefinition.html).
+No new external Lua module or global Python dependency is required.
+
+## Audio listener repair (1.16.1, 2026-10-18)
+
+Current deployment is 1.16.1. It removes the unfiltered `get_EventId()` hook;
+old 1.16 getter rows are not reliable audio identities and must not be reused
+as a move-to-sound mapping. This follows the official [getter-hook warning](https://cursey.github.io/reframework-book/api/general/best-practices.html#hooking-gotchas),
+not a claim that the old values' exact origin has been proven.
+
+Only the three previously inspected `WwiseManager.postEvent` overloads remain.
+Method selection uses the actual descriptors from one bounded `get_methods()`
+enumeration, **never a hand-built `get_method(prototype)` lookup**. The scan
+accepts table or userdata vectors, up to512 methods and32 post candidates.
+Exactly one descriptor must match method/owner/static/return/parameters;
+incomplete or ambiguous discovery fails closed. Failure reports distinguish
+missing type/list, enumeration limit, unreadable descriptor, owner/static/
+return/parameter mismatch, ambiguity, unavailable address and hook failure.
+Function addresses are de-duplicated and reported; no audio arguments or
+objects are read, no audio methods are actively called, and the original call
+and exact return value are always preserved.
+
+After one reload/restart, **do not start F9 just to verify installation**:
+
+- `mhrise_audio_hooks_<timestamp>_boot.txt` reports signature matches,
+  selected descriptor indices, native addresses and install results.
+- `*_live.txt` is written automatically on first callback or after2 seconds
+  with no callbacks. If that initial snapshot was zero, first later activity
+  updates it once. These are at most two live writes per script load; failures
+  are not retried every frame. Per-listener callback/error counts are included.
+- The metadata probe additionally describes `via.wwise.RequestInfo` fields/
+  methods without reading live values, so later event-identity work has evidence
+  without another metadata-only recording.
+
+`schema=mhgz_audio_listeners_v2` explicitly declares
+`unfiltered_event_getter=disabled; event_id_capture=not_implemented`.
+F9 CSV columns remain compatible but only `kind=post_event_return` is emitted;
+`event_id` stays empty, and `post_return_id` remains semantically unknown.
+Installed hooks, observed calls, known EventIDs and final WEM identities are
+four different milestones. This repair does not yet establish the latter two.
+
+Validation:29 listener checks,14 metadata checks and17 existing animation/
+stamina checks pass (60 total); full Lua5.4/LuaJIT compilation passes. Actual
+sample-building and animation-reader code is byte-identical to1.16.0. No UE
+changes or full-project regression runs. Disk deployment/hash verification and
+the1.16.0 backup are recorded in
+`Saved/Maintenance/RecorderDeploy/20261018-AudioObserve1161/`.
+Runtime installation/activity of the repaired listeners is still unverified;
+read the new automatic reports before requesting a short capture.
+
+## Audio scalar observations (1.16.0, 2026-10-18)
+
+Historical implementation below; superseded by the1.16.1 repair above.
+
+Four exact signatures selected from the successful real report are attempted
+once on startup: `WwiseManager.postEvent(GameObject, RequestInfo)` and its
+one/two-extra-UInt32 overloads, plus `WwiseEventParam.get_EventId()`.
+Each listener validates declaring type, static flag, return/parameter types and
+native function availability; identical function addresses are not hooked twice.
+Setup errors are recorded, not retried each frame. Native wrappers may install
+without seeing actual engine calls: **installed is not observed**.
+
+Hooks always call the original function and preserve its exact return value,
+including recorder failures. No arguments, objects or raw memory are read;
+no audio function/getter is actively invoked. Callbacks only copy scalar returns
+into 2048 preallocated records; main-frame code writes/flushes the CSV. Queue
+overflow and conversion/I/O failures are explicit. F9 still controls all capture;
+audio failure does not block trajectories or animation/stamina recording.
+
+- Startup: `mhrise_audio_hooks_<timestamp>_boot.txt` reports installation only.
+- Each F9 session: `*_audio_hooks.txt` reports setup and cumulative observed
+  callback count at capture start; `*_audio.csv` contains actual observations.
+- `kind=post_event_return`: UInt32 is kept as **post_return_id with unknown
+  semantics**, never relabelled EventID, PlayingID or successful playback.
+- `kind=event_parameter_read`: `event_id` is the engine's naturally read value;
+  it is not proof of a corresponding successful post or an audible sound.
+- All-world, unattributed scope: ambient/UI/other entities may appear. No claim
+  that every row belongs to the master hunter, and no guessed cross-row pairing.
+- `capture_time_s`/`last_sample_index` identify the last completed trajectory
+  sample; `frame_index` is the recorder frame counter. `clock_elapsed_s` is a
+  separate Lua `os.clock` delta, not a sample-accurate audio playback timestamp.
+- `audio_capture_health` in `*_events.csv` records rows, dropped entries,
+  conversion errors and file error at stop. Zero rows is diagnostic failure/
+  insufficient coverage, not "the game played no sound".
+
+Thirty audio checks and 17 existing animation/stamina checks pass, including
+whole-script Lua5.4/LuaJIT compilation. Source and installed 1.16.0 hashes match;
+backup/evidence: `Saved/Maintenance/RecorderDeploy/20261018-AudioObserve116/`.
+**Reload scripts or restart once** to use 1.16.0, then record only a short empty
+swing and real hit with F9. Runtime hook activity, exact event-to-post linkage,
+Switch/State/RTPC conditions and WEM variant selection remain unverified. This
+does not enter UE playback implementation or require a full move-set recording.
+
+### First 1.16 runtime recording: not accepted
+
+`mhrise_20261018_003753_01` saved normally (157.0185s / 18825 valid samples),
+but only 1/4 listeners installed: all three `postEvent` lookups/validations
+failed, while `get_EventId()` produced 19434 readings with values only 20–30.
+There are no post-return rows and no match against the 152 M1 event identities.
+Zero queue/conversion/I/O errors does not make these values valid audio IDs.
+The combined failure marker does not establish which validation failed.
+Unfiltered getter hooks also have a documented [shared-implementation
+risk](https://cursey.github.io/reframework-book/api/general/best-practices.html#hooking-gotchas);
+this recording lacks object evidence to prove or rule it out. Resolve method
+identity and observation validity before requesting another recording.
+
 ## Animation-frame repair (1.13.0, 2026-10-15)
 
 ### Hunter stamina capture (1.14.0, 2026-10-17)

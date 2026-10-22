@@ -566,7 +566,8 @@ class UMHGZGameplayAbility : public UGameplayAbility
 | CooldownDuration | FScalableFloat | "Ability\|Cooldown" | 0 | 大于 0 且 CooldownTag 有效时写入 HasDuration GE Spec |
 | CooldownTag | FGameplayTag | "Ability\|Cooldown" | 空 | 由 Cooldown GE 的 DynamicGrantedTags 持有，不使用 Loose Tag |
 | MaxCorrectionAngle | float | "Ability\|Correction" | 30.0 | 攻击已 Confirm、Montage 播放前的单次入口最大修正角度。目标偏差 ≤ 此值时转到目标；偏差超过此值但余量 ≤90° 时只转此最大角度；余量 >90° 时不修正。0=禁止修正 |
-| AudioIdentityTag | FGameplayTag | "Ability\|Audio" | 空 | 挥刀风声身份标签（如 `Audio.Swing.LS_VerticalSlash`）。GA 蓝图必配——`ActivateAbility` 时以此为 Key 查 `WeaponDef.SwingSoundOverrides`，命中则覆盖 `DamageConfig.SwingSound`。不同招式用不同 GA 蓝图→不同 Tag→不同音效，武器覆盖是可选增量 |
+| AudioIdentityTag | FGameplayTag | "Ability\|Audio" | 空 | 动作级挥击声音身份；通知触发时作为武器覆盖的第二级键，不写入共享Notify或伤害配置 |
+| bUseAuthoredSwingAudio | bool | "Ability\|Audio" | false | 迁移开关：启用逐次Montage声音通知，同时停用此GA旧的三灯激活即播钩子；当前25个相关GA启用，覆盖与听感状态见音效维护计划 |
 
 > **FScalableFloat：** 所有 `FScalableFloat` 字段统一关联全局 CurveTable `DT_AbilityScalars`，Ability 只需指定行名（RowName）。`StaminaCost` 是 GA 的实际耐力扣除量；`FComboTransition::StaminaRequired` 是协调器的匹配门槛，不负责扣耐。
 
@@ -650,7 +651,7 @@ class UMHGZAttackAbility : public UMHGZGameplayAbility
 | CameraShakeClass | TSubclassOf\<UCameraShakeBase\> | nullptr | 震屏类（按武器种类选不同类；留空则无震屏）。在 `ApplyDamage` 中通过 `ClientStartCameraShake` 执行 |
 | CameraShakeScale | float | 0.0 | 震屏强度倍率（0.0~1.0）。同武器不同招式改此值，不产生新蓝图 |
 | HitStopBase | FScalableFloat | 0 | 卡肉时长（秒）。当前直接作为 Timer 时长，不乘 MotionValue 或肉质 |
-| SwingSound | TObjectPtr\<USoundBase\> | nullptr | 招式挥刀风声（必配——每段攻击的默认风声）。武器可通过 `SwingSoundOverrides` 按 `AudioIdentityTag` 覆盖 |
+| SwingSound | TObjectPtr\<USoundBase\> | nullptr | 可选兼容兜底；声音通知显式指定LegacyAttackSegmentIndex时才读取。声音次数独立于伤害段，不自动每段播放 |
 
 > **震屏/卡肉归 Ability 层：** `CameraShakeClass`/`CameraShakeScale`/`HitStopBase` 已在 `ApplyDamage` 中执行；按 MotionValue/肉质缩放卡肉是保留方案，当前未实现。GameplayCue 尚未接通。
 
@@ -754,19 +755,27 @@ struct FAttackSegmentConfig
 
 
 
-### 挥刀风声 — GA 注入 Notify 模式
+### 挥刀风声 — 实际Montage通知与动作实例解析（M2小样已实现）
 
-GA 激活时解析最终 `SwingSound`，直接写入 Montage 上的 `AnimNotify_SwingSound` 实例——Notify 自持数据，不经过 Character。
+`UAnimNotify_SwingSound`只持有不可变事件键、常驻默认音源和音量/音高/挂点。**禁止GA激活时向共享Notify或DamageConfig注入声音**；同一资产可被多个实例安全使用。
 
 | 步骤 | 位置 | 说明 |
 |:--:|------|------|
-| 1 | `UMHGZAttackAbility::ActivateAbility` | `FinalSound = WeaponDef.SwingSoundOverrides.Find(AudioIdentityTag) ?? DamageConfig.SwingSound`——武器覆盖优先 → 招式默认兜底 |
-| 2 | 同上 | `Montage→AnimNotifies` 中查找首个 `UAnimNotify_SwingSound` 实例 |
-| 3 | 同上 | `NotifyInstance→Sound = FinalSound`——GA 直接注入。AnimNotify 不查任何外部对象 |
-| 4 | `UAnimNotify_SwingSound::Notify` | `PlaySoundAtLocation(this→Sound)`——读自己，零查找 |
+| 1 | `UMHGZGameplayAbility`提交/注册后 | 在子类播放Montage前异步准备武器软覆盖；本动作持有已加载引用，End取消句柄并清理 |
+| 2 | `UAnimNotify_SwingSound::Notify` | 复用精确Mesh＋MontageInstance上下文解析ActionToken；无上下文/旧实例不猜当前GA |
+| 3 | `ResolveSwingSound` | 重验提交态、注册动作、Mesh和实例；覆盖优先级：事件键→AudioIdentityTag→Notify.Sound→显式旧段SwingSound；只Get已加载资源 |
+| 4 | `HandleSwingSound` | 按通知配方取真实武器/角色挂点或瞬时地表位置；缺武器挂点跳过，不回退原点。不做整招去重，跳过Section不补播，不改变伤害或动作 |
 
-> **单人假设：** 当前版本仅单机。Montage 资产按武器种类创建（如太刀所有 GA 引用太刀专属 Montage 集），不存在不同 GA 共享同一 Montage 实例的竞态。多人化时需评估 Montage 实例化策略。
+> 本Notify链只接一次性武器/动作附加声，循环音源仍明确拒绝。当前43 Montage有333个有音源点＋100个空音源衣服点，已独立回载。扬尘使用`AnimNotify_GroundDust`事件：精确动作/Host落地实例与地表校验后，向Host的`OnGroundDust`广播Mesh、位置和法线，再播放可选声音；音源为空不阻断事件，未来粒子可独立订阅，本阶段不生成VFX。48个旧扬尘点已保留身份/时机/轨道/配方迁移。落地现使用`AnimNotify_LandingEvent`广播Host的`OnLanding`并播放可选声音，可通过`bTriggerGroundDust`同帧触发扬尘；迁移的10点默认关闭，保留独立扬尘时机。衣服仍是声音通知，`Sound=None`暂不播放。普通前后跳/空回推进、二连/飞远/横扫棍花及突进回旋接触漏声已补，详见[音效计划1.32](../using/崛起虫棍攻击与命中音效实施计划.md)，不代表PIE听感通过。短尾音自然结束，不增加联网复制。猎虫飞行循环走AKinsect自有AudioComponent的状态/Runtime生命周期；精华提示在真实回手交付按命令去重，以手臂挂点播放3D短音。猎虫真实命中基础声走已有`GameplayCue.Hit.Kinsect`→`GCN_Hit_Kinsect`，复用共用命中声音叶但严格筛选Kinsect来源，不混入旧武器主声；不是蒙太奇音频点。
 
+
+### 砸地表现事件
+
+`AnimNotify_GroundImpact`（“砸地事件”）沿用精确Mesh/当前Montage实例和真实地表校验，广播 `Host.OnGroundImpact(Mesh, Location, SurfaceNormal)`，再播放可选声音；无音源仍可供未来特效订阅。本轮不生成特效。与角色 `OnLanding`、独立 `OnGroundDust` 和真实伤害命中Cue分开，不重复既有扬尘，不触发伤害或CMC状态改变。当前使用 `GroundContact + Root` 地表投影，可调声音/倍率/地面搜索距离。
+
+四连印斩已在 `ImpactAudio` 轨2.292968s补该事件，按最新161录制请求位置映射，复用已入库接触Cue1762027986，原15声音点、6玩法窗口和动画保持。相对上段1.32统计增加1个有音源点；详见[音效计划1.33](../using/崛起虫棍攻击与命中音效实施计划.md)。未PIE耳听，不宣称完整原作音频或最终Media真值。
+
+急袭突刺380/381现按[音效计划1.34](../using/崛起虫棍攻击与命中音效实施计划.md)复用崛起声音：Main在下潜加速起点0.616667s播推进，Over入口砸地及后续5空挥/棍花、2扬尘均由可编辑点通知触发。GA已开启蒙太奇空挥播放，原8条玩法通知和运动不改；不是世界原音真值，未PIE耳听。
 
 ## 武器 Ability 基类分化（规划；当前仅有虫棍基类）
 
@@ -1043,7 +1052,7 @@ void UGA_IG_Slash_103::ActivateAbility(...)
 | 子类 | 特有字段 | 特殊逻辑 | 音效成员 |
 |------|----------|----------|----------|
 | `URes_LongSword`（规划） | `ESpiritLevel Level`（无/白/黄/红）、`float Amount`、`FTimerHandle DecayTimer` | 击中回复量不同、等级随时间和命中升降、衰减 Timer | `GaugeFillSound` / `LevelUpSound`（白→黄→红） / `LevelDownSound` / `DepleteSound` |
-| `URes_InsectGlaive`（部分实现） | 当前源码仍使用白/Yellow/红常量、TripleUp Handle 和猎虫耐力；目标设计改为白/Orange/红、CombatConfig 双红灯模式、舞踏和粉尘接口 | 当前状态机需按 [insect-glaive.md](insect-glaive.md) 修订；资源组件创建、猎虫 Spawn、GA/GE 资产仍未接线 | `ExtractCollectedSound` / `TripleUpActivatedSound` / `TripleUpExpiredSound` / `KinsectDepletedSound` |
+| `URes_InsectGlaive`（Demo已实现） | 白/橙/红与TripleUp GE、猎虫耐力、舞踏、虫印/粉尘，唯一CombatConfig供值 | RuntimeHost创建Resource与猎虫，GA/GE已接线；本批原作音效完成范围见维护状态，不恢复历史门禁 | 共用交付`ExtractCollectedSound`已接本批原声；三灯/耗尽旧提示未替换。猎虫自有组件读取CombatConfig的`KinsectLaunchSound/KinsectFlightLoopSound` |
 | `URes_ChargeBlade`（规划） | `int32 PhialCount`(0~6)、`bool ShieldCharged`、`FTimerHandle RedShieldTimer` | 瓶被动不消耗、部分招式主动消耗、红盾有时限 | `PhialLoadSound` / `ShieldChargeSound` / `PhialBurstSound` / `OverheatSound` |
 | `URes_SwitchAxe`（规划） | `float ChargeGauge`(0~1) | 连续值充能 | `GaugeChargedSound`（充能就绪） / `SwordModeActivateSound` / `SwordModeDeactivateSound` |
 
@@ -1068,13 +1077,14 @@ class UMHGZDodgeAbility : public UMHGZGameplayAbility
 |---|---|---|---|
 | Sheathed | Forward / None | `SheathedDodgeMontage` | 可按实时输入走 IdleExit 或 MoveExit |
 | Unsheathed | Forward / None | `UnsheathedDodgeMontage` | 可按实时输入走 IdleExit 或 MoveExit |
-| Unsheathed | Left / Right / Back | 对应的持刀方向 Montage | 始终 IdleExit；不允许 MoveExit |
+| Unsheathed | Left / Right / Back | 默认要求实时Attacking；各方向可在GA类默认值单独关闭此要求。攻击中仍须当前攻击的精确DodgeAcceptWindow开放 | 仍走IdleExit、不建MoveExit；从IdleExit第一帧开放普通移动/后继动作，沿用当前混合配置（0.2s） |
 | Sheathed | Left / Right / Back | Reject | 不播动画、不扣耐 |
 
 - 所有成功行复用同一 `Instant` 耐力成本。没有所需 Montage、AnimInstance/Section 无效、Commit 失败或表中 Reject 的行都不得产生耐力消耗。
 - 旧方向 Montage Map 仅为资产迁移壳；运行时最多回退读取 `Forward/None`，不能承担 Left/Right/Back 的正式选择。
 - 旧 `DT_WeaponDodgeConfig` 在 M0 清点、迁移后停止运行时读取，不保留 DataTable 与 RuntimeDefinition 两条路径。
 - 耐力使用 `Instant` 成本策略；无敌帧只由 Montage 中 `AnimNotifyState_DodgeWindow` 定义。
+- 四方向是否要求攻击状态由`GA_Dodge → 类默认值 → Dodge|Activation`中的`bForward/Left/Right/BackDodgeRequiresAttacking`分别配置；默认前=false、左/右/后=true，无方向None使用前向设置。激活预检读取待消费的冻结方向、Commit前按同一配置再次检查实时`Combat.State.Attacking`，快照里的陈旧标签不能授权。开启的方向在Idle/普通移动时直接拒绝，不播放、不扣耐、不退化为前翻滚；关闭则允许非攻击发动，但不解除收刀方向限制。只要实时处于Attacking，无论开关如何，仍须通过原攻击精确DodgeAcceptWindow。
 
 ### 执行流程
 
@@ -1083,22 +1093,33 @@ HandleResolvedInputSnapshot(Input.Dodge)
   → 以 live RuntimeHost/ASC 与冻结 Snapshot 双重检查 Grounded、姿态、Dead/Hitstun/Knockdown
   → Attacking 时要求 Coordinator 当前精确 Attack ActionToken 自己持有 DodgeAcceptWindow
   → TryActivate 明确的 Dodge Spec，并注册完整 InputSnapshot
-  → GA 取得 RuntimeToken/Sequence，建立 ActionToken；以冻结姿态+Input.Direction 选择一次 FDodgeSelection
+  → GA 取得 RuntimeToken/Sequence，建立 ActionToken；以冻结姿态/方向和GA专用90°前向路由选择一次FDodgeSelection，不改原InputSnapshot
   → 前向选择验证 DodgeCore/IdleExit/MoveExit；左右后选择只验证 DodgeCore/IdleExit，并标记禁止 MoveExit
   → 依赖、Montage、AnimInstance 任一无效：Reject/End，不修改 BlockMovement 或碰撞
   → Commit/动作登记成功后持有 Dodging、BlockMovement、MontageRootMotionOwner
   → 攻击取消路径 Prepare 精确旧攻击，再播放并登记新 Montage，成功后 Commit Superseded
   → Dodge GA 监听自身 MontageInstance 的 SectionChanged：先固定 Core -> IdleExit，再在实际进入 IdleExit 时读实时原始输入；仅前向变体有输入时立即跳 MoveExit 并释放自身 BlockMovement
-  → BlendOut 释放 MontageRootMotionOwner；EndAbility 最后释放 Dodging
+  → 左右后在IdleExit第一帧释放自身Dodging：无输入继续原退出段；有移动输入或后继动作成功提交后，按当前混合配置结束旧动作
+  → 前向在实际IdleExit或MoveExit第一帧也释放自身Dodging并消费预输入；仅成功提交的后继动作提前接管，普通移动保留原MoveExit/Phase/MM Handoff
   → DodgeWindow 只解析本 ActionToken，缓存各通道原响应、取得 Invincible Token
   → 完成/BlendOut/Interrupted/Cancelled/Superseded 均走同一幂等 End
 ```
 
-前向翻滚本体不再读取实时方向，也不由实时方向改轨；它只使用激活时已选出的前向 Montage。持刀左右后同样固定为激活时选出的方向 Montage，且完整动作保持移动锁直到结束。Character 在 BlockMovement 期间仍更新实时 `bHasInput/LastMovementInputDir`；只有允许 MoveExit 的前向选择在进入该阶段后才允许这些值影响角色朝向。
+前向翻滚本体不再读取实时方向，也不由实时方向改轨；它只使用激活时已选出的前向 Montage，原 MoveExit/MM 路径不变。持刀左右后同样固定激活方向；Core仍锁移动和普通动作，但按2026-10-21维护决定，从实际 `IdleExit` 第一帧放行。无后继输入时仍保持原退出动画、移动锁和根位移；推杆则先结束翻滚，再由普通移动起步；到边界前已推杆和退出段中途才推杆都可接管，不等待全段播完。
+
+**前滚双出口动作接管（2026-10-22）：** `IsActionRecoveryOpen/FindOpenActionRecovery`用于后继GA和预输入，包含前滚IdleExit/MoveExit及原左右后IdleExit；`IsDirectionalRecoveryOpen/FindOpenDirectionalRecovery`只用于左右后的普通移动恢复，前滚始终不进入该强制Start路径。只有后继GA通过依赖/资源/Commit/转移确认/Action登记后才结束旧翻滚；失败保留原退出段。前滚接管复用当前0.2s恢复混合，先正常退役旧MontageTask以防GAS结束时用资产0s淡出覆盖手动混合，同时禁用旧Root Motion。正常结束/外部中断/原MoveExit Handoff的清理策略保持，不移动前滚Section或通知。
+
+**前滚起手修正（2026-10-22）：** `GA_Dodge`复用`Ability|Correction → MaxCorrectionAngle`，原生默认及现有资产回读均为90°，前滚实际修正不超过90°。若冻结输入被全局45°方向桶分为左/右、该侧滚因姿态或Attacking门禁不可用，但冻结`ActorForward→WorldDirection`偏差位于前方±90°（且不超过配置角）内，则GA专用路由允许直接选择前滚，不等待普通移动转身；可用侧滚优先保留，后向输入不转换。三个激活/依赖/资源选择位置共用同一路由，不改全局Input Profile方向锥或输入快照。Montage成功启动并完成原攻击让位后，同次激活立即按冻结WorldDirection修正Yaw，不启动额外转向任务或计时器；无方向/零向量、失败激活不转向。预输入保留按键时方向与既有消费点，前向MoveExit/MM和左右后滚不变。
+
+后继动作仍须通过原有依赖/资源/GAS Commit/Combo确认与Action登记；失败不得取消旧翻滚，成功才以 `Superseded` 精确结束旧Token。普通攻击本次激活的 `MontageBlendInTime` 取 `GA_Dodge` 的 `DirectionalIdleExitBlendTime`（C++默认0.1s，用户现有GA覆盖为0.2s），不修改攻击资产。左右后Montage的BlendOut当前均为0.2s，本次攻击门禁修改保留此调参；被接管的旧实例保留姿势淡出，但立即禁用其剩余Root Motion，不能与起步/新动作叠加位移。这是用户选择的早退边界，不宣称该帧原退出位移已全部结束。前向两资产、无敌窗、原Section/序列/音效通知均未更改。
+
+**同帧起步修复：** 左右后接移动时，GA在注销前向AnimInstance提交一次精确SourceAction请求；MM仅在源已退休、Runtime仍有效、没有新动作、持刀且在地面、实时输入仍存在且无其他移动锁/移动Handoff时消费。该更新仍重置动作位移测量，但立即准备Start Intent、目标挡位和预测轨迹，避免先以零查询选Idle；记录已存在的移动输入，下一帧不再触发普通起步的1/30s模拟输入稳定等待。仅本次持刀MM更新强制一次新搜索、禁用旧continuing pose；底层这一次Idle→Start的额外MM混合设为0，由旧翻滚Slot的所配置淡出承担可见混合，下一更新恢复MM原参数。没有新Notify/Exit库，也不直接跳Loop。请求在松杆、新动作、换姿态/Runtime等失效时丢弃，不延迟复活；普通站立起步、出招接管和前翻滚合同不改。
+
+Character在BlockMovement期间保留 `RawMoveInput` 与世界输入方向缓存，公开给AnimBP的移动意图仍被屏蔽；退出检查读原始摇杆/既有死区，不使用缓存方向冒充当前输入，也不增加强制Idle或输入死区。
 
 ### 翻滚与连招的关系
 
-- Idle 时可直接闪避；攻击中只有动作的 DodgeAcceptWindow Token 有效时可激活。
+- 默认Idle/普通移动时只可直接前翻滚（Forward/None），左右后要求实时Attacking；此额外要求可在GA类默认值逐方向调整。攻击中始终要求当前攻击的DodgeAcceptWindow Token有效。成功激活后的IdleExit放行与混合规则不变。
 - 翻滚接受后由协调器精确结束旧 ActionToken，并以明确原因 Reset/交接，不依赖 SafetyTimer 才回 Idle。
 - DodgeWindow 缓存并恢复 NotifyBegin 前每个被修改通道的 CollisionResponse；不得统一恢复成 Block。
 - Ability End 兜底释放仍存活的 Invincible/DodgeAccept Token 和碰撞快照，即使 Montage 中断未触发 NotifyEnd。
@@ -1387,14 +1408,17 @@ Montage 内的实现约定如下：
 
 动画实际位移与 Section 是正交的：Section 只决定播放路径，Root Motion 来自当前播放的 AnimSequence。M4-B.1 另提供原生 `AnimNotifyState_ActionRootMotionPhase`（名称可按最终代码规范调整）：它从精确 `(Mesh, MontageInstanceID)` 解析 ActionToken，再调用所属 Ability 的 Begin/End 接口；Ability 才能按自己的 Token 获取/释放 `MontageRootMotionOwner`。这个 NotifyState 覆盖每段**真实贡献 Root Motion** 的首帧到末帧；in-place 的 Entry/Recovery 不持有所有权。动画看似大位移但根骨骼没有真实位移时，必须由对应 GA 的 `MovementTask`/RootMotionSource 执行，不能假装它是 Montage Root Motion。
 
-规划成员明细：
+预输入配置与运行时数据：
 
 | 成员 | 类型 | 目标语义 |
 |------|------|----------|
-| PreInputSnapshot | TOptional\<FWeaponInputSnapshot\> | 共享单槽预输入；后输入覆盖前输入，但保留原方向/时间/SequenceID |
+| BufferedCombatInput | TOptional\<FBufferedCombatInput\> | 共享单槽；后有效输入覆盖前输入，保留完整快照；翻滚来源另绑定精确ActionToken |
 | PreInputLifetime | float | 预输入有效窗口；ComboData 配置，C++ 默认 0.5 秒 |
+| bAllowPreInputActivation | bool | 各目标GA的Ability\|Input类默认值；默认true，空回原生默认false。关闭只禁止缓存触发，不影响窗口内即时输入 |
 
-一般空中输入仍在 IG_AerialHandoff/取消恢复 Falling 后消费；但空回有一条**仅急袭突刺 RT 边**的更早例外：`AM_IG_AirDodge` 上的 `IG Early Descending Thrust` 点通知按空回精确 `ActionToken` 临时开放 `Air_DescendingThrust_RT`，不授予全局 Falling，也不放宽其它 Combo 边。通知到普通 Handoff 或空回结束即关闭；目标 GA Commit/Confirm 成功仍通过既有 Pending Token / `Superseded` 交接。空中 lead 预输入仍只有在 `Input.Weapon.*` 对应 Combo 边除 Falling 外的源状态、姿态、Tag、耐力、方向等条件都已成立时，才写入同一单槽；空回自身的 `Input.AirDodge` 仍不缓存。过期或到消费点仍不匹配的输入丢弃；组合键已由 Router 解析后才计时，预输入不重新读取镜头/摇杆。
+一般空中输入仍在 IG_AerialHandoff/取消恢复 Falling 后消费；但空回有一条**仅急袭突刺 RT 边**的更早例外：`AM_IG_AirDodge` 上的 `IG Early Descending Thrust` 点通知按空回精确 `ActionToken` 临时开放 `Air_DescendingThrust_RT`，不授予全局 Falling，也不放宽其它 Combo 边。通知到普通 Handoff 或空回结束即关闭；目标 GA Commit/Confirm 成功仍通过既有 Pending Token / `Superseded` 交接。空中 lead 预输入仍只有在 `Input.Weapon.*` 对应 Combo 边除 Falling 外的源状态、姿态、Tag、耐力、方向等条件都已成立时，才写入同一单槽；空回自身的 `Input.AirDodge` 默认关闭，若用户在其GA开启允许预输入，则可在空中Falling门恢复时经原直接激活路径复检。过期或到消费点仍不匹配的输入丢弃；组合键已由 Router 解析后才计时，预输入不重新读取镜头/摇杆。
+
+**地面翻滚来源（2026-10-22）：** 核心锁定期允许匹配并缓存合法后继攻击/直接动作，不立即激活、不移除真实Dodging标签。候选匹配只忽略本次有效地面翻滚的输入锁及精确Dodging阻止标签，不能忽略收刀、死亡、受击、姿态、其它Tag或攻击接受窗口。目标GA开关在入队与消费时均检查。左右后实际进入IdleExit、释放自身Dodging后先消费该Token的缓存，成功提交才经原交接结束旧翻滚，未成功再按原规则接移动/保留退出段；前向保持原MoveExit移动/转向与全动作输入锁，仅在正常End清理后消费。前滚不新增提前取消点。缓存沿用ComboData真实时间TTL、单槽覆盖和原摇杆/方向快照；过期、运行时失效或来源翻滚被中断即作废。方向的Attacking开关、收刀方向限制、耐力和资源成本仍在实际激活时复检。不用重新配置Montage、通知或ABP。
 
 ### 公共方法
 
@@ -1455,7 +1479,7 @@ Montage 内的实现约定如下：
 ### 关键设计要点
 
 - **组合输入解析：** ChordResolver 只延迟可能组成组合键的单键；形成组合后立即消费，普通无组合输入不增加一帧延迟
-- **预输入缓冲：** 保存完整 `FWeaponInputSnapshot`（单槽，按 `ComboData.PreInputLifetime` 计时，当前 C++ 默认 `0.5s`）；在 ComboWindow、DodgeAccept、合法 IG 空中 Handoff，或空回专属的急袭突刺提前点打开时按各自门禁重匹配消费；不能只存 Tag 丢失方向和 SequenceID。`Input.AirDodge` 自身除外。
+- **预输入缓冲：** 保存完整 `FWeaponInputSnapshot`（单槽，按 `ComboData.PreInputLifetime` 真实时间计时，当前 C++ 默认 `0.5s`）；在 ComboWindow、DodgeAccept、合法 IG 空中 Handoff、空回专属急袭突刺提前点及地面翻滚原放行点按各自门禁重匹配消费。目标GA的`bAllowPreInputActivation`可单独关闭，空回默认关闭；不能只存Tag丢失方向和SequenceID，不能用预输入绕过实际激活检查。
 - **转移匹配排序 + 匹配即停：** InputTag 已精确解析；再按精确 SourceState、具体方向、Priority 排序
 - **死亡处理：** `Combat.Event.Death` 取消武器 GA并 RuntimeHost Shutdown；复用同一 Character 时递增 Generation，新建 Pawn 时更换 Host，二者都生成新 `FWeaponRuntimeToken` 并从当前装备重建，不能复用死亡前运行时对象
 - **打断后瞄准恢复：** Hitstun/Knockdown 移除后由 WeaponInputRouter 根据仍按住的物理键重新计算 Aim Context；不自动激活攻击 GA
@@ -1619,7 +1643,7 @@ class UAnimNotifyState_AttackCollision : public UAnimNotifyState
 
 #### UAnimNotify_SwingSound — 挥刀风声
 
-持有 `USoundBase* Sound` 成员。`Notify` 中 `PlaySoundAtLocation(this→Sound)`——GA 在 `ActivateAbility` 时从 Montage 查找此实例并注入音效引用，Notify 只读自己，不查任何外部对象。
+持有事件键和常驻默认`Sound`，经精确Montage实例找到已提交Action后只读解析已加载的武器覆盖，再附着武器播放短声。Notify不保存角色、GA或音频组件等运行时状态，不接受激活时注入；显式旧伤害段只作可选兜底，详见前述挥击合同。
 
 ## 特效/音效/镜头——三层分工（规划；震屏/基础卡肉除外）
 

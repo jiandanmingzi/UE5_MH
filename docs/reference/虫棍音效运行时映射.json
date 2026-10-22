@@ -1,0 +1,5359 @@
+{
+  "schema": "mhgz_rise_recorded_audio_reference_v1",
+  "capture": "mhrise_20261018_151536_02",
+  "input_files": {
+    "audio": {
+      "path": "F:/games/Steam/steamapps/common/MonsterHunterRise/reframework/data/MHGZ_AerialTrajectoryRecorder/mhrise_20261018_151536_02_audio_native.csv",
+      "sha256": "3679eb5d55fc30e5bcd5c99cfd314f60d3f80921289d94ec443e4fb12252ac49"
+    },
+    "animation": {
+      "path": "F:/games/Steam/steamapps/common/MonsterHunterRise/reframework/data/MHGZ_AerialTrajectoryRecorder/mhrise_20261018_151536_02_animation.csv",
+      "sha256": "2059d8252e623607c10bddc660d045c9f55247aa7a6f32ad73c2695672d54de5"
+    }
+  },
+  "source_banks": [
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/buff.bnk.2.X64",
+      "bytes": 84986,
+      "sha256": "5e2dd6d2a700fb25e03c96020365b5a28ce9b979cf7a718e1d9535bf143b8905",
+      "byte_hits": [
+        761378592,
+        806767037,
+        3971364902
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/ec019.bnk.2.X64",
+      "bytes": 1140,
+      "sha256": "d4564a2a404de695e48eae02c543b4ac34ba29747b92e7e77fec2d99e509a229",
+      "byte_hits": [
+        3446978295
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/em131_00_se.bnk.2.X64",
+      "bytes": 6109,
+      "sha256": "72b1c43ae25e6241826fe586f5910b307d773a34edb456008cc4c519416a4fc1",
+      "byte_hits": [
+        417732399,
+        1891767172,
+        1929659305,
+        2419715933,
+        3467505434,
+        3794907703,
+        4291172296
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/em_com_fx_buff_dmg.bnk.2.X64",
+      "bytes": 8402,
+      "sha256": "7f9e01df1d8fd549418824760590ee0bf6ad11d66c563673a2cc8fbd7cfde651",
+      "byte_hits": [
+        1039238594,
+        2141893852
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/em_com_lfe.bnk.2.X64",
+      "bytes": 6502,
+      "sha256": "f16844204e70f0187d65f24d1dbfe79603da657ba64a185f81a3ee0b7f9ee58a",
+      "byte_hits": [
+        2601079534
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/env_pos_v01a05.bnk.2.X64",
+      "bytes": 8154,
+      "sha256": "161c2fab2419088abaae2d290a8ec817754c990a37e2e595eca018e37c18f0c1",
+      "byte_hits": [
+        2634221614,
+        3943085292
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_pl.bnk.2.X64",
+      "bytes": 109153,
+      "sha256": "ae91e00a3526832fc4eaa22bb07eeb308467a8cc5710b774b9e252b2ead78101",
+      "byte_hits": [
+        539819764,
+        1932771116,
+        3451389755
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/nid403_se.bnk.2.X64",
+      "bytes": 3631,
+      "sha256": "330c477dc9e886156e98592b3d9cd557a76263b9b17854e4e0deb5a9ff30e22d",
+      "byte_hits": [
+        931779652,
+        2218406790,
+        2690231236,
+        2702126518,
+        3910122948,
+        4064984930
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/nid403_vo.bnk.2.X64",
+      "bytes": 5469,
+      "sha256": "ca63573d9b47e4c0ca343fcc96d6541c5ca7cadcae9f8ab3668593e628b80b5b",
+      "byte_hits": [
+        686028896,
+        4109657175
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_attribute.bnk.2.X64",
+      "bytes": 229989,
+      "sha256": "417130da30fd3968e651c20abf7ffae33a2d69789c56a0e1780d1b940a1d1e44",
+      "byte_hits": [
+        2122694062,
+        3239034807
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_equip.bnk.2.X64",
+      "bytes": 55441,
+      "sha256": "669043711b5a2fa0b92ae276bfbe6c2435f5b5e530d175d374af7f25f3a50bd5",
+      "byte_hits": [
+        361976685,
+        1637161304,
+        3728057592,
+        4125384236
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_prop.bnk.2.X64",
+      "bytes": 53611,
+      "sha256": "38a0beb2d7d766c0c7ce2dde928d36f2ffaaa0423d11c9b8f034510fd211fe9d",
+      "byte_hits": [
+        210270112,
+        230348079,
+        421813840,
+        1435167447,
+        2304525234,
+        3777612407
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_voice.bnk.2.X64",
+      "bytes": 12186,
+      "sha256": "87485f06ef2f8424621491f9c7252347c98df178ac3d1e28509f22ca8dc79eb6",
+      "byte_hits": [
+        654623935,
+        793527579,
+        1180028354,
+        1818491039,
+        2010613139,
+        2923906209,
+        3267804589,
+        3492000509
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com.bnk.2.X64",
+      "bytes": 21435,
+      "sha256": "4bfcdcb80d46c9b39a4a7b37cf70a2744c31d407a27e8794e74fb1330da1311f",
+      "byte_hits": [
+        1707236307,
+        1762027986
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_com.bnk.2.X64",
+      "bytes": 117967,
+      "sha256": "f25c2e75ce560f215aefc5d949d3a649ad76ff7709f8c9c84d7775d4b05bcc09",
+      "byte_hits": [
+        25934417,
+        106259332,
+        553672341,
+        771629008,
+        938078130,
+        1392529433,
+        1737389684,
+        1942118895,
+        2037497988,
+        2231624382,
+        2702726931,
+        2878059743,
+        3014295296,
+        3094158795,
+        3275147427,
+        3520842405,
+        3587601987,
+        3887460649,
+        4196403743
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_ig_ins_com.bnk.2.X64",
+      "bytes": 7676,
+      "sha256": "fbe1594226f2269fe06ec6a097e78863ce374f98f8f8cf447310aa2d1d7f1aca",
+      "byte_hits": [
+        603272525,
+        1742629250,
+        1805087271,
+        2640762921,
+        3041892567
+      ]
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/ui_com.bnk.2.X64",
+      "bytes": 21824,
+      "sha256": "413d57aa2170ebace4ff99072c15ba22efdb3c099aef2986135cbea69b5f1bc7",
+      "byte_hits": [
+        2314134102
+      ]
+    }
+  ],
+  "scan": {
+    "banks_scanned": 758,
+    "metadata_bytes": 12551855,
+    "candidate_banks": 17
+  },
+  "audio_rows": 2193,
+  "unique_events": 74,
+  "located_events": 74,
+  "play_events": 71,
+  "scope_candidates": 37,
+  "events": [
+    {
+      "event_id": 361976685,
+      "sources": [
+        {
+          "bank": "pl_equip.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_equip.bnk",
+              "id": 456217158,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                918410118
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 209,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 32,
+        "plw_InsectGlaive_100_117": 29,
+        "plw_InsectGlaive_100_189": 16,
+        "plw_InsectGlaive_100_118": 14,
+        "plw_InsectGlaive_100_135": 10,
+        "plw_InsectGlaive_100_186": 10,
+        "plw_InsectGlaive_100_006": 8,
+        "plw_InsectGlaive_100_108": 8,
+        "plw_InsectGlaive_100_156": 6,
+        "plw_InsectGlaive_100_309": 5,
+        "plw_InsectGlaive_100_109": 5,
+        "plw_InsectGlaive_100_001_Loop": 4,
+        "plw_InsectGlaive_100_012": 4,
+        "plw_InsectGlaive_100_119": 4,
+        "plw_InsectGlaive_100_121": 4,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_004_Loop": 4,
+        "plw_InsectGlaive_100_102": 4,
+        "plw_InsectGlaive_100_007": 4,
+        "plw_InsectGlaive_100_103": 4,
+        "plw_InsectGlaive_100_155": 4,
+        "plw_InsectGlaive_100_305": 4,
+        "plw_InsectGlaive_100_304": 3,
+        "plw_InsectGlaive_100_308": 3,
+        "plw_InsectGlaive_100_010": 2,
+        "plw_InsectGlaive_100_008": 2,
+        "plw_InsectGlaive_100_137": 2,
+        "plw_InsectGlaive_100_200": 2,
+        "plw_InsectGlaive_100_201": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plc_Field_000_001_Loop": 1,
+        "plw_InsectGlaive_100_005": 1,
+        "plw_InsectGlaive_100_310": 1,
+        "plw_InsectGlaive_100_188": 1
+      }
+    },
+    {
+      "event_id": 3239034807,
+      "sources": [
+        {
+          "bank": "pl_attribute.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_attribute.bnk",
+              "id": 703579348,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                523657820
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 193,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 31,
+        "plw_InsectGlaive_100_120": 29,
+        "plw_InsectGlaive_100_004_Loop": 17,
+        "plw_InsectGlaive_100_135": 14,
+        "plw_InsectGlaive_100_118": 14,
+        "plw_InsectGlaive_100_006": 14,
+        "plw_InsectGlaive_100_012": 12,
+        "plw_InsectGlaive_100_109": 10,
+        "plw_InsectGlaive_100_102": 8,
+        "plw_InsectGlaive_100_007": 7,
+        "plw_InsectGlaive_100_121": 6,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_108": 4,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_005": 3,
+        "plw_InsectGlaive_100_119": 3,
+        "plw_InsectGlaive_100_103": 3,
+        "plw_InsectGlaive_100_008": 2,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plw_InsectGlaive_100_305": 2,
+        "plw_InsectGlaive_100_014": 1
+      }
+    },
+    {
+      "event_id": 1637161304,
+      "sources": [
+        {
+          "bank": "pl_equip.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_equip.bnk",
+              "id": 98680579,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                405617570
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 164,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 29,
+        "plw_InsectGlaive_100_120": 22,
+        "plw_InsectGlaive_100_004_Loop": 17,
+        "plw_InsectGlaive_100_118": 14,
+        "plw_InsectGlaive_100_135": 13,
+        "plw_InsectGlaive_100_012": 8,
+        "plw_InsectGlaive_100_102": 8,
+        "plw_InsectGlaive_100_006": 7,
+        "plw_InsectGlaive_100_121": 6,
+        "plw_InsectGlaive_100_109": 5,
+        "plw_InsectGlaive_100_007": 5,
+        "plw_InsectGlaive_100_186": 5,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_119": 3,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_008": 2,
+        "plw_InsectGlaive_100_103": 2,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plw_InsectGlaive_100_305": 2,
+        "plw_InsectGlaive_100_005": 1
+      }
+    },
+    {
+      "event_id": 3728057592,
+      "sources": [
+        {
+          "bank": "pl_equip.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_equip.bnk",
+              "id": 134054753,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                265724962
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 164,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 29,
+        "plw_InsectGlaive_100_120": 22,
+        "plw_InsectGlaive_100_004_Loop": 17,
+        "plw_InsectGlaive_100_118": 14,
+        "plw_InsectGlaive_100_135": 13,
+        "plw_InsectGlaive_100_012": 8,
+        "plw_InsectGlaive_100_102": 8,
+        "plw_InsectGlaive_100_006": 7,
+        "plw_InsectGlaive_100_121": 6,
+        "plw_InsectGlaive_100_109": 5,
+        "plw_InsectGlaive_100_007": 5,
+        "plw_InsectGlaive_100_186": 5,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_119": 3,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_008": 2,
+        "plw_InsectGlaive_100_103": 2,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plw_InsectGlaive_100_305": 2,
+        "plw_InsectGlaive_100_005": 1
+      }
+    },
+    {
+      "event_id": 4125384236,
+      "sources": [
+        {
+          "bank": "pl_equip.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_equip.bnk",
+              "id": 632342637,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                298965774
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 136,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 24,
+        "plw_InsectGlaive_100_117": 18,
+        "plw_InsectGlaive_100_118": 14,
+        "plw_InsectGlaive_100_186": 10,
+        "plw_InsectGlaive_100_189": 10,
+        "plw_InsectGlaive_100_109": 9,
+        "plw_InsectGlaive_100_203": 8,
+        "plw_InsectGlaive_100_200": 6,
+        "plw_InsectGlaive_100_309": 5,
+        "plw_InsectGlaive_100_012": 4,
+        "plw_InsectGlaive_100_108": 4,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_102": 3,
+        "plw_InsectGlaive_100_119": 2,
+        "plw_InsectGlaive_100_121": 2,
+        "plw_InsectGlaive_100_103": 2,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_201": 2,
+        "plw_InsectGlaive_100_310": 1,
+        "plw_InsectGlaive_100_010": 1,
+        "plw_InsectGlaive_100_014": 1,
+        "plw_InsectGlaive_100_137": 1,
+        "plw_InsectGlaive_100_305": 1
+      }
+    },
+    {
+      "event_id": 3777612407,
+      "sources": [
+        {
+          "bank": "pl_prop.bnk",
+          "role": "shared_action_layer_candidate",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_prop.bnk",
+              "id": 207844909,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                507203288
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 102,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 22,
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_135": 8,
+        "plw_InsectGlaive_100_118": 7,
+        "plw_InsectGlaive_100_109": 6,
+        "plw_InsectGlaive_100_309": 5,
+        "plw_InsectGlaive_100_186": 5,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_012": 4,
+        "plw_InsectGlaive_100_108": 4,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_304": 3,
+        "plw_InsectGlaive_100_102": 3,
+        "plw_InsectGlaive_100_121": 2,
+        "plw_InsectGlaive_100_308": 2,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_200": 2,
+        "plw_InsectGlaive_100_119": 1,
+        "plw_InsectGlaive_100_010": 1,
+        "plw_InsectGlaive_100_103": 1,
+        "plw_InsectGlaive_100_137": 1,
+        "plw_InsectGlaive_100_305": 1
+      }
+    },
+    {
+      "event_id": 1929659305,
+      "sources": [
+        {
+          "bank": "em131_00_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "em131_00_se.bnk",
+              "id": 946525287,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                559190683
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 94,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 13,
+        "plw_InsectGlaive_100_120": 12,
+        "plw_InsectGlaive_100_001_Loop": 10,
+        "plw_InsectGlaive_100_135": 5,
+        "plw_InsectGlaive_100_004_Loop": 5,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_118": 4,
+        "plw_InsectGlaive_100_006": 4,
+        "plw_InsectGlaive_100_186": 4,
+        "plw_InsectGlaive_100_012": 3,
+        "plw_InsectGlaive_100_108": 3,
+        "plw_InsectGlaive_100_109": 2,
+        "plw_InsectGlaive_100_119": 2,
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_011": 2,
+        "plw_InsectGlaive_100_008": 2,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plc_Field_000_001_Loop": 1,
+        "plw_InsectGlaive_100_005": 1,
+        "plw_InsectGlaive_100_309": 1,
+        "plw_InsectGlaive_100_304": 1,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_310": 1,
+        "plw_InsectGlaive_100_308": 1,
+        "plw_InsectGlaive_100_007": 1,
+        "plw_InsectGlaive_100_010": 1,
+        "plw_InsectGlaive_100_103": 1
+      }
+    },
+    {
+      "event_id": 931779652,
+      "sources": [
+        {
+          "bank": "nid403_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "nid403_se.bnk",
+              "id": 194546202,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                803151946
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 73,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 10,
+        "plw_InsectGlaive_100_309": 9,
+        "plw_InsectGlaive_100_117": 8,
+        "plw_InsectGlaive_100_006": 7,
+        "plw_InsectGlaive_100_012": 6,
+        "plw_InsectGlaive_100_203": 6,
+        "plw_InsectGlaive_100_109": 6,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_011": 5,
+        "plw_InsectGlaive_100_118": 5,
+        "plw_InsectGlaive_100_102": 1,
+        "plw_InsectGlaive_100_200": 1,
+        "plw_InsectGlaive_100_135": 1,
+        "plw_InsectGlaive_100_186": 1,
+        "plw_InsectGlaive_100_004_Loop": 1,
+        "plw_InsectGlaive_100_007": 1
+      }
+    },
+    {
+      "event_id": 938078130,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 584862834,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                475349655
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 71,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_135": 10,
+        "plw_InsectGlaive_100_006": 8,
+        "plw_InsectGlaive_100_118": 7,
+        "plw_InsectGlaive_100_008": 7,
+        "plw_InsectGlaive_100_186": 5,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_012": 4,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_007": 3,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_010": 1,
+        "plw_InsectGlaive_100_014": 1,
+        "plw_InsectGlaive_100_137": 1
+      }
+    },
+    {
+      "event_id": 4196403743,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 420277560,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                946249296
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 65,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_118": 9,
+        "plw_InsectGlaive_100_120": 7,
+        "plw_InsectGlaive_100_117": 7,
+        "plw_InsectGlaive_100_186": 5,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_155": 4,
+        "plw_InsectGlaive_100_203": 4,
+        "plw_InsectGlaive_100_304": 3,
+        "plw_InsectGlaive_100_187": 3,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_308": 2,
+        "plw_InsectGlaive_100_103": 2,
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_200": 2,
+        "plw_InsectGlaive_100_201": 2,
+        "plw_InsectGlaive_100_305": 2,
+        "plw_InsectGlaive_100_309": 1,
+        "plw_InsectGlaive_100_119": 1,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_310": 1
+      }
+    },
+    {
+      "event_id": 2634221614,
+      "sources": [
+        {
+          "bank": "env_pos_v01a05.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "env_pos_v01a05.bnk",
+              "id": 662665175,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                990628380
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 57,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_117": 8,
+        "plw_InsectGlaive_100_189": 6,
+        "plw_InsectGlaive_100_001_Loop": 4,
+        "plw_InsectGlaive_100_006": 4,
+        "plw_InsectGlaive_100_135": 3,
+        "plw_InsectGlaive_100_118": 3,
+        "plw_InsectGlaive_100_004_Loop": 3,
+        "plw_InsectGlaive_100_109": 2,
+        "plw_InsectGlaive_100_012": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plc_Field_000_001_Loop": 1,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_011": 1,
+        "plw_InsectGlaive_100_102": 1,
+        "plw_InsectGlaive_100_103": 1,
+        "plw_InsectGlaive_100_007": 1,
+        "plw_InsectGlaive_100_155": 1,
+        "plw_InsectGlaive_100_156": 1,
+        "plw_InsectGlaive_100_305": 1
+      }
+    },
+    {
+      "event_id": 2231624382,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 355008377,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                185542436
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 55,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 11,
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_118": 7,
+        "plw_InsectGlaive_100_309": 5,
+        "plw_InsectGlaive_100_109": 5,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_121": 2,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plw_InsectGlaive_100_305": 2,
+        "plw_InsectGlaive_100_103": 1
+      }
+    },
+    {
+      "event_id": 2218406790,
+      "sources": [
+        {
+          "bank": "nid403_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "nid403_se.bnk",
+              "id": 487113591,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                165944315
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 51,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 12,
+        "plw_InsectGlaive_100_189": 6,
+        "plw_InsectGlaive_100_120": 6,
+        "plw_InsectGlaive_100_004_Loop": 5,
+        "plw_InsectGlaive_100_118": 2,
+        "plw_InsectGlaive_100_200": 2,
+        "plw_InsectGlaive_100_186": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plw_InsectGlaive_100_309": 2,
+        "plw_InsectGlaive_100_109": 2,
+        "plw_InsectGlaive_100_011": 2,
+        "plw_InsectGlaive_100_001_Loop": 1,
+        "plw_InsectGlaive_100_102": 1,
+        "plw_InsectGlaive_100_135": 1,
+        "plw_InsectGlaive_100_201": 1,
+        "plw_InsectGlaive_100_305": 1,
+        "plw_InsectGlaive_100_012": 1,
+        "plw_InsectGlaive_100_006": 1,
+        "plw_InsectGlaive_100_007": 1
+      }
+    },
+    {
+      "event_id": 1932771116,
+      "sources": [
+        {
+          "bank": "hit_pl.bnk",
+          "role": "contact_candidate_not_yet_semantically_confirmed",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "hit_pl.bnk",
+              "id": 553894370,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                1053561206
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 50,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 9,
+        "plw_InsectGlaive_100_120": 7,
+        "plw_InsectGlaive_100_118": 6,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_309": 4,
+        "plw_InsectGlaive_100_109": 4,
+        "plw_InsectGlaive_100_187": 4,
+        "plw_InsectGlaive_100_201": 4,
+        "plw_InsectGlaive_100_103": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plw_InsectGlaive_100_102": 1,
+        "plw_InsectGlaive_100_188": 1,
+        "plw_InsectGlaive_100_305": 1
+      }
+    },
+    {
+      "event_id": 2702726931,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 824629010,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                244008389
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 44,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 22,
+        "plw_InsectGlaive_100_117": 11,
+        "plw_InsectGlaive_100_118": 7,
+        "plw_InsectGlaive_100_119": 2,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_103": 1
+      }
+    },
+    {
+      "event_id": 1707236307,
+      "sources": [
+        {
+          "bank": "pl_wp_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_com.bnk",
+              "id": 42947048,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                700054048
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 43,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 22,
+        "plw_InsectGlaive_100_117": 11,
+        "plw_InsectGlaive_100_109": 5,
+        "plw_InsectGlaive_100_119": 2,
+        "plw_InsectGlaive_100_201": 2,
+        "plw_InsectGlaive_100_103": 1
+      }
+    },
+    {
+      "event_id": 2037497988,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 6749808,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                955852368
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 41,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 11,
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_135": 8,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_200": 2,
+        "plw_InsectGlaive_100_119": 1,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_310": 1,
+        "plw_InsectGlaive_100_103": 1,
+        "plw_InsectGlaive_100_137": 1
+      }
+    },
+    {
+      "event_id": 421813840,
+      "sources": [
+        {
+          "bank": "pl_prop.bnk",
+          "role": "shared_action_layer_candidate",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_prop.bnk",
+              "id": 569708698,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                747636335
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 37,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 11,
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_012": 4,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_010": 1,
+        "plw_InsectGlaive_100_137": 1
+      }
+    },
+    {
+      "event_id": 1737389684,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 306766016,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                1015786989
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 36,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_118": 7,
+        "plw_InsectGlaive_100_117": 7,
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_305": 2,
+        "plw_InsectGlaive_100_119": 1,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_103": 1
+      }
+    },
+    {
+      "event_id": 106259332,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 124383991,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                390331225
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 32,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_135": 8,
+        "plw_InsectGlaive_100_186": 5,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_305": 2,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_103": 1
+      }
+    },
+    {
+      "event_id": 1818491039,
+      "sources": [
+        {
+          "bank": "pl_voice.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_voice.bnk",
+              "id": 212762013,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                782974242
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 32,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 11,
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plw_InsectGlaive_100_119": 1
+      }
+    },
+    {
+      "event_id": 4064984930,
+      "sources": [
+        {
+          "bank": "nid403_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "nid403_se.bnk",
+              "id": 850277422,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                801624180
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 29,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 5,
+        "plw_InsectGlaive_100_135": 4,
+        "plc_Field_000_001_Loop": 2,
+        "plw_InsectGlaive_100_001_Loop": 2,
+        "plw_InsectGlaive_100_004_Loop": 2,
+        "plw_InsectGlaive_100_117": 2,
+        "plw_InsectGlaive_100_103": 2,
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_119": 1,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_108": 1,
+        "plw_InsectGlaive_100_006": 1,
+        "plw_InsectGlaive_100_102": 1,
+        "plw_InsectGlaive_100_014": 1,
+        "plw_InsectGlaive_100_008": 1,
+        "plw_InsectGlaive_100_187": 1
+      }
+    },
+    {
+      "event_id": 3943085292,
+      "sources": [
+        {
+          "bank": "env_pos_v01a05.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "env_pos_v01a05.bnk",
+              "id": 814425733,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                490064010
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 26,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 5,
+        "plw_InsectGlaive_100_189": 4,
+        "plw_InsectGlaive_100_117": 3,
+        "plw_InsectGlaive_100_004_Loop": 3,
+        "plw_InsectGlaive_100_135": 1,
+        "plw_InsectGlaive_100_001_Loop": 1,
+        "plw_InsectGlaive_100_118": 1,
+        "plw_InsectGlaive_100_109": 1,
+        "plw_InsectGlaive_100_108": 1,
+        "plw_InsectGlaive_100_011": 1,
+        "plw_InsectGlaive_100_102": 1,
+        "plw_InsectGlaive_100_006": 1,
+        "plw_InsectGlaive_100_014": 1,
+        "plw_InsectGlaive_100_008": 1,
+        "plw_InsectGlaive_100_007": 1
+      }
+    },
+    {
+      "event_id": 2122694062,
+      "sources": [
+        {
+          "bank": "pl_attribute.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_attribute.bnk",
+              "id": 231559750,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                774658537
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 24,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 11,
+        "plw_InsectGlaive_100_012": 4,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_010": 1
+      }
+    },
+    {
+      "event_id": 2304525234,
+      "sources": [
+        {
+          "bank": "pl_prop.bnk",
+          "role": "shared_action_layer_candidate",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_prop.bnk",
+              "id": 1020777252,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                431469135
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 24,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 11,
+        "plw_InsectGlaive_100_012": 4,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_010": 1
+      }
+    },
+    {
+      "event_id": 210270112,
+      "sources": [
+        {
+          "bank": "pl_prop.bnk",
+          "role": "shared_action_layer_candidate",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_prop.bnk",
+              "id": 452071817,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                879380411
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 22,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_203": 6,
+        "plw_InsectGlaive_100_186": 5,
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_200": 4,
+        "plw_InsectGlaive_100_201": 2
+      }
+    },
+    {
+      "event_id": 2702126518,
+      "sources": [
+        {
+          "bank": "nid403_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "nid403_se.bnk",
+              "id": 781421070,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                514176664
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 19,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 3,
+        "plw_InsectGlaive_100_189": 2,
+        "plw_InsectGlaive_100_203": 2,
+        "plw_InsectGlaive_100_309": 2,
+        "plw_InsectGlaive_100_012": 2,
+        "plw_InsectGlaive_100_187": 1,
+        "plw_InsectGlaive_100_186": 1,
+        "plw_InsectGlaive_100_117": 1,
+        "plw_InsectGlaive_100_006": 1,
+        "plw_InsectGlaive_100_011": 1,
+        "plw_InsectGlaive_100_007": 1,
+        "plw_InsectGlaive_100_118": 1,
+        "plw_InsectGlaive_100_109": 1
+      }
+    },
+    {
+      "event_id": 654623935,
+      "sources": [
+        {
+          "bank": "pl_voice.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_voice.bnk",
+              "id": 70969395,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                325680776
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 18,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 10,
+        "plw_InsectGlaive_100_109": 5,
+        "plw_InsectGlaive_100_119": 1,
+        "plw_InsectGlaive_100_308": 1,
+        "plw_InsectGlaive_100_103": 1
+      }
+    },
+    {
+      "event_id": 1392529433,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 113952823,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                940504334
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 17,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 11,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_201": 2,
+        "plw_InsectGlaive_100_119": 1,
+        "plw_InsectGlaive_100_121": 1
+      }
+    },
+    {
+      "event_id": 2640762921,
+      "sources": [
+        {
+          "bank": "pl_wp_ig_ins_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_ig_ins_com.bnk",
+              "id": 247046911,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                82330399
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 15,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_187": 4,
+        "plw_InsectGlaive_100_189": 3,
+        "plw_InsectGlaive_100_156": 2,
+        "plc_Field_000_001_Loop": 1,
+        "plw_InsectGlaive_100_001_Loop": 1,
+        "plw_InsectGlaive_100_008": 1,
+        "plw_InsectGlaive_100_188": 1,
+        "plw_InsectGlaive_100_137": 1,
+        "plw_InsectGlaive_100_117": 1
+      }
+    },
+    {
+      "event_id": 3041892567,
+      "sources": [
+        {
+          "bank": "pl_wp_ig_ins_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": false,
+          "actions": [
+            {
+              "bank": "pl_wp_ig_ins_com.bnk",
+              "id": 181118560,
+              "type": "CAkActionStop",
+              "action_type": "0x0103 [Stop_E_O]",
+              "action_code": 259,
+              "actions": [],
+              "targets": [
+                82330399
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": false,
+      "in_scope_candidate": false,
+      "calls": 15,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_189": 6,
+        "plw_InsectGlaive_100_187": 4,
+        "plw_InsectGlaive_100_001_Loop": 3,
+        "plw_InsectGlaive_100_188": 1,
+        "plw_InsectGlaive_100_004_Loop": 1
+      }
+    },
+    {
+      "event_id": 230348079,
+      "sources": [
+        {
+          "bank": "pl_prop.bnk",
+          "role": "shared_action_layer_candidate",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_prop.bnk",
+              "id": 90398970,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                162310132
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 14,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 11,
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_121": 1
+      }
+    },
+    {
+      "event_id": 539819764,
+      "sources": [
+        {
+          "bank": "hit_pl.bnk",
+          "role": "contact_candidate_not_yet_semantically_confirmed",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "hit_pl.bnk",
+              "id": 980661567,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                693628031
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 14,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_189": 10,
+        "plw_InsectGlaive_100_001_Loop": 4
+      }
+    },
+    {
+      "event_id": 793527579,
+      "sources": [
+        {
+          "bank": "pl_voice.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_voice.bnk",
+              "id": 886709155,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                933031056
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 14,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_186": 5,
+        "plw_InsectGlaive_100_012": 4,
+        "plw_InsectGlaive_100_011": 4,
+        "plw_InsectGlaive_100_010": 1
+      }
+    },
+    {
+      "event_id": 3492000509,
+      "sources": [
+        {
+          "bank": "pl_voice.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_voice.bnk",
+              "id": 245867096,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                325680776
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 13,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_118": 7,
+        "plw_InsectGlaive_100_108": 2,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_200": 2
+      }
+    },
+    {
+      "event_id": 2010613139,
+      "sources": [
+        {
+          "bank": "pl_voice.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_voice.bnk",
+              "id": 377347575,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                92610099
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 11,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_135": 8,
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_137": 1
+      }
+    },
+    {
+      "event_id": 1180028354,
+      "sources": [
+        {
+          "bank": "pl_voice.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": false,
+          "actions": []
+        }
+      ],
+      "has_play_action": false,
+      "in_scope_candidate": false,
+      "calls": 10,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_004_Loop": 8,
+        "plw_InsectGlaive_100_135": 2
+      }
+    },
+    {
+      "event_id": 1805087271,
+      "sources": [
+        {
+          "bank": "pl_wp_ig_ins_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_ig_ins_com.bnk",
+              "id": 267235339,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                969164892
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 10,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_001_Loop": 5,
+        "plw_InsectGlaive_100_135": 4,
+        "plc_Field_000_001_Loop": 1
+      }
+    },
+    {
+      "event_id": 3520842405,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 223578984,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                857441432
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 10,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_186": 5,
+        "plw_InsectGlaive_100_155": 2,
+        "plw_InsectGlaive_100_200": 2,
+        "plw_InsectGlaive_100_189": 1
+      }
+    },
+    {
+      "event_id": 3267804589,
+      "sources": [
+        {
+          "bank": "pl_voice.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_voice.bnk",
+              "id": 709879766,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                782974242
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 9,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_309": 5,
+        "plw_InsectGlaive_100_305": 2,
+        "plw_InsectGlaive_100_121": 1,
+        "plw_InsectGlaive_100_103": 1
+      }
+    },
+    {
+      "event_id": 3446978295,
+      "sources": [
+        {
+          "bank": "ec019.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "ec019.bnk",
+              "id": 393596946,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                62755108
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 9,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 3,
+        "plw_InsectGlaive_100_011": 2,
+        "plw_InsectGlaive_100_120": 1,
+        "plw_InsectGlaive_100_118": 1,
+        "plw_InsectGlaive_100_008": 1,
+        "plw_InsectGlaive_100_156": 1
+      }
+    },
+    {
+      "event_id": 553672341,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 463139658,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                116432616
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 8,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_001_Loop": 4,
+        "plc_Field_000_001_Loop": 1,
+        "plw_InsectGlaive_100_008": 1,
+        "plw_InsectGlaive_100_135": 1,
+        "plw_InsectGlaive_100_004_Loop": 1
+      }
+    },
+    {
+      "event_id": 771629008,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 224571175,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                211354594
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 8,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_135": 8
+      }
+    },
+    {
+      "event_id": 2878059743,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 918707404,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                178046187
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 8,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_135": 8
+      }
+    },
+    {
+      "event_id": 2923906209,
+      "sources": [
+        {
+          "bank": "pl_voice.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_voice.bnk",
+              "id": 258148177,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                123580933
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 8,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 7,
+        "plw_InsectGlaive_100_121": 1
+      }
+    },
+    {
+      "event_id": 3451389755,
+      "sources": [
+        {
+          "bank": "hit_pl.bnk",
+          "role": "contact_candidate_not_yet_semantically_confirmed",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "hit_pl.bnk",
+              "id": 1061654684,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                1020990165
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 8,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_001_Loop": 3,
+        "plw_InsectGlaive_100_187": 3,
+        "plw_InsectGlaive_100_135": 1,
+        "plw_InsectGlaive_100_186": 1
+      }
+    },
+    {
+      "event_id": 25934417,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 639565739,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                1067773353
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 7,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_189": 5,
+        "plw_InsectGlaive_100_108": 2
+      }
+    },
+    {
+      "event_id": 417732399,
+      "sources": [
+        {
+          "bank": "em131_00_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "em131_00_se.bnk",
+              "id": 914568641,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                951650853
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 6,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_305": 2,
+        "plw_InsectGlaive_100_201": 1,
+        "plw_InsectGlaive_100_117": 1,
+        "plw_InsectGlaive_100_008": 1,
+        "plw_InsectGlaive_100_011": 1
+      }
+    },
+    {
+      "event_id": 686028896,
+      "sources": [
+        {
+          "bank": "nid403_vo.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "nid403_vo.bnk",
+              "id": 743690047,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                314570568
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 6,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_120": 2,
+        "plw_InsectGlaive_100_203": 1,
+        "plw_InsectGlaive_100_012": 1,
+        "plw_InsectGlaive_100_011": 1,
+        "plw_InsectGlaive_100_109": 1
+      }
+    },
+    {
+      "event_id": 1435167447,
+      "sources": [
+        {
+          "bank": "pl_prop.bnk",
+          "role": "shared_action_layer_candidate",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_prop.bnk",
+              "id": 616622190,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                430693311
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 6,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_187": 4,
+        "plw_InsectGlaive_100_155": 2
+      }
+    },
+    {
+      "event_id": 2690231236,
+      "sources": [
+        {
+          "bank": "nid403_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "nid403_se.bnk",
+              "id": 185565754,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                98659933
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 5,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 2,
+        "plw_InsectGlaive_100_189": 1,
+        "plw_InsectGlaive_100_305": 1,
+        "plw_InsectGlaive_100_004_Loop": 1
+      }
+    },
+    {
+      "event_id": 3587601987,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 799664247,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                85708903
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 5,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_189": 2,
+        "plw_InsectGlaive_100_137": 1
+      }
+    },
+    {
+      "event_id": 603272525,
+      "sources": [
+        {
+          "bank": "pl_wp_ig_ins_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_ig_ins_com.bnk",
+              "id": 251204853,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                1061252819
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 4,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_001_Loop": 3,
+        "plw_InsectGlaive_100_135": 1
+      }
+    },
+    {
+      "event_id": 3014295296,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 673504522,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                69408503
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 4,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_102": 2,
+        "plw_InsectGlaive_100_155": 2
+      }
+    },
+    {
+      "event_id": 3971364902,
+      "sources": [
+        {
+          "bank": "buff.bnk",
+          "role": "shared_action_layer_candidate",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "buff.bnk",
+              "id": 386547613,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                357632671
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 4,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_001_Loop": 3,
+        "plw_InsectGlaive_100_004_Loop": 1
+      }
+    },
+    {
+      "event_id": 1942118895,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 646730966,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                41860907
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 3,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_137": 1
+      }
+    },
+    {
+      "event_id": 3275147427,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 849992142,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                1049117438
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 3,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_156": 2,
+        "plw_InsectGlaive_100_137": 1
+      }
+    },
+    {
+      "event_id": 3794907703,
+      "sources": [
+        {
+          "bank": "em131_00_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "em131_00_se.bnk",
+              "id": 264127487,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                453542881
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 3,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_189": 1,
+        "plw_InsectGlaive_100_007": 1,
+        "plw_InsectGlaive_100_305": 1
+      }
+    },
+    {
+      "event_id": 4109657175,
+      "sources": [
+        {
+          "bank": "nid403_vo.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "nid403_vo.bnk",
+              "id": 543955178,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                175406716
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 3,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 2,
+        "plw_InsectGlaive_100_189": 1
+      }
+    },
+    {
+      "event_id": 761378592,
+      "sources": [
+        {
+          "bank": "buff.bnk",
+          "role": "shared_action_layer_candidate",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "buff.bnk",
+              "id": 252386078,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                45987880
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 2,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_001_Loop": 1,
+        "plw_InsectGlaive_100_004_Loop": 1
+      }
+    },
+    {
+      "event_id": 806767037,
+      "sources": [
+        {
+          "bank": "buff.bnk",
+          "role": "shared_action_layer_candidate",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "buff.bnk",
+              "id": 856555361,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                210662000
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 2,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_001_Loop": 2
+      }
+    },
+    {
+      "event_id": 1742629250,
+      "sources": [
+        {
+          "bank": "pl_wp_ig_ins_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_ig_ins_com.bnk",
+              "id": 232447110,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                233138651
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 2,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_001_Loop": 2
+      }
+    },
+    {
+      "event_id": 1762027986,
+      "sources": [
+        {
+          "bank": "pl_wp_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_com.bnk",
+              "id": 792703254,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                721995380
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 2,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_102": 2
+      }
+    },
+    {
+      "event_id": 3094158795,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 886562433,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                752235187
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 2,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_155": 2
+      }
+    },
+    {
+      "event_id": 3887460649,
+      "sources": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 890787247,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                115292325
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": true,
+      "calls": 2,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_155": 2
+      }
+    },
+    {
+      "event_id": 3910122948,
+      "sources": [
+        {
+          "bank": "nid403_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "nid403_se.bnk",
+              "id": 140523366,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                280180636
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 2,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_189": 1,
+        "plw_InsectGlaive_100_109": 1
+      }
+    },
+    {
+      "event_id": 1039238594,
+      "sources": [
+        {
+          "bank": "em_com_fx_buff_dmg.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "em_com_fx_buff_dmg.bnk",
+              "id": 206843600,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                384895859
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 1,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_186": 1
+      }
+    },
+    {
+      "event_id": 1891767172,
+      "sources": [
+        {
+          "bank": "em131_00_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "em131_00_se.bnk",
+              "id": 2797503,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                20069157
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 1,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_189": 1
+      }
+    },
+    {
+      "event_id": 2141893852,
+      "sources": [
+        {
+          "bank": "em_com_fx_buff_dmg.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": false,
+          "actions": [
+            {
+              "bank": "em_com_fx_buff_dmg.bnk",
+              "id": 7576722,
+              "type": "CAkActionStop",
+              "action_type": "0x0103 [Stop_E_O]",
+              "action_code": 259,
+              "actions": [],
+              "targets": [
+                384895859
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": false,
+      "in_scope_candidate": false,
+      "calls": 1,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_117": 1
+      }
+    },
+    {
+      "event_id": 2314134102,
+      "sources": [
+        {
+          "bank": "ui_com.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "ui_com.bnk",
+              "id": 521156720,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                17838735
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 1,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_135": 1
+      }
+    },
+    {
+      "event_id": 2419715933,
+      "sources": [
+        {
+          "bank": "em131_00_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "em131_00_se.bnk",
+              "id": 1028052154,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                1056223521
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 1,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_007": 1
+      }
+    },
+    {
+      "event_id": 2601079534,
+      "sources": [
+        {
+          "bank": "em_com_lfe.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "em_com_lfe.bnk",
+              "id": 334289520,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                127887211
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 1,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_189": 1
+      }
+    },
+    {
+      "event_id": 3467505434,
+      "sources": [
+        {
+          "bank": "em131_00_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "em131_00_se.bnk",
+              "id": 486714018,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                895874735
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 1,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_007": 1
+      }
+    },
+    {
+      "event_id": 4291172296,
+      "sources": [
+        {
+          "bank": "em131_00_se.bnk",
+          "role": "outside_current_attack_audio_scope",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "em131_00_se.bnk",
+              "id": 757145880,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                724542590
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ],
+      "has_play_action": true,
+      "in_scope_candidate": false,
+      "calls": 1,
+      "temporal_contexts": {
+        "plw_InsectGlaive_100_189": 1
+      }
+    }
+  ],
+  "action_contexts": [
+    {
+      "action_state_id": "1",
+      "action_name": "持刀站立",
+      "motion": "plc_Field_000_001_Loop",
+      "temporal_event_counts": {
+        "4064984930": 2,
+        "1929659305": 1,
+        "2634221614": 1,
+        "553672341": 1,
+        "2640762921": 1,
+        "361976685": 1,
+        "1805087271": 1
+      }
+    },
+    {
+      "action_state_id": "135",
+      "action_name": "操虫",
+      "motion": "plw_InsectGlaive_100_135",
+      "temporal_event_counts": {
+        "3777612407": 8,
+        "2037497988": 8,
+        "2878059743": 8,
+        "2010613139": 8,
+        "1929659305": 5,
+        "106259332": 8,
+        "3239034807": 14,
+        "1637161304": 13,
+        "3728057592": 13,
+        "2634221614": 3,
+        "938078130": 10,
+        "361976685": 10,
+        "2314134102": 1,
+        "771629008": 8,
+        "3943085292": 1,
+        "4064984930": 4,
+        "1805087271": 4,
+        "1180028354": 2,
+        "2218406790": 1,
+        "553672341": 1,
+        "3451389755": 1,
+        "603272525": 1,
+        "931779652": 1
+      }
+    },
+    {
+      "action_state_id": "1",
+      "action_name": "持刀站立",
+      "motion": "plw_InsectGlaive_100_001_Loop",
+      "temporal_event_counts": {
+        "1805087271": 5,
+        "4064984930": 2,
+        "1929659305": 10,
+        "1742629250": 2,
+        "3451389755": 3,
+        "603272525": 3,
+        "539819764": 4,
+        "553672341": 4,
+        "361976685": 4,
+        "3971364902": 3,
+        "806767037": 2,
+        "3041892567": 3,
+        "2634221614": 4,
+        "2218406790": 1,
+        "2640762921": 1,
+        "3943085292": 1,
+        "761378592": 1
+      }
+    },
+    {
+      "action_state_id": "5",
+      "action_name": "起跑",
+      "motion": "plw_InsectGlaive_100_005",
+      "temporal_event_counts": {
+        "361976685": 1,
+        "3239034807": 3,
+        "1929659305": 1,
+        "1637161304": 1,
+        "3728057592": 1
+      }
+    },
+    {
+      "action_state_id": "4",
+      "action_name": "持续奔跑",
+      "motion": "plw_InsectGlaive_100_004_Loop",
+      "temporal_event_counts": {
+        "3239034807": 17,
+        "1637161304": 17,
+        "3728057592": 17,
+        "1929659305": 5,
+        "1180028354": 8,
+        "2218406790": 5,
+        "2634221614": 3,
+        "4064984930": 2,
+        "361976685": 4,
+        "3943085292": 3,
+        "553672341": 1,
+        "3971364902": 1,
+        "761378592": 1,
+        "3041892567": 1,
+        "931779652": 1,
+        "2690231236": 1
+      }
+    },
+    {
+      "action_state_id": "118",
+      "action_name": "强化突刺",
+      "motion": "plw_InsectGlaive_100_118",
+      "temporal_event_counts": {
+        "4125384236": 14,
+        "4196403743": 9,
+        "3777612407": 7,
+        "3239034807": 14,
+        "3492000509": 7,
+        "2634221614": 3,
+        "1637161304": 14,
+        "3728057592": 14,
+        "2702726931": 7,
+        "1932771116": 6,
+        "361976685": 14,
+        "2231624382": 7,
+        "3943085292": 1,
+        "1737389684": 7,
+        "1929659305": 4,
+        "938078130": 7,
+        "2218406790": 2,
+        "3446978295": 1,
+        "931779652": 5,
+        "2702126518": 1
+      }
+    },
+    {
+      "action_state_id": "309",
+      "action_name": "强化横扫",
+      "motion": "plw_InsectGlaive_100_309",
+      "temporal_event_counts": {
+        "4196403743": 1,
+        "2231624382": 5,
+        "361976685": 5,
+        "3267804589": 5,
+        "1932771116": 4,
+        "4125384236": 5,
+        "3777612407": 5,
+        "1929659305": 1,
+        "931779652": 9,
+        "2702126518": 2,
+        "2218406790": 2
+      }
+    },
+    {
+      "action_state_id": "109",
+      "action_name": "横扫",
+      "motion": "plw_InsectGlaive_100_109",
+      "temporal_event_counts": {
+        "654623935": 5,
+        "2231624382": 5,
+        "3239034807": 10,
+        "1932771116": 4,
+        "1637161304": 5,
+        "3728057592": 5,
+        "1707236307": 5,
+        "361976685": 5,
+        "1929659305": 2,
+        "3777612407": 6,
+        "4125384236": 9,
+        "2634221614": 2,
+        "3943085292": 1,
+        "931779652": 6,
+        "2218406790": 2,
+        "3910122948": 1,
+        "686028896": 1,
+        "2702126518": 1
+      }
+    },
+    {
+      "action_state_id": "304",
+      "action_name": "强化横扫接飞远斩",
+      "motion": "plw_InsectGlaive_100_304",
+      "temporal_event_counts": {
+        "4196403743": 3,
+        "3777612407": 3,
+        "361976685": 3,
+        "1929659305": 1
+      }
+    },
+    {
+      "action_state_id": "117",
+      "action_name": "飞远斩",
+      "motion": "plw_InsectGlaive_100_117",
+      "temporal_event_counts": {
+        "2231624382": 11,
+        "1932771116": 9,
+        "361976685": 29,
+        "3777612407": 22,
+        "421813840": 11,
+        "4125384236": 18,
+        "1929659305": 13,
+        "2037497988": 11,
+        "2702726931": 11,
+        "1818491039": 11,
+        "230348079": 11,
+        "2122694062": 11,
+        "3239034807": 31,
+        "2304525234": 11,
+        "1707236307": 11,
+        "1637161304": 29,
+        "3728057592": 29,
+        "931779652": 8,
+        "2218406790": 12,
+        "2634221614": 8,
+        "4196403743": 7,
+        "2923906209": 7,
+        "1737389684": 7,
+        "3446978295": 3,
+        "3943085292": 3,
+        "4064984930": 2,
+        "2640762921": 1,
+        "2702126518": 1,
+        "4109657175": 2,
+        "2690231236": 2,
+        "417732399": 1,
+        "2141893852": 1
+      }
+    },
+    {
+      "action_state_id": "12",
+      "action_name": "向右翻滚",
+      "motion": "plw_InsectGlaive_100_012",
+      "temporal_event_counts": {
+        "3239034807": 12,
+        "421813840": 4,
+        "793527579": 4,
+        "1637161304": 8,
+        "3728057592": 8,
+        "938078130": 4,
+        "2634221614": 2,
+        "1929659305": 3,
+        "361976685": 4,
+        "3777612407": 4,
+        "2304525234": 4,
+        "2122694062": 4,
+        "4125384236": 4,
+        "931779652": 6,
+        "2702126518": 2,
+        "686028896": 1,
+        "2218406790": 1
+      }
+    },
+    {
+      "action_state_id": "6",
+      "action_name": "反向转向",
+      "motion": "plw_InsectGlaive_100_006",
+      "temporal_event_counts": {
+        "931779652": 7,
+        "361976685": 8,
+        "938078130": 8,
+        "3239034807": 14,
+        "1637161304": 7,
+        "3728057592": 7,
+        "1929659305": 4,
+        "4064984930": 1,
+        "2634221614": 4,
+        "3943085292": 1,
+        "2218406790": 1,
+        "2702126518": 1
+      }
+    },
+    {
+      "action_state_id": "8",
+      "action_name": "停止",
+      "motion": "plw_InsectGlaive_100_008",
+      "temporal_event_counts": {
+        "938078130": 7,
+        "3239034807": 2,
+        "1637161304": 2,
+        "3728057592": 2,
+        "1929659305": 2,
+        "3446978295": 1,
+        "361976685": 2,
+        "3943085292": 1,
+        "4064984930": 1,
+        "553672341": 1,
+        "2640762921": 1,
+        "417732399": 1
+      }
+    },
+    {
+      "action_state_id": "120",
+      "action_name": "强化上捞",
+      "motion": "plw_InsectGlaive_100_120",
+      "temporal_event_counts": {
+        "4196403743": 7,
+        "3239034807": 29,
+        "654623935": 10,
+        "361976685": 32,
+        "2702726931": 22,
+        "1637161304": 22,
+        "3728057592": 22,
+        "1707236307": 22,
+        "2037497988": 11,
+        "3777612407": 11,
+        "4125384236": 24,
+        "1929659305": 12,
+        "2231624382": 11,
+        "4064984930": 5,
+        "1818491039": 11,
+        "421813840": 11,
+        "106259332": 11,
+        "3943085292": 5,
+        "1737389684": 11,
+        "1392529433": 11,
+        "938078130": 11,
+        "2634221614": 11,
+        "1932771116": 7,
+        "3446978295": 1,
+        "2218406790": 6,
+        "931779652": 10,
+        "686028896": 2,
+        "2702126518": 3
+      }
+    },
+    {
+      "action_state_id": "119",
+      "action_name": "强化袈裟",
+      "motion": "plw_InsectGlaive_100_119",
+      "temporal_event_counts": {
+        "4125384236": 2,
+        "2037497988": 1,
+        "1929659305": 2,
+        "654623935": 1,
+        "361976685": 4,
+        "1737389684": 1,
+        "3239034807": 3,
+        "2702726931": 2,
+        "1637161304": 3,
+        "3728057592": 3,
+        "1707236307": 2,
+        "4064984930": 1,
+        "1392529433": 1,
+        "1818491039": 1,
+        "4196403743": 1,
+        "3777612407": 1
+      }
+    },
+    {
+      "action_state_id": "121",
+      "action_name": "强化二连斩",
+      "motion": "plw_InsectGlaive_100_121",
+      "temporal_event_counts": {
+        "2634221614": 1,
+        "2037497988": 1,
+        "1737389684": 1,
+        "3267804589": 1,
+        "361976685": 4,
+        "3777612407": 2,
+        "2231624382": 2,
+        "3239034807": 6,
+        "4196403743": 1,
+        "1637161304": 6,
+        "3728057592": 6,
+        "230348079": 1,
+        "4064984930": 1,
+        "4125384236": 2,
+        "106259332": 1,
+        "421813840": 1,
+        "2923906209": 1,
+        "1929659305": 1,
+        "2702726931": 1,
+        "1392529433": 1
+      }
+    },
+    {
+      "action_state_id": "310",
+      "action_name": "强化二连接飞远斩",
+      "motion": "plw_InsectGlaive_100_310",
+      "temporal_event_counts": {
+        "4196403743": 1,
+        "361976685": 1,
+        "2037497988": 1,
+        "4125384236": 1,
+        "1929659305": 1
+      }
+    },
+    {
+      "action_state_id": "108",
+      "action_name": "后撤斩",
+      "motion": "plw_InsectGlaive_100_108",
+      "temporal_event_counts": {
+        "361976685": 8,
+        "4196403743": 2,
+        "1392529433": 2,
+        "3777612407": 4,
+        "3492000509": 2,
+        "4125384236": 4,
+        "421813840": 2,
+        "2231624382": 2,
+        "4064984930": 1,
+        "2037497988": 2,
+        "1929659305": 3,
+        "25934417": 2,
+        "2122694062": 2,
+        "3239034807": 4,
+        "2304525234": 2,
+        "1637161304": 2,
+        "3728057592": 2,
+        "3943085292": 1,
+        "938078130": 2
+      }
+    },
+    {
+      "action_state_id": "11",
+      "action_name": "向左翻滚",
+      "motion": "plw_InsectGlaive_100_011",
+      "temporal_event_counts": {
+        "793527579": 4,
+        "421813840": 4,
+        "361976685": 4,
+        "938078130": 4,
+        "4125384236": 4,
+        "3777612407": 4,
+        "2304525234": 4,
+        "2122694062": 4,
+        "3239034807": 4,
+        "1637161304": 4,
+        "3728057592": 4,
+        "2634221614": 1,
+        "3943085292": 1,
+        "1929659305": 2,
+        "3446978295": 2,
+        "417732399": 1,
+        "2218406790": 2,
+        "2702126518": 1,
+        "931779652": 5,
+        "686028896": 1
+      }
+    },
+    {
+      "action_state_id": "102",
+      "action_name": "飞身跃入斩",
+      "motion": "plw_InsectGlaive_100_102",
+      "temporal_event_counts": {
+        "3239034807": 8,
+        "1637161304": 8,
+        "3728057592": 8,
+        "3943085292": 1,
+        "1737389684": 2,
+        "421813840": 2,
+        "4125384236": 3,
+        "3777612407": 3,
+        "938078130": 2,
+        "1929659305": 2,
+        "2037497988": 2,
+        "361976685": 4,
+        "1818491039": 2,
+        "2231624382": 2,
+        "2122694062": 2,
+        "3014295296": 2,
+        "2304525234": 2,
+        "1762027986": 2,
+        "931779652": 1,
+        "2218406790": 1,
+        "2634221614": 1,
+        "4064984930": 1,
+        "1932771116": 1
+      }
+    },
+    {
+      "action_state_id": "308",
+      "action_name": "飞身跃入斩接上捞",
+      "motion": "plw_InsectGlaive_100_308",
+      "temporal_event_counts": {
+        "361976685": 3,
+        "1929659305": 1,
+        "4196403743": 2,
+        "3777612407": 2,
+        "654623935": 1
+      }
+    },
+    {
+      "action_state_id": "7",
+      "action_name": "90度转向",
+      "motion": "plw_InsectGlaive_100_007",
+      "temporal_event_counts": {
+        "361976685": 4,
+        "938078130": 3,
+        "3239034807": 7,
+        "1637161304": 5,
+        "3728057592": 5,
+        "1929659305": 1,
+        "2634221614": 1,
+        "3794907703": 1,
+        "2702126518": 1,
+        "931779652": 1,
+        "2218406790": 1,
+        "3467505434": 1,
+        "3943085292": 1,
+        "2419715933": 1
+      }
+    },
+    {
+      "action_state_id": "10",
+      "action_name": "正向翻滚",
+      "motion": "plw_InsectGlaive_100_010",
+      "temporal_event_counts": {
+        "361976685": 2,
+        "421813840": 1,
+        "793527579": 1,
+        "938078130": 1,
+        "1929659305": 1,
+        "2304525234": 1,
+        "2122694062": 1,
+        "4125384236": 1,
+        "3777612407": 1
+      }
+    },
+    {
+      "action_state_id": "14",
+      "action_name": "向前翻滚接移动",
+      "motion": "plw_InsectGlaive_100_014",
+      "temporal_event_counts": {
+        "4064984930": 1,
+        "3943085292": 1,
+        "4125384236": 1,
+        "938078130": 1,
+        "3239034807": 1
+      }
+    },
+    {
+      "action_state_id": "103",
+      "action_name": "连续上捞",
+      "motion": "plw_InsectGlaive_100_103",
+      "temporal_event_counts": {
+        "4064984930": 2,
+        "4196403743": 2,
+        "654623935": 1,
+        "106259332": 1,
+        "361976685": 4,
+        "2702726931": 1,
+        "1932771116": 2,
+        "1737389684": 1,
+        "3777612407": 1,
+        "4125384236": 2,
+        "3267804589": 1,
+        "3239034807": 3,
+        "2231624382": 1,
+        "1637161304": 2,
+        "3728057592": 2,
+        "1707236307": 1,
+        "1929659305": 1,
+        "2634221614": 1,
+        "2037497988": 1
+      }
+    },
+    {
+      "action_state_id": "155",
+      "action_name": "向前起跳（白灯）",
+      "motion": "plw_InsectGlaive_100_155",
+      "temporal_event_counts": {
+        "4196403743": 4,
+        "106259332": 2,
+        "3887460649": 2,
+        "3239034807": 2,
+        "361976685": 4,
+        "1637161304": 2,
+        "3728057592": 2,
+        "1737389684": 2,
+        "1929659305": 2,
+        "3777612407": 2,
+        "1435167447": 2,
+        "2634221614": 1,
+        "3492000509": 2,
+        "3014295296": 2,
+        "4125384236": 2,
+        "3520842405": 2,
+        "3094158795": 2
+      }
+    },
+    {
+      "action_state_id": "156",
+      "action_name": "向前起跳后段（白灯）",
+      "motion": "plw_InsectGlaive_100_156",
+      "temporal_event_counts": {
+        "3275147427": 2,
+        "4196403743": 2,
+        "230348079": 2,
+        "2010613139": 2,
+        "361976685": 6,
+        "106259332": 2,
+        "4064984930": 2,
+        "4125384236": 2,
+        "1737389684": 2,
+        "1929659305": 2,
+        "1942118895": 2,
+        "3777612407": 2,
+        "2640762921": 2,
+        "3587601987": 2,
+        "2634221614": 1,
+        "3446978295": 1
+      }
+    },
+    {
+      "action_state_id": "186",
+      "action_name": "空中操虫斩",
+      "motion": "plw_InsectGlaive_100_186",
+      "temporal_event_counts": {
+        "4196403743": 5,
+        "4125384236": 10,
+        "3777612407": 5,
+        "106259332": 5,
+        "793527579": 5,
+        "361976685": 10,
+        "210270112": 5,
+        "938078130": 5,
+        "1929659305": 4,
+        "3520842405": 5,
+        "1637161304": 5,
+        "3728057592": 5,
+        "3451389755": 1,
+        "1039238594": 1,
+        "2218406790": 2,
+        "931779652": 1,
+        "2702126518": 1
+      }
+    },
+    {
+      "action_state_id": "187",
+      "action_name": "操虫斩前冲动作",
+      "motion": "plw_InsectGlaive_100_187",
+      "temporal_event_counts": {
+        "1435167447": 4,
+        "4196403743": 3,
+        "4064984930": 1,
+        "3451389755": 3,
+        "1932771116": 4,
+        "3041892567": 4,
+        "2640762921": 4,
+        "2702126518": 1
+      }
+    },
+    {
+      "action_state_id": "188",
+      "action_name": "操虫斩结束",
+      "motion": "plw_InsectGlaive_100_188",
+      "temporal_event_counts": {
+        "361976685": 1,
+        "1932771116": 1,
+        "3041892567": 1,
+        "2640762921": 1
+      }
+    },
+    {
+      "action_state_id": "189",
+      "action_name": "操虫斩/觉虫击命中进入舞踏",
+      "motion": "plw_InsectGlaive_100_189",
+      "temporal_event_counts": {
+        "361976685": 16,
+        "210270112": 5,
+        "3041892567": 6,
+        "3239034807": 5,
+        "4196403743": 5,
+        "2640762921": 3,
+        "4125384236": 10,
+        "539819764": 10,
+        "1637161304": 5,
+        "3728057592": 5,
+        "1932771116": 5,
+        "2231624382": 5,
+        "3777612407": 5,
+        "1818491039": 5,
+        "25934417": 5,
+        "3943085292": 4,
+        "1929659305": 5,
+        "938078130": 5,
+        "2634221614": 6,
+        "3587601987": 2,
+        "2218406790": 6,
+        "3520842405": 1,
+        "4291172296": 1,
+        "2601079534": 1,
+        "3910122948": 1,
+        "3794907703": 1,
+        "1891767172": 1,
+        "2702126518": 2,
+        "931779652": 5,
+        "4109657175": 1,
+        "2690231236": 1
+      }
+    },
+    {
+      "action_state_id": "137",
+      "action_name": "空中回避",
+      "motion": "plw_InsectGlaive_100_137",
+      "temporal_event_counts": {
+        "3275147427": 1,
+        "3777612407": 1,
+        "2010613139": 1,
+        "421813840": 1,
+        "4125384236": 1,
+        "938078130": 1,
+        "361976685": 2,
+        "1942118895": 1,
+        "2037497988": 1,
+        "2640762921": 1,
+        "3587601987": 1
+      }
+    },
+    {
+      "action_state_id": "200",
+      "action_name": "强化操虫穿刺",
+      "motion": "plw_InsectGlaive_100_200",
+      "temporal_event_counts": {
+        "3492000509": 2,
+        "2037497988": 2,
+        "4125384236": 6,
+        "3777612407": 2,
+        "210270112": 4,
+        "4196403743": 2,
+        "361976685": 2,
+        "931779652": 1,
+        "2218406790": 2,
+        "3520842405": 2
+      }
+    },
+    {
+      "action_state_id": "201",
+      "action_name": "强化操虫穿刺过程",
+      "motion": "plw_InsectGlaive_100_201",
+      "temporal_event_counts": {
+        "361976685": 2,
+        "210270112": 2,
+        "1392529433": 2,
+        "4125384236": 2,
+        "4196403743": 2,
+        "1932771116": 4,
+        "1707236307": 2,
+        "417732399": 1,
+        "2218406790": 1
+      }
+    },
+    {
+      "action_state_id": "203",
+      "action_name": "强化操虫穿刺落地攻击",
+      "motion": "plw_InsectGlaive_100_203",
+      "temporal_event_counts": {
+        "1929659305": 2,
+        "4125384236": 8,
+        "210270112": 6,
+        "2231624382": 2,
+        "1818491039": 2,
+        "361976685": 2,
+        "1932771116": 2,
+        "4196403743": 4,
+        "3239034807": 2,
+        "1637161304": 2,
+        "3728057592": 2,
+        "2634221614": 2,
+        "2702126518": 2,
+        "931779652": 6,
+        "686028896": 1,
+        "2218406790": 2
+      }
+    },
+    {
+      "action_state_id": "305",
+      "action_name": "强化横扫接上捞",
+      "motion": "plw_InsectGlaive_100_305",
+      "temporal_event_counts": {
+        "4196403743": 2,
+        "2231624382": 2,
+        "2690231236": 1,
+        "1932771116": 1,
+        "3267804589": 2,
+        "361976685": 4,
+        "106259332": 2,
+        "2218406790": 1,
+        "3239034807": 2,
+        "1737389684": 2,
+        "1637161304": 2,
+        "3728057592": 2,
+        "417732399": 2,
+        "4125384236": 1,
+        "3777612407": 1,
+        "3794907703": 1,
+        "2634221614": 1
+      }
+    }
+  ],
+  "previews": [
+    {
+      "event_id": 3777612407,
+      "calls": 102,
+      "banks": [
+        "pl_prop.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        251214686,
+        730336253,
+        835957737
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/pl_prop-0924-event {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_prop-0924-event {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3777612407-77b3d9e6.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.5023333333333333,
+      "peak": 5894,
+      "rms_dbfs": -34.924461788322866,
+      "non_silent": true,
+      "sha256": "449abfe0cf536d6284c212255a9bd6496b8a25f2106146b2f6ec8fb69359b93c",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "会扬起尘土的动作扬起尘土的音效",
+        "project_requirement": "动作/表面表现层，不归入武器挥击或成功命中声",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "449abfe0cf536d6284c212255a9bd6496b8a25f2106146b2f6ec8fb69359b93c",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：会扬起尘土的动作扬起尘土的音效。动作/表面表现层，不归入武器挥击或成功命中声"
+    },
+    {
+      "event_id": 938078130,
+      "calls": 71,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        21258996,
+        355384808,
+        989799126
+      ],
+      "variant_count": 22,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1146-event [1356166406=2016381608] {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1146-event [1356166406=2016381608] {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/938078130-8834ce63.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.575875,
+      "peak": 14954,
+      "rms_dbfs": -39.098234655790954,
+      "non_silent": true,
+      "sha256": "daeb356841da791de8d299091cf163392ab60dd605599e448f40e9f0e204327b",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 4196403743,
+      "calls": 65,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=2066714466]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=2066714466]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        13419104,
+        541848423,
+        664828834
+      ],
+      "variant_count": 3,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1255-event [1356166406=2066714466] {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1255-event [1356166406=2066714466] {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/4196403743-7910eaeb.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.6379166666666667,
+      "peak": 9110,
+      "rms_dbfs": -37.66078387772612,
+      "non_silent": true,
+      "sha256": "e5e75394a337f3027a3340c84ebf495f2fb3703adca5cf4967043ef2844fa6b1",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 2231624382,
+      "calls": 55,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        382899548
+      ],
+      "variant_count": 22,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1189-event [1356166406=2016381608].txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1189-event [1356166406=2016381608].txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/2231624382-b15f2e5f.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.6164583333333333,
+      "peak": 12741,
+      "rms_dbfs": -27.862500892509466,
+      "non_silent": true,
+      "sha256": "f7f7452463ed3edb49787165614ae545ab85916d240009534c31b8259aa7dc4b",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "一种挥击音效",
+        "project_requirement": "保留独立候选，具体招式/挥击时机在M2/M3匹配",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "f7f7452463ed3edb49787165614ae545ab85916d240009534c31b8259aa7dc4b",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：一种挥击音效。保留独立候选，具体招式/挥击时机在M2/M3匹配"
+    },
+    {
+      "event_id": 1932771116,
+      "calls": 50,
+      "banks": [
+        "hit_pl.bnk"
+      ],
+      "conditions": [
+        "[3805839008=1804647490]",
+        "[2207689817=1598067397]",
+        "[3914809010=783990390]",
+        "{s}=(200845913=1160234136)"
+      ],
+      "media_ids": [
+        17482468,
+        42625207,
+        50573187,
+        422544591
+      ],
+      "variant_count": 12,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_131457_01/Events/Filtered-1792303257880834900/hit_pl-1239-event [3805839008=1804~0004.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/hit_pl-1239-event [3805839008=1804~0004.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/1932771116-99b65597.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.7093333333333334,
+      "peak": 25979,
+      "rms_dbfs": -18.08506563400371,
+      "non_silent": true,
+      "sha256": "fa7f4d72d0986846edd31d51974ca3467d5244ca69ff3aad4563764866972969",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "gamesync_conditions": [
+        "[3805839008=1804647490]",
+        "[2207689817=1598067397]",
+        "[3914809010=783990390]"
+      ],
+      "state_conditions": [
+        "{s}=(200845913=1160234136)"
+      ],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "txtp_header"
+      },
+      "preserved_candidate_from": "mhrise_20261018_131457_01",
+      "review_note": "用户确认：击中音效。作为真实命中声试点；不能在空挥或仅开碰撞窗时播放",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "击中音效",
+        "project_requirement": "作为真实命中声试点；不能在空挥或仅开碰撞窗时播放",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "fa7f4d72d0986846edd31d51974ca3467d5244ca69ff3aad4563764866972969",
+        "runtime_switch_confirmed": false
+      }
+    },
+    {
+      "event_id": 2702726931,
+      "calls": 44,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        144760357,
+        575775296
+      ],
+      "variant_count": 22,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1202-event [1356166406=2016381608] {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1202-event [1356166406=2016381608] {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/2702726931-da0da741.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.5904375,
+      "peak": 12505,
+      "rms_dbfs": -26.731018252861215,
+      "non_silent": true,
+      "sha256": "58b4e3179baa273fdfb458f52a8bbf6c5b688553274a6773747e0e172200b627",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "一种挥击音效",
+        "project_requirement": "保留独立候选，不按一次伤害判定自动叠播全部挥击声",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "58b4e3179baa273fdfb458f52a8bbf6c5b688553274a6773747e0e172200b627",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：一种挥击音效。保留独立候选，不按一次伤害判定自动叠播全部挥击声"
+    },
+    {
+      "event_id": 1707236307,
+      "calls": 43,
+      "banks": [
+        "pl_wp_com.bnk"
+      ],
+      "conditions": [
+        "[1478673148=122593115]"
+      ],
+      "gamesync_conditions": [
+        "[1478673148=122593115]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        11225868,
+        21872897
+      ],
+      "variant_count": 5,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/pl_wp_com-0259-event [1478673148=122593115] {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_com-0259-event [1478673148=122593115] {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/1707236307-2bee4b1f.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.88025,
+      "peak": 7839,
+      "rms_dbfs": -33.49394890656378,
+      "non_silent": true,
+      "sha256": "c7ac6fd910db7f85a132be1b12e11f565e326696f48453586db8f6bcd2c70cd1",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "落地动作及扬起水花的音效，含动作中的小幅离地再落地",
+        "project_requirement": "属动作/表面层，不把它作为武器风声或击中声；适用干地/水面变体仍需配置依据",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "c7ac6fd910db7f85a132be1b12e11f565e326696f48453586db8f6bcd2c70cd1",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：落地动作及扬起水花的音效，含动作中的小幅离地再落地。属动作/表面层，不把它作为武器风声或击中声；适用干地/水面变体仍需配置依据"
+    },
+    {
+      "event_id": 2037497988,
+      "calls": 41,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        770763024
+      ],
+      "variant_count": 5,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1185-event [1356166406=2016381608].txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1185-event [1356166406=2016381608].txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/2037497988-349cdc84.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.6312291666666666,
+      "peak": 8757,
+      "rms_dbfs": -29.162918998101052,
+      "non_silent": true,
+      "sha256": "4b2c0f874467344d745855ab7205cdb499139b872b307004c432acd5f00316ee",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "一种挥击音效",
+        "project_requirement": "保留独立候选，未强行绑定具体招式",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "4b2c0f874467344d745855ab7205cdb499139b872b307004c432acd5f00316ee",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：一种挥击音效。保留独立候选，未强行绑定具体招式"
+    },
+    {
+      "event_id": 421813840,
+      "calls": 37,
+      "banks": [
+        "pl_prop.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        127894183,
+        1001420604
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/pl_prop-0624-event {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_prop-0624-event {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/421813840-ad838893.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.6120833333333333,
+      "peak": 2818,
+      "rms_dbfs": -42.03979858543116,
+      "non_silent": true,
+      "sha256": "e5f719ee4f50d812a48f88459339f808f4deede7bc36fc776468e49e2e425f7f",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 1737389684,
+      "calls": 36,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        853076841
+      ],
+      "variant_count": 22,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1175-event [1356166406=2016381608].txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1175-event [1356166406=2016381608].txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/1737389684-9d622a4b.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.238125,
+      "peak": 9733,
+      "rms_dbfs": -34.17911240984134,
+      "non_silent": true,
+      "sha256": "f2f9d46140daaba2a3743a80267f4537d6d1b61010d5f489bf4e0fea2f060e56",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 106259332,
+      "calls": 32,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        50108006
+      ],
+      "variant_count": 22,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1105-event [1356166406=2016381608].txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1105-event [1356166406=2016381608].txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/106259332-cae3a419.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.6308958333333333,
+      "peak": 8757,
+      "rms_dbfs": -29.160617880733696,
+      "non_silent": true,
+      "sha256": "f5c46584b16c8cf69c5a29925490912f63ab2bc7e66d08641405b90ef6d88908",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "一种挥击音效",
+        "project_requirement": "保留独立候选，未强行绑定具体招式",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "f5c46584b16c8cf69c5a29925490912f63ab2bc7e66d08641405b90ef6d88908",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：一种挥击音效。保留独立候选，未强行绑定具体招式"
+    },
+    {
+      "event_id": 2304525234,
+      "calls": 24,
+      "banks": [
+        "pl_prop.bnk"
+      ],
+      "conditions": [
+        "[1461895317=118407362]"
+      ],
+      "gamesync_conditions": [
+        "[1461895317=118407362]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        35465991,
+        472632814
+      ],
+      "variant_count": 58,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/pl_prop-0788-event [1461895317=118407362] {r} {d}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_prop-0788-event [1461895317=118407362] {r} {d}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/2304525234-e232c5cc.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.39545833333333336,
+      "peak": 21753,
+      "rms_dbfs": -19.680981080244603,
+      "non_silent": true,
+      "sha256": "acf0ac6e88d0e4820b0a1d81c0f10f52b78df2373f94da20a0ace7449a46eb45",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "落地音效",
+        "project_requirement": "与真实落地/动作中的着地时机匹配，不按每次伤害结算播放",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "acf0ac6e88d0e4820b0a1d81c0f10f52b78df2373f94da20a0ace7449a46eb45",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：落地音效。与真实落地/动作中的着地时机匹配，不按每次伤害结算播放"
+    },
+    {
+      "event_id": 210270112,
+      "calls": 22,
+      "banks": [
+        "pl_prop.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        37262121,
+        374064495,
+        627266340
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/pl_prop-0592-event {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_prop-0592-event {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/210270112-52fbff3c.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.526125,
+      "peak": 5336,
+      "rms_dbfs": -35.84818126251849,
+      "non_silent": true,
+      "sha256": "4a582a589149cef8df52013d82e54a27f24f437a03c4d124db0fc10edbfcfb44",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 1392529433,
+      "calls": 17,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        355219293,
+        1017356235
+      ],
+      "variant_count": 22,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1165-event [1356166406=2016381608] {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1165-event [1356166406=2016381608] {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/1392529433-d16bbbbd.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.35083333333333333,
+      "peak": 3784,
+      "rms_dbfs": -36.77955761517899,
+      "non_silent": true,
+      "sha256": "9847329877708a8f0002fe2048ffb8f94fcc04982dae1dbcd3fc1e66443aa991",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "挥击音效",
+        "project_requirement": "保留独立候选，未强行绑定具体招式",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "9847329877708a8f0002fe2048ffb8f94fcc04982dae1dbcd3fc1e66443aa991",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：挥击音效。保留独立候选，未强行绑定具体招式"
+    },
+    {
+      "event_id": 2640762921,
+      "calls": 15,
+      "banks": [
+        "pl_wp_ig_ins_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=1362708624]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=1362708624]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        122012076
+      ],
+      "variant_count": 6,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_ig_ins_com-0068-event [1356166406=1362708624].txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_ig_ins_com-0068-event [1356166406=1362708624].txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/2640762921-f25eaed5.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.735875,
+      "peak": 2847,
+      "rms_dbfs": -46.72909752203129,
+      "non_silent": true,
+      "sha256": "54840e1b2f933e877c223f85e4e7231bc2efe02d536520e9026629591d27ab35",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 230348079,
+      "calls": 14,
+      "banks": [
+        "pl_prop.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        384246465,
+        882628686
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/pl_prop-0596-event {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_prop-0596-event {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/230348079-f1ec5e74.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.6372916666666667,
+      "peak": 5226,
+      "rms_dbfs": -38.01686668705471,
+      "non_silent": true,
+      "sha256": "f065407fa0dae3be9d5cb6305a777fbb764a18efda185b108324cbe44c0ec020",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 539819764,
+      "calls": 14,
+      "banks": [
+        "hit_pl.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        106122662,
+        156903600,
+        476602768
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1187-event {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/hit_pl-1187-event {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/539819764-29f4cdf9.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.8597708333333334,
+      "peak": 32768,
+      "rms_dbfs": -18.10302696408225,
+      "non_silent": true,
+      "sha256": "5c103d000f4c978cf6476e8f1dab0731c6f1dc03af7e3f930819f7b374679471",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 1805087271,
+      "calls": 10,
+      "banks": [
+        "pl_wp_ig_ins_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=1362708624]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=1362708624]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        455355568
+      ],
+      "variant_count": 6,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_ig_ins_com-0064-event [1356166406=1362708624].txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_ig_ins_com-0064-event [1356166406=1362708624].txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/1805087271-773fa32e.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.5573333333333332,
+      "peak": 4551,
+      "rms_dbfs": -35.14627053571941,
+      "non_silent": true,
+      "sha256": "a662b154d51cf87cb25c01bb1554acdcc5544f2394889b05e4b83473cb141b44",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 3520842405,
+      "calls": 10,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        414036949
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1227-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1227-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3520842405-632dd415.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.1626666666666667,
+      "peak": 32768,
+      "rms_dbfs": -21.66049659489515,
+      "non_silent": true,
+      "sha256": "19bb39175444ca5878e3f5f60ea9a3c4e96fc632d4f6b3a9e65cc035751aa601",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "空中推进音效，空中几乎所有动作都会有",
+        "project_requirement": "可作为空中推进共享层；不视为单一招式专属，也不无条件铺满整个空中状态",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "19bb39175444ca5878e3f5f60ea9a3c4e96fc632d4f6b3a9e65cc035751aa601",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：空中推进音效，空中几乎所有动作都会有。可作为空中推进共享层；不视为单一招式专属，也不无条件铺满整个空中状态"
+    },
+    {
+      "event_id": 553672341,
+      "calls": 8,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        201021426
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1119-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1119-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/553672341-34225504.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.5143333333333333,
+      "peak": 8227,
+      "rms_dbfs": -27.606491812401465,
+      "non_silent": true,
+      "sha256": "2dd51c687c1129da1e1f0532fd77521eb1a8c73dda42f184d3b9934096ed9aba",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 771629008,
+      "calls": 8,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "gamesync_conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        464379696
+      ],
+      "variant_count": 22,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1132-event [1356166406=2016381608].txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1132-event [1356166406=2016381608].txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/771629008-b6b448b3.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.5855,
+      "peak": 15577,
+      "rms_dbfs": -28.993014856615385,
+      "non_silent": true,
+      "sha256": "eab034d206e4ef3fdfcb358b18e255eccd8af3be35f000e65a9cb908c0d7e040",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 2878059743,
+      "calls": 8,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        497757795
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1207-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1207-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/2878059743-45ade771.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.3653333333333333,
+      "peak": 5237,
+      "rms_dbfs": -33.51639580606397,
+      "non_silent": true,
+      "sha256": "31b705ec9d8495dd698108972048f48e4b49c3053ee6c38656b0da8470534bee",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "操虫动作的武器音效",
+        "project_requirement": "用于操虫动作的武器表现，不与猎虫飞行/命中/精华交付声混为一类",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "31b705ec9d8495dd698108972048f48e4b49c3053ee6c38656b0da8470534bee",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：操虫动作的武器音效。用于操虫动作的武器表现，不与猎虫飞行/命中/精华交付声混为一类"
+    },
+    {
+      "event_id": 3451389755,
+      "calls": 8,
+      "banks": [
+        "hit_pl.bnk"
+      ],
+      "conditions": [
+        "[3805839008=1804647490]",
+        "[2207689817=1598067397]",
+        "[3914809010=1250178345]"
+      ],
+      "gamesync_conditions": [
+        "[3805839008=1804647490]",
+        "[2207689817=1598067397]",
+        "[3914809010=1250178345]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        767878611
+      ],
+      "variant_count": 9,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=1250178345] {d}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=1250178345] {d}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3451389755-e88a0494.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.7855833333333333,
+      "peak": 9034,
+      "rms_dbfs": -30.710249024592265,
+      "non_silent": true,
+      "sha256": "5975da38063a2edc2ff0aa849de8ab56929e11ff0f50f87130920e3e889a5967",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 25934417,
+      "calls": 7,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        957240969
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1103-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1103-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/25934417-a9392259.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.8533333333333334,
+      "peak": 2304,
+      "rms_dbfs": -36.22124998975958,
+      "non_silent": true,
+      "sha256": "a77274797a86bfda212a6f688d60a4ccc9d66016e8896e9541766ca9f8805a5c",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 1435167447,
+      "calls": 6,
+      "banks": [
+        "pl_prop.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        15957289,
+        588315271
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/pl_prop-0712-event {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_prop-0712-event {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/1435167447-e94fe8a6.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.6565208333333333,
+      "peak": 6338,
+      "rms_dbfs": -33.192697900606106,
+      "non_silent": true,
+      "sha256": "00ce653de1d5dc7383f66fb77080869845b0ef6f4d807596c58cf8e97e50c860",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 3587601987,
+      "calls": 5,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        901550269
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1233-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1233-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3587601987-f15cf37f.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.903,
+      "peak": 7156,
+      "rms_dbfs": -29.978175217976876,
+      "non_silent": true,
+      "sha256": "95e8b7b331dea117f2aaa61595b3701eb31f49d4ea26afc516018fca60ce7b14",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 603272525,
+      "calls": 4,
+      "banks": [
+        "pl_wp_ig_ins_com.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        258732258
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_ig_ins_com-0058-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_ig_ins_com-0058-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/603272525-9ae3a866.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.9013333333333333,
+      "peak": 30898,
+      "rms_dbfs": -22.576284114343416,
+      "non_silent": true,
+      "sha256": "dfbe3800f87800560c652006fb7c325c81210cc44f1aa67d9062ef9306d38cbb",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 3014295296,
+      "calls": 4,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        242597053
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1211-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1211-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3014295296-544c7c1a.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.5253333333333333,
+      "peak": 32768,
+      "rms_dbfs": -18.670208421002826,
+      "non_silent": true,
+      "sha256": "982a0d125125a1a1901c05bf7908efc74bdc1fac0216593d8ced259a351d6a44",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "起跳撑杆跳插地音效",
+        "project_requirement": "对应撑杆插地动作节点，不笼统当作落地或武器命中声",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "982a0d125125a1a1901c05bf7908efc74bdc1fac0216593d8ced259a351d6a44",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：起跳撑杆跳插地音效。对应撑杆插地动作节点，不笼统当作落地或武器命中声"
+    },
+    {
+      "event_id": 3971364902,
+      "calls": 4,
+      "banks": [
+        "buff.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        417708818
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/buff-1650-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/buff-1650-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3971364902-6788fdae.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.5603125,
+      "peak": 9933,
+      "rms_dbfs": -29.376792570214615,
+      "non_silent": true,
+      "sha256": "81316ba784edcddc21cdb8a182dfda37161491ffa931ae3246ed044852c8bbdc",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "猎虫回到猎人身上时，将精华给予猎人的音效之一",
+        "project_requirement": "与806767037归为同一交付用途；本项目只需一种，实际只接一条",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "81316ba784edcddc21cdb8a182dfda37161491ffa931ae3246ed044852c8bbdc",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：猎虫回到猎人身上时，将精华给予猎人的音效之一。与806767037归为同一交付用途；本项目只需一种，实际只接一条"
+    },
+    {
+      "event_id": 1942118895,
+      "calls": 3,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[4219787499=2635231058]"
+      ],
+      "gamesync_conditions": [
+        "[4219787499=2635231058]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        25066459
+      ],
+      "variant_count": 10,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1183-event [4219787499=2635231058].txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1183-event [4219787499=2635231058].txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/1942118895-0be545da.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.342,
+      "peak": 4900,
+      "rms_dbfs": -32.45651275476397,
+      "non_silent": true,
+      "sha256": "63987ddabe62cbede9ff7715ec6f8169fc7b8d5c94fbc4f88e688dd58cb810b8",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 761378592,
+      "calls": 2,
+      "banks": [
+        "buff.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        372964782
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/buff-1054-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/buff-1054-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/761378592-a81b1c3e.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 2.183333333333333,
+      "peak": 7787,
+      "rms_dbfs": -32.75654542503241,
+      "non_silent": true,
+      "sha256": "2ab82b10dd237f5ec272a7495e3b95704f8a32a09fee26f2e1a787e3a5bf85cc",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 806767037,
+      "calls": 2,
+      "banks": [
+        "buff.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        971117647
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/buff-1060-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/buff-1060-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/806767037-242707b9.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.749,
+      "peak": 12967,
+      "rms_dbfs": -26.94378860834574,
+      "non_silent": true,
+      "sha256": "1ff68d4ab3dfce2e014012e604359022d7ce97eb9a290975004e67f410b3a607",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+      "semantic_review": {
+        "status": "user_confirmed",
+        "meaning": "猎虫回到猎人身上时，将精华给予猎人的音效之一",
+        "project_requirement": "原作随精华颜色变化；Demo不要求按颜色分别选择，也不与3971364902同时重复播放",
+        "capture": "mhrise_20261018_151536_02",
+        "reviewed_wav_sha256": "1ff68d4ab3dfce2e014012e604359022d7ce97eb9a290975004e67f410b3a607",
+        "runtime_switch_confirmed": false
+      },
+      "review_note": "用户确认：猎虫回到猎人身上时，将精华给予猎人的音效之一。原作随精华颜色变化；Demo不要求按颜色分别选择，也不与3971364902同时重复播放"
+    },
+    {
+      "event_id": 1742629250,
+      "calls": 2,
+      "banks": [
+        "pl_wp_ig_ins_com.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        891503604
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_ig_ins_com-0062-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_ig_ins_com-0062-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/1742629250-9a4d2003.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.7089375,
+      "peak": 11291,
+      "rms_dbfs": -33.422433367096666,
+      "non_silent": true,
+      "sha256": "4ea60d4a49810985445a2689ef5912543d57bfa427476eeac17f4fae77383df7",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 1762027986,
+      "calls": 2,
+      "banks": [
+        "pl_wp_com.bnk"
+      ],
+      "conditions": [
+        "[1478673148=122593115]"
+      ],
+      "gamesync_conditions": [
+        "[1478673148=122593115]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        734450771,
+        930053886
+      ],
+      "variant_count": 2,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_com-0263-event [1478673148=122593115] {r}.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_com-0263-event [1478673148=122593115] {r}.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/1762027986-bd469571.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.5392291666666666,
+      "peak": 26737,
+      "rms_dbfs": -25.701031383789697,
+      "non_silent": true,
+      "sha256": "f668b941f6a9a0c0e444d4dd251a058f58c0474596e6d3683ce783ef3921eccd",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 3094158795,
+      "calls": 2,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [],
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        564510973
+      ],
+      "variant_count": 1,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1215-event.txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1215-event.txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3094158795-5e0fa232.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 1.1866666666666668,
+      "peak": 31213,
+      "rms_dbfs": -23.91516181882093,
+      "non_silent": true,
+      "sha256": "5fd0926a80ca7a96e3aba020959835ac3028d62efb980d5079ae74ffd57b3a3a",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    },
+    {
+      "event_id": 3887460649,
+      "calls": 2,
+      "banks": [
+        "pl_wp_i_gla_com.bnk"
+      ],
+      "conditions": [
+        "[4219787499=2635231058]"
+      ],
+      "gamesync_conditions": [
+        "[4219787499=2635231058]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "media_ids": [
+        905007783
+      ],
+      "variant_count": 10,
+      "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/Events/TXTP-1792246577376857800/pl_wp_i_gla_com-1247-event [4219787499=2635231058].txtp",
+      "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/pl_wp_i_gla_com-1247-event [4219787499=2635231058].txtp",
+      "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3887460649-b0d8c79a.wav",
+      "sample_rate": 48000,
+      "channels": 1,
+      "seconds": 0.270375,
+      "peak": 6521,
+      "rms_dbfs": -32.78901967611371,
+      "non_silent": true,
+      "sha256": "3e96ea23b6d3949222b18639cc88f5f33e9e0be59d94707eabe077e1883c2a4d",
+      "branch_selection": "offline_candidate_NOT_runtime_selected_branch"
+    }
+  ],
+  "unresolved": [
+    {
+      "event_id": 3275147427,
+      "reason": "no_renderable_txtp_from_wwiser",
+      "actions": [
+        {
+          "bank": "pl_wp_i_gla_com.bnk",
+          "role": "weapon_or_kinsect",
+          "playable_action": true,
+          "actions": [
+            {
+              "bank": "pl_wp_i_gla_com.bnk",
+              "id": 849992142,
+              "type": "CAkActionPlay",
+              "action_type": "0x0403 [Play]",
+              "action_code": 1027,
+              "actions": [],
+              "targets": [
+                1049117438
+              ],
+              "media_ids": []
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "comparisons": [
+    {
+      "event_id": 3451389755,
+      "condition_combinations": 9,
+      "groups": [
+        {
+          "group": 1,
+          "combinations": [
+            {
+              "source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=1250178345] {d}.txtp",
+              "source_sha256": "e88a04943899db83cdfd96d11a323cba2f1522a5ff80562a4241d724ab9852cd",
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1250178345]"
+              ],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              }
+            },
+            {
+              "source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=3042021448] [3914809010=1250178345] {d}.txtp",
+              "source_sha256": "e4537b4c35c0f24d53429ddbc8c8f9d5ffb077e832c856a33811d0a2837369ee",
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=3042021448]",
+                "[3914809010=1250178345]"
+              ],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              }
+            }
+          ],
+          "candidate_media_ids": [
+            767878611
+          ],
+          "explicit_silence": false,
+          "previews": [
+            {
+              "event_id": 3451389755,
+              "calls": 8,
+              "banks": [
+                "hit_pl.bnk"
+              ],
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1250178345]"
+              ],
+              "gamesync_conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1250178345]"
+              ],
+              "state_conditions": [],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              },
+              "media_ids": [
+                767878611
+              ],
+              "variant_count": 9,
+              "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=1250178345] {d}.txtp",
+              "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=1250178345] {d}.txtp",
+              "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3451389755-e88a0494.wav",
+              "sample_rate": 48000,
+              "channels": 1,
+              "seconds": 0.7855833333333333,
+              "peak": 9034,
+              "rms_dbfs": -30.710249024592265,
+              "non_silent": true,
+              "sha256": "5975da38063a2edc2ff0aa849de8ab56929e11ff0f50f87130920e3e889a5967",
+              "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+              "reused_original_preview": true
+            }
+          ]
+        },
+        {
+          "group": 2,
+          "combinations": [
+            {
+              "source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=1342253266] {r} {d}.txtp",
+              "source_sha256": "804b8f68ee454d73adf749768cf31d185bad946fb70b1c7ca6ad58db1e1e2a81",
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1342253266]"
+              ],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              }
+            },
+            {
+              "source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=336035894] {r} {d}.txtp",
+              "source_sha256": "d272412ddff655bc6576d8fdae50d07b09ffcc9353763898b213b5e6135ee62e",
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=336035894]"
+              ],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              }
+            },
+            {
+              "source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=783990390] {r}.txtp",
+              "source_sha256": "da02aecce01b4b0dc23f9ab9c90b4972af3569de3bffc1fc63d21d9701b7d4d5",
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=783990390]"
+              ],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              }
+            },
+            {
+              "source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=3042021448] [3914809010=1342253266] {r} {d}.txtp",
+              "source_sha256": "0618e6f01fb37485ac495e8605b0fd5c200ee5461df6463f8fff7d5e16a59385",
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=3042021448]",
+                "[3914809010=1342253266]"
+              ],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              }
+            },
+            {
+              "source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=3042021448] [3914809010=336035894] {r} {d}.txtp",
+              "source_sha256": "34ce103e8d01f071595d5454ee5e6646fee2725cf75e465a7cc56f86ad97d745",
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=3042021448]",
+                "[3914809010=336035894]"
+              ],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              }
+            },
+            {
+              "source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=3042021448] [3914809010=783990390] {r} {d}.txtp",
+              "source_sha256": "5745057d4b62c1eea3e3ea5d3126d6a4d45fa2f4d2fd813e3fd5c47cc35d28e4",
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=3042021448]",
+                "[3914809010=783990390]"
+              ],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              }
+            }
+          ],
+          "candidate_media_ids": [
+            58439353,
+            69492932,
+            135684123
+          ],
+          "explicit_silence": false,
+          "previews": [
+            {
+              "event_id": 3451389755,
+              "calls": 8,
+              "banks": [
+                "hit_pl.bnk"
+              ],
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1342253266]"
+              ],
+              "gamesync_conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1342253266]"
+              ],
+              "state_conditions": [],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              },
+              "media_ids": [
+                58439353,
+                69492932,
+                135684123
+              ],
+              "variant_count": 6,
+              "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/ComparisonInput/event-3451389755-group-2-choice-1.txtp",
+              "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/event-3451389755-group-2-choice-1.txtp",
+              "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3451389755-804b8f68.wav",
+              "sample_rate": 48000,
+              "channels": 1,
+              "seconds": 0.5334375,
+              "peak": 10831,
+              "rms_dbfs": -26.277412735601406,
+              "non_silent": true,
+              "sha256": "1b99da536634e2c0489eab6cc337759a93a01a2db8e83c4a90ac9a2bbccfadbb",
+              "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+              "selection": 1,
+              "selected_media_id": 58439353,
+              "comparison_source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=1342253266] {r} {d}.txtp"
+            },
+            {
+              "event_id": 3451389755,
+              "calls": 8,
+              "banks": [
+                "hit_pl.bnk"
+              ],
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1342253266]"
+              ],
+              "gamesync_conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1342253266]"
+              ],
+              "state_conditions": [],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              },
+              "media_ids": [
+                58439353,
+                69492932,
+                135684123
+              ],
+              "variant_count": 6,
+              "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/ComparisonInput/event-3451389755-group-2-choice-2.txtp",
+              "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/event-3451389755-group-2-choice-2.txtp",
+              "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3451389755-705d6ff3.wav",
+              "sample_rate": 48000,
+              "channels": 1,
+              "seconds": 0.576,
+              "peak": 10523,
+              "rms_dbfs": -25.85679524074388,
+              "non_silent": true,
+              "sha256": "00e4276cc1887b7fe4dc869041daac2831f34403554bf404cdcd42fa58de9beb",
+              "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+              "selection": 2,
+              "selected_media_id": 69492932,
+              "comparison_source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=1342253266] {r} {d}.txtp"
+            },
+            {
+              "event_id": 3451389755,
+              "calls": 8,
+              "banks": [
+                "hit_pl.bnk"
+              ],
+              "conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1342253266]"
+              ],
+              "gamesync_conditions": [
+                "[3805839008=1804647490]",
+                "[2207689817=1598067397]",
+                "[3914809010=1342253266]"
+              ],
+              "state_conditions": [],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              },
+              "media_ids": [
+                58439353,
+                69492932,
+                135684123
+              ],
+              "variant_count": 6,
+              "original_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/ComparisonInput/event-3451389755-group-2-choice-3.txtp",
+              "selected_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Selected/event-3451389755-group-2-choice-3.txtp",
+              "wav": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Preview/3451389755-b9976957.wav",
+              "sample_rate": 48000,
+              "channels": 1,
+              "seconds": 0.462875,
+              "peak": 11664,
+              "rms_dbfs": -26.740416285593614,
+              "non_silent": true,
+              "sha256": "d453de57797e75b751bda5693d569e752ed6c66f1c37a48b36e1703cc335a39c",
+              "branch_selection": "offline_candidate_NOT_runtime_selected_branch",
+              "selection": 3,
+              "selected_media_id": 135684123,
+              "comparison_source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=1804647490] [2207689817=1598067397] [3914809010=1342253266] {r} {d}.txtp"
+            }
+          ]
+        },
+        {
+          "group": 3,
+          "combinations": [
+            {
+              "source_txtp": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Events/Filtered-1792308172037080300/hit_pl-1309-event [3805839008=3335887372] {d}.txtp",
+              "source_sha256": "dcffb1f30731ba9600dbac0c5e6a6fb29e5a46cbe7775110d653ab1e74d28c56",
+              "conditions": [
+                "[3805839008=3335887372]"
+              ],
+              "condition_sources": {
+                "gamesyncs": "txtp_header",
+                "statechunks": "filename_fallback"
+              }
+            }
+          ],
+          "candidate_media_ids": [
+            207527921
+          ],
+          "explicit_silence": true,
+          "previews": [],
+          "note": "explicit wwiser silence-plugin branch; no silent WAV generated"
+        }
+      ],
+      "bank_copies": [
+        {
+          "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_pl_media.bnk.2.X64",
+          "copy": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/Banks/hit_pl_media.bnk",
+          "sha256": "6c17ee6239f28ca05940ef22b717b146bc763af7f5cfcdcf58aa52ba4fad5c76"
+        }
+      ],
+      "extracted_media": [],
+      "runtime_selection_known": false,
+      "added_previews": 3
+    }
+  ],
+  "metadata_refresh": null,
+  "user_review": {
+    "scope": "E1_minimum_selection_only",
+    "status": "accepted",
+    "confirmed_event_ids": [
+      1932771116,
+      3777612407,
+      2231624382,
+      2702726931,
+      1707236307,
+      2037497988,
+      106259332,
+      2304525234,
+      1392529433,
+      3520842405,
+      2878059743,
+      3014295296,
+      3971364902,
+      806767037
+    ],
+    "all_candidates_classified": false,
+    "all_condition_branches_confirmed": false,
+    "notify_frames_confirmed": false,
+    "essence_delivery": {
+      "candidate_event_ids": [
+        3971364902,
+        806767037
+      ],
+      "required_sound_count": 1,
+      "selected_event_id": null
+    },
+    "m2_started": false,
+    "m2_pie_accepted": false
+  },
+  "local_evidence": {
+    "map": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/map.json",
+    "audition": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/audition.json",
+    "page": "D:/study/MH/MHGZ/Saved/Audio/RiseIG/CaptureMap/mhrise_20261018_151536_02/index.html"
+  },
+  "limits": [
+    "post requests, not audible success",
+    "temporal context is not actor ownership",
+    "no selected Switch/State/random branch was captured",
+    "no exact Notify frame claim",
+    "local absolute paths require regeneration on another machine",
+    "metadata only; no audio or raw capture rows in this reference"
+  ],
+  "ue_imported": false,
+  "listening_accepted": true
+}

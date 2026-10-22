@@ -24,6 +24,7 @@
 #include "ActionSystem/MHGZHitStopControllerComponent.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
+#include "ActionSystem/MHGZDodgeAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "MHGZPlayerController.h"
 #include "UI/MHGZHUD.h"
@@ -742,6 +743,13 @@ void AMHGZCharacter::DoMove(float Right, float Forward)
 {
 	RawMoveInput = FVector2D(Right, Forward);
 	if (!Controller) return;
+	if (UMHGZDodgeAbility* Recovery =
+		UMHGZDodgeAbility::FindOpenDirectionalRecovery(GetAbilitySystemComponent()))
+	{
+		// Read the newly written raw axis before the recovery's BlockMovement can
+		// suppress locomotion intent. Core and both forward variants never qualify.
+		Recovery->TryCompleteDirectionalRecoveryForMovement();
+	}
 
 	// 1. 计算世界方向 + 存储 LastMovementInputDir。缓存故意保留最后有效方向；
 	//    输入快照必须从 RawMoveInput 重新计算，不能读取这个缓存。

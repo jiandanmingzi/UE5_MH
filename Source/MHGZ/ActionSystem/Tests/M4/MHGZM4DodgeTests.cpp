@@ -10,8 +10,10 @@
 #include "ActionSystem/MHGZWeaponComboData.h"
 #include "Animation/AnimMontage.h"
 #include "Components/CapsuleComponent.h"
+#include "UObject/UnrealType.h"
 #include "../Shared/MHGZM3TestHarness.h"
 #include "../Shared/MHGZM4TestTypes.h"
+#include "../Shared/MHGZDodgeTestHarness.h"
 
 namespace
 {
@@ -97,7 +99,7 @@ bool FMHGZM4DodgeMovementPhases::RunTest(const FString& Parameters)
 	UMHGZM4TestDodgeAbility* Dodge = GetActiveInstance<UMHGZM4TestDodgeAbility>(
 		*H.ASC, DodgeHandle);
 	TestNotNull(TEXT("dodge instance exists"), Dodge);
-	TestEqual(TEXT("dodge owns the action lock for its whole action"),
+	TestEqual(TEXT("dodge owns the action lock throughout Core"),
 		H.ASC->GetTagCount(Dodging), 1);
 	TestEqual(TEXT("DodgeCore owns one movement lock"),
 		H.ASC->GetTagCount(BlockMovement), 1);
@@ -146,12 +148,12 @@ bool FMHGZM4DodgeMovementPhases::RunTest(const FString& Parameters)
 		TestEqual(TEXT("live input at the Core boundary selects MoveExit"),
 			Dodge->GetLastJumpedSectionForTest(), FName(TEXT("MoveExit")));
 		Dodge->EnterDodgeSectionForTest(FName(TEXT("MoveExit")));
-		TestEqual(TEXT("MoveExit entry releases only the movement lock"),
+		TestEqual(TEXT("MoveExit entry releases the movement lock"),
 			H.ASC->GetTagCount(BlockMovement), 0);
 		TestEqual(TEXT("steering phase has no movement lock"),
 			H.ASC->GetTagCount(BlockMovement), 0);
-		TestEqual(TEXT("steering phase retains Dodging"),
-			H.ASC->GetTagCount(Dodging), 1);
+		TestEqual(TEXT("steering phase opens action recovery"),
+			H.ASC->GetTagCount(Dodging), 0);
 		TestTrue(TEXT("steering phase retains montage root motion"),
 			H.Host->IsMontageRootMotionOwned());
 		TestEqual(TEXT("phase is SteeringRootMotion"), Dodge->GetMovementPhase(),
@@ -171,8 +173,8 @@ bool FMHGZM4DodgeMovementPhases::RunTest(const FString& Parameters)
 			EMHGZDodgeMovementPhase::MotionMatching);
 		TestFalse(TEXT("blend out releases only montage root motion"),
 			H.Host->IsMontageRootMotionOwned());
-		TestEqual(TEXT("blend out still owns Dodging"),
-			H.ASC->GetTagCount(Dodging), 1);
+		TestEqual(TEXT("blend out does not reacquire the action lock"),
+			H.ASC->GetTagCount(Dodging), 0);
 		Dodge->ExpireMontageEndFailsafeForTest();
 	}
 	TestEqual(TEXT("normal-blend failsafe releases Invincible"),
@@ -539,6 +541,7 @@ bool FMHGZM4DodgeDirectionalSelection::RunTest(const FString& Parameters)
 		Input.ResolvedInputTag = M3::Tag(TEXT("Input.Dodge"));
 		Input.Direction = Direction;
 		Input.SequenceID = SequenceID++;
+		TestNotNull(TEXT("directional selection starts from a windowed attack"), M4Dodge::StartCancelableAttack(H));
 		TestTrue(FString::Printf(TEXT("unsheathed %s dodge activates"), *Label),
 			H.TryActivateWithInput(DodgeHandle, Input));
 
@@ -593,6 +596,129 @@ bool FMHGZM4DodgeDirectionalSelection::RunTest(const FString& Parameters)
 		FName(TEXT("M4BackDodge")), TEXT("Back"));
 
 	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZDirectionalDodgeAttackGate,
+	"MHGZ.M4.Dodge.DirectionalRequiresLiveAttackingAndExactWindow",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZDirectionalDodgeAttackGate::RunTest(const FString&)
+{
+	for (auto Direction : { EDirectionalInput::Left, EDirectionalInput::Right, EDirectionalInput::Back })
+	{
+		FMHGZM3Harness H;
+		if (!H.Setup()) { H.Teardown(); return false; }
+		H.Host->SetSheathed(false);
+		H.GiveAbility(UMHGZM4TestDodgeAbility::StaticClass());
+		auto Input = M3::MakePosedInput(true, false);
+		Input.ResolvedInputTag = M3::Tag(TEXT("Input.Dodge"));
+		Input.SourceControlTag = Input.ResolvedInputTag;
+		Input.Direction = Direction;
+		TestFalse(TEXT("Idle/locomotion cannot start a directional roll"), H.ASC->TryActivateDirectInput(Input));
+		Input.ContextTags.AddTag(M3::Tag(TEXT("Combat.State.Attacking")));
+		TestFalse(TEXT("stale snapshot Attacking cannot replace live state"), H.ASC->TryActivateDirectInput(Input));
+		TestFalse(TEXT("rejection acquires no root owner"), H.Host->IsMontageRootMotionOwned());
+		TestFalse(TEXT("rejection acquires no movement lock"), H.ASC->HasMatchingGameplayTag(M3::Tag(TEXT("Combat.State.BlockMovement"))));
+		const auto Handle = H.ASC->FindAbilitySpecFromClass(UMHGZM4TestDodgeAbility::StaticClass())->Handle;
+		TestNull(TEXT("rejected direct input leaves no pending context"), H.ASC->FindPendingActivationContext(Handle));
+		auto* Attack = M4Dodge::StartCancelableAttack(H, false);
+		if (!TestNotNull(TEXT("real source is Attacking"), Attack)) { H.Teardown(); return false; }
+		TestFalse(TEXT("Attacking alone does not bypass the cancel window"), H.ASC->TryActivateDirectInput(Input));
+		TestTrue(TEXT("source stays active on rejection"), Attack->IsActive());
+		TestTrue(TEXT("exact cancel window opens"), Attack->BeginDodgeAcceptWindow(TEXT("DirectionalGateAccept")));
+		TestTrue(TEXT("Attacking plus exact window permits directional dodge"), H.ASC->TryActivateDirectInput(Input));
+		TestEqual(TEXT("accepted dodge supersedes old attack"), Attack->GetActionEndReason(), EWeaponActionEndReason::Superseded);
+		H.Teardown();
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZDodgeConfigurableAttackRequirements,
+	"MHGZ.M4.Dodge.BlueprintConfigurableAttackRequirements",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZDodgeConfigurableAttackRequirements::RunTest(const FString&)
+{
+	const auto* Defaults = GetDefault<UMHGZDodgeAbility>();
+	TestFalse(TEXT("Forward defaults to no attack requirement"), Defaults->bForwardDodgeRequiresAttacking);
+	TestTrue(TEXT("Left defaults to requiring attack"), Defaults->bLeftDodgeRequiresAttacking);
+	TestTrue(TEXT("Right defaults to requiring attack"), Defaults->bRightDodgeRequiresAttacking);
+	TestTrue(TEXT("Back defaults to requiring attack"), Defaults->bBackDodgeRequiresAttacking);
+	for (const FName PropertyName : {
+		GET_MEMBER_NAME_CHECKED(UMHGZDodgeAbility, bForwardDodgeRequiresAttacking),
+		GET_MEMBER_NAME_CHECKED(UMHGZDodgeAbility, bLeftDodgeRequiresAttacking),
+		GET_MEMBER_NAME_CHECKED(UMHGZDodgeAbility, bRightDodgeRequiresAttacking),
+		GET_MEMBER_NAME_CHECKED(UMHGZDodgeAbility, bBackDodgeRequiresAttacking) })
+	{
+		const FProperty* Property = FindFProperty<FProperty>(UMHGZDodgeAbility::StaticClass(), PropertyName);
+		TestTrue(TEXT("Requirement is editable in Blueprint class defaults"), Property
+			&& Property->HasAllPropertyFlags(CPF_Edit | CPF_DisableEditOnInstance | CPF_BlueprintVisible));
+	}
+
+	// Modify only the disposable native test class defaults; restore on every exit.
+	auto* TestDefaults = GetMutableDefault<UMHGZM4TestDodgeAbility>();
+	TGuardValue<bool> ForwardGuard(TestDefaults->bForwardDodgeRequiresAttacking, true);
+	TGuardValue<bool> LeftGuard(TestDefaults->bLeftDodgeRequiresAttacking, true);
+	TGuardValue<bool> RightGuard(TestDefaults->bRightDodgeRequiresAttacking, true);
+	TGuardValue<bool> BackGuard(TestDefaults->bBackDodgeRequiresAttacking, true);
+	struct FDirectionCase
+	{
+		EDirectionalInput Direction;
+		bool UMHGZDodgeAbility::* Requirement;
+	};
+	const FDirectionCase Cases[] = {
+		{ EDirectionalInput::Forward, &UMHGZDodgeAbility::bForwardDodgeRequiresAttacking },
+		{ EDirectionalInput::None, &UMHGZDodgeAbility::bForwardDodgeRequiresAttacking },
+		{ EDirectionalInput::Left, &UMHGZDodgeAbility::bLeftDodgeRequiresAttacking },
+		{ EDirectionalInput::Right, &UMHGZDodgeAbility::bRightDodgeRequiresAttacking },
+		{ EDirectionalInput::Back, &UMHGZDodgeAbility::bBackDodgeRequiresAttacking }
+	};
+	for (const auto& Case : Cases)
+	{
+		TestDefaults->bForwardDodgeRequiresAttacking = true;
+		TestDefaults->bLeftDodgeRequiresAttacking = true;
+		TestDefaults->bRightDodgeRequiresAttacking = true;
+		TestDefaults->bBackDodgeRequiresAttacking = true;
+		FMHGZM3Harness H;
+		if (!H.Setup()) { H.Teardown(); return false; }
+		H.Host->SetSheathed(false);
+		const auto Handle = H.GiveAbility(UMHGZM4TestDodgeAbility::StaticClass());
+		H.ASC->AbilityActivatedCallbacks.AddLambda([TestDefaults](UGameplayAbility* Ability)
+		{
+			if (auto* Dodge = Cast<UMHGZM4TestDodgeAbility>(Ability))
+			{
+				// Runtime edits of a native CDO do not rebuild UE's property-init cache.
+				// Supply this test's configuration before preflight, without touching
+				// real Blueprint defaults or changing production activation behavior.
+				Dodge->bForwardDodgeRequiresAttacking = TestDefaults->bForwardDodgeRequiresAttacking;
+				Dodge->bLeftDodgeRequiresAttacking = TestDefaults->bLeftDodgeRequiresAttacking;
+				Dodge->bRightDodgeRequiresAttacking = TestDefaults->bRightDodgeRequiresAttacking;
+				Dodge->bBackDodgeRequiresAttacking = TestDefaults->bBackDodgeRequiresAttacking;
+			}
+		});
+		auto Input = M3::MakePosedInput(true, false);
+		Input.ResolvedInputTag = M3::Tag(TEXT("Input.Dodge"));
+		Input.SourceControlTag = Input.ResolvedInputTag;
+		Input.Direction = Case.Direction;
+		TestFalse(TEXT("Enabled requirement rejects idle for this direction"), H.ASC->TryActivateDirectInput(Input));
+		TestDefaults->*Case.Requirement = false;
+		TestTrue(TEXT("Disabling only this direction permits idle through both gates"), H.ASC->TryActivateDirectInput(Input));
+		auto* Dodge = GetActiveInstance<UMHGZM4TestDodgeAbility>(*H.ASC, Handle);
+		if (!TestNotNull(TEXT("Configured dodge committed and remains active"), Dodge)) { H.Teardown(); return false; }
+		TestTrue(TEXT("Consumed activation uses the same requirement"), !(Dodge->*Case.Requirement));
+		TestFalse(TEXT("Disabling requirement never unlocks sheathed Left"), Dodge->IsDirectionAllowedForTest(true, EDirectionalInput::Left));
+		TestFalse(TEXT("Disabling requirement never unlocks sheathed Right"), Dodge->IsDirectionAllowedForTest(true, EDirectionalInput::Right));
+		TestFalse(TEXT("Disabling requirement never unlocks sheathed Back"), Dodge->IsDirectionAllowedForTest(true, EDirectionalInput::Back));
+		Dodge->FinishNormallyForTest();
+
+		auto* Attack = M4Dodge::StartCancelableAttack(H, false);
+		if (!TestNotNull(TEXT("Source attack started"), Attack)) { H.Teardown(); return false; }
+		TestFalse(TEXT("Disabled requirement still respects closed attack cancel window"), H.ASC->TryActivateDirectInput(Input));
+		TestTrue(TEXT("Rejected dodge preserves attack"), Attack->IsActive());
+		Attack->BeginDodgeAcceptWindow(TEXT("ConfigurableRequirementAccept"));
+		TestTrue(TEXT("Exact attack cancel window still permits dodge"), H.ASC->TryActivateDirectInput(Input));
+		TestEqual(TEXT("Configured dodge supersedes only its source attack"), Attack->GetActionEndReason(), EWeaponActionEndReason::Superseded);
+		H.Teardown();
+	}
 	return true;
 }
 

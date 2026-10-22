@@ -6,6 +6,49 @@
 
 中文检索提示：摄像头→camera；准心/界面→ui、hud；猎虫/虫印/虫粉→kinsect、powder；曲线/位移→curve、trajectory、motion；急袭突刺→descending_thrust、aerial_dive；撑杆跳→vault；蓝图接线→anim_graph、AnimBlueprint、Graph。
 
+## Audio
+
+| 最新分支入口 | 环境 | 用途 | 状态 |
+|---|---|---|---|
+| [Audio/audio_section_maintenance.py](Audio/audio_section_maintenance.py)、[规则](Audio/section_audio_rules.py) | 由既有`setup_current_weapon_audio.py --section-maintenance --source-time-repair`调用；规则为普通Python | 1.36按Native Present与Lua动画关联后重算源帧→源片段位置；复用受GUID/旧时间保护的作者桥接 | 已独立回载：6 Montage改时12点/移除1点；旧1.35的5补点已撤回，禁止重放旧Apply；证据`SourceTime20261022/`，未PIE耳听 |
+
+| 定向补充入口 | 环境 | 用途 | 状态 |
+|---|---|---|---|
+| [Audio/prepare_ground_audio.py](Audio/prepare_ground_audio.py)、[Audio/setup_ground_audio.py](Audio/setup_ground_audio.py) | 前者普通Python；后者由现有`setup_current_weapon_audio.py`调度 | 最新`--descending-thrust`按曲线/参考阶段补急袭突刺9点并启用GA声音；此前`--ground-impact`/`--landing-events`/`--ground-events`处理砸地/落地/扬尘与棍花 | 最新`DescendingThrustAudio20261021/`已保存/独立回载，仅3包，默认只读，不重放Inspect/prepare/Apply；未PIE耳听 |
+| 同入口 `--dust-volume` / `-MHGZAudioDustVolume` | UE Python；远程或Commandlet | 仅将扬尘Cue音量设为1.0，备份并保护其它声音图/设置 | 已保存/独立回载；证据`DustVolume20261021/`；默认只读，不重放旧MixRecall或本次Apply |
+| 同入口 `--landing-events` / `-MHGZAudioLandingEvents` | UE Python；远程或Commandlet | 10 Montage/10个落地声迁为事件，保留原通知及独立扬尘；支持可选同帧扬尘 | 已保存/独立回载；另43个同范围Montage不变；证据`LandingEvents20261021/`，默认审计，不重放Apply或旧冻结事务 |
+
+| 脚本 | 环境 | 用途 | 执行边界 |
+|---|---|---|---|
+| [Audio/rise_audio_m1.py](Audio/rise_audio_m1.py) | 普通Python；parse/试听另需便携wwiser和vgmstream | 崛起虫棍有限银行索引、事件/媒体依赖、WAV试听及元数据清单 | 原始输出只写Saved；publish显式写reference JSON；不写Content/游戏安装。先看[说明](Audio/README.md) |
+| [Audio/test_rise_audio_m1.py](Audio/test_rise_audio_m1.py) | 普通Python unittest | 银行边界、DIDX、TXTP路径与PCM16定向检查 | 无UE/游戏/网络；只用Saved临时夹具 |
+| [Audio/rise_audio_capture_map.py](Audio/rise_audio_capture_map.py) | Python＋已固定wwiser/vgmstream | 原生录制→事件/条件→有限试听；可仅刷新元数据及补单事件分支对照 | 默认只写Saved；`--publish`发布reference，`--refresh-metadata`保留既有音频，`--compare-event`显式有限解码；不猜运行时分支 |
+| [Audio/test_rise_audio_capture_map.py](Audio/test_rise_audio_capture_map.py) | 普通Python unittest | 19项映射/输出隔离/条件头/媒体切片/分支对照及有界用户签收检查 | 无UE/游戏/网络；只用Saved临时夹具 |
+| [Audio/audit_swing_assets.py](Audio/audit_swing_assets.py) | UE Python；编辑器远程或关闭时Commandlet | 只读52个虫棍Montage、26个GA、引用序列及Combo入口，保留裁切/倍率/Section快照 | 不保存/编译Content；导出Saved/SwingMap并核对包哈希，详见Audio说明 |
+| [Audio/map_swing_positions.py](Audio/map_swing_positions.py) | 普通Python；已有资产快照＋录制 | `--map-current-weapon`当前主映射；`--compare-cloth`显式无装备对照，验证静音插件/同源时机；原模式保留 | 衣服模式只写新Saved，不改旧主映射/UE/录制器；参数见Audio README |
+| [Audio/rise_audio_cloth_comparison.py](Audio/rise_audio_cloth_comparison.py)、[测试](Audio/test_cloth_comparison.py) | 上述对照模式调用；普通Python | 复用归属/时钟/wwiser，区分插件Source ID和真正WEM；重复、互相唯一的同源窗口；5项定向检查 | 不解码；服装/装备层不等于已细分布料/金属；未覆盖/歧义源不写空点 |
+| [Audio/rise_audio_weapon_mapping.py](Audio/rise_audio_weapon_mapping.py) | 普通Python；由映射及推进声显式模式调用 | 条件图/源帧→候选；限定事件同帧FX链、末帧保持、137入场前唯一请求识别，14项专项检查 | 不放宽通用归属/不把适配当原作精确帧；137为空回、156为白灯前跳Over，不能按请求当帧一刀切 |
+| [Audio/test_current_weapon_mapping.py](Audio/test_current_weapon_mapping.py) | 普通Python unittest | 17项分支排除、对象/条件生命周期、真实元组、歧义与Loop时机检查 | 无UE/游戏/全银行解码；与19项原时序检查合计36项定向检查 |
+| [Audio/prepare_current_weapon_audio.py](Audio/prepare_current_weapon_audio.py) | 普通Python；冻结当前Mapping及作者基线 | 默认源池/武器/动作；`--propulsion`准备推进；`--kinsect-contact --capture-directory`委托prepare_kinsect_contact_audio复用源池补精确猎虫归属/伴随证据 | 仅Saved；计划不覆盖/重解码，不写Content/Config；同期关系不当精确事务或全部贯通真值 |
+| [Audio/setup_current_weapon_audio.py](Audio/setup_current_weapon_audio.py) | UE Python远程或Commandlet，默认审计 | 最新`--inspect-aerial-audio`新鲜路由检查、`--repair-aerial-audio`／`-MHGZAudioRepairAerial`回查5包26点的窄修复，继续复用setup_propulsion_audio；旧模式保留 | 首次Apply已完成拒绝重放；原窗口/声音/混音保护，43 Montage/422点；旧冻结hash不作本轮全局审计 |
+| [Audio/test_kinsect_contact_audio.py](Audio/test_kinsect_contact_audio.py) | 普通Python unittest | 6项精确猎虫对象/重复伴随、错误归属/指针复用/稀疏歧义/未知事件隔离 | 不启动UE/游戏，不把时间窗当因果命中配对；原生检查在Audio.KinsectHit/Hit |
+| [Audio/audio_notify_tracks.py](Audio/audio_notify_tracks.py) | 上述维护入口加载，UE Python | 原位按五种类分轨，29包54点仅换轨；复用现有编辑器桥接/快照/备份/配方验证 | 不重建/删除/排序通知，不删旧轨；387点保持、100衣服点仍无音源；默认审计 |
+| [Audio/audio_spatial_maintenance.py](Audio/audio_spatial_maintenance.py) | 由上述入口加载的UE事务模块 | 复用导出/保护/工厂；最新13包追加100个空音源衣服通知，原287有音源点保留；此前分类/混音留历史 | 13包备份、382其它包不变；原GUID/顺序/窗口保护；不删音源，不重放旧纠正入口 |
+| [Audio/spatial_audio_rules.py](Audio/spatial_audio_rules.py)、[空间测试](Audio/test_spatial_audio_rules.py)、[撑杆跳配方测试](Audio/test_aerial_audio_repair.py) | 普通Python | 声源/五类轨道/保护12项；同动作阶段源帧转换3项，只允许155→141、156→142补普通前跳初始配方 | 不按整段时长拉伸，不强塞裁切外点；适配不当原作精确真值，不给衣服填声、不放宽玩法保护 |
+| [Audio/test_current_weapon_audio.py](Audio/test_current_weapon_audio.py) | 普通Python unittest | 23项源图/同源/路由/边界/重复及声音GUID、动作分层和CombatConfig音频白名单保护 | 无游戏/UE；与17项当前映射、40项原保护合计80项定向检查 |
+| [Audio/rise_audio_coverage.py](Audio/rise_audio_coverage.py) | 普通Python；由现有入口调用 | 跨录制覆盖辅助模块；复用主节点/路由/combat审计，区分共用源、边界和音层 | 不独立启动UE/游戏/解码器，不是新音频解析器；输入前后哈希保护 |
+| [Audio/test_audio_coverage.py](Audio/test_audio_coverage.py) | 普通Python unittest | 12项独立命中/声链、共用源、缺前缀、世界动作、入口和Markdown列数检查 | 无UE/游戏/网络；不写Content |
+| [Audio/test_swing_positions.py](Audio/test_swing_positions.py) | 普通Python unittest | 19项采样边界、逐序列长度校核、裁切/倍率/重复片段、入口跳转与循环检查 | 无UE/游戏/网络；不写Content |
+| [Audio/setup_swing_pilot.py](Audio/setup_swing_pilot.py) | UE Python；远程或Commandlet | M2突刺两个挥击通知＋2个Wave/2个Cue/衰减/并发接线；原GA/Montage先备份，独立回载审计 | 默认只读；`--apply`或`-MHGZSwingPilotApply`写明确8包。音频Commandlet需`-AllowCommandletAudio`且不用`-nosound`；不重导入已有音源，不改伤害/原通知 |
+| [Audio/test_swing_pilot_contract.py](Audio/test_swing_pilot_contract.py) | 普通Python unittest | 5项实际资产保护函数检查：GUID/顺序/时间/轨道、片段/Section和GA非音频字段 | 无UE；当前音频离线共49项，不等同PIE |
+| [Audio/setup_weapon_hit_audio.py](Audio/setup_weapon_hit_audio.py) | UE Python；远程或Commandlet | M2真实武器命中Wave/Cue/衰减/并发及GCN，共5个常驻包；唯一注册/引用/独立回载审计 | 默认只读；`--apply`或`-MHGZHitAudioApply`才创建；复用小样工厂/所有权保护，85个既有包哈希不变；音频Commandlet不用`-nosound` |
+| [Audio/plan_swing_coverage.py](Audio/plan_swing_coverage.py) | 普通Python；已有新快照/position报告 | M3冻结24个Montage/70点/22个GA、5份人工音源及来源哈希；输出所需Tag | 只写Saved/M3；已有计划不同拒绝覆盖，缺证据不填声；当前已有成功检查点，不重跑旧快照 |
+| [Audio/setup_swing_coverage.py](Audio/setup_swing_coverage.py) | UE Python；远程或Commandlet | M3录制支持的逐动作声音接线、备份/断点/原字段保护及独立回载 | 默认只读；`--apply`/`-MHGZSwingCoverageApply`写冻结配方；`-MHGZSwingCoverageDiagnose`只收集差异；成功后只审计，不重复生成 |
+| [Audio/test_swing_coverage.py](Audio/test_swing_coverage.py) | 普通Python unittest | 配方、重复事件/入口、缺项、轨道、真实窗口严格保护及两个已验证原生缓存例外 | 16项离线定向；同test_swing*.py共40项；不启动UE/游戏，不改Content |
+| [Audio/NativeBridge](Audio/NativeBridge/README.md) | MSVC x64/MASM、固定MinHook | 1.21对象专用MPSC序号环＋分项丢失；保留对象键/条件/Post/命中边；3项CTest | 三项修复实采通过；保留池复用未知，不猜最终Media，不重复短录 |
+| [Audio/rise_audio_combat.py](Audio/rise_audio_combat.py) | 普通Python、既有wwiser | 由capture_map的`--audit-combat`调用；精确身份/作用域与实际根容器默认审计 | 10项检查通过；输出仅Saved，不解码/发布/覆盖试听 |
+| [Audio/NativeBridge/probe_native_audio.py](Audio/NativeBridge/probe_native_audio.py) | Windows Python、隔离Capstone | 有界只读反汇编/队列引用；`--audio-backend-callers`列固定448KiB调用，`--audio-object-writers`列RequestInfo+600写入 | 仅读指定Rise进程及代码/异常表；无对象搜索、写内存/注入/执行；输出仅Saved |
+
 ## AssetOrganization
 
 | 工具 | 环境 | 用途简述 | 状态 |
@@ -89,10 +132,14 @@
 | [MHRise/build_truth_table.py](MHRise/build_truth_table.py) | 普通Python | Copyright MHGZ Project. All Rights Reserved. | 按需；先核对参数/写入范围 |
 | [MHRise/build_vault_curves.py](MHRise/build_vault_curves.py) | 普通Python | Copyright MHGZ Project. All Rights Reserved. | 按需；先核对参数/写入范围 |
 | [MHRise/discover_action_ids_by_input.py](MHRise/discover_action_ids_by_input.py) | 普通Python | Discover MHRise motion IDs associated with controller input transitions. | 按需；先核对参数/写入范围 |
-| [MHRise/MHGZ_AerialTrajectoryRecorder.lua](MHRise/MHGZ_AerialTrajectoryRecorder.lua) | 游戏Lua宿主 | F9轨迹/输入与独立animation.csv实际Motion节点、原生帧及可用切换请求；1.13.0修复空值错列 | 只读游戏状态；写配套录制文件；原生读取待短录验证，不把旧行为层当攻击帧 |
+| [MHRise/MHGZ_AerialTrajectoryRecorder.lua](MHRise/MHGZ_AerialTrajectoryRecorder.lua) | 游戏Lua宿主＋NativeBridge | 1.21旧宿主上下文栈后快照、96字段/容器诊断；原采样不变 | 三项修复实采通过，可继续逐招式映射；完整音效未签收，依赖见MHRise README |
 | [MHRise/recorder_path.py](MHRise/recorder_path.py) | 普通Python | Locate the installed MHRise recorder data across development machines. | 公共模块；导入复用 |
 
 ## MHRise/tests
+
+音频接口探针定向检查：`python -m unittest discover -s Scripts/MHRise/tests -p test_recorder_audio_probe.py -v`；14项，含真实Lua userdata模拟容器，使用与动画读取器相同的既有隔离lupa依赖。只跑元数据桩，不启动游戏，不证明原生监听可用。
+
+音频监听修复定向检查：`python -m unittest discover -s Scripts/MHRise/tests -p 'test_recorder_audio*.py' -v`；29项监听检查+14项探针检查。覆盖禁用原型查找、实际userdata、歧义/坏描述符、诊断与自动live报告、getter禁用及调用/返回透传；不把模拟通过当真机已安装。
 
 | 工具 | 环境 | 用途简述 | 状态 |
 |---|---|---|---|

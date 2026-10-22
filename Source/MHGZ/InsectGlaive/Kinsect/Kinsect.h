@@ -17,6 +17,8 @@ class UProjectileMovementComponent;
 class UInsectGlaiveKinsectData;
 class UMHGZMonsterHitzoneComponent;
 class URes_InsectGlaive;
+class UAudioComponent;
+class USoundBase;
 
 /** 猎虫生命周期状态。 */
 UENUM(BlueprintType)
@@ -27,7 +29,9 @@ enum class EKinsectState : uint8
 	Hovering  UMETA(DisplayName = "悬停中"),
 	Returning UMETA(DisplayName = "返回中"),
 	/** 临时挂在招式专用插槽上；追加在末尾以保留旧状态序列化值。 */
-	ActionAttached UMETA(DisplayName = "动作临时附着")
+	ActionAttached UMETA(DisplayName = "动作临时附着"),
+	ActionReturning UMETA(DisplayName = "动作回槽中"),
+	ActionWaiting UMETA(DisplayName = "动作原地待机")
 };
 
 /** 猎虫飞行轨迹模式。 */
@@ -250,6 +254,14 @@ public:
 	/** 由资源组件持有的动作租约调用；不修改正常手臂返回目标。 */
 	bool BeginActionAttachment(const FWeaponActionToken& ActionToken,
 		USkeletalMeshComponent* WeaponMesh, FName SocketName);
+	/** 操虫斩起手快照；远处只在返回速度足够时直线回槽，不传送、不进行碰撞/萃取。 */
+	bool BeginSlashPreparation(const FWeaponActionToken& ActionToken,
+		USkeletalMeshComponent* WeaponMesh, FName SocketName,
+		float AvailableReturnTime, bool bHasRequiredStamina);
+	/** 前冲边界封口：未回槽的猎虫原地停住，不能迟到补入本次攻击。 */
+	void FinalizeSlashPreparation(const FWeaponActionToken& ActionToken);
+	bool IsActionControlOwnedBy(const FWeaponActionToken& ActionToken) const;
+	bool IsSlashActionControlled() const { return bSlashPreparation && ActionAttachmentToken.IsValid(); }
 	bool EndActionAttachmentAndReturn(const FWeaponActionToken& ActionToken,
 		const FWeaponRuntimeToken& RuntimeToken, float ArrivalRadius,
 		uint64 CommandSerial = 0,
@@ -273,6 +285,7 @@ public:
 	/** 普通/操虫斩只存首色；强化贯通显式允许红白橙去重多色。 */
 	bool CapturePendingExtractColor(FGameplayTag ExtractColor, bool bAllowMultipleColors = false);
 	float GetFlightSpeed() const;
+	float GetReturnSpeed() const;
 	float GetHoverDrainRate() const;
 	float GetFlightDrainRate() const;
 	bool IsDeployed() const
@@ -280,7 +293,9 @@ public:
 		return State == EKinsectState::Flying
 			|| State == EKinsectState::Hovering
 			|| State == EKinsectState::Returning
-			|| State == EKinsectState::ActionAttached;
+			|| State == EKinsectState::ActionAttached
+			|| State == EKinsectState::ActionReturning
+			|| State == EKinsectState::ActionWaiting;
 	}
 
 	// ── 引用（由 URes_InsectGlaive 注入） ──
@@ -292,6 +307,7 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	/** 世界碰撞回调——只缓存 PendingWorldHit 并停 Movement，不直接结束飞行。 */
 	UFUNCTION()
@@ -301,7 +317,15 @@ protected:
 private:
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FMHGZM6PowderVortexAimsFromSnapshotAndManualRecallSupersedes;
+	friend class FMHGZKinsectAudioLifecycleTests;
 #endif
+
+	/** 只读当前 Runtime/状态；不加载音源，不改变飞行、碰撞或指令身份。 */
+	USoundBase* ResolveFlightLoopSound() const;
+	void RefreshFlightAudio(bool bPlayLaunch = false);
+
+	UPROPERTY(VisibleAnywhere, Category = "Kinsect|Audio")
+	TObjectPtr<UAudioComponent> FlightAudio;
 
 	/** 校验请求；纯查询，不修改状态。 */
 	bool IsFlightRequestValid(const FKinsectFlightRequest& Request) const;
@@ -339,6 +363,8 @@ private:
 	/** 返回 Tick：实时追踪附着 Socket 世界位置；到达后取 Pending → Attach → 回调一次。 */
 	void TickReturn();
 	void StartReturnInternal();
+	void TickSlashPreparation(float DeltaTime);
+	void ResetSlashPreparation();
 
 	/** 解析返回目标的世界位置（优先附着 Socket，回退 OwnerActor）。 */
 	bool ResolveAttachSocketLocation(FVector& OutLocation) const;
@@ -352,6 +378,10 @@ private:
 	FHitResult PendingWorldHit;
 	bool bHasDealtDamage = false;
 	FWeaponActionToken ActionAttachmentToken;
+	TWeakObjectPtr<USkeletalMeshComponent> SlashAttachMesh;
+	FName SlashAttachSocket = NAME_None;
+	float SlashReturnTimeRemaining = 0.f;
+	bool bSlashPreparation = false;
 	FWeaponRuntimeToken ReturnRuntimeToken;
 	uint64 ReturnCommandSerial = 0;
 	uint64 ReturnMarkSerial = 0;

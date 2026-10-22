@@ -1,0 +1,2728 @@
+{
+  "stage": "M1",
+  "date": "2026-10-17",
+  "baseline": "af74c71",
+  "game_version": "unknown; local unpack snapshot, not inferred from filenames",
+  "tools": {
+    "wwiser": {
+      "tag": "v20260808",
+      "commit": "94580dd3de3280933d69c435e96d4e2c3b443207",
+      "url": "https://github.com/bnnm/wwiser/tree/v20260808"
+    },
+    "vgmstream": {
+      "version": "r1980 (Dec 31 2024)",
+      "url": "https://raw.githubusercontent.com/bnnm/vgmstream-builds/master/bin/vgmstream-latest-test-u.zip",
+      "zip_sha256": "110f9087e60057c4af6cff84e26c214159c224792421affdddd3aaa2091f2641",
+      "exe_sha256": "6e871a7dfd8b3138e3383f93520da10e4de1af8b8d0c02b40bc84f48d0f3661e"
+    }
+  },
+  "banks": [
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/Init.bnk.2.X64",
+      "sha256": "dd144280894ea6eafa13b0d8f647ff506cb648d19b9a9fcc23cdc7695cab733c",
+      "bytes": 61184,
+      "version": 140,
+      "bank_id": 1355168291
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_com.bnk.2.X64",
+      "sha256": "f25c2e75ce560f215aefc5d949d3a649ad76ff7709f8c9c84d7775d4b05bcc09",
+      "bytes": 117967,
+      "version": 140,
+      "bank_id": 9522096
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_com_media.bnk.2.X64",
+      "sha256": "abf579067a1250a8868b0e4db637b21e248dd4775acc2f20736d5bf83480bdff",
+      "bytes": 196403,
+      "version": 140,
+      "bank_id": 3396846345
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_epv_madia.bnk.2.X64",
+      "sha256": "7975fd4fcaffac5b0ab20d7395e139a2d268d46ed7aa33de34e1c31c6196e96e",
+      "bytes": 720069,
+      "version": 140,
+      "bank_id": 2562069477
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_epv_khk_madia.bnk.2.X64",
+      "sha256": "55ddd8413616ab300c3680ce6abe3f9ee2dfbea350762ed6f2a755118cae5280",
+      "bytes": 430659,
+      "version": 140,
+      "bank_id": 3903810192
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_oneoff_110_media.bnk.2.X64",
+      "sha256": "6ad572cba8eac3d32f22e1f01b5b3e92477d173f380219be8c003a5cc61b46b0",
+      "bytes": 180712,
+      "version": 140,
+      "bank_id": 2976735876
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_ig_ins_com.bnk.2.X64",
+      "sha256": "fbe1594226f2269fe06ec6a097e78863ce374f98f8f8cf447310aa2d1d7f1aca",
+      "bytes": 7676,
+      "version": 140,
+      "bank_id": 2340460231
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_ig_ins_com_media.bnk.2.X64",
+      "sha256": "34a070413da108c692b2bc83ef170e578edcabd69565f7b2737baa84ef040ff4",
+      "bytes": 33117,
+      "version": 140,
+      "bank_id": 4282003482
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_ig_ins_oneoff_001_media.bnk.2.X64",
+      "sha256": "d1f7e1f5cf26590505fa2a00c1597e54f4e6345e2966c40452d7825944ab156d",
+      "bytes": 111887,
+      "version": 140,
+      "bank_id": 3216956862
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com.bnk.2.X64",
+      "sha256": "4bfcdcb80d46c9b39a4a7b37cf70a2744c31d407a27e8794e74fb1330da1311f",
+      "bytes": 21435,
+      "version": 140,
+      "bank_id": 3526979051
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+      "sha256": "ba2a9c1ef72c3206d78c8192c7615ed2970581d55d27e90af8e7055777c8bc7f",
+      "bytes": 1491474,
+      "version": 140,
+      "bank_id": 1147664670
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_ig_ins_oneoff_006_media.bnk.2.X64",
+      "sha256": "655751a3143b9c118dc9498e11f4bd1f1a040b0776fcebf2ec4d4724acce74f0",
+      "bytes": 84760,
+      "version": 140,
+      "bank_id": 343438037
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_com.bnk.2.X64",
+      "sha256": "306b1ba815f4db757e6d1eb76239a8ba25e84e22d7c8b79e0ebef86cf6cb32ff",
+      "bytes": 2122,
+      "version": 140,
+      "bank_id": 2732734834
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_com_media.bnk.2.X64",
+      "sha256": "2a3c5186e42d24fb7723d76e232748882ab14d3c2dade61a9affb8de3befd809",
+      "bytes": 147370,
+      "version": 140,
+      "bank_id": 3714479647
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em.bnk.2.X64",
+      "sha256": "417a4aab4913db7fa75f1d0813f855e6f2f87a8992c1a10fa603636584159bca",
+      "bytes": 68119,
+      "version": 140,
+      "bank_id": 3926444117
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+      "sha256": "b1865e11ab5fc4982af94a673394d55193f8abe7ffebac6559aa5daef1be5c36",
+      "bytes": 379012,
+      "version": 140,
+      "bank_id": 15362300
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_prop.bnk.2.X64",
+      "sha256": "a11ad61ce38b78f679f6a339c3a8f73b5c1e9ebaba0ddf0d77a337e061ea14d9",
+      "bytes": 5836,
+      "version": 140,
+      "bank_id": 3826802923
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_prop_media.bnk.2.X64",
+      "sha256": "baf1ab889853b380df7a4f9847b2ad64f0ab20bd8e18e82e7b8b8f4bd5ca8f6c",
+      "bytes": 133845,
+      "version": 140,
+      "bank_id": 1907840030
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_prop_khk.bnk.2.X64",
+      "sha256": "a077084caac6197813f2bd57608383c404bc886b090a01fab16f8f20db48920d",
+      "bytes": 5183,
+      "version": 140,
+      "bank_id": 2557986506
+    },
+    {
+      "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_prop_khk_media.bnk.2.X64",
+      "sha256": "cbae2b51d9d24f9bf8e6221da87e8f47611d65c2ce4aca79f71b41e6e349a748",
+      "bytes": 276042,
+      "version": 140,
+      "bank_id": 69526887
+    }
+  ],
+  "events": [
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 18325887,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 244866027
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 25934417,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 639565739
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 106259332,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 124383991
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 113857536,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 865116600
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 322762892,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 372104217
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 326567674,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 476276370
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 415037097,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 732517254
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 477430016,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 668249748
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 500103506,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 698066786
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 553672341,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 463139658
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 560270358,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 839230955
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 573060423,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 134154201
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 615339279,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 132545171
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 647565313,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 1033552694
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 655185108,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 360822658
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 731897370,
+      "name": null,
+      "references": []
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 771629008,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 224571175
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 794828078,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 182474229
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 799700653,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 409314051
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 825871520,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 158300925
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 847288786,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 418715845
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 874429057,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 110536203
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 886580425,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 718255940
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 938078130,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 584862834
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 950185230,
+      "name": null,
+      "references": []
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1065664514,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 727077674
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1155257768,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 972467524
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1196125122,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 1038697141
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1238315949,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 155656907
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1255311215,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 485464218
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1285460602,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 131046152
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1326546346,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 238394059
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1364862806,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 245969877
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1392529433,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 113952823
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1494962730,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 801373233
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1600241999,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 523249559
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1714085883,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 801774287
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1716738616,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 518378680
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1737389684,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 306766016
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1780590872,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 872499631
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1792218538,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 778961633
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1816305690,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 366454590
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 1942118895,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 646730966
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2037497988,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 6749808
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2226990576,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 946257743
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2231624382,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 355008377
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2307268216,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 792342632
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2412836352,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 441866939
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2424761632,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 226450612
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2477377487,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 480986011
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2534852773,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 1050154246
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2561542802,
+      "name": null,
+      "references": []
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2702726931,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 824629010
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2713999281,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 157503562
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2754262615,
+      "name": null,
+      "references": []
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2878059743,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 918707404
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 2919594977,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 893629575
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3014295296,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 673504522
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3086089137,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 1007439258
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3094158795,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 886562433
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3164011540,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 518120979
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3268817594,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 1067129566
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3275147427,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 849992142
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3371653710,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 74665909
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3504046113,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 802806459
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3520842405,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 223578984
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3542534683,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 520226382
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3552982071,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 911138162
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3587601987,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 799664247
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3591480749,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 942515163
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3639409043,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 263240049
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3752028004,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 983395118
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3762112968,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 635622883
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3772106552,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 483522008
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3879486087,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 766349859
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3887460649,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 890787247
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 3957971109,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 962594015
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 4015049180,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 1000962354
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 4047152655,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 112586705
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 4196403743,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 420277560
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 4212214539,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 18052621
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 4233295497,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 345650213
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 4256095575,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 51135654
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_i_gla_com.bnk",
+      "id": 4290938859,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 624669329
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_ig_ins_com.bnk",
+      "id": 603272525,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 251204853
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_ig_ins_com.bnk",
+      "id": 1189535615,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 668478847
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_ig_ins_com.bnk",
+      "id": 1742629250,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 232447110
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_ig_ins_com.bnk",
+      "id": 1805087271,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 267235339
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_ig_ins_com.bnk",
+      "id": 2024794525,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 698966140
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_ig_ins_com.bnk",
+      "id": 2640762921,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 247046911
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_ig_ins_com.bnk",
+      "id": 2894971333,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 51471451
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_ig_ins_com.bnk",
+      "id": 3041892567,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 181118560
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 366294244,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 15525449
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 635177902,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 752567402
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 735683562,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 282926924
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 950119228,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 762302299
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 980839717,
+      "name": null,
+      "references": []
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1040061804,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 563770977
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1378618554,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 793104086
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1428031327,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 130144157
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1458063782,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 1028398976
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1471645321,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 579012432
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1479248621,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 225728777
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1707236307,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 42947048
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1752933385,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 102778696
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1762027986,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 792703254
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 1970431935,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 363070193
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 2258290609,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 925637758
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 2298452481,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 149807889
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 2868863312,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 308459578
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 3010490269,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 695159994
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 3472796919,
+      "name": null,
+      "references": []
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 3650373634,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 90324774
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 3682744665,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 942182922
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 3797488595,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 43572491
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 3842016023,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 262265238
+        }
+      ]
+    },
+    {
+      "bank": "pl_wp_com.bnk",
+      "id": 4160126264,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 501336013
+        }
+      ]
+    },
+    {
+      "bank": "hit_com.bnk",
+      "id": 3175995291,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 715280564
+        }
+      ]
+    },
+    {
+      "bank": "hit_com.bnk",
+      "id": 3212252532,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 237209420
+        }
+      ]
+    },
+    {
+      "bank": "hit_com.bnk",
+      "id": 3513928809,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 500354463
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 689739139,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 754117596
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 713452844,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 676161284
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 746981836,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 325918653
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 1673145208,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 476566324
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 1824904109,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 8440190
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 2068497051,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 677964641
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 2204025548,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 786774804
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 2228617345,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 211168978
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 2299511459,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 348857121
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 2514362450,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 248949642
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 3103927911,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 243848763
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 3330255050,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 823204791
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 3337743529,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 449602253
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 3366604816,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 532091438
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 3432279980,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 916554203
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 3504123062,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 10726168
+        }
+      ]
+    },
+    {
+      "bank": "hit_em.bnk",
+      "id": 3902751743,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 355931193
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 579107739,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 929654984
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 609411169,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 924198308
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 820913919,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 444871938
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 850843206,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 217556187
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 2403372861,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 32979450
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 3034273912,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 144934480
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 3172674189,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 834970476
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 3689845884,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 280267568
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 3963736486,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 898246482
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop.bnk",
+      "id": 4033252356,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 865177106
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop_khk.bnk",
+      "id": 120915767,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 432954803
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop_khk.bnk",
+      "id": 304050877,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 672838460
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop_khk.bnk",
+      "id": 1889180797,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 70578372
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop_khk.bnk",
+      "id": 2272399521,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 778652522
+        }
+      ]
+    },
+    {
+      "bank": "hit_em_prop_khk.bnk",
+      "id": 3177019425,
+      "name": null,
+      "references": [
+        {
+          "field": "ulActionID",
+          "id": 93389572
+        }
+      ]
+    }
+  ],
+  "previews": [
+    {
+      "bank": "pl_wp_i_gla_com",
+      "event_id": 18325887,
+      "media_ids": [
+        132591481
+      ],
+      "conditions": [],
+      "seconds": 2.7783333333333333,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 6187,
+      "rms_dbfs": -37.54197247997301,
+      "sha256": "e48685e6d470e8b1c74d92da653ae10d5d3faa473cf0367010e16af13c917f61",
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_i_gla_com/pl_wp_i_gla_com-1101-event.wav",
+      "candidate_txtp": "pl_wp_i_gla_com-1101-event.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "132591481": [
+          {
+            "bank_id": 3903810192,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_epv_khk_madia.bnk.2.X64",
+            "offset": 15680,
+            "size": 36562
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_i_gla_com",
+      "event_id": 25934417,
+      "media_ids": [
+        957240969
+      ],
+      "conditions": [],
+      "seconds": 0.8533333333333334,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 2304,
+      "rms_dbfs": -36.22124998975958,
+      "sha256": "a77274797a86bfda212a6f688d60a4ccc9d66016e8896e9541766ca9f8805a5c",
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_i_gla_com/pl_wp_i_gla_com-1103-event.wav",
+      "candidate_txtp": "pl_wp_i_gla_com-1103-event.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "957240969": [
+          {
+            "bank_id": 3396846345,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_com_media.bnk.2.X64",
+            "offset": 141472,
+            "size": 10339
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_i_gla_com",
+      "event_id": 106259332,
+      "media_ids": [
+        50108006
+      ],
+      "conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "seconds": 0.6308958333333333,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 8757,
+      "rms_dbfs": -29.160617880733696,
+      "sha256": "f5c46584b16c8cf69c5a29925490912f63ab2bc7e66d08641405b90ef6d88908",
+      "gamesync_conditions": [
+        "[1356166406=2016381608]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_i_gla_com/pl_wp_i_gla_com-1105-event [1356166406=2016381608].wav",
+      "candidate_txtp": "pl_wp_i_gla_com-1105-event [1356166406=2016381608].txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "50108006": [
+          {
+            "bank_id": 2976735876,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_oneoff_110_media.bnk.2.X64",
+            "offset": 11280,
+            "size": 8981
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_i_gla_com",
+      "event_id": 113857536,
+      "media_ids": [
+        775870981
+      ],
+      "conditions": [],
+      "seconds": 4.886333333333333,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 20072,
+      "rms_dbfs": -37.166613684867244,
+      "sha256": "6c1b762b03085b0d8e0cdc5386280cf052189037205aa4e9f90dd0e95a27962c",
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_i_gla_com/pl_wp_i_gla_com-1107-event.wav",
+      "candidate_txtp": "pl_wp_i_gla_com-1107-event.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "775870981": [
+          {
+            "bank_id": 2562069477,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_i_gla_epv_madia.bnk.2.X64",
+            "offset": 475520,
+            "size": 68270
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_ig_ins_com",
+      "event_id": 603272525,
+      "media_ids": [
+        258732258
+      ],
+      "conditions": [],
+      "seconds": 0.9013333333333333,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 30898,
+      "rms_dbfs": -22.576284114343416,
+      "sha256": "dfbe3800f87800560c652006fb7c325c81210cc44f1aa67d9062ef9306d38cbb",
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_ig_ins_com/pl_wp_ig_ins_com-0058-event.wav",
+      "candidate_txtp": "pl_wp_ig_ins_com-0058-event.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "258732258": [
+          {
+            "bank_id": 4282003482,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_ig_ins_com_media.bnk.2.X64",
+            "offset": 80,
+            "size": 12574
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_ig_ins_com",
+      "event_id": 1189535615,
+      "media_ids": [
+        598288706
+      ],
+      "conditions": [
+        "[1356166406=1362708624]"
+      ],
+      "seconds": 1.9946666666666666,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 4040,
+      "rms_dbfs": -37.196301436611414,
+      "sha256": "09c25ff88fdd54342bd1c9b7b217312282d8a03f8f4105dcdbd6cba9dbd34a6d",
+      "gamesync_conditions": [
+        "[1356166406=1362708624]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_ig_ins_com/pl_wp_ig_ins_com-0060-event [1356166406=1362708624].wav",
+      "candidate_txtp": "pl_wp_ig_ins_com-0060-event [1356166406=1362708624].txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "598288706": [
+          {
+            "bank_id": 343438037,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_ig_ins_oneoff_006_media.bnk.2.X64",
+            "offset": 58832,
+            "size": 25928
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_ig_ins_com",
+      "event_id": 1742629250,
+      "media_ids": [
+        891503604
+      ],
+      "conditions": [],
+      "seconds": 0.7089375,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 11291,
+      "rms_dbfs": -33.422433367096666,
+      "sha256": "4ea60d4a49810985445a2689ef5912543d57bfa427476eeac17f4fae77383df7",
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_ig_ins_com/pl_wp_ig_ins_com-0062-event.wav",
+      "candidate_txtp": "pl_wp_ig_ins_com-0062-event.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "891503604": [
+          {
+            "bank_id": 4282003482,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_ig_ins_com_media.bnk.2.X64",
+            "offset": 12656,
+            "size": 20461
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_ig_ins_com",
+      "event_id": 1805087271,
+      "media_ids": [
+        455355568
+      ],
+      "conditions": [
+        "[1356166406=1362708624]"
+      ],
+      "seconds": 1.5573333333333332,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 4551,
+      "rms_dbfs": -35.14627053571941,
+      "sha256": "a662b154d51cf87cb25c01bb1554acdcc5544f2394889b05e4b83473cb141b44",
+      "gamesync_conditions": [
+        "[1356166406=1362708624]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_ig_ins_com/pl_wp_ig_ins_com-0064-event [1356166406=1362708624].wav",
+      "candidate_txtp": "pl_wp_ig_ins_com-0064-event [1356166406=1362708624].txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "455355568": [
+          {
+            "bank_id": 343438037,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_ig_ins_oneoff_006_media.bnk.2.X64",
+            "offset": 38384,
+            "size": 20441
+          }
+        ]
+      }
+    },
+    {
+      "bank": "hit_com",
+      "event_id": 3175995291,
+      "media_ids": [
+        131716119,
+        163279150,
+        916311762
+      ],
+      "conditions": [
+        "[2207689817=1598067397]"
+      ],
+      "seconds": 1.3625,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 21407,
+      "rms_dbfs": -20.090108253977604,
+      "sha256": "680d6d80789a38e6a910908aac7fcde7f4ee2444a2875663fc131aceade05e59",
+      "gamesync_conditions": [
+        "[2207689817=1598067397]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/hit_com/hit_com-0020-event [2207689817=1598067397] {r}.wav",
+      "candidate_txtp": "hit_com-0020-event [2207689817=1598067397] {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "131716119": [
+          {
+            "bank_id": 3714479647,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_com_media.bnk.2.X64",
+            "offset": 33712,
+            "size": 28170
+          }
+        ],
+        "163279150": [
+          {
+            "bank_id": 3714479647,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_com_media.bnk.2.X64",
+            "offset": 61888,
+            "size": 27428
+          }
+        ],
+        "916311762": [
+          {
+            "bank_id": 3714479647,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_com_media.bnk.2.X64",
+            "offset": 117536,
+            "size": 29834
+          }
+        ]
+      }
+    },
+    {
+      "bank": "hit_com",
+      "event_id": 3212252532,
+      "media_ids": [
+        121212951,
+        564628495
+      ],
+      "conditions": [],
+      "seconds": 0.6148333333333333,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 25978,
+      "rms_dbfs": -21.833544409921856,
+      "sha256": "41deafd24d206a4ed1ebe308de157862e7918addc9be9f533210d5eebcc62e48",
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/hit_com/hit_com-0022-event {r}.wav",
+      "candidate_txtp": "hit_com-0022-event {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "121212951": [
+          {
+            "bank_id": 3714479647,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_com_media.bnk.2.X64",
+            "offset": 23232,
+            "size": 10473
+          }
+        ],
+        "564628495": [
+          {
+            "bank_id": 3714479647,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_com_media.bnk.2.X64",
+            "offset": 105312,
+            "size": 12221
+          }
+        ]
+      }
+    },
+    {
+      "bank": "hit_com",
+      "event_id": 3513928809,
+      "media_ids": [
+        9548656,
+        419391311
+      ],
+      "conditions": [],
+      "seconds": 1.2878125,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 28689,
+      "rms_dbfs": -23.53305791171438,
+      "sha256": "52c79c9542ea817d3e954e8362b442ad187067e097043ebfe0a7c7d8965970f6",
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/hit_com/hit_com-0024-event {r}.wav",
+      "candidate_txtp": "hit_com-0024-event {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "9548656": [
+          {
+            "bank_id": 3714479647,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_com_media.bnk.2.X64",
+            "offset": 128,
+            "size": 23089
+          }
+        ],
+        "419391311": [
+          {
+            "bank_id": 3714479647,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_com_media.bnk.2.X64",
+            "offset": 89328,
+            "size": 15971
+          }
+        ]
+      }
+    },
+    {
+      "bank": "hit_em",
+      "event_id": 689739139,
+      "media_ids": [
+        3943210,
+        6919712,
+        47707626
+      ],
+      "conditions": [
+        "[3805839008=3335887372]",
+        "[1058975037=3501707425]",
+        "[4073251732=3109742183]"
+      ],
+      "seconds": 1.4146666666666667,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 17061,
+      "rms_dbfs": -21.05973424388671,
+      "sha256": "0fd11b7d861ef1f4bf42199b44f25090f77029d6c6989e02d5c4ec9c77ba6c38",
+      "gamesync_conditions": [
+        "[3805839008=3335887372]",
+        "[1058975037=3501707425]",
+        "[4073251732=3109742183]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/hit_em/hit_em-0736-event [3805839008=3335887372] [1058975037=3501707425] [4073251732=3109742183] {r}.wav",
+      "candidate_txtp": "hit_em-0736-event [3805839008=3335887372] [1058975037=3501707425] [4073251732=3109742183] {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "3943210": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 20048,
+            "size": 21351
+          }
+        ],
+        "6919712": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 41408,
+            "size": 22010
+          }
+        ],
+        "47707626": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 172976,
+            "size": 21045
+          }
+        ]
+      }
+    },
+    {
+      "bank": "hit_em",
+      "event_id": 713452844,
+      "media_ids": [
+        3308855,
+        12633819,
+        94431498
+      ],
+      "conditions": [
+        "[3805839008=3335887372]",
+        "[1058975037=3042021448]",
+        "[4073251732=4180311197]",
+        "[4173505187=4144988841]"
+      ],
+      "seconds": 1.2156666666666667,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 28623,
+      "rms_dbfs": -18.268317001811862,
+      "sha256": "7ddf6458700f9abab0339c69a6e15470f62f3c2966c9aa93133865191a7278f4",
+      "gamesync_conditions": [
+        "[3805839008=3335887372]",
+        "[1058975037=3042021448]",
+        "[4073251732=4180311197]",
+        "[4173505187=4144988841]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/hit_em/hit_em-0738-event [3805839008=3335887372] [1058975037=3042021448] [4073251732=4180311197] [4173505187=4144988841] {r}.wav",
+      "candidate_txtp": "hit_em-0738-event [3805839008=3335887372] [1058975037=3042021448] [4073251732=4180311197] [4173505187=4144988841] {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "3308855": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 304,
+            "size": 19735
+          }
+        ],
+        "12633819": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 127136,
+            "size": 21781
+          }
+        ],
+        "94431498": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 225856,
+            "size": 22986
+          }
+        ]
+      }
+    },
+    {
+      "bank": "hit_em",
+      "event_id": 746981836,
+      "media_ids": [
+        3943210,
+        6919712,
+        47707626
+      ],
+      "conditions": [
+        "[3805839008=3335887372]",
+        "[1058975037=3501707425]",
+        "[4073251732=3109742183]",
+        "[4173505187=963649120]"
+      ],
+      "seconds": 1.4440208333333333,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 16909,
+      "rms_dbfs": -21.431540322059348,
+      "sha256": "647129b27b6f4662bc46681f2abcc2fe9dddc36c3c9574fbd139ddf2c6e41156",
+      "gamesync_conditions": [
+        "[3805839008=3335887372]",
+        "[1058975037=3501707425]",
+        "[4073251732=3109742183]",
+        "[4173505187=963649120]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/hit_em/hit_em-0740-event [3805839008=3335887372] [1058975037=3501707425] [4073251732=3109742183] [4173505187=963649120] {r}.wav",
+      "candidate_txtp": "hit_em-0740-event [3805839008=3335887372] [1058975037=3501707425] [4073251732=3109742183] [4173505187=963649120] {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "3943210": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 20048,
+            "size": 21351
+          }
+        ],
+        "6919712": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 41408,
+            "size": 22010
+          }
+        ],
+        "47707626": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 172976,
+            "size": 21045
+          }
+        ]
+      }
+    },
+    {
+      "bank": "hit_em",
+      "event_id": 1673145208,
+      "media_ids": [
+        953135064,
+        996322678,
+        1044832729
+      ],
+      "conditions": [],
+      "seconds": 0.425375,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 13232,
+      "rms_dbfs": -25.49069008494131,
+      "sha256": "9f6d682d9ed30494a2c01aea600e3664881afb515b93a4d87859185a1e75729c",
+      "gamesync_conditions": [],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "filename_fallback",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/hit_em/hit_em-0742-event {r}.wav",
+      "candidate_txtp": "hit_em-0742-event {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "953135064": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 334512,
+            "size": 15711
+          }
+        ],
+        "996322678": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 350224,
+            "size": 16554
+          }
+        ],
+        "1044832729": [
+          {
+            "bank_id": 15362300,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/hit_em_media.bnk.2.X64",
+            "offset": 366784,
+            "size": 12228
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_com",
+      "event_id": 366294244,
+      "media_ids": [
+        46006346,
+        540501348
+      ],
+      "conditions": [
+        "[456812636=2602688758]"
+      ],
+      "seconds": 1.4232291666666668,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 10438,
+      "rms_dbfs": -31.344686977023194,
+      "sha256": "9cd847d17fbef19c6a2ede90ada47bbd3ec6fa083777176a225af30d08f15161",
+      "gamesync_conditions": [
+        "[456812636=2602688758]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_com/pl_wp_com-0238-event [456812636=2602688758] {r}.wav",
+      "candidate_txtp": "pl_wp_com-0238-event [456812636=2602688758] {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "46006346": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 274608,
+            "size": 30636
+          }
+        ],
+        "540501348": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 1152288,
+            "size": 34886
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_com",
+      "event_id": 635177902,
+      "media_ids": [
+        34162106,
+        131814335
+      ],
+      "conditions": [
+        "[456812636=4283182186]"
+      ],
+      "seconds": 1.5971666666666666,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 15811,
+      "rms_dbfs": -25.717792630734312,
+      "sha256": "a5ff43bf8a945adce5236ee7629d0492b71726b5e4a51d6db864484053de37ff",
+      "gamesync_conditions": [
+        "[456812636=4283182186]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_com/pl_wp_com-0240-event [456812636=4283182186] {r}.wav",
+      "candidate_txtp": "pl_wp_com-0240-event [456812636=4283182186] {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "34162106": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 160528,
+            "size": 34426
+          }
+        ],
+        "131814335": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 595248,
+            "size": 34058
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_com",
+      "event_id": 735683562,
+      "media_ids": [
+        14731694,
+        35833182,
+        88166771,
+        100726072
+      ],
+      "conditions": [
+        "[456812636=3005351483]"
+      ],
+      "seconds": 1.2168541666666666,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 13962,
+      "rms_dbfs": -26.53062565189177,
+      "sha256": "e270f78710d8cb23e328503a33dff3fc07493dab8f3c3beda05945445059a05e",
+      "gamesync_conditions": [
+        "[456812636=3005351483]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_com/pl_wp_com-0242-event [456812636=3005351483] {r}.wav",
+      "candidate_txtp": "pl_wp_com-0242-event [456812636=3005351483] {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "14731694": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 74048,
+            "size": 26700
+          }
+        ],
+        "35833182": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 251600,
+            "size": 23000
+          }
+        ],
+        "88166771": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 392288,
+            "size": 24710
+          }
+        ],
+        "100726072": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 517280,
+            "size": 24948
+          }
+        ]
+      }
+    },
+    {
+      "bank": "pl_wp_com",
+      "event_id": 950119228,
+      "media_ids": [
+        46406040,
+        187926930
+      ],
+      "conditions": [
+        "[456812636=2602688758]"
+      ],
+      "seconds": 1.6562916666666667,
+      "sample_rate": 48000,
+      "channels": 1,
+      "peak": 5516,
+      "rms_dbfs": -40.976799406624096,
+      "sha256": "097c46a3d79e3fb518af120dc354e4d50139c96aa75497b6a37004b2d6871690",
+      "gamesync_conditions": [
+        "[456812636=2602688758]"
+      ],
+      "state_conditions": [],
+      "condition_sources": {
+        "gamesyncs": "txtp_header",
+        "statechunks": "filename_fallback"
+      },
+      "wav": "Saved/Audio/RiseIG/Audition/pl_wp_com/pl_wp_com-0244-event [456812636=2602688758] {r}.wav",
+      "candidate_txtp": "pl_wp_com-0244-event [456812636=2602688758] {r}.txtp",
+      "semantic_status": "await E1; not assigned to a GA",
+      "project_ga": null,
+      "ue_sound": null,
+      "notify_time": null,
+      "media_sources": {
+        "46406040": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 305248,
+            "size": 39393
+          }
+        ],
+        "187926930": [
+          {
+            "bank_id": 1147664670,
+            "source": "D:/study/MHR/natives/STM/Sound/Wwise/pl_wp_com_media.bnk.2.X64",
+            "offset": 755136,
+            "size": 35647
+          }
+        ]
+      }
+    }
+  ],
+  "verification": {
+    "success": true,
+    "source_unchanged_banks": 20,
+    "verified_wavs": 19,
+    "verified_wems": 34,
+    "by_group": {
+      "pl_wp_i_gla_com": 4,
+      "pl_wp_ig_ins_com": 4,
+      "hit_com": 3,
+      "hit_em": 4,
+      "pl_wp_com": 4
+    },
+    "ue_imported": false,
+    "listening_accepted": false
+  }
+}

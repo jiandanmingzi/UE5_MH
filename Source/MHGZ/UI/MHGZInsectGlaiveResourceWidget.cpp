@@ -81,6 +81,40 @@ TArray<FGameplayTag> UMHGZInsectGlaiveResourceWidget::GetDisplayedCargoColors(
 	return Colors;
 }
 
+float UMHGZInsectGlaiveResourceWidget::GetExtractWarningIntensity(
+	const FIGResourceUISnapshot& State, int32 ExtractIndex)
+{
+	if (ExtractIndex < 0 || ExtractIndex >= 3) { return 1.f; }
+	const bool Active[] = {State.bRed, State.bWhite, State.bOrange};
+	const float Remaining[] = {State.RedRemainingSeconds,
+		State.WhiteRemainingSeconds, State.OrangeRemainingSeconds};
+	const float Seconds = State.bTripleUp ? State.TripleRemainingSeconds : Remaining[ExtractIndex];
+	if ((!State.bTripleUp && !Active[ExtractIndex])
+		|| !FMath::IsFinite(Seconds) || Seconds <= 0.f || Seconds > 30.f)
+	{
+		return 1.f;
+	}
+
+	// Use the authoritative GE countdown, not a second timer. Snapshot refreshes
+	// therefore cannot restart the blink; pause/slomo follow extract expiry.
+	const bool bUrgent = Seconds <= 10.f;
+	const float Period = bUrgent ? 0.5f : 2.f;
+	const float Phase = FMath::Fmod((bUrgent ? 10.f : 30.f) - Seconds, Period);
+	return Phase < 0.2f ? 0.2f : 1.f;
+}
+
+FLinearColor UMHGZInsectGlaiveResourceWidget::GetExtractWarningColor(
+	const FIGResourceUISnapshot& State, int32 ExtractIndex, const FLinearColor& BaseColor)
+{
+	if (GetExtractWarningIntensity(State, ExtractIndex) >= 1.f) { return BaseColor; }
+	// Muted colour, not transparency: keep the coloured lamp visibly present.
+	// White also shifts to a light grey instead of flashing white-on-white.
+	const float Grey = FMath::Max3(BaseColor.R, BaseColor.G, BaseColor.B) * 0.65f;
+	return FLinearColor(FMath::Lerp(BaseColor.R, Grey, 0.65f),
+		FMath::Lerp(BaseColor.G, Grey, 0.65f),
+		FMath::Lerp(BaseColor.B, Grey, 0.65f), BaseColor.A);
+}
+
 int32 UMHGZInsectGlaiveResourceWidget::NativePaint(const FPaintArgs& Args,
 	const FGeometry& Geometry, const FSlateRect& CullingRect,
 	FSlateWindowElementList& Out, int32 LayerId,
@@ -148,7 +182,8 @@ int32 UMHGZInsectGlaiveResourceWidget::NativePaint(const FPaintArgs& Args,
 	for (int32 I = 0; I < 3; ++I)
 	{
 		const FVector2D Center(66 + I * 39, 24);
-		const FLinearColor Color = Active[I] ? ExtractColors[I] : Pale * 0.45f;
+		const FLinearColor Color = Active[I]
+			? GetExtractWarningColor(DisplayState, I, ExtractColors[I]) : Pale * 0.45f;
 		Polygon(Out, L, Geometry, Diamond(Center, 20), Dark);
 		Outline(Out, L + 1, Geometry, Diamond(Center, 18), Pale * 0.52f, 2);
 		if (Active[I])
@@ -156,8 +191,9 @@ int32 UMHGZInsectGlaiveResourceWidget::NativePaint(const FPaintArgs& Args,
 			Polygon(Out, L + 2, Geometry, Diamond(Center, 14), Color * 0.45f);
 			Outline(Out, L + 3, Geometry, Diamond(Center, 14), Color, 2);
 		}
+		const FLinearColor LabelColor = Active[I] ? FLinearColor::White : Pale * 0.65f;
 		Text(Out, L + 4, Geometry, Center + FVector2D(-5, -10),
-			FString::FromInt(I + 1), 13, Active[I] ? FLinearColor::White : Pale * 0.65f);
+			FString::FromInt(I + 1), 13, LabelColor);
 	}
 	const float StaminaRatio = DisplayState.MaxKinsectStamina > UE_SMALL_NUMBER
 		? DisplayState.KinsectStamina / DisplayState.MaxKinsectStamina : 0;

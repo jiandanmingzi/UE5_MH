@@ -7,6 +7,7 @@
 #include "GameplayEffectTypes.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/MHGZMotionMatchingAnimInstance.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/Character.h"
 #include "MHGZAbilitySystemComponent.h"
@@ -23,6 +24,17 @@ const FName DodgeEntrySectionName(TEXT("DodgeEntry"));
 FGameplayTag Tag(const TCHAR* Name)
 {
 	return FGameplayTag::RequestGameplayTag(Name);
+}
+
+bool GetPlanarYawDelta(const FVector& Forward, const FVector& Direction, float& OutDelta)
+{
+	if (Forward.ContainsNaN() || Direction.ContainsNaN()
+		|| Forward.IsNearlyZero() || Direction.IsNearlyZero()) { return false; }
+	const FVector From = Forward.GetSafeNormal2D();
+	const FVector To = Direction.GetSafeNormal2D();
+	if (From.IsNearlyZero() || To.IsNearlyZero()) { return false; }
+	OutDelta = FMath::FindDeltaAngleDegrees(From.Rotation().Yaw, To.Rotation().Yaw);
+	return FMath::IsFinite(OutDelta);
 }
 
 bool IsLiveDodgeStateValid(const UMHGZAbilitySystemComponent* ASC,
@@ -44,7 +56,45 @@ UMHGZDodgeAbility::UMHGZDodgeAbility()
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.Dodge"));
 	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
 	StaminaCost = FScalableFloat(25.f);
+	MaxCorrectionAngle = 90.f;
 	AllowedMotionMatchingHandoffTypes.Add(EMHGZMotionMatchingHandoffType::DodgeMoveExit);
+}
+
+bool UMHGZDodgeAbility::DoesDodgeDirectionRequireAttacking(EDirectionalInput Direction) const
+{
+	switch (Direction)
+	{
+	case EDirectionalInput::None:
+	case EDirectionalInput::Forward:
+		return bForwardDodgeRequiresAttacking;
+	case EDirectionalInput::Left:
+		return bLeftDodgeRequiresAttacking;
+	case EDirectionalInput::Right:
+		return bRightDodgeRequiresAttacking;
+	case EDirectionalInput::Back:
+		return bBackDodgeRequiresAttacking;
+	default:
+		return true;
+	}
+}
+
+EDirectionalInput UMHGZDodgeAbility::ResolveDodgeDirection(const FWeaponInputSnapshot& Input,
+	const UAbilitySystemComponent* ASC, const UMHGZWeaponRuntimeHostComponent* Host) const
+{
+	const EDirectionalInput Requested = Input.Direction;
+	if (Requested != EDirectionalInput::Left && Requested != EDirectionalInput::Right) { return Requested; }
+	const bool bAttacking = ASC && ASC->HasMatchingGameplayTag(Tag(TEXT("Combat.State.Attacking")));
+	const bool bSheathed = Host ? Host->IsSheathed()
+		: Input.ContextTags.HasTagExact(Tag(TEXT("Combat.State.Sheathed")));
+	if (IsDodgeDirectionAllowedForPose(bSheathed, Requested)
+		&& (bAttacking || !DoesDodgeDirectionRequireAttacking(Requested))) { return Requested; }
+	if ((!bAttacking && bForwardDodgeRequiresAttacking) || !FMath::IsFinite(MaxCorrectionAngle)) { return Requested; }
+	float Delta;
+	// Use the press-time basis, including buffered inputs; never wait for locomotion
+	// to rotate a side-classified input into the global 45-degree Forward bucket.
+	const float Cap = FMath::Clamp(MaxCorrectionAngle, 0.f, 90.f);
+	return Cap > 0.f && GetPlanarYawDelta(Input.ActorForward, Input.WorldDirection, Delta)
+		&& FMath::Abs(Delta) <= Cap + KINDA_SMALL_NUMBER ? EDirectionalInput::Forward : Requested;
 }
 
 bool UMHGZDodgeAbility::CanActivateAbility(
@@ -71,7 +121,9 @@ bool UMHGZDodgeAbility::CanActivateAbility(
 
 	if (!ASC->HasMatchingGameplayTag(Tag(TEXT("Combat.State.Attacking"))))
 	{
-		return true;
+		const FWeaponAbilityActivationContext* Context = ASC->FindPendingActivationContext(Handle);
+		return !DoesDodgeDirectionRequireAttacking(
+			Context ? ResolveDodgeDirection(Context->Input, ASC, Host) : EDirectionalInput::None);
 	}
 	const UGA_WeaponComboCoordinator* Coordinator = ASC->GetActiveComboCoordinator();
 	return Coordinator && Coordinator->CanDodgeSupersedeActiveAction();
@@ -91,6 +143,14 @@ bool UMHGZDodgeAbility::ValidateActionDependencies() const
 		|| !Input.ContextTags.HasTagExact(Tag(TEXT("Combat.State.Grounded")))
 		|| Input.ContextTags.HasTagExact(Tag(TEXT("Combat.State.Aerial")))
 		|| !bHasPose)
+	{
+		return false;
+	}
+
+	// Recheck the live state after consuming the frozen input, before any Commit.
+	// Both activation gates use the same per-direction Blueprint defaults.
+	if (DoesDodgeDirectionRequireAttacking(ResolveDodgeDirection(Input, ASC, Host))
+		&& !ASC->HasMatchingGameplayTag(Tag(TEXT("Combat.State.Attacking"))))
 	{
 		return false;
 	}
@@ -132,6 +192,7 @@ void UMHGZDodgeAbility::ActivateAbility(
 	}
 
 	bEndingDodge = false;
+	bActionRecoveryOpen = false;
 	bOwnsMontageRootMotion = false;
 	bPreparedAttackSupersede = false;
 	MovementPhase = EMHGZDodgeMovementPhase::LockedRootMotion;
@@ -222,6 +283,20 @@ void UMHGZDodgeAbility::ActivateAbility(
 		}
 		bPreparedAttackSupersede = false;
 	}
+	// Correct only a successfully started forward roll, without adding a turn task,
+	// timer or input delay. Root movement starts using this yaw on the next pose update.
+	float CorrectionDelta;
+	const auto& FrozenInput = GetWeaponActivationContext().Input;
+	if (bActiveDodgeAllowsMoveExit && FrozenInput.Direction != EDirectionalInput::None
+		&& FMath::IsFinite(MaxCorrectionAngle)
+		&& GetPlanarYawDelta(Character->GetActorForwardVector(), FrozenInput.WorldDirection, CorrectionDelta))
+	{
+		FRotator Rotation = Character->GetActorRotation();
+		const float CorrectionCap = FMath::Clamp(MaxCorrectionAngle, 0.f, 90.f);
+		Rotation.Yaw = FRotator::NormalizeAxis(Rotation.Yaw
+			+ FMath::Clamp(CorrectionDelta, -CorrectionCap, CorrectionCap));
+		Character->SetActorRotation(Rotation);
+	}
 
 	if (UAbilitySystemComponent* CueASC = GetAbilitySystemComponentFromActorInfo())
 	{
@@ -285,6 +360,44 @@ void UMHGZDodgeAbility::EndAbility(
 		return;
 	}
 	bEndingDodge = true;
+	const FWeaponActionToken EndingToken = GetActionToken();
+	UMHGZAbilitySystemComponent* EndingASC = Cast<UMHGZAbilitySystemComponent>(
+		GetAbilitySystemComponentFromActorInfo());
+	const bool bConsumePreInputAtEnd = !bWasCancelled && IsActionActivationCommitted()
+		&& GetActionEndReason() == EWeaponActionEndReason::Normal;
+	if (!bConsumePreInputAtEnd && EndingASC)
+	{
+		if (UGA_WeaponComboCoordinator* Coordinator = EndingASC->GetActiveComboCoordinator())
+		{
+			Coordinator->DiscardDodgePreInput(EndingToken);
+		}
+	}
+	// A fading outgoing montage must not contribute its remaining root movement
+	// after locomotion or a newly committed action takes over. Never edit the asset.
+	const bool bForwardActionTakeover = bActiveDodgeAllowsMoveExit
+		&& GetActionEndReason() == EWeaponActionEndReason::Superseded;
+	if (bActionRecoveryOpen && ActiveDodgeMontage
+		&& (!bActiveDodgeAllowsMoveExit || bForwardActionTakeover))
+	{
+		const ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+		UAnimInstance* AnimInstance = Character && Character->GetMesh()
+			? Character->GetMesh()->GetAnimInstance() : nullptr;
+		FAnimMontageInstance* Instance = AnimInstance
+			? AnimInstance->GetActiveInstanceForMontage(ActiveDodgeMontage) : nullptr;
+		if (Instance)
+		{
+			Instance->PushDisableRootMotion();
+			if (bForwardActionTakeover && MontageTask)
+			{
+				// Retire this task normally before Ability teardown: otherwise its
+				// default stop would shorten the explicit fade to the forward asset's
+				// zero BlendOut. Normal completion/interrupt paths are unchanged.
+				MontageTask->EndTask();
+			}
+			AnimInstance->Montage_Stop(FMath::Max(0.f, DirectionalIdleExitBlendTime), ActiveDodgeMontage);
+		}
+	}
+	bActionRecoveryOpen = false;
 	ClearMontageEndFailsafe();
 	CancelPreparedAttackSupersede();
 	CloseAllDodgeWindows();
@@ -297,6 +410,15 @@ void UMHGZDodgeAbility::EndAbility(
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility,
 		bWasCancelled);
 	DodgingToken = FWeaponOwnedTagToken();
+	// Normal completion remains a fallback for an input buffered after the exit
+	// opened. Cleanup must precede consumption, before the next movement update.
+	if (bConsumePreInputAtEnd && EndingASC)
+	{
+		if (UGA_WeaponComboCoordinator* Coordinator = EndingASC->GetActiveComboCoordinator())
+		{
+			Coordinator->OnDodgePreInputWindowOpened(EndingToken);
+		}
+	}
 }
 
 UMHGZDodgeAbility::FDodgeSelection UMHGZDodgeAbility::SelectDodgeSelection() const
@@ -316,17 +438,19 @@ UMHGZDodgeAbility::FDodgeSelection UMHGZDodgeAbility::SelectDodgeSelection() con
 	// a snapshot created across a Draw/Sheathe Commit boundary.
 	const UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 	const bool bSheathed = Host ? Host->IsSheathed() : bSnapshotSheathed;
-	if (!IsDodgeDirectionAllowedForPose(bSheathed, Input.Direction))
+	const auto* ASC = GetAbilitySystemComponentFromActorInfo();
+	const EDirectionalInput Direction = ResolveDodgeDirection(Input, ASC, Host);
+	if (!IsDodgeDirectionAllowedForPose(bSheathed, Direction))
 	{
 		return FDodgeSelection();
 	}
 
-	const bool bForwardRoll = Input.Direction == EDirectionalInput::Forward
-		|| Input.Direction == EDirectionalInput::None;
+	const bool bForwardRoll = Direction == EDirectionalInput::Forward
+		|| Direction == EDirectionalInput::None;
 	if (!bForwardRoll)
 	{
 		const TSoftObjectPtr<UAnimMontage>* DirectionalMontage = nullptr;
-		switch (Input.Direction)
+		switch (Direction)
 		{
 		case EDirectionalInput::Left:
 			DirectionalMontage = &UnsheathedLeftDodgeMontage;
@@ -500,14 +624,104 @@ void UMHGZDodgeAbility::HandleDodgeSectionEntered(FName SectionName)
 			return;
 		}
 		ChosenExitSection = IdleExitSectionName;
+		OpenActionRecovery();
+		// A committed successor may have synchronously ended this source.
+		if (!IsActive() || bEndingDodge) { return; }
+		TryCompleteDirectionalRecoveryForMovement();
 		return;
 	}
 
 	if (SectionName == MoveExitSectionName)
 	{
 		ChosenExitSection = MoveExitSectionName;
-		EnterMoveExit(GetActionToken());
+		if (EnterMoveExit(GetActionToken()))
+		{
+			OpenActionRecovery();
+		}
 	}
+}
+
+void UMHGZDodgeAbility::OpenActionRecovery()
+{
+	if (bActionRecoveryOpen) { return; }
+	// Without a committed successor the original exit, tags and root phase
+	// continue. In particular forward movement must not use directional Start.
+	bActionRecoveryOpen = true;
+	ReleaseActionTag(DodgingToken);
+	if (auto* ASC = Cast<UMHGZAbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo()))
+	{
+		if (UGA_WeaponComboCoordinator* Coordinator = ASC->GetActiveComboCoordinator())
+		{
+			Coordinator->OnDodgePreInputWindowOpened(GetActionToken());
+		}
+	}
+}
+
+bool UMHGZDodgeAbility::IsActionRecoveryOpen() const
+{
+	const UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+	return bActionRecoveryOpen
+		&& !bEndingDodge && IsActive() && IsActionActivationCommitted()
+		&& (ChosenExitSection == IdleExitSectionName
+			|| (bActiveDodgeAllowsMoveExit && ChosenExitSection == MoveExitSectionName)) && Host
+		&& Host->IsActionRegistered(GetActionToken());
+}
+
+bool UMHGZDodgeAbility::IsDirectionalRecoveryOpen() const
+{
+	return !bActiveDodgeAllowsMoveExit && IsActionRecoveryOpen();
+}
+
+UMHGZDodgeAbility* UMHGZDodgeAbility::FindOpenActionRecovery(
+	UAbilitySystemComponent* ASC, const UMHGZGameplayAbility* Exclude)
+{
+	if (!ASC) { return nullptr; }
+	for (FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		for (UGameplayAbility* Instance : Spec.GetAbilityInstances())
+		{
+			UMHGZDodgeAbility* Dodge = Cast<UMHGZDodgeAbility>(Instance);
+			if (Dodge && Dodge != Exclude && Dodge->IsActionRecoveryOpen()) { return Dodge; }
+		}
+	}
+	return nullptr;
+}
+
+UMHGZDodgeAbility* UMHGZDodgeAbility::FindOpenDirectionalRecovery(
+	UAbilitySystemComponent* ASC, const UMHGZGameplayAbility* Exclude)
+{
+	if (!ASC) { return nullptr; }
+	for (FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		for (UGameplayAbility* Instance : Spec.GetAbilityInstances())
+		{
+			UMHGZDodgeAbility* Dodge = Cast<UMHGZDodgeAbility>(Instance);
+			if (Dodge && Dodge != Exclude && Dodge->IsDirectionalRecoveryOpen()) { return Dodge; }
+		}
+	}
+	return nullptr;
+}
+
+bool UMHGZDodgeAbility::TryCompleteDirectionalRecoveryForMovement()
+{
+	if (!IsDirectionalRecoveryOpen() || !HasLiveMovementInput()) { return false; }
+	const ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+	if (UMHGZMotionMatchingAnimInstance* Anim = Character && Character->GetMesh()
+		? Cast<UMHGZMotionMatchingAnimInstance>(Character->GetMesh()->GetAnimInstance()) : nullptr)
+	{
+		// Snapshot the exact source before EndAbility unregisters it. Only movement,
+		// never the attack/forward-roll path, requests this fresh Start query.
+		Anim->RequestDirectionalDodgeLocomotionStart(GetActionToken());
+	}
+	MovementPhase = EMHGZDodgeMovementPhase::MotionMatching;
+	RequestEndAction(EWeaponActionEndReason::Normal);
+	return true;
+}
+
+void UMHGZDodgeAbility::CompleteDirectionalRecoveryForAction()
+{
+	// Keep this existing C++ entry point; action recovery now includes forward exits.
+	if (IsActionRecoveryOpen()) { RequestEndAction(EWeaponActionEndReason::Superseded); }
 }
 
 bool UMHGZDodgeAbility::EnterMoveExit(

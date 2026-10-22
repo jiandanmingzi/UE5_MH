@@ -227,6 +227,15 @@ private:
 	int32 FallbackExitConfigurationCount = 0;
 };
 
+/** Native test defaults mirror a user disabling all per-direction Attacking requirements. */
+UCLASS()
+class UMHGZM4UnrestrictedDodgeAbility : public UMHGZM4TestDodgeAbility
+{
+	GENERATED_BODY()
+public:
+	UMHGZM4UnrestrictedDodgeAbility();
+};
+
 /** Directional dodge test variant using the authored Phase ownership contract. */
 UCLASS()
 class UMHGZM4PhaseDodgeAbility : public UMHGZM4TestDodgeAbility

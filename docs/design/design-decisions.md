@@ -196,7 +196,7 @@
 | 169 | PendingExtract 回手时原子取出并清空；耐力归零只在阈值边沿触发一次 | 支持连续取得不同颜色，避免 0 耐力每帧重复召回和音效 |
 | 170 | Demo 禁用 WeaponResource EntryModifier，完整词条阶段重新设计多来源句柄与参数过滤 | 当前 FindOrAdd/遍历语义会丢来源或把修饰应用到错误参数；木桩 Demo 不应建立在已知错误路径上 |
 | 171 | 旧虫棍 DT→最小 Combo→两个 GA→两个无自定义 Notify Montage 与零引用武器定义采用删除重建，不迁移其字段 | UE 5.6 引用审计证明这批资产只含最小原型数据；地图、核心 BP、AnimBP、原始 AnimSequence、美术与输入基础继续保留。M2 先解除旧读取，E3/E4 再按精确清单删除并从最终类型新建 |
-| 172 | 翻滚方向在激活时冻结选择，前向与左右后使用不同退出合同 | 收刀/持刀 Forward 或 None 可进入 MoveExit；持刀 Left/Right/Back 强制 IdleExit；收刀 Left/Right/Back 拒绝且不扣耐。所有成功变体共用同一 Instant 成本，旧方向 Map 不恢复为正式入口 |
+| 172 | 翻滚方向在激活时冻结选择，前向与左右后使用不同退出合同 | 收刀/持刀Forward或None可进入MoveExit；四方向额外Attacking要求可在GA类默认值Dodge|Activation独立配置，默认前=false、左/右/后=true，None使用前向设置。攻击中始终须精确攻击取消窗口开放；持刀Left/Right/Back仍走IdleExit、不建MoveExit，从IdleExit第一帧开放普通起步/成功提交的后继动作，混合按当前GA/Montage配置，无输入继续原退出段。门禁失败不降级为前翻滚；关闭开关不解除收刀Left/Right/Back限制。所有成功变体共用同一Instant成本，旧方向Map不恢复为正式入口 |
 | 173 | 收刀 Y 使用一条 Input.Weapon.Y 与两条方向 Combo 边 | `Direction=None` 是通配，进入仅拔刀；`Direction=Forward` 优先进入拔刀攻击。输入层不创建方向 Chord，Coordinator 只读冻结快照 |
 | 174 | 所有拔刀路径都在实际视觉 DrawCommit 切姿态 | `GA_IG_Draw`、`GA_IG_BaDaoZhan`、`GA_IG_DrawAndSendKinsect` 由原生 Notify 按 ActionToken 回调 Ability 后 `SetSheathed(false)` + 清奔跑；不在激活或 Blueprint Event Graph 提前改姿态 |
 | 175 | 连招上下文只路由到目标 GA；目标 GA 决定 Montage Entry Section | `FComboTransition` 不引用 Montage/Section。M4-B.1 由 `UMHGZAttackAbility` 按 `TransitionID → SourceState → Default → Montage 开头` 选择并在 Montage Task 创建时传 StartSection；连接动画归目标招式的 Entry Section，上一招只保留未派生 Recovery |

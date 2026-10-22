@@ -1,5 +1,7 @@
 # 虫棍资源系统（操虫棍·Insect Glaive）
 
+> **音效现状（2026-10-20，覆盖下文旧激活即播描述）：** 动画同步声音由精确实例点Notify触发，现43 Montage/422点（322有音源＋100衣服空点）；普通前后跳/空回推进漏配已补，137空回入场前推进与156白灯前跳Over的错误对应已纠正。AKinsect自有组件管理自由飞行/悬停/返航循环及成功离手短音；回手、武器附着、Runtime失效/销毁停循环。精华提示在真实回手交付按命令去重，不提前点灯。猎虫命中基础声由真实结算后的`GameplayCue.Hit.Kinsect`派发到`GCN_Hit_Kinsect`，只收Kinsect上下文，在真实接触点播放；旧武器主声仍排除Kinsect。配置/回载不等于PIE耳听或原作所有分支已还原；前跳阶段适配、粉尘等限制见[维护计划1.29](../using/崛起虫棍攻击与命中音效实施计划.md)。配置优先、细调后置，不恢复旧三灯激活即播主链。
+
 > **实施状态说明（以源码、配置和 Content 为准）：** 本文负责猎虫实体、耐力、三色精华、三灯、UI 与词条；具体地面/空中动作、舞踏、位移和粉尘规则以 [insect-glaive-actions.md](insect-glaive-actions.md) 为准。M3 基础资源、M4/E4 动作与资产、M5 空中动作/舞踏/落地链均已按[阶段门禁](milestone-gates.md)验收；M5总验收已关闭。当前M6.3.1～.6代码及虫印/虫粉表现、DA接线已静态完成，E6.2只剩PIE闭环；后续M6.4再实现HUD/Widget。收刀、空中受击或死亡清舞踏不扩成当前 Demo 要求。
 
 > **目标口径：** 项目以《世界》的猎虫与地面虫棍为基底，吸收并改造《崛起》的部分动作，形成原创连招。不是《崛起》逐项复刻；不使用翔虫资源、集中模式或钩爪。
@@ -607,7 +609,7 @@ ApplyExtract(Color)
 
 - 每名玩家的Resource只持有一个局部虫印：地面虫印斩指定有效武器段、急袭突刺地面第一击成功提交伤害时创建/替换。以真实命中点为中心，沿目标表面切向覆盖100×100cm（半宽50cm），与约1m视觉云团对齐；持续90s。死亡、到期、新印替换才按玩法规则清除，收虫/收刀不清。销毁目标和Runtime关闭仅作技术清理。
 - 自动虫印攻击不主动让Attached猎虫离手；猎虫已离手、没有高优先级指令且虫印在寻印范围内时才启动。玩家送虫/定点攻击、召回、招式附着与觉虫击等先执行，猎虫请求完成且仍在外才恢复自动寻印；不能仅以猎人Montage结束判定玩家指令完成。
-- 所有猎虫成功伤害入口共用产粉策略。实际命中虫印局部区域受Runtime共享10s冷却；觉虫击消耗黄灯后，单击或贯通的每次成功伤害均独立产粉，不受此冷却和虫印限制。无黄灯保留普通虫印产粉规则；同HitID至多一团，仍受粉尘容量限制；武器段不因命中虫印而产粉。
+- 所有猎虫成功伤害入口共用产粉结算。普通手动/招式猎虫命中虫印局部区域受Runtime共享10s冷却；自动寻印攻击每次成功命中有效虫印区域均独立产粉（`AutoMarkContact`），不检查、启动或刷新普通CD，仍按原自动攻击频率行动。觉虫击消耗黄灯后，单击或贯通的每次成功伤害均独立产粉，不受此冷却和虫印限制；无黄灯保留普通虫印产粉规则。所有路径同HitID至多一团，仍受粉尘容量限制；武器段不因命中虫印而产粉。
 - 虫粉世界空间位置独立于怪物，每团保存生成时猎虫攻击力形成的固定伤害快照。存活180s、远距只消失、最多100团；自然到期一次直径1m固定伤害，不吃肉质。
 - 粉尘聚爆以冻结准心目标为中心，由Resource持有猎虫指令及聚爆事务。到达后收集范围内本玩家全部虫粉、刷新180s寿命，1s后以直径2m结算数量阶梯伤害和各团固定伤害之和两段。操虫/收虫抢占取消；猎人正常Montage结束不取消已提交事务。完整参数、去重和出口见M6计划。
 
@@ -615,20 +617,21 @@ Demo 唯一消耗三灯的动作是觉虫击。降龙已于2026-10-01移出当�
 
 ---
 
-## 五、三灯攻击音效（C++ 钩子已存在，资源 Tag/GE 尚未形成可用链路）
+## 五、三灯攻击音效（旧激活钩子兼容；当前已迁移GA不走此入口）
 
 ### 机制
 
-三灯齐聚时，**每个武器攻击 GA 激活时**播放特殊音效（清脆虫鸣/金属混响）——不是命中时触发，而是**挥刀动作本身**伴随音效。猎虫操虫 GA（GA_SendKinsect / GA_RecallKinsect）不触发此音效。
+旧兼容路径允许未迁移且配置了`TripleUpSwingSound`的武器GA在三灯激活出招时播放提示；当前迁移到`bUseAuthoredSwingAudio=true`的GA明确不走此路径，以免与实际片段声音重复。挥击次数独立于伤害段，由实际经过的Notify位置决定；猎虫声音另走状态生命周期。
 
-**实现：** `UMHGZInsectGlaiveAbility::ActivateAbility` 覆写中，检查 ASC 是否持有 `Combat.Branch.TripleUp` Tag → 若是则 `UGameplayStatics::PlaySound2D(TripleUpSwingSound)`。
+**旧路径实现：** `UMHGZInsectGlaiveAbility::ActivateAbility`只在`!bUseAuthoredSwingAudio && TripleUpSwingSound`并且持有三灯Tag时播放，不是当前主播放链。
 
 ```cpp
 void UMHGZInsectGlaiveAbility::ActivateAbility(...)
 {
     Super::ActivateAbility(...);  // 父类扣耐力、方向修正、播 Montage
 
-    if (ASC->HasMatchingGameplayTag(Combat.Branch.TripleUp))
+    if (!bUseAuthoredSwingAudio && TripleUpSwingSound
+        && ASC->HasMatchingGameplayTag(Combat.Branch.TripleUp))
     {
         UGameplayStatics::PlaySound2D(this, TripleUpSwingSound);
     }
@@ -637,7 +640,7 @@ void UMHGZInsectGlaiveAbility::ActivateAbility(...)
 
 | 成员 | 类型 | Category | 默认值 | 说明 |
 |------|------|----------|--------|------|
-| TripleUpSwingSound | TObjectPtr\<USoundBase\> | "Ability\|Audio" | nullptr | 三灯攻击音效——每个攻击 GA 激活时播放。由 `UMHGZInsectGlaiveAbility` 基类持有，所有虫棍攻击 GA 蓝图继承 |
+| TripleUpSwingSound | TObjectPtr\<USoundBase\> | "Ability\|Audio" | nullptr | 未迁移GA的可选兼容提示；已启用作者声音Notify的GA不在激活时播放它 |
 
 > **与命中音效的区别：** 命中音效（`HitCueTag` → GameplayCue）在武器碰到怪物时产生——可能命中、可能空挥。三灯攻击音效在**每次挥刀**时无条件播放——无论是否命中。这是怪猎虫棍的标志性反馈：三灯后每一刀都有清脆的虫鸣混响，让玩家明显感知到"我处于三灯状态"。
 >
@@ -1030,10 +1033,12 @@ AimComponent 不在 BeginPlay 只尝试一次绑定 ASC。它在 RuntimeHost/ASC
 
 | UI 元素 | 数据源 | 驱动方式 |
 |------|------|------|
-| 白/橙/红灯图标亮/灭 | ASC Tag `WeaponResource.IG.Extract.White/Orange/Red` | `RegisterGameplayTagEvent` — Tag 添加→亮起动画，Tag 移除→暗灭动画 |
-| 三灯合一光环 | ASC Tag `WeaponResource.IG.TripleUp` | 同上 |
-| 灯环形倒计时 | `URes_InsectGlaive::OnExtractTimeUpdated(Color, 0~1 Ratio)` Delegate | Delegate 已声明但当前未广播；剩余时间读取与 UI 更新为规划 |
-| 猎虫状态图标 | ASC Tag `WeaponResource.IG.Kinsect.Active` | Tag 添加→"虫已放出"图标，Tag 移除→"虫已归"图标 |
+| 红/白/橙灯亮/灭 | `FIGResourceUISnapshot.bRed/bWhite/bOrange/bTripleUp` | `URes_InsectGlaive::OnIGResourceUIChanged` → 原生资源面板；三灯有效时三个图标都亮 |
+| 单灯临期闪烁 | `Red/White/OrangeRemainingSeconds`，来自 ASC 实际有效 GE 的剩余时间 | `>30s` 常亮；`10s<剩余≤30s` 每2s闪一次；`0<剩余≤10s` 每秒闪两次 |
+| 三灯临期闪烁 | `TripleRemainingSeconds` | 三灯替代单灯 GE 后，三个灯统一使用三灯倒计时同步闪烁，不读取已被移除的单灯计时 |
+| 猎虫携带精华椭圆 | `KinsectPendingExtractColors`（兼容单色字段） | 只显示未交付精华，不参与角色已有灯的临期闪烁 |
+
+2026-10-21临期提示（按最新反馈修正）：`GetExtractWarningIntensity` 直接由快照剩余秒数推导提示相位，`GetExtractWarningColor` 只淡化RGB颜色，不再降低Alpha。每次提示将彩色填充及内框短暂变为低饱和度的淡色，持续0.2s后恢复；白灯相应变为浅灰，避免白色淡化仍几乎纯白。灯、数字、背景与外框始终保留原有不透明度；猎虫携带精华椭圆不参与。现有 Resource Tick 已持续发布剩余时间，不新增 Widget 计时器、不改变精华时长/消耗/三灯机制；30s每2s一次、10s每秒两次、三灯同步的规则不变。暂停与慢放跟随实际精华倒计时，刷新时立即按新剩余时间显示，到期沿用原暗灭状态。
 
 ### 猎虫耐力条数据绑定
 

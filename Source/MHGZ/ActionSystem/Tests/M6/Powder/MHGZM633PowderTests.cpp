@@ -206,6 +206,58 @@ bool FMHGZM633PowderMarkedContactCooldownAndAwakenedBypass::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZAutoMarkPowderIndependentCooldown,
+	"MHGZ.M6.Powder.AutoMarkIndependentOfSharedCooldown",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZAutoMarkPowderIndependentCooldown::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup(false, AMHGZM3TestCharacter::StaticClass(), true)) { H.Teardown(); return false; }
+	ConfigurePowder(H);
+	H.CombatConfig->MarkedHitPowderCooldown = .2f;
+	auto Target = SpawnPowderTarget(*H.World, FVector(500, 0, 100), true);
+	if (!TestNotNull(TEXT("independent powder target"), Target.Hitzone)) { H.Teardown(); return false; }
+	const auto Hit = MakePowderHit(Target, Target.Hitzone->GetComponentLocation());
+	TestTrue(TEXT("valid local mark"), H.Resource->SetKinsectMarkFromMeleeHit(Hit));
+	const auto Runtime = H.Host->GetCurrentToken();
+	const auto Auto = EIGPowderSpawnPolicy::AutoMarkContact;
+	const auto Ordinary = EIGPowderSpawnPolicy::MarkedContact;
+	bool bSpawned = false;
+	TestTrue(TEXT("first automatic damage succeeds"),
+		ApplyAndNotifyKinsectHit(H, Hit, FGuid::NewGuid(), FGuid::NewGuid(), Auto, bSpawned));
+	TestTrue(TEXT("first automatic hit spawns"), bSpawned);
+	TestTrue(TEXT("ordinary damage after auto succeeds"),
+		ApplyAndNotifyKinsectHit(H, Hit, FGuid::NewGuid(), FGuid::NewGuid(), Ordinary, bSpawned));
+	TestTrue(TEXT("auto did not start the shared cooldown"), bSpawned);
+	const auto AutoHitID = FGuid::NewGuid();
+	TestTrue(TEXT("automatic damage during ordinary cooldown succeeds"),
+		ApplyAndNotifyKinsectHit(H, Hit, FGuid::NewGuid(), AutoHitID, Auto, bSpawned));
+	TestTrue(TEXT("ordinary cooldown cannot suppress auto powder"), bSpawned);
+	TestFalse(TEXT("same automatic HitID is still deduplicated"),
+		H.Resource->HandleSuccessfulKinsectDamage(Runtime, FGuid::NewGuid(), AutoHitID, Hit, Auto));
+	TestTrue(TEXT("ordinary hit still damages during cooldown"),
+		ApplyAndNotifyKinsectHit(H, Hit, FGuid::NewGuid(), FGuid::NewGuid(), Ordinary, bSpawned));
+	TestFalse(TEXT("auto did not reset or remove the ordinary cooldown"), bSpawned);
+	for (int32 Frame = 0; Frame < 9; ++Frame) { H.World->Tick(LEVELTICK_All, 1.f / 60.f); }
+	TestTrue(TEXT("later automatic damage succeeds"),
+		ApplyAndNotifyKinsectHit(H, Hit, FGuid::NewGuid(), FGuid::NewGuid(), Auto, bSpawned));
+	TestTrue(TEXT("later auto still spawns during the ordinary cooldown"), bSpawned);
+	for (int32 Frame = 0; Frame < 6; ++Frame) { H.World->Tick(LEVELTICK_All, 1.f / 60.f); }
+	TestTrue(TEXT("ordinary hit after its original expiry damages"),
+		ApplyAndNotifyKinsectHit(H, Hit, FGuid::NewGuid(), FGuid::NewGuid(), Ordinary, bSpawned));
+	TestTrue(TEXT("later auto did not refresh the ordinary cooldown"), bSpawned);
+	TestEqual(TEXT("only successful distinct eligible hits created powder"), H.Resource->GetPowderSnapshots().Num(), 5);
+	FHitResult Outside = Hit;
+	Outside.ImpactPoint += FVector(1000, 0, 0);
+	TestFalse(TEXT("auto still requires contact inside the local mark patch"),
+		H.Resource->HandleSuccessfulKinsectDamage(Runtime, FGuid::NewGuid(), FGuid::NewGuid(), Outside, Auto));
+	H.Resource->ClearKinsectMark(EIGMarkClearReason::Replaced);
+	TestFalse(TEXT("auto still requires a valid mark"),
+		H.Resource->HandleSuccessfulKinsectDamage(Runtime, FGuid::NewGuid(), FGuid::NewGuid(), Hit, Auto));
+	H.Teardown();
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMHGZM633PowderCapCountsReserved,
 	"MHGZ.M6.Powder.CapCountsReservedPowders",
@@ -334,6 +386,9 @@ bool FMHGZM633PowderNaturalExpiryTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	ConfigurePowder(H);
+	// Create a coherent 7 * 100 / 100 snapshot through the real spawn route.
+	// Mutating only DamageContribution no longer updates the formula inputs.
+	H.CombatConfig->PowderDamageContribution = 7.0f;
 
 	AActor* Source = H.World->SpawnActor<AActor>(AActor::StaticClass(),
 		FVector::ZeroVector, FRotator::ZeroRotator);
@@ -356,8 +411,6 @@ bool FMHGZM633PowderNaturalExpiryTest::RunTest(const FString& Parameters)
 		H.Teardown();
 		return false;
 	}
-	Powder->DamageContribution = 7.0f;
-
 	auto SpawnMonsterTarget = [&H](const FVector& Location)
 	{
 		FPowderTestTarget Result;

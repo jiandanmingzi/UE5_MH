@@ -2006,6 +2006,18 @@ bool UMHGZWeaponRuntimeHostComponent::PlayAerialLandingPresentation()
 	return PlayAerialLandingVisual();
 }
 
+bool UMHGZWeaponRuntimeHostComponent::IsCurrentAerialLandingMontageInstance(
+	USkeletalMeshComponent* Mesh, const int32 InstanceID) const
+{
+	const ACharacter* Character = CurrentContext.Character.Get();
+	if (!bInitialized || bShuttingDown || !IsAerialLanding() || !Character
+		|| Character->GetMesh() != Mesh || !ActiveAerialLandingMontage.IsValid()) return false;
+	const UAnimInstance* Anim = Mesh->GetAnimInstance();
+	const FAnimMontageInstance* Instance = Anim
+		? Anim->GetActiveInstanceForMontage(ActiveAerialLandingMontage.Get()) : nullptr;
+	return Instance && Instance->IsActive() && Instance->GetInstanceID() == InstanceID;
+}
+
 bool UMHGZWeaponRuntimeHostComponent::PlayAerialLandingVisual()
 {
 	UWeaponCombatConfigBase* CombatConfig = CurrentContext.CombatConfig.Get();

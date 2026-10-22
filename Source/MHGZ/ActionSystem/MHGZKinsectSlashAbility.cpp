@@ -417,15 +417,35 @@ bool UMHGZKinsectSlashAbility::PrepareAttackMontage()
 	USkeletalMeshComponent* WeaponMesh = Config
 		? FindKinsectSlashWeaponMesh(Config->KinsectSlashAttachSocket) : nullptr;
 	if (!Resource || !Config || !WeaponMesh
-		|| !Resource->BeginKinsectActionAttachment(GetActionToken(), WeaponMesh,
-			Config->KinsectSlashAttachSocket))
+		|| !Resource->BeginKinsectSlashPreparation(GetActionToken(), WeaponMesh,
+			Config->KinsectSlashAttachSocket, GetKinsectPreparationTime()))
 	{
 		UE_LOG(LogMHGZ, Warning,
-			TEXT("[KinsectSlash] Could not attach the real Kinsect to the configured weapon socket before montage playback."));
+			TEXT("[KinsectSlash] Could not claim the real Kinsect preparation lease before montage playback."));
 		return false;
 	}
 	bKinsectActionAttached = true;
 	return true;
+}
+
+float UMHGZKinsectSlashAbility::GetKinsectPreparationTime() const
+{
+	if (!AttackMontage || !FMath::IsFinite(AttackMontage->RateScale)
+		|| AttackMontage->RateScale <= 0.f)
+	{
+		return 0.f;
+	}
+	const int32 Entry = AttackMontage->GetSectionIndex(HoverSectionName);
+	const int32 Dash = AttackMontage->GetSectionIndex(DashSectionName);
+	const double FPS = AttackMontage->GetSamplingFrameRate().AsDecimal();
+	if (Entry == INDEX_NONE || Dash == INDEX_NONE || !FMath::IsFinite(FPS) || FPS <= 0.)
+	{
+		return 0.f;
+	}
+	// PlayMontage task uses rate 1.0; RateScale and the Montage sampling frame
+	// define the last admissible return time, not an input timer or a magic delay.
+	return FMath::Max(0.f, static_cast<float>((AttackMontage->GetAnimCompositeSection(Dash).GetTime()
+		- AttackMontage->GetAnimCompositeSection(Entry).GetTime() - 1. / FPS) / AttackMontage->RateScale));
 }
 
 bool UMHGZKinsectSlashAbility::HasRequiredSections(const UAnimMontage* Montage) const
@@ -510,7 +530,8 @@ void UMHGZKinsectSlashAbility::ReleaseKinsectActionAttachment()
 	}
 	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
 	{
-		if (!Resource->EndKinsectActionAttachmentAndReturn(GetActionToken()))
+		if (Resource->IsKinsectActionControlCurrent(GetActionToken())
+			&& !Resource->EndKinsectActionAttachmentAndReturn(GetActionToken()))
 		{
 			UE_LOG(LogMHGZ, Warning,
 				TEXT("[KinsectSlash] Temporary Kinsect attachment could not be released by its owning action token."));
@@ -547,6 +568,12 @@ bool UMHGZKinsectSlashAbility::CanApplyCollisionHit(
 	const FName Section = AnimInstance && ActiveSlashMontage
 		? AnimInstance->Montage_GetCurrentSection(ActiveSlashMontage) : NAME_None;
 	return Section == DashSectionName || Section == MissFallSectionName;
+}
+
+bool UMHGZKinsectSlashAbility::ShouldSweepCollision(const int32 SegmentIndex) const
+{
+	return SegmentIndex != 0 || (IsKinsectActionAttachmentCurrent()
+		&& (Phase == EKinsectSlashPhase::Dash || Phase == EKinsectSlashPhase::MissFall));
 }
 
 bool UMHGZKinsectSlashAbility::ShouldConsumeCollisionOnDamageFailure(
@@ -1206,6 +1233,13 @@ FWeaponMovementRequest UMHGZKinsectSlashAbility::MakeDashMovementRequest() const
 
 bool UMHGZKinsectSlashAbility::StartDashMovement()
 {
+	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
+	{
+		if (AKinsect* Kinsect = Resource->GetKinsectActor())
+		{
+			Kinsect->FinalizeSlashPreparation(GetActionToken());
+		}
+	}
 	if (!TryPayDeferredStaminaCost())
 	{
 		return false;

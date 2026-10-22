@@ -82,6 +82,7 @@ const FGameplayTag& KnockdownTag()
 UMHGZAirDodgeAbility::UMHGZAirDodgeAbility()
 {
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.AirDodge"));
+	bAllowPreInputActivation = false;
 
 	// 八向：瞬转可以到 180°，所以不给基类的 ApplyDirectionCorrection 留限幅。
 	// 撑杆跳取 0 是因为它方向锁死；本招相反 —— 转向就是它的语义（真值：段首转向

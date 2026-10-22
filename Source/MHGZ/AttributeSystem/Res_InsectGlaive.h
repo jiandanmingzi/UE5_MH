@@ -94,6 +94,9 @@ public:
 	/** 招式临时占用真实猎虫；租约由精确 ActionToken 所有。 */
 	bool BeginKinsectActionAttachment(const FWeaponActionToken& ActionToken,
 		USkeletalMeshComponent* WeaponMesh, FName SocketName);
+	bool BeginKinsectSlashPreparation(const FWeaponActionToken& ActionToken,
+		USkeletalMeshComponent* WeaponMesh, FName SocketName, float AvailableReturnTime);
+	bool IsKinsectActionControlCurrent(const FWeaponActionToken& ActionToken) const;
 	bool IsKinsectActionAttachmentCurrent(const FWeaponActionToken& ActionToken) const;
 	bool EndKinsectActionAttachmentAndReturn(const FWeaponActionToken& ActionToken,
 		EKinsectCommandSource Source = EKinsectCommandSource::Action);
@@ -265,6 +268,8 @@ public:
 private:
 	friend class AIGPowderActor;
 #if WITH_DEV_AUTOMATION_TESTS
+	friend class FMHGZKinsectDeliveryAudioTests;
+	friend class FMHGZKinsectSlashPreparationTest;
 	friend class FMHGZM6MarkExpiresAndDeadTargetCannotReplace;
 	friend class FMHGZM633PowderNaturalExpiryTest;
 	friend class FMHGZM633PowderDistanceDespawnTest;
@@ -315,6 +320,8 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	void ApplyNaturalPowderExplosion(AIGPowderActor* Powder,
 		const FGuid& ExplosionID);
 	bool IsLeafExtractTag(const FGameplayTag& ExtractColor) const;
+	void PlayExtractCollectedSound(uint64 CommandSerial);
+	uint64 LastExtractSoundCommandSerial = 0;
 	bool ApplyExtractInternal(FGameplayTag ExtractColor, const FHitResult* SourceHit,
 		const FGuid& SourceAttackID, const FGuid& HitID, uint64 CommandSerial);
 	bool IsHandleActive(const FActiveGameplayEffectHandle& Handle) const;

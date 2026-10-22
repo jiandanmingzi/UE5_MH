@@ -36,6 +36,12 @@ struct FMHGZAerialPresentationRootMotionTelemetry
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnWeaponRuntimeInvalidated, const FWeaponRuntimeToken&);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnWeaponRuntimeReady,
 	const FWeaponRuntimeToken&, UMHGZWeaponResourceComponent*);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FMHGZGroundDustEvent,
+	USkeletalMeshComponent*, SourceMesh, FVector, Location, FVector, SurfaceNormal);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FMHGZLandingEvent,
+	USkeletalMeshComponent*, SourceMesh, FVector, Location, FVector, SurfaceNormal);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FMHGZGroundImpactEvent,
+	USkeletalMeshComponent*, SourceMesh, FVector, Location, FVector, SurfaceNormal);
 
 /**
  * 当前 Pawn 的武器运行时所有者。
@@ -82,6 +88,18 @@ public:
 	/** 武器Resource、能力和ComboCoordinator均完成初始化后广播。 */
 	FOnWeaponRuntimeReady OnWeaponRuntimeReady;
 
+	/** 只读扬尘表现事件：由有效蒙太奇通知及真实地表触发；声音可为空，未来特效可独立订阅。 */
+	UPROPERTY(BlueprintAssignable, Category="MHGZ|Presentation")
+	FMHGZGroundDustEvent OnGroundDust;
+
+	/** 有效蒙太奇落地点触发；不代替CMC落地逻辑，不要求音源或特效存在。 */
+	UPROPERTY(BlueprintAssignable, Category="MHGZ|Presentation")
+	FMHGZLandingEvent OnLanding;
+
+	/** 攻击砸地的独立表现入口；不是伤害命中或角色落地，不自动重复已有扬尘点。 */
+	UPROPERTY(BlueprintAssignable, Category="MHGZ|Presentation")
+	FMHGZGroundImpactEvent OnGroundImpact;
+
 	bool IsWeaponRuntimeReady() const { return bWeaponRuntimeReady; }
 	const FEquippedWeaponSnapshot& GetCurrentWeaponSnapshot() const
 	{
@@ -92,6 +110,8 @@ public:
 	// Token / Generation
 	// ----------------------------------------------------------------------
 	const FWeaponRuntimeContext& GetCurrentContext() const { return CurrentContext; }
+	/** Read-only presentation access; reuse the existing weapon identity/tag lookup. */
+	USkeletalMeshComponent* GetWeaponVisualComponent() const { return FindWeaponVisualComponent(); }
 
 	/** 自动化专用：直接注入战斗配置（生产路径由 ApplyWeaponSnapshot 经武器快照装配）。 */
 	void SetCombatConfigForTest(UWeaponCombatConfigBase* InCombatConfig)
@@ -411,6 +431,15 @@ public:
 
 	/** True while the system-owned landing presentation locks locomotion input. */
 	bool IsAerialLanding() const { return PoseTokens.AerialLanding.IsValid(); }
+
+	/** Cosmetic notifications may use only this exact active system-owned landing instance. */
+	bool IsCurrentAerialLandingMontageInstance(USkeletalMeshComponent* Mesh, int32 InstanceID) const;
+#if WITH_DEV_AUTOMATION_TESTS
+	friend class FMHGZActionSoundOwnershipTests;
+	friend class FMHGZGroundDustEventTest;
+	friend class FMHGZLandingEventTest;
+	friend class FMHGZGroundImpactEventTest;
+#endif
 
 	/** Samples the Host-owned falling/landing visual instances without changing their state. */
 	void GetAerialPresentationRootMotionTelemetry(

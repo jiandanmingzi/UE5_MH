@@ -186,6 +186,14 @@ bool UMHGZM4TestDodgeAbility::JumpToDodgeSection(FName SectionName)
 	return SectionName == IdleExitSectionName || SectionName == MoveExitSectionName;
 }
 
+UMHGZM4UnrestrictedDodgeAbility::UMHGZM4UnrestrictedDodgeAbility()
+{
+	bForwardDodgeRequiresAttacking = false;
+	bLeftDodgeRequiresAttacking = false;
+	bRightDodgeRequiresAttacking = false;
+	bBackDodgeRequiresAttacking = false;
+}
+
 UMHGZM4PhaseDodgeAbility::UMHGZM4PhaseDodgeAbility()
 {
 	// The serialized production member retains its historical name. Its enabled

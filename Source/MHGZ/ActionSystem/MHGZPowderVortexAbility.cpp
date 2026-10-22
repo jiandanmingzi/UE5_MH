@@ -84,6 +84,7 @@ bool UMHGZPowderVortexAbility::ValidatePowderVortexRuntimeDependencies() const
 		&& ASC->HasMatchingGameplayTag(UnsheathedTag())
 		&& Resource && Config && Kinsect
 		&& Kinsect->GetState() != EKinsectState::ActionAttached
+		&& !Kinsect->IsSlashActionControlled()
 		&& Aim.Context == EWeaponAimSnapshotContext::Kinsect
 		&& IsFiniteVector(Aim.TargetPoint)
 		&& FMath::IsFinite(Config->PowderGatherRadius)

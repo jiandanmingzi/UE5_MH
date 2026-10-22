@@ -36,7 +36,9 @@ enum class EIGPowderSpawnPolicy : uint8
 	/** Legacy serialized policy: keep the original numeric value and strict piercing contract. */
 	AwakenedPiercing UMETA(DisplayName = "Awakened Piercing"),
 	/** 黄灯觉虫击：单击/贯通均在每次成功伤害后产粉，无需虫印且绕过普通冷却。 */
-	AwakenedEachHit UMETA(DisplayName = "觉虫击黄灯逐击产粉")
+	AwakenedEachHit UMETA(DisplayName = "觉虫击黄灯逐击产粉"),
+	/** 自动寻印攻击：仍须命中有效虫印局部区域，但不检查或占用普通产粉冷却。 */
+	AutoMarkContact UMETA(DisplayName = "猎虫自动寻印逐击产粉")
 };
 
 /** Exact identity for one fixed set of powders reserved by one action activation. */

@@ -362,6 +362,8 @@ protected:
 	bool SelectAttackMontageStartSection(const FWeaponAbilityActivationContext& Context,
 		FName& OutStartSection) const;
 
+	virtual USoundBase* GetLegacySwingSound(int32 SegmentIndex) const override;
+
 	/** Resolves a Combo edge's per-play Blend In override, or the asset default. */
 	float ResolveAttackMontageBlendInTime(
 		const FWeaponAbilityActivationContext& Context) const;
@@ -461,6 +463,8 @@ protected:
 	virtual void HandleSuccessfulAttackDamage(const FHitResult& Hit, int32 SegmentIndex) {}
 
 	/** Special attacks may gate a configured collision segment by action ownership/phase. */
+	virtual bool ShouldSweepCollision(int32 SegmentIndex) const { return true; }
+
 	virtual bool CanApplyCollisionHit(const FHitResult& Hit, int32 SegmentIndex) const
 	{
 		return true;

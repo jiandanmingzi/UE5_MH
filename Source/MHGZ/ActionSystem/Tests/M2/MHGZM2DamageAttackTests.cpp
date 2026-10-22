@@ -236,7 +236,7 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 		return false;
 	}
 	TestEqual(TEXT("zero MotionValue keeps full health"), TargetAttributes->GetHealth(), 1000.f);
-	TestEqual(TEXT("zero MotionValue keeps the physical hit cue only"), Router->GetExecutedCueCount(), InitialCueCount + 1);
+	TestEqual(TEXT("zero MotionValue keeps physical and weapon contact cues"), Router->GetExecutedCueCount(), InitialCueCount + 2);
 	TestEqual(TEXT("zero damage does not update damage-number magnitude"),
 		Router->GetLastDamageNumberMagnitude(), 0.f);
 
@@ -254,7 +254,7 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 	}
 	TestEqual(TEXT("positive MotionValue uses hitzone defense"), TargetAttributes->GetHealth(), 950.f);
 	TestEqual(TEXT("positive damage adds one damage-number cue"),
-		Router->GetExecutedCueCount(), InitialCueCount + 3);
+		Router->GetExecutedCueCount(), InitialCueCount + 5);
 	TestEqual(TEXT("damage number carries actual damage"),
 		Router->GetLastDamageNumberMagnitude(), 50.f);
 	TestEqual(TEXT("IncomingDamage cleared after second hit"), TargetAttributes->GetIncomingDamage(), 0.f);
@@ -271,7 +271,7 @@ bool FMHGZM2DamagePipelineMotionValueZero::RunTest(const FString& Parameters)
 	TestEqual(TEXT("disabled hitzone defense bypasses multiplier"),
 		TargetAttributes->GetHealth(), 850.f);
 	TestEqual(TEXT("third hit produces exactly one more feedback pass"),
-		Router->GetExecutedCueCount(), InitialCueCount + 5);
+		Router->GetExecutedCueCount(), InitialCueCount + 8);
 	TestEqual(TEXT("bypassed damage number carries 100"),
 		Router->GetLastDamageNumberMagnitude(), 100.f);
 

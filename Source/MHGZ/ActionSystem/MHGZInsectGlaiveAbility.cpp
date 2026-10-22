@@ -70,8 +70,8 @@ void UMHGZInsectGlaiveAbility::ActivateAbility(
 	bAerialHandoffReached = false;
 	bAerialHandoffAuthored = false;
 
-	// 三灯攻击音效——每个攻击 GA 激活时播放（无论是否命中）
-	if (TripleUpSwingSound)
+	// Legacy only. Migrated actions resolve per-event audio in actual Montage Notifies.
+	if (!bUseAuthoredSwingAudio && TripleUpSwingSound)
 	{
 		const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 		if (ASC && ASC->HasMatchingGameplayTag(

@@ -31,6 +31,12 @@ FCollisionShape FWeaponTraceRegion::MakeQueryShape() const
 		: FCollisionShape::MakeSphere(SafeRadius);
 }
 
+USoundBase* UMHGZAttackAbility::GetLegacySwingSound(int32 SegmentIndex) const
+{
+	return AttackSegments.IsValidIndex(SegmentIndex)
+		? AttackSegments[SegmentIndex].Damage.SwingSound.Get() : nullptr;
+}
+
 namespace
 {
 	constexpr float MaxCorrectionAngleOvershootToleranceDegrees = 90.0f;
@@ -1091,6 +1097,22 @@ void UMHGZAttackAbility::PerformSweepCheck(int32 SegmentIndex)
 	const FAttackCollisionConfig& Collision = AttackSegments[SegmentIndex].Collision;
 	USkeletalMeshComponent* Mesh = FindTraceMeshComponent(Collision);
 	if (!Mesh) return;
+	if (!ShouldSweepCollision(SegmentIndex))
+	{
+		// Keep authored window lifetime/closure and fresh poses without issuing
+		// a spatial query; later readiness must not sweep the entire absent interval.
+		for (FTraceRegionRuntimeState& Region : WindowState->Regions)
+		{
+			if (Mesh->DoesSocketExist(Region.EndSocketName)
+				&& (Region.StartSocketName.IsNone() || Mesh->DoesSocketExist(Region.StartSocketName)))
+			{
+				Region.PreviousEnd = Mesh->GetSocketLocation(Region.EndSocketName);
+				Region.PreviousStart = Region.StartSocketName.IsNone()
+					? Region.PreviousEnd : Mesh->GetSocketLocation(Region.StartSocketName);
+			}
+		}
+		return;
+	}
 
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(MHGZWeaponSweep), false, Character);
 	QueryParams.AddIgnoredActor(Character);

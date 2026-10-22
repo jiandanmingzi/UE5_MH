@@ -14,7 +14,7 @@
 -- time scale.
 
 local SCRIPT_NAME = "MHGZ Aerial Trajectory Recorder"
-local SCRIPT_VERSION = "1.14.0"
+local SCRIPT_VERSION = "1.21.0"
 local OUTPUT_DIRECTORY = "MHGZ_AerialTrajectoryRecorder"
 local HOTKEY_CONFIG_FILE = "MHGZ_AerialTrajectoryRecorder_hotkey.txt"
 local VK_F9 = 0x78
@@ -1783,6 +1783,1043 @@ local animation_capture = (function()
 end)()
 -- END DIRECT MOTION READER.
 
+-- BEGIN AUDIO CAPABILITY PROBE: metadata only; no audio method calls or hooks.
+local audio_probe = (function()
+    local P = { status = "[AUDIO PROBE] F9 exports interface metadata",
+        cache = nil, type_count = 0, candidate_count = 0, last_path = nil, auto_attempted = false }
+    local targets = {
+        "via.wwise.WwiseManager", "via.wwise.WwiseContainer", "via.wwise.WwiseContainerList",
+        "via.wwise.WwiseEventParam", "via.wwise.WwiseTriggerParam",
+        "via.wwise.WwiseSwitchParam", "via.wwise.WwiseStateParam",
+        "via.wwiselib.WwiselibManager", "snow.wwise.SoundTracks", "snow.wwise.SoundTriggerTracks",
+        "snow.wwise.WwisePlayerBaseParameters", "snow.wwise.WwisePlayerMonitoredParameters",
+        "via.wwise.RequestInfo", -- postEvent argument layout: descriptors only.
+    }
+    local MAX_METHODS, MAX_FIELDS, MAX_PARAMS, MAX_PARENTS = 192, 64, 16, 2
+    local function text(value)
+        return tostring(value):gsub("[\r\n\t]", " ")
+    end
+    local function metadata(object, method)
+        if object == nil then return nil, "missing descriptor" end
+        local ok, value = pcall(function() return object[method](object) end)
+        if ok then return value end
+        return nil, text(value)
+    end
+    local function type_name(td)
+        return metadata(td, "get_full_name") or "<unavailable>"
+    end
+    -- REFramework exposes std::vector metadata lists as sol userdata, not only tables.
+    -- Read the container's own length and bounded 1-based indices; no engine getters.
+    local function descriptor_list(value, limit)
+        local kind = type(value)
+        if kind ~= "table" and kind ~= "userdata" then return nil, nil, "unsupported container: " .. kind end
+        local ok, count = pcall(function() return #value end)
+        if not ok or type(count) ~= "number" or count < 0 or count ~= math.floor(count) then
+            return nil, nil, "container length unavailable"
+        end
+        local result = {}
+        for index = 1, math.min(count, limit) do
+            local read_ok, item = pcall(function() return value[index] end)
+            if not read_ok or item == nil then return nil, count, "container index unavailable: " .. index end
+            result[index] = item
+        end
+        return result, count
+    end
+    local function candidate(name)
+        local lower = name:lower()
+        for _, word in ipairs({"play", "post", "event", "trigger", "switch", "state", "rtpc", "bank", "sound"}) do
+            if lower:find(word, 1, true) then return true end
+        end
+        return false
+    end
+    local function describe_type(lines, td, label)
+        local method_values, method_error = metadata(td, "get_methods")
+        local field_values, field_error = metadata(td, "get_fields")
+        local methods, method_count, method_list_error = descriptor_list(method_values, MAX_METHODS)
+        local fields, field_count, field_list_error = descriptor_list(field_values, MAX_FIELDS)
+        if methods == nil then
+            lines[#lines + 1] = "METHODS_UNAVAILABLE\t" .. label .. "\t" .. tostring(method_error or method_list_error)
+            methods = {}
+        end
+        for index = 1, math.min(#methods, MAX_METHODS) do
+            local method = methods[index]
+            local name = text(metadata(method, "get_name") or "<unavailable>")
+            local count = metadata(method, "get_num_params")
+            local types, type_count = descriptor_list(metadata(method, "get_param_types"), MAX_PARAMS)
+            local names = descriptor_list(metadata(method, "get_param_names"), MAX_PARAMS)
+            local params, complete = {}, true
+            if type(count) ~= "number" or count < 0 or count > MAX_PARAMS or types == nil or type_count ~= count then
+                complete = false
+            else
+                for pi = 1, count do
+                    local parameter_type = type_name(types[pi])
+                    complete = complete and parameter_type ~= "<unavailable>"
+                    params[#params + 1] = parameter_type .. " " .. text(type(names) == "table" and names[pi] or "<unnamed>")
+                end
+            end
+            local static = metadata(method, "is_static")
+            local return_type = type_name(metadata(method, "get_return_type"))
+            complete = complete and type(static) == "boolean" and return_type ~= "<unavailable>"
+            local is_candidate = candidate(name)
+            if is_candidate then P.candidate_count = P.candidate_count + 1 end
+            lines[#lines + 1] = table.concat({"METHOD", label, name,
+                "static=" .. (static == nil and "unknown" or tostring(static)),
+                "return=" .. return_type,
+                "param_count=" .. tostring(count or "unknown"), "params=" .. table.concat(params, ";"),
+                "signature_complete=" .. tostring(complete), "candidate=" .. tostring(is_candidate),
+                "hook_verified=false"}, "\t")
+        end
+        if method_count and method_count > MAX_METHODS then lines[#lines + 1] = "METHOD_LIMIT\t" .. label .. "\t" .. method_count end
+        if fields == nil then
+            lines[#lines + 1] = "FIELDS_UNAVAILABLE\t" .. label .. "\t" .. tostring(field_error or field_list_error)
+            fields = {}
+        end
+        for index = 1, math.min(#fields, MAX_FIELDS) do
+            local field = fields[index]
+            lines[#lines + 1] = table.concat({"FIELD", label,
+                text(metadata(field, "get_name") or "<unavailable>"), type_name(metadata(field, "get_type")),
+                "value=not_read"}, "\t")
+        end
+        if field_count and field_count > MAX_FIELDS then lines[#lines + 1] = "FIELD_LIMIT\t" .. label .. "\t" .. field_count end
+    end
+    function P.inspect()
+        if P.cache ~= nil then return P.cache end
+        P.type_count, P.candidate_count = 0, 0
+        local lines, visited = {"schema=mhgz_rise_audio_capabilities_v1", "mode=metadata_only",
+            "recorder_version=" .. SCRIPT_VERSION, "probe_installs_audio_hooks=0", "runtime_listeners=see_audio_hooks_report",
+            "No Wwise methods, object fields or setters were invoked; candidates are not proven hookable.",
+            "Limits: types=" .. #targets .. "; parents=2; methods/type=192; fields/type=64; parameters/method=16"}, {}
+        for _, name in ipairs(targets) do
+            local ok, td = pcall(sdk.find_type_definition, name)
+            if not ok or td == nil then
+                lines[#lines + 1] = "TYPE\t" .. name .. "\t" .. (ok and "missing" or "lookup_error")
+            else
+                P.type_count = P.type_count + 1
+                lines[#lines + 1] = "TYPE\t" .. name .. "\tavailable"
+                for _ = 1, MAX_PARENTS do
+                    if td == nil then break end
+                    local label = type_name(td)
+                    if label == "<unavailable>" or visited[label] then break end
+                    visited[label] = true
+                    describe_type(lines, td, label)
+                    td = metadata(td, "get_parent_type")
+                end
+            end
+        end
+        lines[#lines + 1] = "SUMMARY\ttypes=" .. P.type_count .. "\tcandidates=" .. P.candidate_count .. "\tprobe_installs_audio_hooks=0"
+        P.cache = table.concat(lines, "\n") .. "\n"
+        return P.cache
+    end
+    function P.write(path)
+        local body = P.inspect()
+        local handle, open_error = io.open(path, "w")
+        if handle == nil then return false, tostring(open_error) end
+        local ok, write_error = pcall(function()
+            local written, err = handle:write(body)
+            if written == nil then error(err or "audio probe write failed") end
+            handle:flush()
+        end)
+        local closed, close_error = pcall(function() handle:close() end)
+        if not ok or not closed then return false, tostring(write_error or close_error) end
+        P.last_path = path
+        P.status = "[AUDIO PROBE] Saved " .. P.type_count .. " type descriptions"
+        return true
+    end
+    function P.auto_export()
+        if P.auto_attempted then return end
+        P.auto_attempted = true
+        local path = OUTPUT_DIRECTORY .. "/mhrise_audio_probe_" .. os.date("%Y%m%d_%H%M%S") .. "_boot.txt"
+        local ok, result = pcall(P.write, path)
+        if not ok or not result then
+            P.status = "[AUDIO PROBE ERROR] Auto export failed; F9 can retry"
+        end
+    end
+    return P
+end)()
+-- END AUDIO CAPABILITY PROBE.
+
+-- BEGIN AUDIO CONTEXT PREFLIGHT: descriptors only; not condition/hit capture.
+-- Do not hook reflected setters merely because a signature exists. The old
+-- postEvent wrappers produced zero callbacks; numeric native dispatch must be
+-- verified first. Keep this report separate from both audio CSV schemas.
+local audio_context_preflight = (function()
+    local P = { attempted = false, status = "[AUDIO CONTEXT] Waiting for metadata", last_path = nil }
+    local specs = {
+        {"via.wwise.WwiseManager", "manager"},
+        {"via.wwise.WwiseSwitchElement", "all"},
+        {"via.wwise.WwiseEffectiveSwitchParam", "all"},
+        {"via.wwise.WwiseEffectiveStateParam", "all"},
+        {"via.wwise.WwiseStateParam", "all"},
+        {"via.wwise.WwiseGameParameterParam", "all"},
+        {"via.wwise.WwiseSetGameParameterParam", "all"},
+        {"via.wwise.WwiseSavableSetStateParam", "all"},
+        {"snow.enemy.EnemyCharacterBase", "hit"},
+        {"snow.hit.EnemyCalcDamageInfo", "all"},
+        {"snow.hit.DamageFlowInfoBase", "all"},
+        {"snow.DamageReceiver.HitInfo", "all"},
+        {"snow.hit.EnemyCalcDamageInfo.AfterCalcInfo", "all"},
+        {"snow.hit.AttackHitInfo", "all"},
+        {"snow.player.PlayerQuestBase", "hit"},
+    }
+    local manager_methods = {
+        setSwitch=true, setSwitchByName=true, setState=true, setStateWithSave=true, resetState=true,
+        executeSetGameParameter=true, addGameParameter=true, deleteGameParameter=true,
+        getGameObjectByGameObjectId=true, getSaveDataStateList=true, getSaveDataStateListCount=true,
+        getWwiseContainer=true,
+    }
+    local function clean(value) return tostring(value):gsub("[\r\n\t]", " ") end
+    local function meta(object, method)
+        if not object then return nil, "missing_descriptor" end
+        local ok, value = pcall(function() return object[method](object) end)
+        if ok then return value end
+        return nil, clean(value)
+    end
+    local function typename(td) return meta(td, "get_full_name") or "unknown" end
+    local function vector(value, limit)
+        if type(value) ~= "table" and type(value) ~= "userdata" then return {}, "unavailable_container" end
+        local ok, count = pcall(function() return #value end)
+        if not ok or type(count) ~= "number" or count < 0 or count ~= math.floor(count) then
+            return {}, "unavailable_length"
+        end
+        local result = {}
+        for i = 1, math.min(count, limit) do
+            local read_ok, item = pcall(function() return value[i] end)
+            if not read_ok or item == nil then return result, "unavailable_index_" .. i end
+            result[i] = item
+        end
+        return result, count > limit and ("truncated_" .. count) or "complete"
+    end
+    local function selected(name, mode)
+        if mode == "all" then return true end
+        if mode == "manager" then return manager_methods[name] == true end
+        local lower = name:lower()
+        return lower:find("hit", 1, true) ~= nil or lower:find("damage", 1, true) ~= nil
+    end
+    function P.inspect()
+        local lines = {"schema=mhgz_rise_audio_context_preflight_v1", "recorder_version=" .. SCRIPT_VERSION,
+            "mode=metadata_only;hooks_installed=0;live_values_read=0;game_methods_invoked=0",
+            "conditions_capture=see_native_context_status;emitter_resolution=not_implemented;damage_capture=not_implemented",
+            "initial_conditions=unknown;final_media=unknown;descriptor_address_is_not_runtime_call_evidence",
+            "limits=types:15;methods/type:2048;fields/type:256;params/method:16;parents:0"}
+        for _, spec in ipairs(specs) do
+            local name, mode = spec[1], spec[2]
+            local ok, td = pcall(sdk.find_type_definition, name)
+            lines[#lines+1] = "TYPE\t" .. name .. "\t" .. (ok and td and "available" or "unavailable")
+            if ok and td then
+                local methods, method_status = vector(meta(td, "get_methods"), 2048)
+                local fields, field_status = vector(meta(td, "get_fields"), 256)
+                lines[#lines+1] = "ENUM\t" .. name .. "\tmethods=" .. method_status .. "\tfields=" .. field_status
+                for index, method in ipairs(methods) do
+                    local method_name = clean(meta(method, "get_name") or "unknown")
+                    if selected(method_name, mode) then
+                        local params, param_status = vector(meta(method, "get_param_types"), 16)
+                        local count, static = meta(method, "get_num_params"), meta(method, "is_static")
+                        local owner = typename(meta(method, "get_declaring_type"))
+                        local result = typename(meta(method, "get_return_type"))
+                        local types, complete = {}, param_status == "complete" and type(count) == "number" and
+                            count >= 0 and count <= 16 and #params == count and type(static) == "boolean" and
+                            result ~= "unknown" and owner == name
+                        for _, param in ipairs(params) do
+                            local value = typename(param); types[#types+1] = value
+                            complete = complete and value ~= "unknown"
+                        end
+                        -- Descriptor function pointer only: never convert to float or invoke it.
+                        local address, address_error = meta(method, "get_function")
+                        lines[#lines+1] = table.concat({"METHOD", name, method_name, "index=" .. index,
+                            "owner=" .. owner, "static=" .. tostring(static), "return=" .. result,
+                            "params=" .. table.concat(types, ";"), "signature_complete=" .. tostring(complete),
+                            "function=" .. clean(address or "unknown"),
+                            "address_error=" .. clean(address_error or ""), "hook_verified=false"}, "\t")
+                    end
+                end
+                for _, field in ipairs(fields) do
+                    local field_name = clean(meta(field, "get_name") or "unknown")
+                    if selected(field_name, mode) then
+                        local offset, offset_error = meta(field, "get_offset_from_base")
+                        lines[#lines+1] = table.concat({"FIELD", name, field_name,
+                            typename(meta(field, "get_type")), "offset=" .. clean(offset or "unknown"),
+                            "value=not_read", "offset_error=" .. clean(offset_error or "")}, "\t")
+                    end
+                end
+            end
+        end
+        return table.concat(lines, "\n") .. "\n"
+    end
+    function P.auto_export()
+        if P.attempted then return end
+        P.attempted = true
+        local path = OUTPUT_DIRECTORY .. "/mhrise_audio_context_" .. os.date("%Y%m%d_%H%M%S") .. "_boot.txt"
+        local handle
+        local ok, err = pcall(function()
+            local body = P.inspect()
+            handle = assert(io.open(path, "wb"))
+            assert(handle:write(body)); assert(handle:flush())
+        end)
+        if handle then
+            local closed, result, close_error = pcall(function() return handle:close() end)
+            if not closed or not result then ok, err = false, close_error or result or "close_failed" end
+        end
+        if ok then
+            P.last_path, P.status = path, "[AUDIO CONTEXT] Metadata saved; numeric capture capability is in native status"
+        else
+            P.status = "[AUDIO CONTEXT ERROR] " .. clean(err)
+        end
+    end
+    return P
+end)()
+-- END AUDIO CONTEXT PREFLIGHT.
+
+-- BEGIN AUDIO OBSERVATION: exact scalar returns only; no argument/object access.
+local audio_capture = (function()
+    local A = { attempted = false, hook_count = 0, recording = false, file = nil,
+        status = "[AUDIO] Listeners not initialized", rows = 0, dropped = 0,
+        errors = 0, observed = 0, error = nil, install_lines = {}, diagnostics = {}, listeners = {} }
+    local capacity, pending, queue = 2048, 0, {}
+    for i = 1, capacity do queue[i] = {} end
+    -- These three signatures were exported by the actual 2026-10-18 boot probe.
+    -- postEvent's UInt32 semantic is deliberately UNKNOWN, not PlayingID/EventID.
+    -- Never hook the unfiltered get_EventId getter: unrelated getters may share
+    -- its native implementation. Old 1.16 event_parameter_read rows are untrusted.
+    local specs = {
+        {"via.wwise.WwiseManager", "postEvent", {"via.GameObject", "via.wwise.RequestInfo"}, "post_event_return"},
+        {"via.wwise.WwiseManager", "postEvent", {"via.GameObject", "via.wwise.RequestInfo", "System.UInt32"}, "post_event_return"},
+        {"via.wwise.WwiseManager", "postEvent", {"via.GameObject", "via.wwise.RequestInfo", "System.UInt32", "System.UInt32"}, "post_event_return"},
+    }
+    local method_cache = {}
+    local function clean(value) return tostring(value):gsub("[\r\n\t]", " ") end
+    local function type_name(td) return td and td:get_full_name() or "<unavailable>" end
+    local function read_methods(owner)
+        if method_cache[owner] then return method_cache[owner] end
+        local entry = { candidates = {} }
+        method_cache[owner] = entry -- Cache failures too; no repeated discovery.
+        local ok, err = pcall(function()
+            local td = sdk.find_type_definition(owner)
+            if not td then entry.error = "type_unavailable"; return end
+            local methods = td:get_methods()
+            if type(methods) ~= "table" and type(methods) ~= "userdata" then
+                entry.error = "method_list_unavailable:" .. type(methods); return
+            end
+            local count = #methods
+            if type(count) ~= "number" or count < 0 or count % 1 ~= 0 or count > 512 then
+                entry.error = "method_list_limit_or_invalid:" .. clean(count); return
+            end
+            entry.count = count
+            for i = 1, count do
+                local method = methods[i]
+                local readable, name = pcall(function() return method:get_name() end)
+                if not readable or type(name) ~= "string" then
+                    -- An unreadable descriptor might hide another exact match.
+                    -- Fail closed instead of selecting from an incomplete list.
+                    entry.error = "method_descriptor_unreadable:index=" .. i; return
+                end
+                if name == "postEvent" then
+                    if #entry.candidates >= 32 then entry.error = "post_candidate_limit"; return end
+                    entry.candidates[#entry.candidates + 1] = { method = method, index = i }
+                end
+            end
+        end)
+        if not ok then entry.error = "enumeration_error:" .. clean(err) end
+        A.diagnostics[#A.diagnostics + 1] = "ENUMERATE\t" .. owner .. "\tcount=" ..
+            tostring(entry.count or "unknown") .. "\tpost_candidates=" .. #entry.candidates ..
+            "\terror=" .. tostring(entry.error or "none")
+        return entry
+    end
+    local function unsigned_return(value)
+        local n = sdk.to_int64(value)
+        -- Modulo is compatible with both LuaJIT and Lua 5.4. No pointer dereference.
+        if type(n) ~= "number" or n ~= n or n == math.huge or n == -math.huge then
+            error("UInt32 return unavailable")
+        end
+        return n % 4294967296
+    end
+    local function observe(retval, listener)
+        A.observed = A.observed + 1
+        listener.observed = listener.observed + 1
+        if not A.recording then return end
+        if pending >= capacity then A.dropped = A.dropped + 1; return end
+        local value = unsigned_return(retval)
+        local entry = queue[pending + 1]
+        entry.value, entry.kind, entry.label = value, "post_event_return", listener.label
+        entry.time, entry.frame, entry.sample = state.capture_time, state.frame_callback_count, state.sample_count
+        entry.clock = os.clock() - A.clock_start
+        pending = pending + 1
+    end
+    local function validate(method, spec)
+        if method:get_name() ~= spec[2] then return false, "method_name_mismatch" end
+        local owner = type_name(method:get_declaring_type())
+        if owner ~= spec[1] then return false, "declaring_type:" .. owner end
+        local static = method:is_static()
+        if static ~= true then return false, "static_flag:" .. tostring(static) end
+        local result = type_name(method:get_return_type())
+        if result ~= "System.UInt32" then return false, "return_type:" .. result end
+        local count = method:get_num_params()
+        if count ~= #spec[3] then return false, "parameter_count:" .. tostring(count) end
+        local types = method:get_param_types()
+        if type(types) ~= "table" and type(types) ~= "userdata" then return false, "parameter_list_unavailable" end
+        if #types ~= #spec[3] then return false, "parameter_list_count:" .. tostring(#types) end
+        for i, name in ipairs(spec[3]) do
+            local actual = type_name(types[i])
+            if actual ~= name then return false, "parameter_type[" .. i .. "]:" .. actual end
+        end
+        return true, "exact_match"
+    end
+    local function select_method(spec, label)
+        local entry = read_methods(spec[1])
+        if entry.error then return nil, entry.error end
+        local matches = {}
+        for _, candidate in ipairs(entry.candidates) do
+            local ok, match, why = pcall(validate, candidate.method, spec)
+            A.diagnostics[#A.diagnostics + 1] = "MATCH\t" .. label .. "\tindex=" .. candidate.index ..
+                "\t" .. (ok and clean(why) or ("metadata_error:" .. clean(match)))
+            if not ok then return nil, "candidate_metadata_error:index=" .. candidate.index end
+            if match then matches[#matches + 1] = candidate end
+        end
+        if #matches ~= 1 then return nil, "exact_match_count:" .. #matches end
+        return matches[1]
+    end
+    function A.install()
+        if A.attempted then return end
+        A.attempted = true
+        local addresses = {}
+        for _, spec in ipairs(specs) do
+            local label = spec[1] .. "." .. spec[2] .. "(" .. table.concat(spec[3], ",") .. ")"
+            local ok, result = pcall(function()
+                local selected, reason = select_method(spec, label)
+                if not selected then return reason end
+                local method = selected.method
+                local address = method:get_function()
+                if address == nil or sdk.to_int64(address) == 0 then return "function_unavailable" end
+                local key = tostring(address)
+                if addresses[key] then return "shared_function_skipped;address=" .. key end
+                local listener = { label = label, observed = 0, errors = 0, address = key }
+                sdk.hook(method,
+                    function(_) return sdk.PreHookResult.CALL_ORIGINAL end,
+                    function(retval)
+                        local captured = pcall(observe, retval, listener)
+                        if not captured then A.errors = A.errors + 1; listener.errors = listener.errors + 1 end
+                        return retval -- Always preserve the exact original pointer/value.
+                    end)
+                addresses[key] = true
+                A.listeners[#A.listeners + 1] = listener
+                A.hook_count = A.hook_count + 1
+                return "installed_via_enumerated_descriptor;index=" .. selected.index .. ";address=" .. key
+            end)
+            A.install_lines[#A.install_lines + 1] = label .. "\t" .. (ok and result or ("error: " .. tostring(result)))
+        end
+        A.status = "[AUDIO] " .. A.hook_count .. "/3 post listeners; observed=" .. A.observed
+    end
+    function A.report(path)
+        A.install()
+        local f, err = io.open(path, "w")
+        if not f then return false, err end
+        local ok, result = pcall(function()
+            assert(f:write("schema=mhgz_audio_listeners_v2\nrecorder_version=" .. SCRIPT_VERSION ..
+                "\ninstalled=" .. A.hook_count .. "\nobserved_callbacks=" .. A.observed ..
+                "\npost_return_semantics=unknown\nsource_scope=all_world_unattributed\n" ..
+                "unfiltered_event_getter=disabled\nevent_id_capture=not_implemented\n" ..
+                table.concat(A.install_lines, "\n") .. "\n" .. table.concat(A.diagnostics, "\n") .. "\n"))
+            for _, listener in ipairs(A.listeners) do
+                assert(f:write("ACTIVITY\t" .. listener.label .. "\tobserved=" .. listener.observed ..
+                    "\terrors=" .. listener.errors .. "\taddress=" .. listener.address .. "\n"))
+            end
+            assert(f:flush())
+        end)
+        local closed, close_result = pcall(function() return f:close() end)
+        return ok and closed and close_result ~= nil and close_result ~= false, result
+    end
+    function A.update()
+        if not A.boot_attempted then
+            A.boot_attempted, A.boot_clock = true, os.clock()
+            A.boot_base = OUTPUT_DIRECTORY .. "/mhrise_audio_hooks_" .. os.date("%Y%m%d_%H%M%S")
+            local ok, result, err = pcall(A.report, A.boot_base .. "_boot.txt")
+            if not ok or not result then A.report_error = clean(err or result) end
+        end
+        -- At most two live snapshots: first activity, or a 2s zero-activity
+        -- snapshot followed by first activity. No repeated writes on failure.
+        if not A.live_attempted and (A.observed > 0 or os.clock() - A.boot_clock >= 2) then
+            A.live_attempted, A.live_observed = true, A.observed
+            local ok, result, err = pcall(A.report, A.boot_base .. "_live.txt")
+            if not ok or not result then A.report_error = clean(err or result) end
+        elseif A.live_attempted and A.live_observed == 0 and A.observed > 0 then
+            A.live_observed = A.observed
+            local ok, result, err = pcall(A.report, A.boot_base .. "_live.txt")
+            if not ok or not result then A.report_error = clean(err or result) end
+        end
+        if A.report_error then
+            A.status = "[AUDIO ERROR] Report failed; installed=" .. A.hook_count
+        elseif not A.error then
+            A.status = "[AUDIO] " .. A.hook_count .. "/3 post listeners; callbacks=" .. A.observed ..
+                "; rows=" .. A.rows .. "; dropped=" .. A.dropped .. "; errors=" .. A.errors
+        end
+    end
+    function A.start(path)
+        A.install()
+        A.rows, A.dropped, A.errors, A.error, pending = 0, 0, 0, nil, 0
+        local f, err = io.open(path, "w")
+        if not f then return false, err end
+        local ok, result = pcall(function()
+            assert(f:write("event_index,capture_time_s,frame_index,last_sample_index,clock_elapsed_s,kind,event_id,post_return_id,hook,source_scope\n"))
+        end)
+        if not ok then pcall(function() f:close() end); return false, result end
+        A.file, A.clock_start, A.recording = f, os.clock(), true
+        return true
+    end
+    function A.drain()
+        if not A.file or A.error or pending == 0 then return end
+        local ok, err = pcall(function()
+            for i = 1, pending do
+                local e = queue[i]
+                assert(A.file:write(table.concat({A.rows + 1, csv_number(e.time), e.frame, e.sample,
+                    csv_number(e.clock), e.kind,
+                    e.kind == "event_parameter_read" and string.format("%.0f", e.value) or "",
+                    e.kind == "post_event_return" and string.format("%.0f", e.value) or "",
+                    csv_text(e.label), "all_world_unattributed"}, ",") .. "\n"))
+                A.rows = A.rows + 1
+            end
+            assert(A.file:flush())
+        end)
+        pending = 0
+        if not ok then
+            A.error, A.recording = tostring(err), false
+            A.status = "[AUDIO ERROR] File write failed; trajectory continues"
+        else
+            A.status = "[AUDIO] " .. A.hook_count .. "/3 post listeners; rows=" .. A.rows ..
+                "; dropped=" .. A.dropped .. "; errors=" .. A.errors
+        end
+    end
+    function A.stop()
+        A.recording = false
+        A.drain()
+        if A.file then
+            local ok, result, err = pcall(function() return A.file:close() end)
+            if not ok or result == nil or result == false then
+                A.error = tostring(err or result); A.status = "[AUDIO ERROR] Close failed"
+            end
+        end
+        A.file = nil
+    end
+    return A
+end)()
+-- END AUDIO OBSERVATION.
+
+-- BEGIN NATIVE AUDIO CLIENT
+local native_audio = (function()
+    local N = { status = "[AUDIO NATIVE] Waiting for bridge", sequence = 0, pending = nil,
+        commands = {}, rows = 0, ready = false, recording = false, last_poll = -1 }
+    local nonce = (os.date("%Y%m%d_%H%M%S") .. "_" .. tostring({})):gsub("[^%w_-]", "_")
+    local command_path = OUTPUT_DIRECTORY .. "/audio_native_bridge_command.txt"
+    local status_path = OUTPUT_DIRECTORY .. "/audio_native_bridge_status.txt"
+    local function request(verb, basename, clock)
+        if #N.commands >= 8 then N.status = "[AUDIO NATIVE ERROR] Command queue full"; return false end
+        N.commands[#N.commands + 1] = {verb = verb, basename = basename or "none", clock = clock or 0}
+        return true
+    end
+    function N.start(basename, clock) return request("START", basename, clock) end
+    function N.stop(basename, clock) return request("STOP", basename, clock) end
+    function N.update()
+        local now = os.clock()
+        if not N.pending and #N.commands == 0 and now - N.last_poll < 0.1 then return end
+        N.last_poll = now
+        local file = io.open(status_path, "rb")
+        if file then
+            local body = file:read(2049); file:close()
+            if body and #body <= 2048 and body:sub(-5) == "\nEND\n" then
+                local values = {}
+                for key, value in body:gmatch("([%w_]+)=([^\n]*)\n") do values[key] = value end
+                if values.schema == "mhgz_rise_native_audio_v1" and values.nonce == nonce and
+                    N.pending and tonumber(values.seq) == N.pending.sequence then
+                    local completed = N.pending
+                    N.pending = nil
+                    N.ready, N.recording = values.ready == "1", values.recording == "1"
+                    N.rows = tonumber(values.rows) or 0
+                    N.context_ready = values.context_ready == "1"
+                    N.context_rows = tonumber(values.context_rows) or 0
+                    N.context_observed = tonumber(values.context_observed) or 0
+                    N.objects_ready = values.objects_ready == "1"
+                    N.trigger_ready = values.trigger_ready == "1"
+                    N.status = N.ready and ("[AUDIO NATIVE] " .. (N.recording and "REC " or "READY ") ..
+                        N.rows .. " rows; observed=" .. (values.observed or "?") .. "; drops=" .. (values.dropped or "?")) or
+                        ("[AUDIO NATIVE ERROR] " .. (values.error or "not ready"))
+                    if values.error and values.error ~= "" then N.status = "[AUDIO NATIVE ERROR] " .. values.error end
+                    if N.ready then
+                        N.status = N.status .. (N.trigger_ready and ("; triggers=" .. (values.trigger_observed or "0") ..
+                            "; hit contexts=" .. (values.trigger_hit_contexts or "0")) or "; trigger contexts unavailable")
+                        N.status = N.status .. (N.objects_ready and ("; objects=" .. (values.objects_rows or "0") ..
+                            " rows/" .. (values.objects_observed or "0") .. " observed; drops=" .. (values.objects_dropped or "?")) or
+                            "; object keys unavailable")
+                        N.status = N.status .. (N.context_ready and ("; context=" .. N.context_rows ..
+                            " rows/" .. N.context_observed .. " observed; drops=" .. (values.context_dropped or "?")) or
+                            "; context unavailable (old DLL or not loaded)")
+                        if values.context_error and values.context_error ~= "" then
+                            N.status = N.status .. "; CONTEXT ERROR: " .. values.context_error
+                        end
+                    end
+                    if completed.verb == "START" and N.recording and state.recording then
+                        write_event("native_audio_anchor", "qpc=" .. (values.anchor_qpc or "?") ..
+                            ";frequency=" .. (values.qpc_frequency or "?") .. ";capture_anchor_estimate_s=" ..
+                            (values.capture_anchor or "?") .. ";ack_received_capture_s=" .. tostring(state.capture_time) ..
+                            ";scope=all_world_unattributed;timing=last_sample_at_IPC_write_plus_render_delay")
+                        write_event("native_audio_context_capability", "ready=" .. tostring(N.context_ready) ..
+                            ";rows=" .. N.context_rows .. ";observed=" .. N.context_observed ..
+                            ";provenance=numeric_API_requests_only;prehook=unknown;emitter_owner=unknown;final_media=unknown")
+                    end
+                end
+            end
+        end
+        if N.pending and os.time() - N.pending.sent_at >= 4 then
+            N.pending, N.commands = nil, {}
+            N.ready = false
+            N.status = "[AUDIO NATIVE ERROR] No matching DLL acknowledgement; trajectory continues"
+        end
+        if not N.pending and #N.commands > 0 then
+            local value = table.remove(N.commands, 1)
+            N.sequence = N.sequence + 1
+            local body = table.concat({"MHGZ_AUDIO_NATIVE_V1", nonce, tostring(N.sequence), value.verb,
+                value.basename, string.format("%.9f", value.verb == "START" and state.capture_time or value.clock), "END", ""}, "\n")
+            local output = io.open(command_path, "wb")
+            if output then
+                local ok, result = pcall(function() return output:write(body) end)
+                output:close()
+                if ok and result then N.pending = {sequence = N.sequence, verb = value.verb, sent_at = os.time()}
+                else N.status = "[AUDIO NATIVE ERROR] Cannot write bridge command" end
+            else N.status = "[AUDIO NATIVE ERROR] Cannot open bridge command" end
+        end
+        -- Heartbeat uses the same acknowledged epoch, never overwrites pending F9 commands.
+        if not N.pending and #N.commands == 0 and (not N.last_ping or os.time() - N.last_ping >= 1) then
+            N.last_ping = os.time(); request("PING")
+        end
+    end
+    request("PING")
+    return N
+end)()
+-- END NATIVE AUDIO CLIENT
+
+-- BEGIN AUDIO COMBAT CAPTURE: independent damage callback, NOT inferred from sound.
+local combat_capture = (function()
+    local C = { installed = 0, observed = 0, hits = 0, sound_contexts = 0,
+        rows = 0, errors = 0, dropped = 0, status = "[HITS] Waiting for metadata" }
+    local specs = {
+        {"snow.enemy.EnemyCharacterBase", "afterCalcDamage_DamageSide", "damage_side_callback"},
+        {"snow.wwise.WwisePlayerMonitoredParameters", "hitTrigger", "hit_sound_context"},
+    }
+    local capacity, pending, queue, schemas, schema_count = 512, 0, {}, {}, 0
+    local scalar_capacity = 96
+    local context_stacks, context_count = {}, 0
+    for i = 1, capacity do queue[i] = {} end
+    local header = {"row", "kind", "capture_time_last_sample_s", "lua_clock_elapsed_s", "frame_callback", "sample_index",
+        "thread_context_address", "receiver_address", "hit_info_address", "flow_type", "attacker_address",
+        "attacker_name", "attacker_relation", "target_address", "target_name", "hit_x", "hit_y", "hit_z",
+        "attack_shape_address", "attack_shape_type", "attack_shape_fields", "damage_shape_type", "damage_shape_fields",
+        "part_info_type", "part_info_fields", "flow_fields", "sound_context_fields", "outcome", "read_errors",
+        "damage_rs_type", "damage_rs_fields", "field_coverage", "sound_context_post_fields", "thread_id"}
+    local numeric = { [3]=true, [4]=true, [5]=true, [6]=true, [16]=true, [17]=true, [18]=true }
+    local primitive = { ["System.Boolean"]=true, ["System.Byte"]=true, ["System.SByte"]=true,
+        ["System.Int16"]=true, ["System.UInt16"]=true, ["System.Int32"]=true, ["System.UInt32"]=true,
+        ["System.Single"]=true, ["System.Double"]=true }
+    -- Select by purpose, not the first N declared fields. In particular the
+    -- actual _EffectMaterialType descriptor is near the END of the sound type.
+    local priorities = {
+        sound = {"_MaterialType", "_EffectMaterialType", "_Dmg", "_MySelfOrOther", "_MySelfOrOtherForBullet",
+            "_IsMaster", "_IsServant", "_OverWriteMaterialType", "_OverWriteWater", "_OverWriteSap", "_OverWriteWaterShallow"},
+        flow = {"<OwnerType>k__BackingField", "<PhysicalPartsVitalDamage>k__BackingField",
+            "<ElementPartsVitalDamage>k__BackingField", "<HitResponse>k__BackingField", "<WeaponType>k__BackingField",
+            "<DamageAttackerType>k__BackingField", "<ExtractiveType>k__BackingField",
+            "<StaminaDamage>k__BackingField", "<StunDamage>k__BackingField"},
+    }
+    local field_patterns = {
+        sound = {"Material", "Dmg", "Hit", "Trigger"},
+        flow = {"Damage", "Hit", "Parts", "Meat", "Attack", "OwnerType", "WeaponType", "Extractive", "Critical"},
+        attack = {"Attack", "Attr", "Hit", "Index", "Id", "ID", "Priority"},
+        damage = {"Meat", "Hit", "Parts", "Attr", "Index", "Id", "ID", "Priority"},
+        part = {"Parts", "Meat", "Hit", "Index", "Id", "ID", "Shape", "Data", "Group", "Joint"},
+    }
+    local function name(td) return td and td:get_full_name() or "unknown" end
+    local function clean(v) return tostring(v):gsub("[\r\n\t]", " "):sub(1, 512) end
+    local function list(value, limit)
+        assert(type(value) == "table" or type(value) == "userdata", "metadata_container_unavailable")
+        local count = #value
+        assert(type(count) == "number" and count >= 0 and count % 1 == 0 and count <= limit, "metadata_limit_or_invalid")
+        return count
+    end
+    local function address(value)
+        if not value then return "unknown" end
+        local ok, result = pcall(function() return tostring(value:get_address()) end)
+        return ok and result or "unknown"
+    end
+    local function field(object, key)
+        if not object then return nil end
+        local td = object:get_type_definition()
+        local descriptor = td:get_field(key)
+        return descriptor and descriptor:get_data(object) or nil
+    end
+    -- Copy only scalar data while callback arguments are alive. No managed objects
+    -- escape into the queue. Exact field names/types are retained, not renamed to
+    -- guessed attack-segment/part/damage meanings. Int64/pointers stay elsewhere.
+    local function scalars(object, role, depth, visited)
+        role, depth, visited = role or "flow", depth or 0, visited or {}
+        if not object then return "unknown", "unknown", "object_unavailable" end
+        local td = object:get_type_definition()
+        local type_key = name(td)
+        local key = role .. ":" .. type_key
+        if not schemas[key] then
+            assert(schema_count < 32, "scalar_type_cache_limit")
+            schema_count = schema_count + 1
+            local schema = { fields = {}, nested = {}, diagnostics = {}, declared = {}, declared_count = 0, references = 0 }
+            schemas[key] = schema
+            local ok, err = pcall(function()
+                local current, parent_count, candidates, seen = td, 0, {}, {}
+                local rank = {}
+                for i, n in ipairs(priorities[role] or {}) do rank[n] = i end
+                while current and name(current) ~= "System.Object" and parent_count < 8 do
+                    local fields = current:get_fields()
+                    local count = list(fields, 512)
+                    for i = 1, count do
+                        local f = fields[i]
+                        local ft = f:get_type()
+                        local kind, fn = name(ft), f:get_name()
+                        schema.declared_count = schema.declared_count + 1
+                        if #schema.declared < 128 then schema.declared[#schema.declared + 1] = name(current) .. "." .. fn .. ":" .. kind end
+                        local enum = ft and name(ft:get_parent_type()) == "System.Enum"
+                        if not f:is_static() and not primitive[kind] and not enum then schema.references = schema.references + 1 end
+                        local wanted = rank[fn] ~= nil
+                        for _, pattern in ipairs(field_patterns[role] or {}) do if fn:find(pattern, 1, true) then wanted = true end end
+                        if not f:is_static() and wanted and not seen[fn] then
+                            seen[fn] = true
+                            local label = name(current) .. "." .. fn .. ":" .. kind
+                            if primitive[kind] or enum then
+                                candidates[#candidates + 1] = {f, label, rank[fn] or 1000}
+                            elseif (role == "part" or role == "damage" or role == "flow") and
+                                (kind:find("snow.hit.", 1, true) == 1 or kind:find("snow.enemy.", 1, true) == 1) and
+                                not kind:find("[]", 1, true) then
+                                if #schema.nested < 4 then schema.nested[#schema.nested + 1] = {f, label}
+                                else schema.diagnostics[#schema.diagnostics + 1] = "selected_nested_limit=" .. label end
+                            end
+                        end
+                    end
+                    current, parent_count = current:get_parent_type(), parent_count + 1
+                end
+                if current and name(current) ~= "System.Object" then schema.diagnostics[#schema.diagnostics + 1] = "metadata_parent_limit" end
+                table.sort(candidates, function(a,b) return a[3] == b[3] and a[2] < b[2] or a[3] < b[3] end)
+                for i = 1, math.min(#candidates, scalar_capacity) do schema.fields[i] = candidates[i] end
+                if #candidates > scalar_capacity then schema.diagnostics[#schema.diagnostics + 1] = "selected_field_limit=" .. #candidates end
+                if role == "sound" then
+                    for _, required in ipairs({"_MaterialType", "_EffectMaterialType", "_Dmg"}) do
+                        if not seen[required] then schema.diagnostics[#schema.diagnostics + 1] = "required_missing=" .. required end
+                    end
+                end
+            end)
+            if not ok then schema.diagnostics[#schema.diagnostics + 1] = "schema_error=" .. clean(err) end
+        end
+        local schema, values, coverage = schemas[key], {}, {}
+        local identity = address(object)
+        if visited[identity] then return type_key, "nested_cycle", "nested_cycle" end
+        visited[identity] = true
+        for _, entry in ipairs(schema.fields) do
+            local ok, value = pcall(function() return entry[1]:get_data(object) end)
+            local kind = type(value)
+            local readable = ok and (kind == "boolean" or (kind == "number" and value == value and math.abs(value) ~= math.huge))
+            values[#values + 1] = entry[2] .. "=" .. (readable and tostring(value) or "unknown")
+            if not readable then coverage[#coverage + 1] = "field_unreadable=" .. entry[2] end
+        end
+        for _, entry in ipairs(schema.nested) do
+            if depth == 2 then coverage[#coverage + 1] = "nested_depth_limit=" .. entry[2]
+            else
+                local ok, value = pcall(function() return entry[1]:get_data(object) end)
+                if ok and value then
+                    local good, _, result, nested_coverage = pcall(scalars, value, role, depth + 1, visited)
+                    if good then
+                        values[#values + 1] = entry[2] .. "=>{" .. result .. "}"
+                        if nested_coverage ~= "selected_profile_ok" then coverage[#coverage + 1] = entry[2] .. ":" .. nested_coverage end
+                    else coverage[#coverage + 1] = "nested_unreadable=" .. entry[2] end
+                end
+            end
+        end
+        visited[identity] = nil
+        for _, d in ipairs(schema.diagnostics) do coverage[#coverage + 1] = d end
+        local empty = schema.references > 0 and "container_only_unexpanded" or "no_selected_fields"
+        if #values == 0 then coverage[#coverage + 1] = empty end
+        return type_key, #values > 0 and table.concat(values, ";") or empty,
+            #coverage > 0 and table.concat(coverage, ";") or "selected_profile_ok"
+    end
+    local function object_name(object)
+        if not object then return "unknown" end
+        local ok, value = pcall(function() return object:call("get_Name") end)
+        return ok and value and clean(value) or "unknown"
+    end
+    local function snapshot(args, spec)
+        C.observed = C.observed + 1
+        if spec[3] == "damage_side_callback" then C.hits = C.hits + 1 else C.sound_contexts = C.sound_contexts + 1 end
+        if not C.file then return end
+        if pending == capacity then C.dropped = C.dropped + 1; return end
+        local row = queue[pending + 1]
+        for i = 1, #header do row[i] = nil end
+        row[2], row[3], row[4], row[5], row[6] = spec[3], state.capture_time,
+            os.clock() - C.clock_start, state.frame_callback_count, state.sample_count
+        row[7] = tostring(args[1]) -- exact thread-context token, NOT a Windows thread ID
+        row[28] = "callback_entered;resolved_damage_unknown;audio_not_hit_proof"
+        local failures = {}
+        local function read(label, fn)
+            local ok, value = pcall(fn)
+            if not ok then failures[#failures + 1] = label .. "=" .. clean(value); return nil end
+            return value
+        end
+        local receiver = read("receiver", function() return sdk.to_managed_object(args[2]) end)
+        local flow = read("flow", function() return sdk.to_managed_object(args[3]) end)
+        local hit = read("hit", function()
+            local value = sdk.to_managed_object(args[4])
+            assert(value and name(value:get_type_definition()) == "snow.DamageReceiver.HitInfo", "hit_type_mismatch")
+            return value
+        end)
+        row[8], row[9] = address(receiver), address(hit)
+        local coverage = {}
+        local function capture_fields(label, object, role, type_col, data_col)
+            local t, v, quality = scalars(object, role)
+            if type_col then row[type_col] = t end
+            row[data_col] = v
+            coverage[#coverage + 1] = label .. ":" .. quality
+        end
+        read("flow_fields", function() capture_fields("flow", flow, "flow", 10, 26) end)
+        local attacker = read("attacker", function() return field(hit, "<AttackObject>k__BackingField") end)
+        local target = read("target", function() return field(hit, "<DamageObject>k__BackingField") end)
+        row[11], row[12], row[14], row[15] = address(attacker), object_name(attacker), address(target), object_name(target)
+        row[13] = C.master_address and row[11] ~= "unknown" and row[11] == C.master_address and "master_gameobject_exact" or "unknown"
+        read("position", function()
+            local pos = field(hit, "<Position>k__BackingField")
+            assert(pos, "position_unavailable")
+            for i, axis in ipairs({"x", "y", "z"}) do
+                local v = pos[axis]
+                assert(type(v) == "number" and v == v and math.abs(v) ~= math.huge, "invalid_position")
+                row[15 + i] = v
+            end
+        end)
+        read("attack_shape", function()
+            local shape = field(hit, "<AttackData>k__BackingField")
+            row[19] = address(shape); capture_fields("attack", shape, "attack", 20, 21)
+        end)
+        read("damage_shape", function() capture_fields("damage", field(hit, "<DamageData>k__BackingField"), "damage", 22, 23) end)
+        read("part_info", function() capture_fields("part", field(hit, "<HitDamageShapeInfo>k__BackingField"), "part", 24, 25) end)
+        read("damage_rs", function() capture_fields("damage_rs", field(hit, "<DamageRSData>k__BackingField"), "part", 30, 31) end)
+        if spec[3] == "hit_sound_context" then read("sound_context", function() capture_fields("sound_pre", receiver, "sound", nil, 27) end) end
+        read("thread_id", function() row[34] = thread and thread.get_id and tostring(thread.get_id()) or "unknown" end)
+        row[32] = table.concat(coverage, "|")
+        if row[32]:find("limit",1,true) or row[32]:find("schema_error",1,true) or
+            row[32]:find("required_missing",1,true) or row[32]:find("no_selected_fields",1,true) then
+            C.incomplete = (C.incomplete or 0) + 1
+        end
+        row[29] = #failures > 0 and table.concat(failures, ";") or "none"
+        if #failures > 0 then C.errors = C.errors + 1 end
+        pending = pending + 1
+        return row
+    end
+    local function post_failure(why)
+        C.post_failures = (C.post_failures or 0) + 1
+        C.post_error = clean(why)
+    end
+    local function context_key()
+        local value = sdk.get_thread_context()
+        assert(value ~= nil and tostring(value) ~= "0" and not tostring(value):match("^userdata: 0+$"), "post_thread_context_unavailable")
+        return tostring(value) -- engine context token, NEVER a fabricated Windows ID
+    end
+    local function store_sound_frame(args, row)
+        if C.post_disabled then return end
+        local stored = false -- tombstone: nested non-captured calls must pop their own frame
+        if row then
+            local copied = {}
+            for i = 1, #header do copied[i] = row[i] end
+            stored = {receiver = sdk.to_managed_object(args[2]), row = copied, generation = C.generation}
+        end
+        if C.post_mode == "hook_storage" then
+            thread.get_hook_storage().mhgz_sound_snapshot = stored
+        elseif C.post_mode == "engine_context_stack" then
+            local key = context_key()
+            assert(key == tostring(args[1]), "post_thread_context_argument_mismatch")
+            local stack = context_stacks[key]
+            if not stack then
+                if not stored then return end
+                if context_count == 64 then post_failure("post_context_limit"); return end
+                stack = {skipped = 0}; context_stacks[key] = stack; context_count = context_count + 1
+            end
+            if #stack == 32 or stack.skipped > 0 then
+                stack.skipped = stack.skipped + 1; post_failure("post_stack_depth_limit"); return
+            end
+            stack[#stack + 1] = stored
+        end
+    end
+    local function take_sound_frame()
+        if C.post_disabled then return nil end
+        if C.post_mode == "hook_storage" then return thread.get_hook_storage().mhgz_sound_snapshot end
+        if C.post_mode ~= "engine_context_stack" then return nil end
+        local key = context_key()
+        local stack = context_stacks[key]
+        if not stack then return nil end
+        if stack.skipped > 0 then stack.skipped = stack.skipped - 1; return nil end
+        local stored = stack[#stack]; stack[#stack] = nil
+        if #stack == 0 then context_stacks[key] = nil; context_count = context_count - 1 end
+        return stored
+    end
+    local function sound_post()
+        local stored = take_sound_frame()
+        if not stored or not C.file or C.generation ~= stored.generation then return end
+        -- A re-entrant callback can append rows, never overwrite this call's slot.
+        if pending == capacity then C.dropped = C.dropped + 1; return end
+        local row = queue[pending + 1]
+        for i = 1, #header do row[i] = stored.row[i] end
+        row[2] = "hit_sound_context_post"
+        row[3], row[4], row[5], row[6] = state.capture_time, os.clock() - C.clock_start, state.frame_callback_count, state.sample_count
+        local _, value, quality = scalars(stored.receiver, "sound")
+        row[33] = value
+        row[32] = row[32] .. "|sound_post:" .. quality
+        if quality ~= "selected_profile_ok" then C.incomplete = (C.incomplete or 0) + 1 end
+        pending = pending + 1
+        C.sound_posts = (C.sound_posts or 0) + 1
+    end
+    function C.install()
+        if C.attempted then return end
+        C.attempted, C.install_lines = true, {}
+        C.post_mode = thread and type(thread.get_hook_storage) == "function" and "hook_storage" or
+            type(sdk.get_thread_context) == "function" and "engine_context_stack" or "unavailable"
+        if C.post_mode == "unavailable" then C.post_error = "post_storage_capability_unavailable" end
+        local addresses = {}
+        for _, spec in ipairs(specs) do
+            local ok, why = pcall(function()
+                local td = assert(sdk.find_type_definition(spec[1]), "type_unavailable")
+                local methods, matches = td:get_methods(), {}
+                for i = 1, list(methods, 4096) do
+                    local method = methods[i]
+                    if method:get_name() == spec[2] then
+                        local params = method:get_param_types()
+                        if name(method:get_declaring_type()) == spec[1] and method:is_static() == false and
+                            name(method:get_return_type()) == "System.Void" and method:get_num_params() == 2 and
+                            list(params, 16) == 2 and name(params[1]) == "snow.hit.DamageFlowInfoBase" and
+                            name(params[2]) == "snow.DamageReceiver.HitInfo" then matches[#matches + 1] = method end
+                    end
+                end
+                assert(#matches == 1, "exact_match_count=" .. #matches)
+                local method = matches[1]
+                local ptr = method:get_function()
+                assert(ptr and sdk.to_int64(ptr) ~= 0, "function_unavailable")
+                local key = tostring(ptr)
+                assert(not addresses[key], "shared_function_rejected")
+                sdk.hook(method, function(args)
+                    local captured, row = pcall(snapshot, args, spec)
+                    if not captured then C.errors = C.errors + 1 end
+                    if spec[3] == "hit_sound_context" then
+                        local saved, why = pcall(store_sound_frame, args, captured and row or nil)
+                        if not saved then
+                            post_failure(why); C.post_disabled = true
+                            context_stacks, context_count = {}, 0 -- fail closed; never pop another invocation
+                        end
+                    end
+                    return sdk.PreHookResult.CALL_ORIGINAL
+                end, function(retval)
+                    if spec[3] == "hit_sound_context" then
+                        local ok, why = pcall(sound_post)
+                        if not ok then
+                            C.errors = C.errors + 1; post_failure(why); C.post_disabled = true
+                            context_stacks, context_count = {}, 0
+                        end
+                    end
+                    return retval
+                end)
+                addresses[key], C.installed = true, C.installed + 1
+                return "installed;address=" .. key .. ";actual_callbacks_required"
+            end)
+            C.install_lines[#C.install_lines + 1] = spec[1] .. "." .. spec[2] .. "=" .. (ok and why or clean(why))
+        end
+    end
+    function C.drain()
+        if not C.file then pending = 0; return end
+        local ok, err = pcall(function()
+            for i = 1, pending do
+                local row, cells = queue[i], {}
+                row[1] = C.rows + 1
+                for col = 1, #header do cells[col] = numeric[col] and csv_number(row[col]) or csv_text(row[col] or "unknown") end
+                assert(C.file:write(table.concat(cells, ",") .. "\n"))
+                C.rows = C.rows + 1
+            end
+            assert(C.file:flush())
+        end)
+        pending = 0
+        if not ok then
+            C.file_error = clean(err); pcall(function() C.file:close() end); C.file = nil
+        end
+    end
+    function C.start(basename)
+        C.install()
+        C.generation = (C.generation or 0) + 1
+        C.rows, C.errors, C.dropped, C.file_error, pending, C.clock_start, C.incomplete = 0, 0, 0, nil, 0, os.clock(), 0
+        C.sound_posts = 0
+        local path = OUTPUT_DIRECTORY .. "/" .. basename .. "_hits.csv"
+        local existing = io.open(path, "rb")
+        if existing then existing:close(); C.file_error = "hits_exists_no_overwrite"; return false end
+        local f, err = io.open(path, "wb")
+        if not f then C.file_error = clean(err); return false end
+        local ok = pcall(function() assert(f:write(table.concat(header, ",") .. "\n")); assert(f:flush()) end)
+        if not ok then pcall(function() f:close() end); C.file_error = "hits_header_failed"; return false end
+        C.file = f
+        return true
+    end
+    function C.stop()
+        C.drain()
+        if C.file then
+            local ok, result = pcall(function() return C.file:close() end)
+            if not ok or not result then C.file_error = "hits_close_failed" end
+            C.file = nil
+        end
+    end
+    function C.update()
+        C.install()
+        if not C.last_master_clock or os.clock() - C.last_master_clock > 0.25 then
+            C.last_master_clock = os.clock()
+            local ok, _, go = pcall(get_master_player_and_game_object)
+            C.master_address = ok and go and address(go) or nil
+        end
+        C.status = "[HITS] " .. C.installed .. "/2 listeners; damage callbacks=" .. C.hits ..
+            "; sound contexts=" .. C.sound_contexts .. "; rows=" .. C.rows .. "; dropped=" .. C.dropped .. "; errors=" .. C.errors ..
+            "; coverage warnings=" .. (C.incomplete or 0) .. "; sound posts=" .. (C.sound_posts or 0) ..
+            "; post mode=" .. tostring(C.post_mode) .. "; post failures=" .. (C.post_failures or 0)
+        if C.post_error then C.status = C.status .. "; POST_ERROR=" .. C.post_error end
+        if C.file_error then C.status = C.status .. "; ERROR=" .. C.file_error end
+        -- Descriptor-only selected/declaration coverage. No extra getter calls,
+        -- no F8 requirement, and no live-object reference is retained here.
+        if C.reported_schema_count ~= schema_count then
+            C.reported_schema_count = schema_count
+            local f = io.open(OUTPUT_DIRECTORY .. "/combat_field_schema.txt", "wb")
+            if f then
+                pcall(function()
+                    assert(f:write("schema=mhgz_combat_field_profiles_v1\nversion=" .. SCRIPT_VERSION .. "\n"))
+                    for key, schema in pairs(schemas) do
+                        assert(f:write("TYPE\t" .. key .. "\tdeclared=" .. schema.declared_count ..
+                            "\tselected=" .. #schema.fields .. "\tnested=" .. #schema.nested .. "\t" .. table.concat(schema.diagnostics, ";") .. "\n"))
+                        for _, entry in ipairs(schema.fields) do assert(f:write("SELECTED\t" .. entry[2] .. "\n")) end
+                        for _, entry in ipairs(schema.nested) do assert(f:write("NESTED\t" .. entry[2] .. "\n")) end
+                        for _, label in ipairs(schema.declared) do assert(f:write("DECLARED\t" .. label .. "\n")) end
+                        if schema.declared_count > #schema.declared then assert(f:write("DECLARATIONS_TRUNCATED\t" .. key .. "\n")) end
+                    end
+                    assert(f:write("END\n"))
+                end)
+                pcall(function() f:close() end)
+            end
+        end
+        -- Small no-F9 health report; no file IO inside hit/audio hooks.
+        if not C.last_report or os.time() ~= C.last_report then
+            C.last_report = os.time()
+            local f = io.open(OUTPUT_DIRECTORY .. "/combat_capture_live.txt", "wb")
+            if f then
+                pcall(function()
+                    assert(f:write("schema=mhgz_combat_capture_v1\nversion=" .. SCRIPT_VERSION .. "\n" .. C.status ..
+                        "\nmaster_gameobject_address=" .. (C.master_address or "unknown") ..
+                        "\nsemantics=damage_side_callback_is_not_final_damage;hit_sound_context_is_not_independent_hit\n" ..
+                        "time=last_completed_sample;native_qpc_sync_unknown\n" .. table.concat(C.install_lines, "\n") .. "\nEND\n"))
+                end)
+                pcall(function() f:close() end)
+            end
+        end
+    end
+    return C
+end)()
+-- END AUDIO COMBAT CAPTURE.
+
 local function safe_field_type_name(field)
     local ok, type_definition = pcall(function()
         return field:get_type()
@@ -1990,6 +3027,14 @@ local function stop_capture(reason)
 
     write_event("capture_health", "stopped; valid=" .. tostring(state.health_valid_sample_count))
     animation_capture.stop()
+    native_audio.stop(state.native_audio_basename, state.capture_time)
+    audio_capture.stop()
+    combat_capture.stop()
+    write_event("hit_capture_health", combat_capture.status .. ";rows=" .. combat_capture.rows ..
+        ";file_error=" .. tostring(combat_capture.file_error))
+    write_event("audio_capture_health", "listeners=" .. audio_capture.hook_count .. ";rows=" .. audio_capture.rows ..
+        ";dropped=" .. audio_capture.dropped .. ";errors=" .. audio_capture.errors ..
+        ";file_error=" .. tostring(audio_capture.error) .. ";source_scope=all_world_unattributed")
     write_event("capture_stopped", reason or "F9")
 
     if state.samples_file ~= nil then
@@ -2025,6 +3070,9 @@ local function start_capture(trigger)
     local samples_path = OUTPUT_DIRECTORY .. "/" .. basename .. "_samples.csv"
     local events_path = OUTPUT_DIRECTORY .. "/" .. basename .. "_events.csv"
     local animation_path = OUTPUT_DIRECTORY .. "/" .. basename .. "_animation.csv"
+    local audio_probe_path = OUTPUT_DIRECTORY .. "/" .. basename .. "_audio_probe.txt"
+    local audio_path = OUTPUT_DIRECTORY .. "/" .. basename .. "_audio.csv"
+    local audio_hooks_path = OUTPUT_DIRECTORY .. "/" .. basename .. "_audio_hooks.txt"
 
     local samples_file, samples_error = io.open(samples_path, "w")
     if samples_file == nil then
@@ -2047,6 +3095,8 @@ local function start_capture(trigger)
     end
 
     state.recording = true
+    state.native_audio_basename = basename
+    native_audio.start(basename, 0)
     state.samples_file = samples_file
     state.events_file = events_file
     state.sample_count = 0
@@ -2058,6 +3108,8 @@ local function start_capture(trigger)
     state.health_problem = nil
     state.event_count = 0
     state.capture_time = 0.0
+    local combat_ok, combat_result = pcall(combat_capture.start, basename)
+    if not combat_ok or not combat_result then combat_capture.file_error = "hit_sidecar_start_failed" end
     state.previous_sample = nil
     state.previous_phase = "unknown"
     state.previous_clock = os.clock()
@@ -2119,6 +3171,24 @@ local function start_capture(trigger)
     write_event("animation_reader_schema", "v1.13.0; file=" .. animation_path ..
         ";frames=engine_native_unscaled;legacy_layers_are_not_attack_frame_truth")
     write_event("stamina_reader_schema", "v1.14.0; units=raw_unscaled; no implicit /30 or /150; match same-frame action/input")
+    local audio_ok, audio_result, audio_error = pcall(audio_probe.write, audio_probe_path)
+    if audio_ok and audio_result then
+        write_event("audio_probe_metadata", "schema=v1; file=" .. audio_probe_path .. ";types=" ..
+            audio_probe.type_count .. ";candidates=" .. audio_probe.candidate_count .. ";probe_only=true")
+    else
+        audio_probe.status = "[AUDIO PROBE ERROR] Metadata export failed; trajectory continues"
+        write_event("audio_probe_error", tostring(audio_ok and audio_error or audio_result))
+    end
+    local started, result, err = pcall(audio_capture.start, audio_path)
+    if not started or not result then
+        audio_capture.status = "[AUDIO ERROR] Cannot open audio CSV; trajectory continues"
+        write_event("audio_capture_error", tostring(err or result))
+    else
+        write_event("audio_capture_schema", "v1; file=" .. audio_path .. ";listeners=" .. audio_capture.hook_count ..
+            ";unfiltered_getter=disabled;event_id_capture=not_implemented;post_return_semantics=unknown;time=last_completed_sample;source_scope=all_world_unattributed")
+    end
+    local report_ok, report_result, report_error = pcall(audio_capture.report, audio_hooks_path)
+    if not report_ok or not report_result then write_event("audio_listener_report_error", tostring(report_error or report_result)) end
     samples_file:flush()
     events_file:flush()
     report_status("Capture started by " .. (trigger or "unknown trigger") .. ": " .. samples_path)
@@ -2347,8 +3417,8 @@ end
 local function draw_capture_feedback()
     local capture_key = key_name(state.capture_key_name)
     if state.recording then
-        draw.filled_rect(20, 20, 730, 68, 0xB0000000)
-        draw.outline_rect(20, 20, 730, 68, 0xFF0000FF)
+        draw.filled_rect(20, 20, 730, 86, 0xB0000000)
+        draw.outline_rect(20, 20, 730, 86, 0xFF0000FF)
         draw.text(
             "[REC] TRAJECTORY CAPTURE  |  " .. capture_key .. ": STOP  |  Samples: " .. tostring(state.sample_count),
             32,
@@ -2358,6 +3428,7 @@ local function draw_capture_feedback()
         draw.text(state.health_message, 32, 52, state.health_state == "stalled" and 0xFF00AAFF or 0xFFFFFFFF)
         draw.text(animation_capture.status, 32, 69,
             animation_capture.last_status == "readable" and 0xFF00FF00 or 0xFF00AAFF)
+        draw.text(native_audio.status, 32, 86, 0xFF00AAFF)
     elseif state.binding_capture_key then
         draw.filled_rect(20, 20, 530, 34, 0xA0000000)
         draw.outline_rect(20, 20, 530, 34, 0xFFFFAA00)
@@ -2373,9 +3444,9 @@ local function draw_capture_feedback()
     end
 
     if state.toast_text ~= nil and os.clock() < state.toast_until then
-        draw.filled_rect(20, 94, 730, 48, 0xC0000000)
-        draw.outline_rect(20, 94, 730, 48, state.toast_color)
-        draw.text(state.toast_text, 32, 105, state.toast_color)
+        draw.filled_rect(20, 112, 730, 48, 0xC0000000)
+        draw.outline_rect(20, 112, 730, 48, state.toast_color)
+        draw.text(state.toast_text, 32, 123, state.toast_color)
     end
 end
 
@@ -2383,11 +3454,12 @@ local function draw_quick_control_widget()
     -- REFramework permits standalone ImGui windows from on_frame when wrapped
     -- in begin_window/end_window. Keep this small control visible even while
     -- the main REFramework menu is closed, so recording never depends on a key.
-    imgui.set_next_window_pos({ 20, 148 }, 4)
+    imgui.set_next_window_pos({ 20, 166 }, 4)
     imgui.set_next_window_size({ 540, 245 }, 4)
     local contents_visible = imgui.begin_window("MHGZ Recorder Control", nil, nil)
     if contents_visible then
         imgui.text("Recorder v" .. SCRIPT_VERSION)
+        imgui.text(native_audio.status)
         if state.recording then
             imgui.text("Recording: " .. tostring(state.sample_count) .. " samples")
             imgui.text(state.health_message)
@@ -2437,6 +3509,15 @@ end
 local function on_frame_update()
     state.frame_callback_seen = true
     state.frame_callback_count = state.frame_callback_count + 1
+    -- Descriptor-only discovery does not need a hunter, input or a new recording.
+    audio_probe.auto_export()
+    audio_context_preflight.auto_export()
+    local combat_updated = pcall(combat_capture.update)
+    if not combat_updated then combat_capture.status = "[HITS ERROR] Update failed; trajectory continues" end
+    local native_updated = pcall(native_audio.update)
+    if not native_updated then native_audio.status = "[AUDIO NATIVE ERROR] IPC update failed; trajectory continues" end
+    local audio_updated = pcall(audio_capture.update)
+    if not audio_updated then audio_capture.status = "[AUDIO ERROR] Health update failed; trajectory continues" end
 
     local is_binding_key = state.binding_capture_key and update_capture_key_binding_win32() or false
 
@@ -2473,6 +3554,8 @@ local function on_frame_update()
     if state.recording then
         record_sample()
         update_capture_health()
+        audio_capture.drain()
+        combat_capture.drain()
     end
 
     draw_capture_feedback()
@@ -2537,6 +3620,12 @@ re.on_draw_ui(function()
     imgui.text("Samples: " .. tostring(state.sample_count))
     imgui.text("F9: samples.csv = trajectory/input + legacy behavior layers; animation.csv = actual Motion nodes.")
     imgui.text(animation_capture.status)
+    imgui.text(audio_probe.status)
+    imgui.text(audio_context_preflight.status)
+    imgui.text(audio_capture.status)
+    imgui.text(native_audio.status)
+    imgui.text(combat_capture.status)
+    if audio_probe.last_path ~= nil then imgui.text("Audio interface report: " .. audio_probe.last_path) end
     imgui.text("F8 remains an optional verbose state probe for diagnostics.")
     if state.last_probe_path ~= nil then
         imgui.text("Last probe: " .. state.last_probe_path)

@@ -10,6 +10,7 @@ class UAbilityTask_PlayMontageAndWait;
 class UAnimMontage;
 class UCapsuleComponent;
 class ACharacter;
+class UAbilitySystemComponent;
 
 UENUM(BlueprintType)
 enum class EMHGZDodgeMovementPhase : uint8
@@ -27,6 +28,26 @@ class MHGZ_API UMHGZDodgeAbility : public UMHGZGameplayAbility
 
 public:
 	UMHGZDodgeAbility();
+
+	/** 开启后，前翻滚要求实时Attacking；无方向输入也使用此项。攻击中仍须通过原攻击的DodgeAcceptWindow。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dodge|Activation",
+		meta = (DisplayName = "前翻滚需要攻击状态"))
+	bool bForwardDodgeRequiresAttacking = false;
+
+	/** 开启后，左翻滚要求实时Attacking；关闭不解除收刀方向限制或攻击取消窗口要求。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dodge|Activation",
+		meta = (DisplayName = "左翻滚需要攻击状态"))
+	bool bLeftDodgeRequiresAttacking = true;
+
+	/** 开启后，右翻滚要求实时Attacking；关闭不解除收刀方向限制或攻击取消窗口要求。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dodge|Activation",
+		meta = (DisplayName = "右翻滚需要攻击状态"))
+	bool bRightDodgeRequiresAttacking = true;
+
+	/** 开启后，后翻滚要求实时Attacking；关闭不解除收刀方向限制或攻击取消窗口要求。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dodge|Activation",
+		meta = (DisplayName = "后翻滚需要攻击状态"))
+	bool bBackDodgeRequiresAttacking = true;
 
 	/** Final forward-roll montage for the sheathed pose. */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Sheathed")
@@ -56,6 +77,10 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Sections")
 	FName MoveExitSectionName = FName(TEXT("MoveExit"));
+
+	/** 翻滚退出段接新动作的混合时间；左右后也用于接起步，前滚原移动交接不变。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dodge|Recovery", meta=(ClampMin="0.0", ForceUnits="s"))
+	float DirectionalIdleExitBlendTime = 0.1f;
 
 	/**
 	 * E4.2 migration switch. When enabled, every Dodge variant acquires Montage
@@ -103,6 +128,17 @@ public:
 	FName GetChosenExitSection() const { return ChosenExitSection; }
 	bool DoesActiveDodgeAllowMoveExit() const { return bActiveDodgeAllowsMoveExit; }
 
+	/** Exact committed exit recoveries may yield to a successor; Core never qualifies. */
+	bool IsActionRecoveryOpen() const;
+	static UMHGZDodgeAbility* FindOpenActionRecovery(UAbilitySystemComponent* ASC,
+		const UMHGZGameplayAbility* Exclude = nullptr);
+	/** Movement-only recovery remains directional: both forward exits retain their authored route. */
+	bool IsDirectionalRecoveryOpen() const;
+	static UMHGZDodgeAbility* FindOpenDirectionalRecovery(UAbilitySystemComponent* ASC,
+		const UMHGZGameplayAbility* Exclude = nullptr);
+	bool TryCompleteDirectionalRecoveryForMovement();
+	void CompleteDirectionalRecoveryForAction();
+
 protected:
 	struct FDodgeSelection
 	{
@@ -123,6 +159,10 @@ protected:
 	virtual bool HasLiveMovementInput() const;
 	virtual bool JumpToDodgeSection(FName SectionName);
 	virtual FDodgeSelection SelectDodgeSelection() const;
+	bool DoesDodgeDirectionRequireAttacking(EDirectionalInput Direction) const;
+	/** Preserve usable directional rolls; front-hemisphere inputs may use forward when a side roll is gated. */
+	EDirectionalInput ResolveDodgeDirection(const FWeaponInputSnapshot& Input,
+		const UAbilitySystemComponent* ASC, const UMHGZWeaponRuntimeHostComponent* Host) const;
 	static bool IsDodgeDirectionAllowedForPose(bool bSheathed,
 		EDirectionalInput Direction);
 	void OnDodgeMontageSectionChanged(UAnimMontage* Montage, FName SectionName,
@@ -159,9 +199,11 @@ private:
 	bool bOwnsMontageRootMotion = false;
 	bool bPreparedAttackSupersede = false;
 	bool bEndingDodge = false;
+	bool bActionRecoveryOpen = false;
 	FTimerHandle MontageEndFailsafeTimer;
 
 	bool IsAttacking() const;
+	void OpenActionRecovery();
 	void ArmMontageEndFailsafe();
 	void ClearMontageEndFailsafe();
 	void ReleaseMontageRootMotionOwnership();

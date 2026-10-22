@@ -10,6 +10,7 @@ class UAnimMontage;
 class UAnimBlueprint;
 class UPoseSearchDatabase;
 class UPoseSearchSchema;
+class UAnimNotify;
 
 /** Editor asset authoring only; no runtime Montage or gameplay dependencies. */
 UCLASS()
@@ -17,6 +18,19 @@ class MHGZTOOLSEDITOR_API UMHGZAnimationSeamLibrary : public UBlueprintFunctionL
 {
 	GENERATED_BODY()
 public:
+	/** Replace one known sound recipe class only; preserves GUID, timing, track and all common properties. No save. */
+	UFUNCTION(BlueprintCallable, Category="MHGZ|Editor|Audio")
+	static bool ReplaceSoundNotifyClass(UAnimMontage* Montage, FGuid NotifyGuid,
+		TSubclassOf<UAnimNotify> NewClass);
+
+	/** Move one existing sound event to an existing/new track. Never reconstructs events, sorts or saves. */
+	UFUNCTION(BlueprintCallable, Category="MHGZ|Editor|Audio")
+	static bool MoveSoundNotifyToTrack(UAnimMontage* Montage, FGuid NotifyGuid, FName TrackName);
+
+	/** Guarded instant-sound GUID/time edits or removals only. Preserves gameplay events, recipes and tracks. No save. */
+	UFUNCTION(BlueprintCallable, Category="MHGZ|Editor|Audio")
+	static bool EditSoundNotifyTimes(UAnimMontage* Montage, const FString& ChangesJson);
+
 	/** One 60Hz display frame of midpoint pose; root advances by adjacent mean velocity. Never overwrites. */
 	UFUNCTION(BlueprintCallable, Category="MHGZ|Editor|Animation")
 	static UAnimSequence* CreateOneFrameBridge(UAnimSequence* Before, float BeforeTime,

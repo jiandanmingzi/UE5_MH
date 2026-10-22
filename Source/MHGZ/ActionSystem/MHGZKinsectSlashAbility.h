@@ -224,6 +224,7 @@ protected:
 		int32 SegmentIndex) override;
 	virtual bool CanApplyCollisionHit(const FHitResult& Hit,
 		int32 SegmentIndex) const override;
+	virtual bool ShouldSweepCollision(int32 SegmentIndex) const override;
 	virtual bool ShouldConsumeCollisionOnDamageFailure(int32 SegmentIndex) const override;
 	virtual void OnAttackCollisionWindowClosed(int32 SegmentIndex) override;
 	virtual void OnMontageCompleted() override;
@@ -240,6 +241,7 @@ private:
 	friend class FMHGZKinsectSlashIndependentContactTest;
 	friend class FMHGZIGDanceDamageTest;
 	friend class FMHGZStaminaCostsTest;
+	friend class FMHGZKinsectSlashPreparationTest;
 	#endif
 
 	bool IsLiveAerialSlashStateValid(const UAbilitySystemComponent* ASC,
@@ -260,6 +262,7 @@ private:
 	virtual float GetInstantStaminaCost(const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo) const override;
 	USkeletalMeshComponent* FindKinsectSlashWeaponMesh(FName RequiredSocket) const;
+	float GetKinsectPreparationTime() const;
 	bool IsKinsectActionAttachmentCurrent() const;
 	void ReleaseKinsectActionAttachment();
 	void HandleSuccessfulKinsectContact(const FHitResult& Hit);
@@ -344,6 +347,7 @@ private:
 	float SuccessfulHitSourcePosition = 0.0f;
 	float FrozenDanceDamageMultiplier = 1.0f;
 	int32 SuccessfulHitSourceMontageInstanceID = INDEX_NONE;
+	// Owns the preparation lease too; physical socket readiness is queried separately.
 	bool bKinsectActionAttached = false;
 	bool bAimLocked = false;
 	bool bDashMovementFinished = false;

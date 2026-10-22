@@ -10,6 +10,7 @@
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/BoxComponent.h"
 #include "InsectGlaive/Kinsect/KinsectCollisionComponent.h"
+#include "InsectGlaive/IGPowderActor.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "../../Shared/MHGZM3TestHarness.h"
 
@@ -141,6 +142,9 @@ bool FMHGZM632AutoMarkOnlyRunsDetachedAndUsesRealHit::RunTest(
 		Harness.CombatConfig->KinsectAutoMarkAttackInterval, 2.0f);
 	Harness.CombatConfig->KinsectAutoMarkSearchRadius = 1200.0f;
 	Harness.CombatConfig->KinsectAutoMarkAttackInterval = 0.15f;
+	Harness.CombatConfig->PowderActorClass = AIGPowderActor::StaticClass();
+	Harness.CombatConfig->PowderMotionValue = 50.0f;
+	Harness.CombatConfig->MarkedHitPowderCooldown = 10.0f;
 	FMHGZM632MarkTarget Target = SpawnM632MarkTarget(*Harness.World,
 		FVector(300.0f, 0.0f, 0.0f), true);
 	if (!TestNotNull(TEXT("marked target exists"), Target.Hitzone)
@@ -187,6 +191,16 @@ bool FMHGZM632AutoMarkOnlyRunsDetachedAndUsesRealHit::RunTest(
 	}
 	TestTrue(TEXT("automatic seek reaches the marked Hitzone and applies real Kinsect damage"),
 		Target.Attributes->GetHealth() < HealthBefore);
+	const auto FirstPowders = Harness.Resource->GetPowderSnapshots();
+	TestEqual(TEXT("real automatic contact creates one powder"), FirstPowders.Num(), 1);
+	if (!FirstPowders.IsEmpty())
+	{
+		TestEqual(TEXT("production auto contact uses its independent policy"),
+			FirstPowders[0].SpawnPolicy, EIGPowderSpawnPolicy::AutoMarkContact);
+	}
+	TickM632World(Harness, 12, 1.0f / 60.0f);
+	TestTrue(TEXT("another automatic attack creates powder well inside the ordinary ten-second cooldown"),
+		Harness.Resource->GetPowderSnapshots().Num() >= 2);
 	TestTrue(TEXT("target ASC owns the exact health set observed by the test"),
 		Target.ASC->GetSet<UMHGZAttributeSet>() == Target.Attributes);
 	TestEqual(TEXT("automatic attack remains a detached hovering behavior"),

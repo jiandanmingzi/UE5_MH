@@ -33,6 +33,8 @@ namespace
 		TEXT("Combat.State.Unsheathed"));
 	const FGameplayTag AttackingTag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Attacking"));
+	const FGameplayTag DodgingTag = FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Dodging"));
+	const FGameplayTag SheathingTag = FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Sheathing"));
 	const FGameplayTag DeadTag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Dead"));
 	const FGameplayTag HitstunTag = FGameplayTag::RequestGameplayTag(
@@ -185,10 +187,13 @@ bool UGA_WeaponComboCoordinator::HasOpenDodgeAcceptWindowFor(
 bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	const FComboTransition& Transition, const FWeaponInputSnapshot& Input,
 	bool bIgnoreAcceptWindows, bool bAllowAerialHandoffPreInput,
-	bool bAllowEarlyDescendingThrust) const
+	bool bAllowEarlyDescendingThrust, bool bAllowDodgePreInput) const
 {
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
-	if (!ASC || HasPlayerActionInputLock(ASC)
+	// Read-only candidate matching may ignore only this live Dodge's input lock.
+	// No tags are removed and normal activation always rechecks the real gates.
+	const bool bDodgeCandidate = bAllowDodgePreInput && FindLockedDodgePreInputSource();
+	if (!ASC || (HasPlayerActionInputLock(ASC) && !bDodgeCandidate)
 		|| !DoesTransitionMatchState(Transition)
 		|| !IsSnapshotPostureCompatible(Transition, Input))
 	{
@@ -220,8 +225,9 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 		}
 		return false;
 	}
-	if (!Transition.BlockedTags.IsEmpty()
-		&& ASC->HasAnyMatchingGameplayTags(Transition.BlockedTags))
+	FGameplayTagContainer BlockedTags = Transition.BlockedTags;
+	if (bDodgeCandidate) { BlockedTags.RemoveTag(DodgingTag); }
+	if (!BlockedTags.IsEmpty() && ASC->HasAnyMatchingGameplayTags(BlockedTags))
 	{
 		return false;
 	}
@@ -251,7 +257,8 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 
 const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 	const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows,
-	bool bAllowAerialHandoffPreInput, bool bAllowEarlyDescendingThrust) const
+	bool bAllowAerialHandoffPreInput, bool bAllowEarlyDescendingThrust,
+	bool bAllowDodgePreInput) const
 {
 	if (!ComboData) return nullptr;
 	TArray<int32> Candidates;
@@ -268,7 +275,7 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 		const FComboTransition& Candidate = ComboData->Transitions[Index];
 		if (Candidate.bAutoTransition || Candidate.InputTag != Input.ResolvedInputTag
 			|| !TransitionRequirementsPass(Candidate, Input, bIgnoreAcceptWindows,
-				bAllowAerialHandoffPreInput, bAllowEarlyDescendingThrust))
+				bAllowAerialHandoffPreInput, bAllowEarlyDescendingThrust, bAllowDodgePreInput))
 		{
 			continue;
 		}
@@ -295,9 +302,20 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 void UGA_WeaponComboCoordinator::HandleWeaponInput(const FWeaponInputSnapshot& Input)
 {
 	HasLiveBufferedCombatInput();
-	if (Input.Phase != EWeaponInputPhase::Started || PendingTransition.IsSet()
-		|| HasPlayerActionInputLock(GetAbilitySystemComponentFromActorInfo()))
+	if (Input.Phase != EWeaponInputPhase::Started || PendingTransition.IsSet())
 	{
+		return;
+	}
+	if (HasPlayerActionInputLock(GetAbilitySystemComponentFromActorInfo()))
+	{
+		if (const UMHGZDodgeAbility* Source = FindLockedDodgePreInputSource())
+		{
+			// Match the normal post-Dodge edge, not an imaginary attack accept window.
+			if (SupportsPreInput(FindBestMatch(Input, false, false, false, true)))
+			{
+				CacheCombatInput(Input, &Source->GetActionToken());
+			}
+		}
 		return;
 	}
 	if (const FComboTransition* Transition = FindBestMatch(Input))
@@ -342,8 +360,8 @@ void UGA_WeaponComboCoordinator::HandleWeaponInput(const FWeaponInputSnapshot& I
 	// to pass at capture time, then are checked again on consumption.
 	if (const FComboTransition* PendingMatch = FindBestMatch(Input, true))
 	{
-		if (PendingMatch->bRequiresComboWindow
-			|| PendingMatch->bRequiresDodgeAcceptWindow)
+		if (SupportsPreInput(PendingMatch) && (PendingMatch->bRequiresComboWindow
+			|| PendingMatch->bRequiresDodgeAcceptWindow))
 		{
 			CacheCombatInput(Input);
 			return;
@@ -354,7 +372,7 @@ void UGA_WeaponComboCoordinator::HandleWeaponInput(const FWeaponInputSnapshot& I
 	// missing transition requirement is the Falling tag restored by Handoff.
 	// This reuses the same one-slot/latest-input-wins buffer and TTL as ComboWindow.
 	if (CanBufferAerialHandoffInput(Input)
-		&& FindBestMatch(Input, true, true))
+		&& SupportsPreInput(FindBestMatch(Input, true, true)))
 	{
 		CacheCombatInput(Input);
 	}
@@ -365,17 +383,24 @@ bool UGA_WeaponComboCoordinator::TryBufferDirectInput(
 {
 	HasLiveBufferedCombatInput();
 
-	// 空中回避指令自身**没有预输入**：锁定期按下直接作废，不入槽、放锁点不补发。
-	// `Input.Dodge` 是它的父标签，地面分支靠下面的精确 == 守住；其它 `Input.Weapon.*`
-	// 攻击边的空中 Handoff 预输入由 HandleWeaponInput 单独处理。
-	if (Input.ResolvedInputTag == AirDodgeInputTag)
+	if (Input.Phase != EWeaponInputPhase::Started || PendingTransition.IsSet()
+		|| !SupportsDirectPreInput(Input))
 	{
 		return false;
 	}
+	if (const UMHGZDodgeAbility* Source = FindLockedDodgePreInputSource())
+	{
+		if (!Input.ContextTags.HasTagExact(GroundedTag)
+			|| Input.ContextTags.HasTagExact(AerialTag)) { return false; }
+		return CacheCombatInput(Input, &Source->GetActionToken());
+	}
+	// AirDodge defaults off on its GA, rather than a hard-coded tag exclusion.
+	if (Input.ResolvedInputTag == AirDodgeInputTag && CanBufferAerialHandoffInput(Input))
+	{
+		return CacheCombatInput(Input);
+	}
 
-	if (Input.Phase != EWeaponInputPhase::Started
-		|| Input.ResolvedInputTag != DodgeInputTag
-		|| PendingTransition.IsSet()
+	if (Input.ResolvedInputTag != DodgeInputTag
 		|| !ActiveTransition.IsSet()
 		|| HasPlayerActionInputLock(GetAbilitySystemComponentFromActorInfo()))
 	{
@@ -594,6 +619,15 @@ void UGA_WeaponComboCoordinator::OnAttackHit(const FWeaponActionToken& ActionTok
 void UGA_WeaponComboCoordinator::OnActionFinished(
 	const FWeaponActionToken& ActionToken, EWeaponActionEndReason Reason)
 {
+	if (BufferedCombatInput.IsSet() && BufferedCombatInput->DodgeSourceAction == ActionToken)
+	{
+		const auto* Source = Cast<UMHGZDodgeAbility>(ActionToken.AbilityInstance.Get());
+		if (Reason == EWeaponActionEndReason::Normal && Source && Source->GetActionToken() == ActionToken)
+		{
+			BufferedCombatInput->bDodgeSourceCompletedNormally = true;
+		}
+		else { ClearBufferedCombatInput(); }
+	}
 	if (!ActiveTransition.IsSet() || ActiveTransition->ActionToken != ActionToken) return;
 	ClearBufferedCombatInput();
 	CloseWindowsFor(ActionToken);
@@ -774,7 +808,7 @@ void UGA_WeaponComboCoordinator::OnAerialHandoffWindowOpened(
 	{
 		return;
 	}
-	TryConsumeBufferedCombatInput(/* bAllowDirectInput = */ false,
+	TryConsumeBufferedCombatInput(/* bAllowDirectInput = */ true,
 		SourceActionToken);
 }
 
@@ -817,6 +851,35 @@ bool UGA_WeaponComboCoordinator::IsEarlyDescendingThrustWindowOpen() const
 void UGA_WeaponComboCoordinator::OnDirectActionConfirmed()
 {
 	ClearBufferedCombatInput();
+}
+
+void UGA_WeaponComboCoordinator::DiscardDodgePreInput(const FWeaponActionToken& SourceActionToken)
+{
+	if (BufferedCombatInput.IsSet() && BufferedCombatInput->DodgeSourceAction == SourceActionToken)
+	{
+		ClearBufferedCombatInput();
+	}
+}
+
+void UGA_WeaponComboCoordinator::OnDodgePreInputWindowOpened(
+	const FWeaponActionToken& SourceActionToken)
+{
+	if (!HasLiveBufferedCombatInput()
+		|| BufferedCombatInput->DodgeSourceAction != SourceActionToken) { return; }
+	const auto* Source = Cast<UMHGZDodgeAbility>(SourceActionToken.AbilityInstance.Get());
+	const auto* ASC = GetAbilitySystemComponentFromActorInfo();
+	const auto* Host = GetRuntimeHost();
+	if (!Host || !ASC
+		|| !Host->IsTokenCurrent(SourceActionToken.RuntimeToken) || !Host->IsGrounded()
+		|| !ASC->HasMatchingGameplayTag(GroundedTag) || ASC->HasMatchingGameplayTag(AerialTag)
+		|| ASC->HasMatchingGameplayTag(DeadTag) || ASC->HasMatchingGameplayTag(HitstunTag)
+		|| ASC->HasMatchingGameplayTag(KnockdownTag) || HasPlayerActionInputLock(ASC)
+		|| (!BufferedCombatInput->bDodgeSourceCompletedNormally
+			&& (!Source || Source->GetActionToken() != SourceActionToken || !Source->IsActionRecoveryOpen())))
+	{
+		return;
+	}
+	TryConsumeBufferedCombatInput(true, nullptr, false, &SourceActionToken);
 }
 
 void UGA_WeaponComboCoordinator::CloseComboWindow(
@@ -953,7 +1016,44 @@ int32 UGA_WeaponComboCoordinator::SupersedeOtherIGAerialActions(
 	return ActionsToEnd.Num();
 }
 
-bool UGA_WeaponComboCoordinator::CacheCombatInput(const FWeaponInputSnapshot& Input)
+bool UGA_WeaponComboCoordinator::SupportsPreInput(const FComboTransition* Transition) const
+{
+	const auto* Defaults = Transition && Transition->AbilityClass
+		? Cast<UMHGZGameplayAbility>(Transition->AbilityClass->GetDefaultObject()) : nullptr;
+	return Defaults && Defaults->bAllowPreInputActivation;
+}
+
+bool UGA_WeaponComboCoordinator::SupportsDirectPreInput(const FWeaponInputSnapshot& Input) const
+{
+	auto* ASC = Cast<UMHGZAbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo());
+	const FGameplayAbilitySpec* Spec = ASC
+		? ASC->FindAbilitySpecFromHandle(ASC->FindAbilityHandleByInputTag(Input.ResolvedInputTag)) : nullptr;
+	const auto* Defaults = Spec ? Cast<UMHGZGameplayAbility>(Spec->Ability) : nullptr;
+	return Defaults && Defaults->bAllowPreInputActivation;
+}
+
+UMHGZDodgeAbility* UGA_WeaponComboCoordinator::FindLockedDodgePreInputSource() const
+{
+	auto* ASC = Cast<UMHGZAbilitySystemComponent>(GetAbilitySystemComponentFromActorInfo());
+	const auto* Host = GetRuntimeHost();
+	if (!ASC || !Host || !Host->IsGrounded() || !ASC->HasMatchingGameplayTag(GroundedTag)
+		|| !ASC->HasMatchingGameplayTag(DodgingTag) || ASC->HasMatchingGameplayTag(SheathingTag)
+		|| ASC->HasMatchingGameplayTag(AerialTag) || ASC->HasMatchingGameplayTag(DeadTag)
+		|| ASC->HasMatchingGameplayTag(HitstunTag) || ASC->HasMatchingGameplayTag(KnockdownTag)) { return nullptr; }
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		for (UGameplayAbility* Instance : Spec.GetAbilityInstances())
+		{
+			auto* Dodge = Cast<UMHGZDodgeAbility>(Instance);
+			if (Dodge && Dodge->IsActive() && Dodge->IsActionActivationCommitted()
+				&& Host->IsActionRegistered(Dodge->GetActionToken())) { return Dodge; }
+		}
+	}
+	return nullptr;
+}
+
+bool UGA_WeaponComboCoordinator::CacheCombatInput(const FWeaponInputSnapshot& Input,
+	const FWeaponActionToken* DodgeSource)
 {
 	if (!ComboData || !FMath::IsFinite(ComboData->PreInputLifetime)
 		|| ComboData->PreInputLifetime <= 0.f)
@@ -964,6 +1064,7 @@ bool UGA_WeaponComboCoordinator::CacheCombatInput(const FWeaponInputSnapshot& In
 	FBufferedCombatInput Buffered;
 	Buffered.Snapshot = Input;
 	Buffered.ExpireAt = FPlatformTime::Seconds() + ComboData->PreInputLifetime;
+	if (DodgeSource) { Buffered.DodgeSourceAction = *DodgeSource; }
 	BufferedCombatInput = MoveTemp(Buffered);
 	return true;
 }
@@ -972,7 +1073,8 @@ bool UGA_WeaponComboCoordinator::CanBufferAerialHandoffInput(
 	const FWeaponInputSnapshot& Input) const
 {
 	if (Input.Phase != EWeaponInputPhase::Started
-		|| !Input.ResolvedInputTag.MatchesTag(WeaponInputRoot)
+		|| (!Input.ResolvedInputTag.MatchesTag(WeaponInputRoot)
+			&& Input.ResolvedInputTag != AirDodgeInputTag)
 		|| !Input.ContextTags.HasTagExact(AerialTag)
 		|| Input.ContextTags.HasTagExact(GroundedTag))
 	{
@@ -1024,6 +1126,14 @@ bool UGA_WeaponComboCoordinator::HasLiveBufferedCombatInput()
 		ClearBufferedCombatInput();
 		return false;
 	}
+	const auto& Source = BufferedCombatInput->DodgeSourceAction;
+	if (Source.ActivationSequenceID != 0 && ((!Source.IsValid() && !BufferedCombatInput->bDodgeSourceCompletedNormally)
+		|| !GetRuntimeHost()
+		|| !GetRuntimeHost()->IsTokenCurrent(Source.RuntimeToken)))
+	{
+		ClearBufferedCombatInput();
+		return false;
+	}
 	return true;
 }
 
@@ -1035,12 +1145,14 @@ void UGA_WeaponComboCoordinator::ClearBufferedCombatInput()
 void UGA_WeaponComboCoordinator::TryConsumeBufferedCombatInput(
 	bool bAllowDirectInput,
 	const FWeaponActionToken* AerialHandoffSourceAction,
-	bool bAllowEarlyDescendingThrust)
+	bool bAllowEarlyDescendingThrust, const FWeaponActionToken* DodgeSource)
 {
 	if (!HasLiveBufferedCombatInput() || PendingTransition.IsSet())
 	{
 		return;
 	}
+	if (BufferedCombatInput->DodgeSourceAction.ActivationSequenceID != 0
+		&& (!DodgeSource || BufferedCombatInput->DodgeSourceAction != *DodgeSource)) { return; }
 
 	const FWeaponInputSnapshot Input = BufferedCombatInput->Snapshot;
 	if (Input.ResolvedInputTag.MatchesTag(WeaponInputRoot))
@@ -1058,9 +1170,16 @@ void UGA_WeaponComboCoordinator::TryConsumeBufferedCombatInput(
 		if (Transition)
 		{
 			ClearBufferedCombatInput();
+			if (!SupportsPreInput(Transition)) { return; }
 			const FWeaponActionToken* SourceAction = bAllowEarlyDescendingThrust
 				? GetLiveEarlyDescendingThrustSource() : AerialHandoffSourceAction;
 			ExecuteTransition(*Transition, Input, nullptr, SourceAction);
+			return;
+		}
+		if (DodgeSource)
+		{
+			// This is the one Dodge release point, not a later attack-window wait.
+			ClearBufferedCombatInput();
 			return;
 		}
 
@@ -1082,9 +1201,10 @@ void UGA_WeaponComboCoordinator::TryConsumeBufferedCombatInput(
 		return;
 	}
 
-	// Direct inputs currently use DodgeAccept as their sole action-side gate.
+	// The caller has opened the exact attack/Dodge/aerial release point.
 	// Clear first so an activation failure cannot recursively re-buffer itself.
 	ClearBufferedCombatInput();
+	if (!SupportsDirectPreInput(Input)) { return; }
 	if (UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(
 		GetAbilitySystemComponentFromActorInfo()))
 	{

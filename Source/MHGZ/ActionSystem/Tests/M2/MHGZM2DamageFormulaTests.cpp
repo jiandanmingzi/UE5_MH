@@ -292,7 +292,7 @@ bool FMHGZDamageGeneratedHitzone::RunTest(const FString& Parameters)
 	// 200*(20/100)*1.32*(80/100)=42.24 ->42; 20*2*1.15*.2=9.2 ->9.
 	TestEqual(TEXT("generated typed flesh tables drive actual GE through Box hit"), F.Apply(Spec), 51.0f);
 	TestEqual(TEXT("combined hit routes one final total to number feedback"), F.Router->GetLastDamageNumberMagnitude(), 51.0f);
-	TestEqual(TEXT("only one damage-number cue is executed for two numeric channels"), F.Router->GetExecutedCueCount(), 1);
+	TestEqual(TEXT("combined channels produce one contact sound and one damage-number cue"), F.Router->GetExecutedCueCount(), 2);
 	return true;
 }
 

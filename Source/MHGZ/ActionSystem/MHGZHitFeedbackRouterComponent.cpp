@@ -4,6 +4,7 @@
 
 #include "AttributeSystem/MHGZAttributeSet.h"
 #include "MHGZHitStopControllerComponent.h"
+#include "GameplayCues/MHGZWeaponHitSoundCue.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "GameFramework/Pawn.h"
@@ -78,6 +79,18 @@ void UMHGZHitFeedbackRouterComponent::RouteHitFeedback(
 	Params.TargetAttachComponent = Result.Hit.GetComponent();
 	Params.EffectContext = Result.ContextHandle;
 
+	// One main weapon contact layer, even when no physical VFX tag was authored.
+	// Separate from physical/element/critical cues so those cannot multiply the sound.
+	FVector ContactLocation;
+	if (UMHGZWeaponHitSoundCue::ResolveWeaponHitLocation(GetOwner(), Result.ContextHandle, ContactLocation))
+	{
+		static const FGameplayTag WeaponSoundTag =
+			FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.WeaponSound"));
+		FGameplayCueParameters SoundParams = Params;
+		SoundParams.Location = ContactLocation;
+		ExecuteCueOnTarget(TargetASC, WeaponSoundTag, SoundParams);
+	}
+
 	// 1. 物理命中 Cue
 	if (Result.HitCueTag.IsValid())
 	{
@@ -101,7 +114,7 @@ void UMHGZHitFeedbackRouterComponent::RouteHitFeedback(
 		}
 	}
 
-	// 4. 伤害数字：仅对真实扣血显示；0伤害仍保留上面的命中/暴击表现。
+	// 4. 伤害数字使用已结算正伤害（无限血木桩也显示）；0伤害保留命中表现。
 	if (Result.ActualDamage > 0.0f
 		&& TargetASC->HasAttributeSetForAttribute(UMHGZAttributeSet::GetHealthAttribute()))
 	{
