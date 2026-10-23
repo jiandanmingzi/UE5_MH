@@ -12,6 +12,7 @@
 #include "CollisionQueryParams.h"
 #include "CollisionShape.h"
 #include "Components/PrimitiveComponent.h"
+#include "Components/AudioComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
@@ -2879,6 +2880,13 @@ void URes_InsectGlaive::ApplyNaturalPowderExplosion(
 	FCollisionQueryParams QueryParams(SCENE_QUERY_STAT(IGPowderNaturalExplosion), false,
 		GetOwner());
 	const FVector Center = Powder->GetActorLocation();
+	// Presentation belongs to the committed explosion, including an empty blast.
+	// Never attach it to Powder: that actor is destroyed immediately afterwards.
+	if (CombatConfig->PowderExplosionSound)
+	{
+		UGameplayStatics::SpawnSoundAtLocation(this,
+			CombatConfig->PowderExplosionSound, Center);
+	}
 	const bool bFoundOverlap = World->OverlapMultiByObjectType(Overlaps, Center,
 		FQuat::Identity, ObjectQuery,
 		FCollisionShape::MakeSphere(CombatConfig->PowderNaturalExplosionRadius), QueryParams);
@@ -3254,7 +3262,39 @@ bool URes_InsectGlaive::BeginPowderVortexGathering(
 		});
 	GetWorld()->GetTimerManager().SetTimer(PowderVortexCommitTimer,
 		CommitDelegate, CombatConfig->PowderVortexDelay, false);
+	StartPowderVortexGatherSounds(Center);
 	return true;
+}
+
+void URes_InsectGlaive::StartPowderVortexGatherSounds(const FVector& Center)
+{
+	StopPowderVortexGatherSounds();
+	if (!CombatConfig || !GetWorld() || !IsFiniteVector(Center))
+	{
+		return;
+	}
+	for (USoundBase* Sound : CombatConfig->PowderVortexGatherSounds)
+	{
+		if (Sound)
+		{
+			if (UAudioComponent* Audio = UGameplayStatics::SpawnSoundAtLocation(this, Sound, Center))
+			{
+				PowderVortexGatherAudio.Add(Audio);
+			}
+		}
+	}
+}
+
+void URes_InsectGlaive::StopPowderVortexGatherSounds()
+{
+	for (UAudioComponent* Audio : PowderVortexGatherAudio)
+	{
+		if (IsValid(Audio))
+		{
+			Audio->Stop();
+		}
+	}
+	PowderVortexGatherAudio.Reset();
 }
 
 void URes_InsectGlaive::TickPowderVortexPresentation()
@@ -3322,6 +3362,7 @@ void URes_InsectGlaive::CommitPowderVortexTransaction(
 	GetWorld()->GetTimerManager().ClearTimer(PowderVortexCommitTimer);
 
 	const FReservedPowderSet Reservation = *Found;
+	StopPowderVortexGatherSounds();
 	TArray<AIGPowderActor*> LiveMembers;
 	float Stage2Damage = 0.0f;
 	for (const FReservedPowderMember& Member : Reservation.Members)
@@ -3408,6 +3449,7 @@ void URes_InsectGlaive::CancelPowderVortexTransaction(
 		return;
 	}
 	const uint64 CancelledSerial = ActivePowderVortexCommandSerial;
+	StopPowderVortexGatherSounds();
 	const uint64 CancelledReservationID = ActivePowderVortexReservationID;
 	if (CancelledSerial != 0 || CancelledReservationID != 0)
 	{
@@ -3491,6 +3533,15 @@ void URes_InsectGlaive::ApplyPowderVortexExplosion(
 	if (Explosion.ConsumedCount <= 0)
 	{
 		return;
+	}
+	// A single spatial burst per transaction, not one per powder, target or stage.
+	for (USoundBase* Sound : { CombatConfig->PowderExplosionSound.Get(),
+		CombatConfig->PowderVortexExplosionSound.Get() })
+	{
+		if (Sound)
+		{
+			UGameplayStatics::SpawnSoundAtLocation(this, Sound, Explosion.Center);
+		}
 	}
 	ApplyPowderVortexDamageStage(Explosion, Explosion.Stage1AttackID,
 		Explosion.Stage1Damage);
@@ -3940,6 +3991,7 @@ void URes_InsectGlaive::ReleasePowderReservation(
 
 void URes_InsectGlaive::ClearOwnedPowders(const EWeaponRuntimeEndReason Reason)
 {
+	StopPowderVortexGatherSounds();
 	const int32 Count = OwnedPowders.Num();
 	const TArray<TWeakObjectPtr<AIGPowderActor>> Powders = OwnedPowders;
 	OwnedPowders.Reset();

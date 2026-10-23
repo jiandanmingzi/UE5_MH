@@ -8,6 +8,14 @@
 
 ## 当前工具和证据
 
+**最新轨道维护（2026-10-23）：** `setup_current_weapon_audio.py --cloth-tracks`／`-MHGZAudioClothTracks`只读回查`ClothTracks20261023/StableLanes/`，6包11点已保存/独立回载，原时间/音源/其它通知不变。UE加载时不允许同轨同帧；使用`ClothAudio_2`等专用副轨保留原时机，纯规则16项通过。Epic的`get_animation_notify_track_names`会AddUnique，不能把返回下标当真实TrackIndex；现从原生`AnimNotifyTracks`导出读取完整有序数组。初次单轨方案不可重放，日志/备份保留；当前默认空间/空中装备检查也续接稳定方案。纯资产整理，无需编译或PIE。
+
+**最新1.37（2026-10-23）：** 最新两录制`003538_01/003831_02`已解析；空中11 Montage补77个`ClothAudio/ClothSound`空通知，沿用地面装备静音占位规则，原声音/玩法保持。用户已试听确认`615339279`普通爆炸、`647565313`聚爆附加、`18325887/1714085883`聚集两层，已创建6 Wave/4 Cue/独立并发并填入DA三个音频字段。按实际爆炸/到点聚集/提交/取消/Runtime结束播放或停止，非Montage计时；零粉尘不爆音，非目标配置原样。
+
+本轮完成只读回查：`setup_current_weapon_audio.py --aerial-cloth-placeholders`和`--powder-audio`；Commandlet分别`-MHGZAudioAerialCloth/-MHGZAudioPowder`，需`-AllowCommandletAudio`。Generic spatial-maintenance也优先装备新检查点；旧历史事务不重放。装备保护仅接受后继粉尘事务已独立回载的CombatConfig精确hash，不忽略任意DA编辑。首次Apply已完成，勿加Apply/重跑旧prepare。证据/备份`Saved/Audio/RiseIG/AerialPowder20261023/`；44离线、8原生检查、编译及两类资产独立回载通过，未PIE耳听、不要求重录/全量验证。
+
+离线准备复用`map_swing_positions.py --aerial-powder --capture <空中录制> --vortex-capture <聚爆录制> --directory <录制目录> --evidence-root Saved/Audio/RiseIG/Weapon20261019 --output Saved/Audio/RiseIG/AerialPowder20261023`，委托已有cloth模块，Saved内生成四项试听；需先有`Aerial/map.json`和`Vortex/map.json`（原capture_map入口）。已确认后`prepare_current_weapon_audio.py --powder-reviewed`仅用于本轮首次冻结6个音频变体，当前只校验保留。`setup_powder_audio.py`复用现有propulsion Wave/Cue工厂（增加可选并发路径，不改原默认）、空间设置和备份导出，不新增解析器/解码器。1714085883保留原双声道，其它变体单声道；不自动归一化。
+
 **最新源帧对时修正（1.36）：** 四连砸地问题不是少加了一个统一Montage偏移，而是Native音频START握手迟约0.255s，旧`capture_time_estimate_s`错配Lua动画帧。现用`map_swing_positions.bracket_audio`按共享Present计数找源帧，再经现有`segment_positions`处理源裁切/RateScale×片段倍率/StartPos。四连2.292968→2.598957s；另修正约0.15s握手延迟的地面补声批，传播急袭Over既有共享棍花时差。6 Montage改时12点、删除1个实际属304却错归109的点，未新增通知/音源。新增编辑器桥接`EditSoundNotifyTimes`按GUID+预期旧时间检查，只接受瞬时声音子类，拒绝Gameplay窗口；不保存、不排序，调用者备份/保存/回载。68项离线＋3项原生检查和独立回载通过，未PIE听感。
 
 当前`setup_current_weapon_audio.py --section-maintenance --source-time-repair`／Commandlet追加`-MHGZAudioSectionMaintenance -MHGZAudioSourceTimeRepair`只读回载；只有section-maintenance时也续接最新已保存事务。备份、冻结计划、原录制行、端点采样、编译/测试/回载证据在`SourceTime20261022/`。已有state禁止重放Apply/prepare；源帧估算仍有约1显示帧回调顺序误差。Present计数要同一已验证起点，缺失/重载不一致不能退回IPC估算时钟。旧映射报告不覆盖重写，也不能再拿旧包hash恢复本次合法改时。

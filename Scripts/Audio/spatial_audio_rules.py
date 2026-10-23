@@ -16,6 +16,56 @@ SOUND_TRACKS = {
 }
 
 
+def same_audio_recipes(expected, actual):
+    """UObject enumeration order is not the serialized Notifies array order.
+
+    Compare payloads by unique GUID; verify_montage separately protects the
+    actual event-envelope order, timings, tracks and animation authoring.
+    """
+    a, b = ({r['guid']: r for r in rows} for rows in (expected, actual))
+    return len(a) == len(expected) and len(b) == len(actual) and a == b
+
+
+def plan_cloth_lanes(notifies, cloth_guids, tracks):
+    """UE RefreshCacheData rejects same-time events on one track, even at load.
+
+    Keep already-correct events and all gameplay in place; allocate only wrong
+    cloth events to collision-free category lanes, never shift their timing.
+    """
+    future = list(tracks)
+    is_cloth = lambda name: bool(re.fullmatch(r'ClothAudio(?:_(?:[2-9]|[1-9]\d+))?', name))
+    wrong = set()
+    occupied = {i: [] for i in range(len(tracks))}
+    for row in notifies:
+        if row['Guid'] not in cloth_guids:
+            occupied[int(row.get('TrackIndex', 0))].append(float(row.get('LinkValue', 0)))
+    for row in notifies:
+        if row['Guid'] not in cloth_guids:
+            continue
+        index, time = int(row.get('TrackIndex', 0)), float(row.get('LinkValue', 0))
+        if not is_cloth(tracks[index]) or any(abs(t-time) <= 1e-6 for t in occupied[index]):
+            wrong.add(row['Guid'])
+        else:
+            occupied[index].append(time)
+    assignments = {}
+    for row in notifies:
+        if row['Guid'] not in wrong:
+            continue
+        time = float(row.get('LinkValue', 0))
+        lane = next((i for i, name in enumerate(future) if is_cloth(name)
+                     and all(abs(t-time) > 1e-6 for t in occupied[i])), None)
+        if lane is None:
+            name, suffix = 'ClothAudio', 2
+            while name in future:
+                name = f'ClothAudio_{suffix}'; suffix += 1
+            lane = len(future)
+            future.append(name)
+            occupied[lane] = []
+        assignments[row['Guid']] = lane
+        occupied[lane].append(time)
+    return assignments, future
+
+
 def verify_sound_tracks(before, after, assignments):
     """Normalize only explicitly authorized sound TrackIndex changes for strict validation."""
     normalized = copy.deepcopy(after)

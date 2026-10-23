@@ -197,6 +197,12 @@ def runtime_audio(plan, state, writing, config):
 
 
 def main():
+    if '--cloth-tracks' in sys.argv or '-MHGZAudioClothTracks' in unreal.SystemLibrary.get_command_line():
+        from audio_notify_tracks import run
+        return run('--apply' in sys.argv or '-MHGZCurrentWeaponAudioApply' in unreal.SystemLibrary.get_command_line(), cloth_only=True)
+    if '--powder-audio' in sys.argv or '-MHGZAudioPowder' in unreal.SystemLibrary.get_command_line():
+        from setup_powder_audio import run
+        return run('--apply' in sys.argv or '-MHGZCurrentWeaponAudioApply' in unreal.SystemLibrary.get_command_line())
     global OUT
     if '--section-maintenance' in sys.argv or '-MHGZAudioSectionMaintenance' in unreal.SystemLibrary.get_command_line():
         import audio_section_maintenance
@@ -233,6 +239,11 @@ def main():
     if '--propulsion' in sys.argv or '-MHGZAudioPropulsion' in unreal.SystemLibrary.get_command_line():
         from setup_propulsion_audio import run
         return run('--apply' in sys.argv or '-MHGZCurrentWeaponAudioApply' in unreal.SystemLibrary.get_command_line())
+    if ('--aerial-cloth-placeholders' in sys.argv
+            or '-MHGZAudioAerialCloth' in unreal.SystemLibrary.get_command_line()):
+        from audio_spatial_maintenance import cloth_placeholders
+        return cloth_placeholders('--apply' in sys.argv or '-MHGZCurrentWeaponAudioApply' in unreal.SystemLibrary.get_command_line(),
+            ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/UE')
     if ('--spatial-maintenance' in sys.argv
             or '-MHGZAudioSpatialMaintenance' in unreal.SystemLibrary.get_command_line()):
         import audio_spatial_maintenance
@@ -413,6 +424,15 @@ if __name__ == '__main__':
     try:
         main()
     except Exception as error:
-        pilot.save_json(OUT / 'failure.json', dict(error=repr(error),
+        failure_out = OUT
+        args = sys.argv + unreal.SystemLibrary.get_command_line().split()
+        if '--powder-audio' in args or '-MHGZAudioPowder' in args:
+            failure_out = ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/Powder/UE'
+        elif '--cloth-tracks' in args or '-MHGZAudioClothTracks' in args:
+            failure_out = ROOT / 'Saved/Audio/RiseIG/ClothTracks20261023'
+        elif '--aerial-cloth-placeholders' in args or '-MHGZAudioAerialCloth' in args:
+            failure_out = ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/UE'
+        failure_out.mkdir(parents=True, exist_ok=True)
+        pilot.save_json(failure_out / 'failure.json', dict(error=repr(error),
             note='Inspect saved packages/checkpoints before retry. No automatic rollback or reimport.'))
         raise

@@ -6,12 +6,37 @@ Media-ID presence alone is not evidence of audible armor in the naked control.
 from collections import Counter
 import bisect
 from pathlib import Path
+import re
 
 import rise_audio_weapon_mapping as mapping
 from rise_audio_coverage import read_rows
 import rise_audio_m1 as m1
 
 OWNED = {'master_emitter_exact', 'unique_native_owner_is_master'}
+POWDER_CANDIDATES = {
+    615339279: '普通粉尘爆炸基础层候选；聚爆引爆时也出现',
+    647565313: '聚爆引爆附加层候选',
+    18325887: '聚爆聚集开始层候选A',
+    1714085883: '聚爆聚集开始层候选B',
+}
+
+
+def aerial_montage(name):
+    """Bound the write set; a ground clip borrowed by an air action is not enough."""
+    return bool(re.fullmatch(r'AM_IG_(?:(?:Qian|Hou|Zuo|You)ChengGanTiao(?:_W)?(?:_Over)?'
+        r'|AirDodge|AerialFall(?:_W)?|AerialLanding|CaoChongZhan(?:_Dance)?'
+        r'|JueChongJi(?:_Fall)?|QiangHuaCaoChongChuanCi(?:_Over)?)', name))
+
+
+def powder_hit_neighbors(hits, posts):
+    """Keep repeated co-occurrence separate from exact attacker/emitter ownership."""
+    return [dict(hit_row=h['row'], native_frame=int(float(h['frame_callback'])),
+        attacker=h['attacker_address'],
+        audio=[dict(audio_row=p['row'], event_id=int(p['event_id']),
+                    frame_delta=int(p['native_present_frame'])-int(float(h['frame_callback'])))
+               for p in posts if int(p['event_id']) in POWDER_CANDIDATES
+               and abs(int(p['native_present_frame'])-int(float(h['frame_callback']))) <= 2])
+        for h in hits if h['kind'] == 'damage_side_callback' and h['attacker_name'] == 'bomb']
 
 
 def plugin_silence(variant):
@@ -170,3 +195,172 @@ def run(directory, control, evidence, output, source):
             raise ValueError('Comparison input changed while reading: ' + path)
     m1.write_json(target, report)
     print('CLOTH_COMPARISON ' + str(len(confirmed)) + ' events; ' + str(len(windows)) + ' paired windows; ' + str(target))
+
+
+def aerial_powder_supplement(directory, aerial, vortex, evidence, output, source):
+    """Reuse confirmed armor classes and actual request conditions, not new parsers.
+
+    Equipment markers remain silent, like the accepted ground workflow. The four
+    new powder sounds are auditions only until their semantics are reviewed.
+    """
+    output = mapping.captures.checked_output(output)
+    mapping.captures.checked_inputs(source, directory, output)
+    comparison = output / 'comparison.json'
+    audition_file = output / 'Powder/audition.json'
+    if comparison.exists():
+        previous = mapping.load(comparison)
+        if previous['primary_capture'] != aerial or previous['vortex_capture'] != vortex:
+            raise ValueError('Supplement belongs to different captures; do not overwrite')
+        for path, expected in previous['inputs'].items():
+            if m1.sha256(Path(path)) != expected:
+                raise ValueError('Supplement input changed: ' + path)
+        if audition_file.exists():
+            for preview in mapping.load(audition_file)['previews']:
+                m1.refreshed_preview(preview)
+            print('AERIAL_POWDER retained ' + str(output))
+            return
+    original_file = evidence / 'MappingFinal/mapping.json'
+    cloth_file = evidence.parent / 'ClothComparison20261020/comparison.json'
+    original, proven = mapping.load(original_file), mapping.load(cloth_file)
+    confirmed = {e['event_id'] for e in proven['events']
+                 if e['status'] == 'armor_dependent_equipment_layer'}
+    if len(confirmed) != 4:
+        raise ValueError('Expected the four previously confirmed equipment classes')
+    branches = {b['event_id']: b for b in original['branches'] if b['event_id'] in confirmed}
+    rows, posts, inputs, summary = capture_rows(directory, aerial)
+    vortex_rows, vortex_posts, vortex_inputs, vortex_summary = capture_rows(directory, vortex)
+    if summary['gaps'] or vortex_summary['gaps']:
+        raise ValueError('Capture has native queue gaps; do not author from it')
+    inputs.update(vortex_inputs)
+    for path in (original_file, cloth_file, output / 'Aerial/map.json', output / 'Vortex/map.json'):
+        inputs[str(path)] = m1.sha256(path)
+    for path, expected in proven['inputs'].items():
+        if m1.sha256(Path(path)) != expected:
+            raise ValueError('Original armor proof changed: ' + path)
+    clusters, isolated = timed_posts(rows, posts, branches)
+    repeated = [c for c in clusters if c['observations'] >= 2 and c['source_id'] is not None]
+    paths = ['/Game/Weapons/InsectGlaive/Anims/Montage/' + p.stem
+             for p in sorted((m1.PROJECT / 'Content/Weapons/InsectGlaive/Anims/Montage').glob('*.uasset'))
+             if aerial_montage(p.stem)]
+    result = dict(schema='mhgz_aerial_equipment_supplement_v1', primary_capture=aerial,
+        vortex_capture=vortex, inputs=inputs, captures=[summary, vortex_summary],
+        events=[e for e in proven['events'] if e['event_id'] in confirmed],
+        matched_windows=repeated, montage_candidates=paths, control_isolated=isolated,
+        policy='new silent ClothAudio points only; preserve all existing audio/gameplay/segments',
+        timing_source='shared_native_present_frame_not_IPC_start_estimate',
+        limits=['armor classes proven by earlier naked control; newest capture supplies aerial timing',
+                'source-frame estimates retain about one render-frame uncertainty',
+                'no MHW-only JiXiTuCi source/armor timing inferred from Rise'])
+    if comparison.exists() and mapping.load(comparison) != result:
+        raise ValueError('Frozen supplement differs; never replace it')
+    m1.write_json(comparison, result)
+    native = dict(captures=[summary, vortex_summary],
+        ordinary_bomb_neighbors=powder_hit_neighbors(rows['hits'], posts),
+        vortex_bomb_neighbors=powder_hit_neighbors(vortex_rows['hits'], vortex_posts),
+        candidates={str(e): dict(label=label,
+            counts=[sum(int(p['event_id']) == e for p in group) for group in (posts, vortex_posts)])
+            for e, label in POWDER_CANDIDATES.items()},
+        final_media_observed=False, exact_powder_attacker_emitter_link=False,
+        semantics='repeated native-frame co-occurrence, not an exact damage transaction',
+        unknown_539819764_assigned=False, runtime_or_ue_audio_changed=False)
+    m1.write_json(output / 'powder-evidence.json', native)
+    metadata = mapping.load(output / 'Vortex/map.json')
+    if metadata['capture'] != vortex:
+        raise ValueError('Wrong Vortex metadata capture')
+    selected = [dict(p, event_id=int(p['event_id'])) for p in [*posts, *vortex_posts]
+                if int(p['event_id']) in POWDER_CANDIDATES]
+    preview_dir = output / 'Powder'
+    variants, copies = mapping.generate_variants(source, preview_dir, metadata, selected)
+    previews, unresolved, extracted = [], [], {}
+    for eid, label in POWDER_CANDIDATES.items():
+        requests = [p for p in selected if int(p['event_id']) == eid]
+        graphs = {}
+        for post in requests:
+            variant, status = mapping.choose_variant(variants[eid], post['switches'], post['states'])
+            if variant is None:
+                raise ValueError(f'Cannot choose actual observed candidate {eid}: {status}')
+            graphs[mapping.graph_key(variant)] = variant
+        if not 1 <= len(graphs) <= 2:
+            raise ValueError('Audition must have 1..2 distinct observed graphs per event')
+        event = dict(next(e for e in metadata['events'] if e['event_id'] == eid), calls=len(requests))
+        for variant in graphs.values():
+            preview = mapping.captures.render_preview(variant, event, source, preview_dir,
+                copies, extracted, len(variants[eid]))
+            preview['review_note'] = label + '；按实际请求条件匹配，最终随机子音未被录制，不先接入UE'
+            previews.append(preview)
+    for path, expected in inputs.items():
+        if m1.sha256(Path(path)) != expected:
+            raise ValueError('Input changed during preparation: ' + path)
+    audition = dict(capture=aerial + ' + ' + vortex, previews=previews, unresolved=unresolved,
+        bank_copies=list(copies.values()), extracted_media=list(extracted.values()),
+        ue_imported=False, listening_accepted=False)
+    m1.write_json(audition_file, audition)
+    # Same existing player/page; use Present-derived labels, not the legacy IPC
+    # temporal contexts in map.json, which must not be mistaken for placement.
+    page_metadata = dict(metadata, capture=audition['capture'], episodes=[dict(
+        action_name='粉尘/聚爆（用途待试听确认）', motion='非蒙太奇时序；实际爆炸/聚集生命周期',
+        temporal_event_counts={str(e): sum(int(p['event_id']) == e for p in selected)
+                               for e in POWDER_CANDIDATES})])
+    mapping.captures.audition_page(page_metadata, audition, preview_dir)
+    print('AERIAL_POWDER ' + str(len(repeated)) + ' repeated equipment clusters; '
+          + str(len(previews)) + ' powder candidate previews; ' + str(preview_dir / 'index.html'))
+
+
+def prepare_powder_sources(source):
+    """User reviewed all four IDs; reuse the existing flat-random decoder."""
+    import prepare_current_weapon_audio as prepare
+    output = m1.PROJECT / 'Saved/Audio/RiseIG/AerialPowder20261023/Powder'
+    target = output / 'source-plan.json'
+    if target.exists():
+        for path, expected in mapping.load(target)['inputs'].items():
+            if m1.sha256(Path(path)) != expected:
+                raise ValueError('Prepared powder input changed: ' + path)
+        print('POWDER_SOURCES retained ' + str(target))
+        return
+    audition_file = output / 'audition.json'
+    audition = mapping.load(audition_file)
+    if {p['event_id'] for p in audition['previews']} != set(POWDER_CANDIDATES):
+        raise ValueError('Review must cover exactly the four scoped powder/vortex events')
+    inputs = {str(audition_file): m1.sha256(audition_file)}
+    sources, copies, extracted = [], {}, {}
+    for preview in audition['previews']:
+        m1.refreshed_preview(preview)
+        path = Path(preview['original_txtp'])
+        variant = m1.describe_txtp(path, {})
+        branch = dict(event_id=preview['event_id'], txtp=str(path), txtp_sha256=m1.sha256(path),
+            conditions=variant['conditions'], render_lines=variant['render_lines'])
+        if branch['conditions'] or variant['media_ids'] != preview['media_ids']:
+            raise ValueError('Reviewed powder graph/conditions changed')
+        inputs[str(path)] = branch['txtp_sha256']
+        variants = []
+        choices = prepare.choices(branch)
+        for choice in choices:
+            selected = output / 'Decode/Input' / f"{branch['event_id']}-{choice['selection']}.txtp"
+            selected.parent.mkdir(parents=True, exist_ok=True)
+            if selected.exists() and selected.read_text(encoding='utf-8') != choice['body']:
+                raise ValueError('Existing powder alternative differs')
+            selected.write_text(choice['body'], encoding='utf-8')
+            decoded = mapping.captures.render_preview(m1.describe_txtp(selected, {}),
+                dict(event_id=branch['event_id'], calls=preview['calls'], sources=[dict(bank='pl_wp_i_gla_com.bnk')]),
+                source, output / 'Decode', copies, extracted, len(choices))
+            if decoded['channels'] not in (1, 2) or decoded['sample_rate'] != 48000:
+                raise ValueError('Powder sources must preserve supported original mono/stereo 48kHz')
+            variants.append(dict(decoded, selected_media_id=choice['selected_media_id'],
+                wave=f"{prepare.AUDIO}/Waves/MuGu/SW_IG_MuGu_{choice['selected_media_id']}_{decoded['sha256'][:8]}"))
+            inputs[decoded['wav']] = decoded['sha256']
+        sources.append(dict(event_id=branch['event_id'], conditions=[], variants=variants,
+            txtp_sha256=branch['txtp_sha256'],
+            cue=f"{prepare.AUDIO}/Cues/MuGu/SC_IG_MuGu_{branch['event_id']}_{branch['txtp_sha256'][:8]}"))
+    for copy in copies.values():
+        inputs[copy['source']] = copy['sha256']
+    plan = dict(schema='mhgz_powder_audio_sources_v1', user_confirmed_events=list(POWDER_CANDIDATES),
+        sources=sources, inputs=inputs, mix='Cue volume1; existing SA_IG_DongZuo; separate global8 powder concurrency',
+        runtime_contract='natural once per explosion; gather2 at arrival and stop on commit/cancel/teardown; vortex base+extra once if count>0',
+        limits=['flat random alternatives use UE random, not original random weights/history',
+                'user confirmed semantics; recorder still does not observe final random Media/voice'])
+    for path, expected in inputs.items():
+        if m1.sha256(Path(path)) != expected:
+            raise ValueError('Powder source changed while preparing: ' + path)
+    m1.write_json(target, plan)
+    print('POWDER_SOURCES ' + str(len(sources)) + ' Cues / '
+          + str(sum(len(s['variants']) for s in sources)) + ' Waves; ' + str(target))

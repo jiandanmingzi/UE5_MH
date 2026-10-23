@@ -429,24 +429,29 @@ def _categories(writing):
     print('AUDIO_CATEGORIES ' + json.dumps(result))
 
 
-def cloth_placeholders(writing):
+def cloth_placeholders(writing, output=CLOTH_OUT):
     """Keep proven armor timings as silent authoring points; never clear/rebuild a track."""
+    if (not writing and output == ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/UE'
+            and (ROOT / 'Saved/Audio/RiseIG/ClothTracks20261023/StableLanes/state.json').exists()):
+        from audio_notify_tracks import run
+        return run(False, cloth_only=True)
     previous_export_dir = pilot.inspector.OUT
     try:
-        pilot.inspector.OUT = CLOTH_OUT / 'NativeExports'
-        return _cloth_placeholders(writing)
+        pilot.inspector.OUT = output / 'NativeExports'
+        return _cloth_placeholders(writing, output)
     finally:
         pilot.inspector.OUT = previous_export_dir
 
 
-def _cloth_placeholders(writing):
+def _cloth_placeholders(writing, output=CLOTH_OUT):
     import rise_audio_weapon_mapping as mapping
-    comparison_file = CLOTH_OUT.parent / 'comparison.json'
+    output.mkdir(parents=True, exist_ok=True)
+    comparison_file = output.parent / 'comparison.json'
     comparison = load(comparison_file)
     for path, expected in comparison['inputs'].items():
         if pilot.digest(path) != expected:
             raise RuntimeError('Cloth comparison input changed: ' + path)
-    checkpoint = CLOTH_OUT / 'state.json'
+    checkpoint = output / 'state.json'
     state = load(checkpoint) if checkpoint.exists() else None
     if writing and state:
         raise RuntimeError('Cloth authoring transaction exists; inspect/audit, never replay Apply')
@@ -468,14 +473,14 @@ def _cloth_placeholders(writing):
                 state['recipes_before'][path] = category_recipes(unreal.load_asset(path), by_path[path])
         previous = load(CATEGORY_OUT / 'state.json')
         state['protected'] = {p: pilot.digest(p) for p in previous['protected']}
-        pilot.save_json(CLOTH_OUT / 'plan.json', state)
+        pilot.save_json(output / 'plan.json', state)
         if not writing:
             print('CLOTH_PLACEHOLDERS_PLAN ' + json.dumps(dict(montages=len(state['targets']),
                 new_silent_points=sum(len(p) for p in state['targets'].values()), existing_points_removed=0)))
             return
         for path in state['targets']:
             disk = pilot.inspector.disk(path)
-            backup = CLOTH_OUT / 'Backup' / disk.relative_to(ROOT)
+            backup = output / 'Backup' / disk.relative_to(ROOT)
             backup.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(disk, backup)
             state['backups'][path] = dict(path=str(backup), sha256=pilot.digest(disk))
@@ -492,6 +497,21 @@ def _cloth_placeholders(writing):
                 # No default Cue, GA override, guessed replacement sample or timer.
                 notify.set_editor_property('sound', None)
                 authored.append((notify.get_name(), point))
+            # AddAnimationNotifyEvent refreshes UE's cache and may move earlier
+            # overlapping points to another track. Restore every new event by
+            # GUID only after all additions, using the existing non-sorting bridge.
+            from spatial_audio_rules import plan_cloth_lanes
+            from audio_notify_tracks import track_names
+            created = pilot.inspector.montage(path)
+            tracks = track_names(asset)
+            new_ids = {r['Guid'] for r in created['existing_notifies'] if any(re.search(
+                r"'(?:[^']*:)?" + re.escape(name) + r"'", r.get('Notify', '')) for name, _ in authored)}
+            assignments, future = plan_cloth_lanes(created['existing_notifies'], new_ids, tracks)
+            for identity, index in assignments.items():
+                guid = unreal.Guid()
+                guid.import_text(identity)
+                if not unreal.MHGZAnimationSeamLibrary.move_sound_notify_to_track(asset, guid, future[index]):
+                    raise RuntimeError('Could not retain new equipment event on ClothAudio')
             after = pilot.inspector.montage(path)
             coverage.verify_montage(state['before'][path], verify_preserved(state['before'][path], after, []))
             old_ids = {r['guid'] for r in state['recipes_before'][path]}
@@ -508,6 +528,11 @@ def _cloth_placeholders(writing):
             for row in rows:
                 if row['guid'] not in old_ids and (row['sound'] is not None or row['kind'] != 'AnimNotify_ClothSound'):
                     raise RuntimeError('New cloth placeholder must be silent and categorized')
+                if row['guid'] not in old_ids:
+                    native = next(r for r in after['existing_notifies'] if r['Guid'] == row['guid'])
+                    tracks = track_names(asset)
+                    if not re.fullmatch(r'ClothAudio(?:_(?:[2-9]|[1-9]\d+))?', tracks[int(native.get('TrackIndex', 0))]):
+                        raise RuntimeError('New equipment event escaped ClothAudio')
             pilot.save(asset)
             state['new_points'][path] = provenance
             state['expected'][path] = rows
@@ -524,20 +549,37 @@ def _cloth_placeholders(writing):
             raise RuntimeError('Cloth package changed after save: ' + path)
         snap = pilot.inspector.montage(path)
         rows = category_recipes(unreal.load_asset(path), snap)
-        if rows != expected:
+        from spatial_audio_rules import same_audio_recipes
+        if not same_audio_recipes(expected, rows):
+            pilot.save_json(output / 'reload-diff.json', dict(path=path, expected=expected, actual=rows))
             raise RuntimeError('Reloaded cloth/audio recipes differ: ' + path)
         coverage.verify_montage(state['before'][path], verify_preserved(state['before'][path], snap, []))
     changed_disk = {pilot.inspector.disk(p).as_posix() for p in state['changed']}
+    # The explicitly subsequent powder transaction changes this one DA, not the
+    # aerial Montage authoring. Accept only its frozen, independently reloaded
+    # successor hash; never bless arbitrary current config edits.
+    powder_successor = ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/Powder/UE/state.json'
+    successor_config_hash = None
+    accepted_successor_config = False
+    if output == ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/UE' and powder_successor.exists():
+        successor = load(powder_successor)
+        if successor.get('phase') == 'independently_reloaded':
+            successor_config_hash = successor['config_hash']
     for path, expected in state['protected'].items():
+        if successor_config_hash and Path(path) == pilot.inspector.disk('/Game/Weapons/InsectGlaive/Data/DA_IG_Combat'):
+            accepted_successor_config = expected != successor_config_hash
+            expected = successor_config_hash
         if path not in changed_disk and pilot.digest(path) != expected:
             raise RuntimeError('Unrelated protected package changed: ' + path)
     result = dict(phase='saved_pending_independent_reload' if writing else 'independently_reloaded',
                   montages=len(state['changed']), silent_cloth_points=sum(len(p) for p in state['new_points'].values()),
-                  original_audio_and_gameplay_preserved=True, protected_unchanged=len(state['protected'])-len(changed_disk),
+                  original_audio_and_gameplay_preserved=True,
+                  protected_unchanged=len(state['protected'])-len(changed_disk)-int(accepted_successor_config),
+                  accepted_successor_config=accepted_successor_config,
                   source_audio_linked=False, audio_media_deleted=False, pie_tested=False)
     state['phase'] = result['phase']
     pilot.save_json(checkpoint, state)
-    pilot.save_json(CLOTH_OUT / ('apply.json' if writing else 'audit.json'), result)
+    pilot.save_json(output / ('apply.json' if writing else 'audit.json'), result)
     print('CLOTH_PLACEHOLDERS ' + json.dumps(result))
 
 
@@ -548,6 +590,9 @@ def main():
         run('--apply' in args or '-MHGZCurrentWeaponAudioApply' in args)
     elif '--cloth-placeholders' in args or '-MHGZAudioClothPlaceholders' in args:
         cloth_placeholders('--apply' in args or '-MHGZCurrentWeaponAudioApply' in args)
+    elif '--aerial-cloth-placeholders' in args or '-MHGZAudioAerialCloth' in args:
+        cloth_placeholders('--apply' in args or '-MHGZCurrentWeaponAudioApply' in args,
+            ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/UE')
     elif '--classify-notifies' in args or '-MHGZAudioNotifyCategories' in args:
         categories('--apply' in args or '-MHGZCurrentWeaponAudioApply' in args)
     elif '-MHGZAudioInspectExternal' in args:
@@ -565,6 +610,11 @@ def main():
         restrict_sheathe()
     elif '--apply' in args or '-MHGZCurrentWeaponAudioApply' in args:
         apply()
+    elif (ROOT / 'Saved/Audio/RiseIG/ClothTracks20261023/StableLanes/state.json').exists():
+        from audio_notify_tracks import run
+        run(False, cloth_only=True)
+    elif (ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/UE/state.json').exists():
+        cloth_placeholders(False, ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/UE')
     elif (ROOT / 'Saved/Audio/RiseIG/NotifyTracks20261020/state.json').exists():
         from audio_notify_tracks import run
         run(False)

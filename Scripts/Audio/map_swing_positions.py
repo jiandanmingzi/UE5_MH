@@ -359,11 +359,23 @@ def main():
     parser.add_argument('--audit-coverage', action='store_true', help='Inventory existing captures/hit proof/entries; never overwrite frozen swing positions')
     parser.add_argument('--map-current-weapon', action='store_true', help='Map one explicit current-weapon capture with same-object conditions and branch-scoped user exclusions')
     parser.add_argument('--compare-cloth', action='store_true', help='Compare explicit no-armor capture with frozen current-weapon equipment graphs; Saved only')
+    parser.add_argument('--aerial-powder', action='store_true', help='Supplement proven equipment timings from explicit aerial capture; audition four powder/vortex candidates only')
+    parser.add_argument('--vortex-capture', help='Explicit paired powder-vortex capture for --aerial-powder')
     parser.add_argument('--capture', help='Explicit current weapon capture; never falls back to old captures')
     parser.add_argument('--evidence-root', type=Path, help='Existing capture map and user-review root')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--source-root', type=Path, default=Path('D:/study/MHR/natives/STM'))
     args = parser.parse_args()
+    if args.aerial_powder:
+        if (args.compare_cloth or args.map_current_weapon or args.audit_coverage or args.publish
+                or not all((args.capture, args.vortex_capture, args.evidence_root, args.output))):
+            parser.error('--aerial-powder requires --capture, --vortex-capture, --evidence-root, --output; no other mode')
+        from rise_audio_cloth_comparison import aerial_powder_supplement
+        aerial_powder_supplement(args.directory.resolve(), args.capture, args.vortex_capture,
+            args.evidence_root.resolve(), args.output.resolve(), args.source_root.resolve())
+        return
+    if args.vortex_capture:
+        parser.error('--vortex-capture requires --aerial-powder')
     if args.compare_cloth:
         if args.map_current_weapon or args.audit_coverage or args.publish or not args.capture or not args.evidence_root or not args.output:
             parser.error('--compare-cloth requires --capture, --evidence-root, --output; cannot combine other modes/publish')

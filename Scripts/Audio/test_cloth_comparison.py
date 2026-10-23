@@ -1,6 +1,7 @@
 import copy
 import unittest
-from rise_audio_cloth_comparison import plugin_silence, paired_windows
+from rise_audio_cloth_comparison import (plugin_silence, paired_windows,
+    aerial_montage, powder_hit_neighbors)
 
 
 class ClothComparisonTests(unittest.TestCase):
@@ -32,6 +33,32 @@ class ClothComparisonTests(unittest.TestCase):
                              ('native_end_frames', [45]), ('native_frame_estimate', 20)]:
             b = self.window(); b[field] = value
             self.assertEqual(paired_windows([self.window()], [b]), [])
+
+    def test_aerial_write_scope_excludes_ground_and_world_only_motion(self):
+        for name in ('AM_IG_AirDodge', 'AM_IG_CaoChongZhan_Dance',
+                     'AM_IG_HouChengGanTiao_W_Over', 'AM_IG_AerialLanding',
+                     'AM_IG_JueChongJi', 'AM_IG_QiangHuaCaoChongChuanCi_Over'):
+            self.assertTrue(aerial_montage(name), name)
+        for name in ('AM_IG_ErLian', 'AM_IG_PowderVortex', 'AM_IG_JiXiTuCi',
+                     'AM_IG_Dodge_Forward', 'AM_IG_AirDodge_Unexpected'):
+            self.assertFalse(aerial_montage(name), name)
+
+    def test_powder_neighbors_use_native_counter_not_delayed_estimate(self):
+        hit = dict(row='1', kind='damage_side_callback', attacker_name='bomb',
+                   attacker_address='123', frame_callback='300.000000',
+                   capture_time_last_sample_s='10')
+        posts = [dict(row='2', event_id='615339279', native_present_frame='299',
+                      capture_time_estimate_s='1'),
+                 dict(row='3', event_id='647565313', native_present_frame='303',
+                      capture_time_estimate_s='10'),
+                 dict(row='4', event_id='539819764', native_present_frame='300')]
+        result = powder_hit_neighbors([hit], posts)
+        self.assertEqual(result[0]['audio'], [dict(audio_row='2', event_id=615339279, frame_delta=-1)])
+        self.assertNotIn('exact_owner', result[0])
+
+    def test_kinsect_hit_cannot_be_mislabeled_powder_explosion(self):
+        hit = dict(kind='damage_side_callback', attacker_name='IG_Ins008')
+        self.assertEqual(powder_hit_neighbors([hit], []), [])
 
 
 if __name__ == '__main__':

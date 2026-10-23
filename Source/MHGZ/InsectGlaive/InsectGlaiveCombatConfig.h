@@ -701,6 +701,18 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Feedback")
 	FGameplayTag PowderVortexExplosionCueTag;
 
+	/** 普通粉尘真正引爆时在爆点播放；聚爆复用一次此基础层，不按粉尘数/目标/伤害段重复。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Audio")
+	TObjectPtr<USoundBase> PowderExplosionSound;
+
+	/** 猎虫抵达聚集点后播放的聚集声层；提交/取消/Runtime结束立即停止，不绑定GA蒙太奇。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Audio")
+	TArray<TObjectPtr<USoundBase>> PowderVortexGatherSounds;
+
+	/** 聚爆真正提交且消耗粉尘时，在聚集点与基础爆炸声各播放一次的附加层。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Powder|Audio")
+	TObjectPtr<USoundBase> PowderVortexExplosionSound;
+
 #if WITH_EDITOR
 	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
 #endif

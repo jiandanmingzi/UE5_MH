@@ -10,6 +10,8 @@
 
 | 最新分支入口 | 环境 | 用途 | 状态 |
 |---|---|---|---|
+| [Audio/audio_notify_tracks.py](Audio/audio_notify_tracks.py)的cloth-only模式 | 现有`setup_current_weapon_audio --cloth-tracks`／`-MHGZAudioClothTracks` | 同帧衣服声分配独立ClothAudio副轨；从完整原生轨道数组读取索引，避免API去重/加载自动错轨 | 6包11点已保存回载，16项规则检查；不改时间/声音/Gameplay，不重放Apply；证据`ClothTracks20261023/StableLanes/` |
+| [Audio/rise_audio_cloth_comparison.py](Audio/rise_audio_cloth_comparison.py)、[Audio/setup_powder_audio.py](Audio/setup_powder_audio.py) | 前者由`map_swing_positions --aerial-powder`/`prepare_current_weapon_audio --powder-reviewed`调用；后者UE | 1.37复用四类装备证据补空中空点、四项粉尘/聚爆试听与6变体；既有工厂生成常驻源/配置 | 已保存回载：11 Montage/77空点；6 Wave/4 Cue/独立并发/3 DA音频字段。只读续接`setup_current_weapon_audio --aerial-cloth-placeholders`或`--powder-audio`，不重放Apply；未PIE耳听 |
 | [Audio/audio_section_maintenance.py](Audio/audio_section_maintenance.py)、[规则](Audio/section_audio_rules.py) | 由既有`setup_current_weapon_audio.py --section-maintenance --source-time-repair`调用；规则为普通Python | 1.36按Native Present与Lua动画关联后重算源帧→源片段位置；复用受GUID/旧时间保护的作者桥接 | 已独立回载：6 Montage改时12点/移除1点；旧1.35的5补点已撤回，禁止重放旧Apply；证据`SourceTime20261022/`，未PIE耳听 |
 
 | 定向补充入口 | 环境 | 用途 | 状态 |
@@ -26,7 +28,7 @@
 | [Audio/test_rise_audio_capture_map.py](Audio/test_rise_audio_capture_map.py) | 普通Python unittest | 19项映射/输出隔离/条件头/媒体切片/分支对照及有界用户签收检查 | 无UE/游戏/网络；只用Saved临时夹具 |
 | [Audio/audit_swing_assets.py](Audio/audit_swing_assets.py) | UE Python；编辑器远程或关闭时Commandlet | 只读52个虫棍Montage、26个GA、引用序列及Combo入口，保留裁切/倍率/Section快照 | 不保存/编译Content；导出Saved/SwingMap并核对包哈希，详见Audio说明 |
 | [Audio/map_swing_positions.py](Audio/map_swing_positions.py) | 普通Python；已有资产快照＋录制 | `--map-current-weapon`当前主映射；`--compare-cloth`显式无装备对照，验证静音插件/同源时机；原模式保留 | 衣服模式只写新Saved，不改旧主映射/UE/录制器；参数见Audio README |
-| [Audio/rise_audio_cloth_comparison.py](Audio/rise_audio_cloth_comparison.py)、[测试](Audio/test_cloth_comparison.py) | 上述对照模式调用；普通Python | 复用归属/时钟/wwiser，区分插件Source ID和真正WEM；重复、互相唯一的同源窗口；5项定向检查 | 不解码；服装/装备层不等于已细分布料/金属；未覆盖/歧义源不写空点 |
+| [Audio/rise_audio_cloth_comparison.py](Audio/rise_audio_cloth_comparison.py)、[测试](Audio/test_cloth_comparison.py) | 上述对照/空中补充模式调用；普通Python | 复用归属/共享Present时钟/wwiser；8项定向检查；空中模式只生成四项粉尘试听，reviewed模式复用解码器导出实际变体 | 补充只写Saved；装备层未再细分布料/金属，未覆盖/歧义源不写空点，不猜未知539 |
 | [Audio/rise_audio_weapon_mapping.py](Audio/rise_audio_weapon_mapping.py) | 普通Python；由映射及推进声显式模式调用 | 条件图/源帧→候选；限定事件同帧FX链、末帧保持、137入场前唯一请求识别，14项专项检查 | 不放宽通用归属/不把适配当原作精确帧；137为空回、156为白灯前跳Over，不能按请求当帧一刀切 |
 | [Audio/test_current_weapon_mapping.py](Audio/test_current_weapon_mapping.py) | 普通Python unittest | 17项分支排除、对象/条件生命周期、真实元组、歧义与Loop时机检查 | 无UE/游戏/全银行解码；与19项原时序检查合计36项定向检查 |
 | [Audio/prepare_current_weapon_audio.py](Audio/prepare_current_weapon_audio.py) | 普通Python；冻结当前Mapping及作者基线 | 默认源池/武器/动作；`--propulsion`准备推进；`--kinsect-contact --capture-directory`委托prepare_kinsect_contact_audio复用源池补精确猎虫归属/伴随证据 | 仅Saved；计划不覆盖/重解码，不写Content/Config；同期关系不当精确事务或全部贯通真值 |

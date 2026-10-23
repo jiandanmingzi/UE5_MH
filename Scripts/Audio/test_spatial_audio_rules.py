@@ -1,9 +1,32 @@
 import copy
 import unittest
-from spatial_audio_rules import emission, independent_points, verify_preserved, notify_category, SOUND_TRACKS, verify_sound_tracks
+from spatial_audio_rules import emission, independent_points, verify_preserved, notify_category, SOUND_TRACKS, verify_sound_tracks, same_audio_recipes, plan_cloth_lanes
 
 
 class SpatialRulesTests(unittest.TestCase):
+    def test_coincident_cloth_uses_stable_parallel_lane_not_attack(self):
+        rows = [dict(Guid='bad', TrackIndex=0, LinkValue='.5'),
+                dict(Guid='keep', TrackIndex=1, LinkValue='.5'),
+                dict(Guid='later', TrackIndex=0, LinkValue='.9')]
+        assigned, tracks = plan_cloth_lanes(rows, {'bad', 'keep', 'later'}, ['Attack', 'ClothAudio'])
+        self.assertEqual(assigned, {'bad': 2, 'later': 1})
+        self.assertEqual(tracks, ['Attack', 'ClothAudio', 'ClothAudio_2'])
+        for row in rows:
+            row['TrackIndex'] = assigned.get(row['Guid'], row['TrackIndex'])
+        self.assertEqual(plan_cloth_lanes(rows, {'bad', 'keep', 'later'}, tracks), ({}, tracks))
+
+    def test_same_track_same_time_new_cloth_is_also_split(self):
+        rows = [dict(Guid='a', TrackIndex=0, LinkValue='1'), dict(Guid='b', TrackIndex=0, LinkValue='1')]
+        self.assertEqual(plan_cloth_lanes(rows, {'a', 'b'}, ['ClothAudio']),
+                         ({'b': 1}, ['ClothAudio', 'ClothAudio_2']))
+
+    def test_recipe_object_order_is_not_serialized_notify_order(self):
+        rows = [dict(guid='a', sound=None, time=.1), dict(guid='b', sound='cue', time=.2)]
+        self.assertTrue(same_audio_recipes(rows, list(reversed(rows))))
+        changed = copy.deepcopy(rows); changed[1]['time'] = .3
+        self.assertFalse(same_audio_recipes(rows, changed))
+        self.assertFalse(same_audio_recipes(rows, [rows[0], rows[0]]))
+
     def test_six_categories_and_legacy_track_aliases(self):
         self.assertEqual(len(SOUND_TRACKS), 8)
         self.assertEqual(SOUND_TRACKS['AnimNotify_GroundDust'], SOUND_TRACKS['AnimNotify_DustSound'])

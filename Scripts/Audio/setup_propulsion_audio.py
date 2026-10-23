@@ -19,7 +19,7 @@ ABILITIES = ('QianChengGanTiao', 'HouChengGanTiao', 'ZuoChengGanTiao', 'YouCheng
              'CaoChongZhan', 'QiangHuaCaoChongChuanCi')
 
 
-def sources(plan, writing, state, output=OUT, owner=OWNER):
+def sources(plan, writing, state, output=OUT, owner=OWNER, concurrency_path=None):
     waves = []
     for variant in plan['source']['variants']:
         if pilot.digest(variant['wav']) != variant['sha256']:
@@ -49,7 +49,7 @@ def sources(plan, writing, state, output=OUT, owner=OWNER):
     cue_path = plan['source']['cue']
     cue = pilot.existing(cue_path, unreal.SoundCue, owner)
     attenuation = unreal.load_asset(pilot.AUDIO + '/Settings/SA_IG_DongZuo')
-    concurrency = unreal.load_asset(pilot.AUDIO + '/Settings/SCN_IG_DongZuo')
+    concurrency = unreal.load_asset(concurrency_path or pilot.AUDIO + '/Settings/SCN_IG_DongZuo')
     if not attenuation or not concurrency:
         raise RuntimeError('Reuse existing action spatial settings; do not guess new mix')
     if cue is None and writing:

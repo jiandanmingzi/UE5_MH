@@ -374,8 +374,15 @@ if __name__ == '__main__':
     parser.add_argument('--expand-actions', action='store_true', help='Reuse weapon transaction; add action props and runtime kinsect configuration')
     parser.add_argument('--propulsion', action='store_true', help='Prepare one confirmed FX event; preserve historical source pools')
     parser.add_argument('--kinsect-contact', action='store_true', help='Reuse resident source; prepare bounded kinsect contact evidence')
+    parser.add_argument('--powder-reviewed', action='store_true', help='After explicit listening approval, decode all flat alternatives of the four AerialPowder20261023 candidates')
     parser.add_argument('--capture-directory', type=Path, help='Explicit recorder directory for scoped propulsion/contact preparation')
     args = parser.parse_args()
+    if args.powder_reviewed:
+        if args.expand_weapon or args.expand_actions or args.propulsion or args.kinsect_contact:
+            parser.error('--powder-reviewed cannot combine other stages')
+        from rise_audio_cloth_comparison import prepare_powder_sources
+        prepare_powder_sources(args.source_root.resolve())
+        sys.exit(0)
     if args.kinsect_contact:
         if args.expand_weapon or args.expand_actions or args.propulsion or not args.capture_directory:
             parser.error('--kinsect-contact requires --capture-directory and cannot combine other stages')

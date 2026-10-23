@@ -13,6 +13,7 @@
 
 class AIGMarkProjectile;
 class AIGPowderActor;
+class UAudioComponent;
 class AKinsect;
 class UAbilitySystemComponent;
 class UInsectGlaiveCombatConfig;
@@ -269,6 +270,7 @@ private:
 	friend class AIGPowderActor;
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FMHGZKinsectDeliveryAudioTests;
+	friend class FMHGZPowderAudioLifecycleTests;
 	friend class FMHGZKinsectSlashPreparationTest;
 	friend class FMHGZM6MarkExpiresAndDeadTargetCannotReplace;
 	friend class FMHGZM633PowderNaturalExpiryTest;
@@ -302,6 +304,8 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 		int32 ExpectedLifetimeRevision);
 	void TickPowderMaintenance();
 	void TickPowderVortexPresentation();
+	void StartPowderVortexGatherSounds(const FVector& Center);
+	void StopPowderVortexGatherSounds();
 	bool BeginPowderVortexGathering(const FKinsectFlightRequest& Request,
 		const FVector& Center);
 	void CommitPowderVortexTransaction(uint64 ExpectedCommandSerial);
@@ -462,6 +466,8 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	uint64 ActivePowderVortexCommandSerial = 0;
 	uint64 ActivePowderVortexReservationID = 0;
 	FTimerHandle PowderVortexCommitTimer;
+	UPROPERTY(Transient)
+	TArray<TObjectPtr<UAudioComponent>> PowderVortexGatherAudio;
 	double LastMarkedContactPowderWorldTime = -1.0;
 	double NextPowderMaintenanceWorldTime = 0.0;
 };
