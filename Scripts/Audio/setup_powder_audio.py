@@ -9,6 +9,7 @@ import unreal
 import audio_spatial_maintenance as shared
 import setup_propulsion_audio as pool
 from ue_asset_utils import read_field
+from ue_asset_utils import blueprint_cdo
 
 pilot = shared.pilot
 OUT = shared.ROOT / 'Saved/Audio/RiseIG/AerialPowder20261023/Powder/UE'
@@ -36,6 +37,16 @@ def run(writing=False):
     config = unreal.load_asset(CONFIG)
     if not isinstance(config, unreal.InsectGlaiveCombatConfig):
         raise RuntimeError('Missing CombatConfig')
+    migration_dir = shared.ROOT / 'Saved/Maintenance/PowderVortexConfig20261024'
+    migration = shared.load(migration_dir / 'verified.json') if (migration_dir / 'verified.json').exists() else None
+    vortex = None
+    if migration:
+        if writing:
+            raise RuntimeError('Vortex audio migrated to GA; this historical Apply must not be replayed')
+        ga_path = '/Game/Blueprints/Ability/InsectGlaive/GA_IG_PowderVortex'
+        if pilot.digest(pilot.inspector.disk(ga_path)) != migration['ga_sha256']:
+            raise RuntimeError('GA changed after the vortex migration; inspect current user edits')
+        vortex = read_field(blueprint_cdo(unreal.load_asset(ga_path), unreal), 'powder_vortex')
     fields = ('powder_explosion_sound', 'powder_vortex_gather_sounds', 'powder_vortex_explosion_sound')
     if state is None:
         if any(read_field(config, k) for k in fields):
@@ -98,12 +109,21 @@ def run(writing=False):
         pilot.save_json(checkpoint, state)
     if 'config_hash' not in state:
         raise RuntimeError('Partial transaction; inspect saved assets before resuming')
-    if pilot.digest(pilot.inspector.disk(CONFIG)) != state['config_hash']:
-        raise RuntimeError('Powder config changed after save')
-    if without_audio(pilot.inspector.text_export(config)) != without_audio(state['config_before']):
+    expected_config_hash = (shared.load(migration_dir / 'source.json')['sha256'][CONFIG]
+                            if migration else state['config_hash'])
+    actual_config_hash = pilot.digest(pilot.inspector.disk(CONFIG))
+    if actual_config_hash != expected_config_hash:
+        import sys
+        sys.path.insert(0, str(shared.ROOT / 'Scripts/AssetOrganization'))
+        from migrate_ig_action_config import accepts_combat_cleanup
+        if not accepts_combat_cleanup(shared.ROOT, expected_config_hash, actual_config_hash):
+            raise RuntimeError('Powder config changed outside the verified Combat cleanup')
+    if not migration and without_audio(pilot.inspector.text_export(config)) != without_audio(state['config_before']):
         raise RuntimeError('Non-audio config differs after reload')
     for field, value in expected.items():
-        actual = read_field(config, field)
+        owner = vortex if migration and field.startswith('powder_vortex_') else config
+        target_field = field.removeprefix('powder_vortex_') if owner is vortex else field
+        actual = read_field(owner, target_field)
         if (list(actual) if isinstance(value, list) else actual) != value:
             raise RuntimeError('Missing runtime reference: ' + field)
     for path, sha in state['new_assets'].items():

@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/DataValidation.h"
+#include "InsectGlaive/IGActionConfigTypes.h"
 #include "InsectGlaive/Kinsect/Kinsect.h"
 #include "MHGZGameplayAbility.h"
 #include "MHGZInsectGlaiveKinsectAbilities.generated.h"
@@ -136,6 +138,16 @@ class MHGZ_API UMHGZDrawAndSendKinsectAbility : public UMHGZGameplayAbility
 	GENERATED_BODY()
 
 public:
+	// 专属数值随本GA保存；Combat同名旧字段不再参与运行时。
+	/** 拔刀操虫的猎虫动作值；仅影响本次猎虫命中。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|操虫", meta = (ClampMin = "0.0"))
+	float DrawSendKinsectMotionValue = 20.0f;
+
+
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
 	UMHGZDrawAndSendKinsectAbility();
 
 	/** Exact Montage-instance callback used by AnimNotify_DrawCommit. */

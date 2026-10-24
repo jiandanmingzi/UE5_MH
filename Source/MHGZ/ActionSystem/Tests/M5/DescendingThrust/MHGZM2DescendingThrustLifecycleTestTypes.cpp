@@ -1,3 +1,6 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
+#include "InsectGlaive/InsectGlaiveCombatConfig.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZM2DescendingThrustLifecycleTestTypes.h"
@@ -41,6 +44,19 @@ void UMHGZM2DescendingThrustLifecycleTestAbility::ResetTestConfiguration()
 
 void UMHGZM2DescendingThrustLifecycleTestAbility::ApplyTestConfiguration()
 {
+	// Transient legacy builder -> new GA owner; no runtime Combat fallback.
+	if (const auto* Host = GetRuntimeHost())
+	{
+		if (const auto* Fixture = Cast<UInsectGlaiveCombatConfig>(Host->GetCurrentContext().CombatConfig))
+		{
+			DescendingThrustAirProfile = IGTest::Action<UMHGZDescendingThrustAbility>(Fixture)->DescendingThrustAirProfile;
+			DescendingThrustAirWatchdogSeconds = IGTest::Action<UMHGZDescendingThrustAbility>(Fixture)->DescendingThrustAirWatchdogSeconds;
+			DescendingThrustLandingBlendInTime = IGTest::Action<UMHGZDescendingThrustAbility>(Fixture)->DescendingThrustLandingBlendInTime;
+			DescendingThrustAirControl = IGTest::Action<UMHGZDescendingThrustAbility>(Fixture)->DescendingThrustAirControl;
+			DescendingThrustDanceDamageMultipliers = IGTest::Action<UMHGZDescendingThrustAbility>(Fixture)->DescendingThrustDanceDamageMultipliers;
+		}
+	}
+
 	AttackMontage = TestMainMontage;
 	DefaultEntrySection = TEXT("Start");
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.Weapon.RT"));

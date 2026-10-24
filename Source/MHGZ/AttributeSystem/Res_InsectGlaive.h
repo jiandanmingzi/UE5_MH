@@ -21,6 +21,7 @@ class UInsectGlaiveKinsectData;
 class UMHGZMonsterHitzoneComponent;
 class USkeletalMeshComponent;
 class UParticleSystemComponent;
+class UIGCoAttackComponent;
 struct FGameplayEffectRemovalInfo;
 struct FOnAttributeChangeData;
 struct FWeaponAimSnapshot;
@@ -92,6 +93,28 @@ public:
 	bool DeployKinsectFromActionAttachment(const FWeaponActionToken& ActionToken,
 		const FKinsectFlightRequest& Request);
 	bool RecallKinsect(EKinsectCommandSource Source = EKinsectCommandSource::Player);
+	/** Ground-only opt-in. Compatible successors join the existing ordered stream. */
+	bool BeginKinsectCoAttack(const FWeaponActionToken& ActionToken,
+		USkeletalMeshComponent* WeaponMesh, const FIGCoAttackSource& Source);
+	void EndKinsectCoAttack(const FWeaponActionToken& ActionToken);
+	/** Normal/Superseded end: seal receipts, without retaining the source GA. */
+	void FinishKinsectCoAttack(const FWeaponActionToken& ActionToken);
+	void FinishKinsectCoAttackPath(const FWeaponActionToken& ActionToken, bool bReturnAfterReplay);
+	bool OpenKinsectCoAttackWindow(const FWeaponActionToken& ActionToken,
+		int32 Segment, uint64 Occurrence, const FGuid& SourceAttackID,
+		float MotionValue, int32 MaxHits, float HitInterval);
+	void CloseKinsectCoAttackWindow(const FWeaponActionToken& ActionToken, uint64 Occurrence);
+	/** Optional special companion: failures never reject the hunter's ability. */
+	bool BeginDescendingThrustKinsect(const FWeaponActionToken& Action, const FVector& Origin,
+		const FGuid& AttackID, float MotionValue);
+	bool StartDescendingThrustKinsectDive(const FWeaponActionToken& Action, const FVector& TargetSnapshot);
+	void FinishDescendingThrustKinsect(const FWeaponActionToken& Action, EWeaponActionEndReason Reason);
+	/** Admission only: no extra charge and no threshold-triggered mid-action recall. */
+	bool HasKinsectCoAttackEntryStamina() const
+	{
+		return FMath::IsFinite(MaxKinsectStamina) && MaxKinsectStamina > 0.f
+			&& FMath::IsFinite(KinsectStamina) && KinsectStamina >= MaxKinsectStamina * .1f;
+	}
 	/** 招式临时占用真实猎虫；租约由精确 ActionToken 所有。 */
 	bool BeginKinsectActionAttachment(const FWeaponActionToken& ActionToken,
 		USkeletalMeshComponent* WeaponMesh, FName SocketName);
@@ -119,6 +142,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MHGZ|IG")
 	float GetMaxKinsectStamina() const { return MaxKinsectStamina; }
+
+	/** 当前有效精华决定的耗耐倍率；三灯覆盖红灯，回耐不乘此值。 */
+	UFUNCTION(BlueprintPure, Category = "MHGZ|IG|Kinsect")
+	float GetKinsectStaminaDrainMultiplier() const;
 
 	FIGResourceUISnapshot GetUIState() const;
 	FOnIGResourceUIChanged& OnIGResourceUIChanged() { return IGResourceUIChanged; }
@@ -163,6 +190,9 @@ public:
 	// ── 猎虫伤害 ───────────────────────────────────────────────
 	bool ApplyKinsectDamage(const FHitResult& Hit, float MotionValue,
 		const FGuid& HitInstanceID, const FGuid& SourceAttackID = FGuid());
+	/** Explicit window-time power snapshot; legacy ordinary flight keeps its live-power wrapper. */
+	bool ApplyKinsectDamageWithSnapshot(const FHitResult& Hit, float MotionValue,
+		float AttackPower, const FGuid& HitInstanceID, const FGuid& SourceAttackID);
 	float GetModifiedKinsectAttackPower() const;
 
 	// ── 唯一虫印 ───────────────────────────────────────────────
@@ -186,8 +216,8 @@ public:
 	}
 	void RecordAutomaticMarkWorldBlock(const FKinsectFlightRequest& Request,
 		const FHitResult& Hit) const;
-	/** True only for a real Hit on the marked Hitzone inside its fixed-world 20cm patch. */
-	bool IsHitWithinKinsectMarkPatch(const FHitResult& Hit) const;
+	/** Real contact with the exact part carrying this Resource's active mark Debuff. */
+	bool IsHitOnKinsectMarkedPart(const FHitResult& Hit) const;
 	uint64 GetKinsectMarkSerial() const { return MarkSerial; }
 	FName GetKinsectMarkBoneName() const { return ActiveMarkBoneName; }
 	double GetKinsectMarkExpireTime() const { return ActiveMarkExpireTime; }
@@ -210,7 +240,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MHGZ|IG|Dance")
 	EIGDanceSource GetDanceSource() const { return DanceSource; }
 
-	/** 当前层数对应的招式专属倍率；未指定招式或配置无效时为 1.0。 */
+	/** 从已授予的对应GA默认配置查询当前舞踏倍率；未授予/未指定/无效时为1。执行中GA自行冻结实例倍率。 */
 	UFUNCTION(BlueprintPure, Category = "MHGZ|IG|Dance")
 	float GetDanceDamageMultiplier(EIGDanceDamageAction Action = EIGDanceDamageAction::None) const;
 
@@ -230,19 +260,20 @@ public:
 	bool HandleSuccessfulKinsectDamage(const FWeaponRuntimeToken& Runtime,
 		const FGuid& SourceAttackID, const FGuid& HitID, const FHitResult& Hit,
 		EIGPowderSpawnPolicy SpawnPolicy = EIGPowderSpawnPolicy::MarkedContact);
-	/** Legacy low-level spawn seam retained for existing transaction tests/callers. */
+	/** 显式AP/MV的低层生成入口；正常猎虫命中仍走统一策略/CD入口。 */
 	bool SpawnPowderForSuccessfulHit(const FWeaponRuntimeToken& Runtime,
-		const FGuid& SourceAttackID, const FGuid& HitID, const FHitResult& Hit);
-	bool CanGatherPowders(const FVector& Center) const;
+		const FGuid& SourceAttackID, const FGuid& HitID, const FHitResult& Hit,
+        float KinsectAttackPower, float MotionValue);
+	bool CanGatherPowders(const FVector& Center, float GatherRadius) const;
 	/** Submit the Kinsect flight using the activation-time aim snapshot. */
 	bool StartPowderVortex(const FWeaponActionToken& Action,
-		const FWeaponAimSnapshot& AimSnapshot);
+		const FWeaponAimSnapshot& AimSnapshot, const FIGPowderVortexSettings& Settings);
 	bool TryReservePowders(const FWeaponActionToken& Action, const FVector& Center,
-		FIGPowderReservationToken& OutToken);
+		FIGPowderReservationToken& OutToken, float GatherRadius, int32 MaxCount);
 	bool BeginPowderGathering(const FIGPowderReservationToken& Token);
 	bool UpdatePowderGathering(const FIGPowderReservationToken& Token, float Progress);
 	bool CommitPowderReservation(const FIGPowderReservationToken& Token,
-		FIGPowderExplosionSnapshot& OutExplosion);
+		FIGPowderExplosionSnapshot& OutExplosion, float ExplosionRadius);
 	void ReleasePowderReservation(const FIGPowderReservationToken& Token);
 	void ClearOwnedPowders(EWeaponRuntimeEndReason Reason);
 	TArray<FIGPowderRuntimeSnapshot> GetPowderSnapshots() const;
@@ -269,6 +300,7 @@ public:
 private:
 	friend class AIGPowderActor;
 #if WITH_DEV_AUTOMATION_TESTS
+	friend class FMHGZCoAttackRuntimeTest;
 	friend class FMHGZKinsectDeliveryAudioTests;
 	friend class FMHGZPowderAudioLifecycleTests;
 	friend class FMHGZKinsectSlashPreparationTest;
@@ -311,9 +343,10 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	void CommitPowderVortexTransaction(uint64 ExpectedCommandSerial);
 	void CancelPowderVortexTransaction(uint64 ExpectedCommandSerial = 0,
 		bool bReleaseCommand = true, FName CancellationReason = NAME_None);
-	void ApplyPowderVortexExplosion(const FIGPowderExplosionSnapshot& Explosion);
+	void ApplyPowderVortexExplosion(const FIGPowderExplosionSnapshot& Explosion,
+		const FIGPowderVortexSettings& Settings);
 	void ApplyPowderVortexDamageStage(const FIGPowderExplosionSnapshot& Explosion,
-		const FGuid& StageAttackID, float Damage);
+		const FGuid& StageAttackID, float Damage, FGameplayTag HitCueTag);
 	void RemovePowderFromReservations(AIGPowderActor* Powder);
 	bool SpawnPowderInternal(const FWeaponRuntimeToken& Runtime,
 		const FGuid& SourceAttackID, const FGuid& HitID, const FHitResult& Hit,
@@ -360,6 +393,15 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	void ExpireKinsectMark(uint64 ExpectedMarkSerial);
 	uint64 GetNextKinsectCommandSerial() const;
 	uint64 AdvanceKinsectCommand(EKinsectCommandSource Source);
+	void ResetDescendingThrustKinsect();
+	void TickDescendingThrustKinsect();
+	bool HandleDescendingThrustKinsectFlightEnd(const FKinsectFlightRequest& Request,
+		EKinsectFlightEndReason Reason);
+	void HandleDescendingThrustSuccessor(const FWeaponActionToken& Action);
+	void HandleDescendingThrustSuccessorRecovery(const FWeaponActionToken& Action);
+	void HandleDescendingThrustComboClosed(const FWeaponActionToken& Action);
+	bool PrepareDescendingThrustCoAttackHandoff(const FWeaponActionToken& Action,
+		USkeletalMeshComponent* Mesh, const FIGCoAttackSource& Source, uint64& OutHoverSerial);
 	void UpdateAutomaticMarkBehavior();
 	void CancelAutomaticMarkBehavior(bool bInterruptFlight);
 	bool IsAutomaticMarkBehaviorEligible() const;
@@ -378,6 +420,27 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 
 	UPROPERTY()
 	TObjectPtr<AKinsect> KinsectActor;
+	UPROPERTY(Transient)
+	TObjectPtr<UIGCoAttackComponent> CoAttackComponent;
+	struct FDescendingThrustKinsectSession
+	{
+		FWeaponActionToken Action;
+		uint64 Serial = 0;
+		FGuid AttackID, FlightID;
+		float MotionValue = 10.f;
+		bool bDiving = false, bArrived = false, bSourceEnded = false;
+		bool bSourceComboClosed = false, bSourceSuperseded = false;
+		uint64 SourceEndFrame = 0;
+		bool bPendingExpired = false;
+		FWeaponActionToken PendingAction;
+		TWeakObjectPtr<USkeletalMeshComponent> PendingMesh;
+		FIGCoAttackSource PendingSource;
+	};
+	TOptional<FDescendingThrustKinsectSession> DescendingThrustKinsect;
+	FDelegateHandle DescendingSuccessorHandle, DescendingRecoveryHandle, DescendingComboClosedHandle;
+#if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+	friend class FMHGZDescendingThrustCoAttackTestAccess;
+#endif
 
 	UPROPERTY()
 	TObjectPtr<UInsectGlaiveKinsectData> KinsectData;
@@ -465,6 +528,10 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	uint64 NextPowderReservationID = 1;
 	uint64 ActivePowderVortexCommandSerial = 0;
 	uint64 ActivePowderVortexReservationID = 0;
+	/** 按次冻结的GA配置；UPROPERTY保证GA结束后声音等引用仍有效。 */
+	UPROPERTY(Transient)
+	FIGPowderVortexSettings ActivePowderVortexSettings;
+	float ActivePowderVortexAttackPower = 0.f;
 	FTimerHandle PowderVortexCommitTimer;
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UAudioComponent>> PowderVortexGatherAudio;

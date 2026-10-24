@@ -461,7 +461,7 @@ IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 
 bool FMHGZM5AirDodgeRequestShapeTest::RunTest(const FString& Parameters)
 {
-	UInsectGlaiveCombatConfig* Config = NewObject<UInsectGlaiveCombatConfig>();
+	UMHGZAirDodgeAbility* Config = NewObject<UMHGZAirDodgeAbility>();
 	const FVector Stick(1.0f, 0.0f, 0.0f);
 	const FVector Facing(0.0f, 1.0f, 0.0f);
 

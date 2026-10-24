@@ -1,3 +1,4 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #pragma once
@@ -84,6 +85,7 @@ struct FMHGZM5KinsectSlashDamageTestHarness
 	UMHGZWeaponRuntimeHostComponent* Host = nullptr;
 	URes_InsectGlaive* Resource = nullptr;
 	UMHGZM5KinsectSlashDamageTestCombatConfig* CombatConfig = nullptr;
+	IGTest::FScopedActionFixtures ActionFixtures;
 	UMHGZEquipmentComponent* Equipment = nullptr;
 	UMHGZAttributeSet* SourceAttributes = nullptr;
 	AActor* TargetActor = nullptr;

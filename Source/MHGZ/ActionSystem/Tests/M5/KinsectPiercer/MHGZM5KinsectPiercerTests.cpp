@@ -1,3 +1,4 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
 // Copyright MHGZ Project. All Rights Reserved.
 //
 // 强化操虫穿刺（M5 本招）的 M2 专项：运行时合同；落地 fixture 只读导入动画，复制到 transient。
@@ -911,7 +912,7 @@ bool FMHGZM5KinsectPiercerDanceSourceMirrorTest::RunTest(const FString& Paramete
 		return false;
 	}
 	H.CombatConfig->MaxDanceStacks = 3;
-	H.CombatConfig->KinsectPiercerDanceDamageMultipliers = { 1.0f, 1.3f, 1.5f, 2.0f };
+	IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDanceDamageMultipliers = { 1.0f, 1.3f, 1.5f, 2.0f };
 
 	TestFalse(TEXT("no source tag is mirrored before any dance stack"),
 		H.ASC->HasMatchingGameplayTag(KinsectSlashSource));
@@ -1252,7 +1253,7 @@ bool FMHGZM5KinsectPiercerEntryGateTest::RunTest(const FString& Parameters)
 		return false;
 	}
 	H.CombatConfig->MaxDanceStacks = 3;
-	H.CombatConfig->KinsectPiercerDanceDamageMultipliers = { 1.0f, 1.3f, 1.5f, 2.0f };
+	IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDanceDamageMultipliers = { 1.0f, 1.3f, 1.5f, 2.0f };
 
 	// 闸门要求角色有 Mesh + AnimInstance，与生产链一致（本招只查它**存在**）。
 	USkeletalMeshComponent* Mesh = H.Character->GetMesh();
@@ -1268,10 +1269,10 @@ bool FMHGZM5KinsectPiercerEntryGateTest::RunTest(const FString& Parameters)
 	TestNotNull(TEXT("the harness mesh produces a live AnimInstance"),
 		Mesh->GetAnimInstance());
 
-	H.CombatConfig->KinsectPiercerStartProfile = MakeTestProfile();
-	H.CombatConfig->KinsectPiercerDiveProfile = MakeTestProfile();
-	H.CombatConfig->KinsectPiercerLandingProfile = MakeTestProfile();
-	H.CombatConfig->KinsectPiercerDiveWatchdogSeconds = 12.0f;
+	IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerStartProfile = MakeTestProfile();
+	IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDiveProfile = MakeTestProfile();
+	IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerLandingProfile = MakeTestProfile();
+	IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDiveWatchdogSeconds = 12.0f;
 	if (!TestTrue(TEXT("the transient imported Over root-motion fixture builds"), ConfigureGateAbility()))
 	{
 		H.Teardown();
@@ -1327,8 +1328,8 @@ bool FMHGZM5KinsectPiercerEntryGateTest::RunTest(const FString& Parameters)
 	// ── 形状层：两条空中曲线与看门狗缺一不可；203 的来源是 Montage Root Motion ──
 	// 逐条从上面这个**通过**的状态翻过去，翻完再摆回来。
 	{
-		const FRecordedLocalTrajectoryProfile SavedLanding = H.CombatConfig->KinsectPiercerLandingProfile;
-		H.CombatConfig->KinsectPiercerLandingProfile = FRecordedLocalTrajectoryProfile();
+		const FRecordedLocalTrajectoryProfile SavedLanding = IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerLandingProfile;
+		IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerLandingProfile = FRecordedLocalTrajectoryProfile();
 		TryGate(H, Handle, bAccepted, bReached);
 		TestTrue(TEXT("a missing legacy landing profile still passes dependencies and production prepare"),
 			bAccepted && bReached
@@ -1338,29 +1339,29 @@ bool FMHGZM5KinsectPiercerEntryGateTest::RunTest(const FString& Parameters)
 			&& UMHGZM5KinsectPiercerGateProbeAbility::bLastDiveMovementRequestValid);
 		TestFalse(TEXT("203 still has no valid recorded request when the legacy profile is absent"),
 			UMHGZM5KinsectPiercerGateProbeAbility::bLastLandingMovementRequestValid);
-		H.CombatConfig->KinsectPiercerLandingProfile = SavedLanding;
+		IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerLandingProfile = SavedLanding;
 	}
 	{
-		UCurveVector* SavedCurve = H.CombatConfig->KinsectPiercerStartProfile.Curve;
-		H.CombatConfig->KinsectPiercerStartProfile.Curve = nullptr;
+		UCurveVector* SavedCurve = IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerStartProfile.Curve;
+		IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerStartProfile.Curve = nullptr;
 		TryGate(H, Handle, bAccepted, bReached);
 		TestTrue(TEXT("a missing start curve refuses the activation"), !bAccepted && !bReached);
-		H.CombatConfig->KinsectPiercerStartProfile.Curve = SavedCurve;
+		IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerStartProfile.Curve = SavedCurve;
 	}
 	{
-		UCurveVector* SavedCurve = H.CombatConfig->KinsectPiercerDiveProfile.Curve;
-		H.CombatConfig->KinsectPiercerDiveProfile.Curve = nullptr;
+		UCurveVector* SavedCurve = IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDiveProfile.Curve;
+		IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDiveProfile.Curve = nullptr;
 		TryGate(H, Handle, bAccepted, bReached);
 		TestTrue(TEXT("a missing dive curve refuses the activation"), !bAccepted && !bReached);
-		H.CombatConfig->KinsectPiercerDiveProfile.Curve = SavedCurve;
+		IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDiveProfile.Curve = SavedCurve;
 	}
 	{
-		const float SavedWatchdog = H.CombatConfig->KinsectPiercerDiveWatchdogSeconds;
-		H.CombatConfig->KinsectPiercerDiveWatchdogSeconds = 0.0f;
+		const float SavedWatchdog = IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDiveWatchdogSeconds;
+		IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDiveWatchdogSeconds = 0.0f;
 		TryGate(H, Handle, bAccepted, bReached);
 		TestTrue(TEXT("a non-positive dive watchdog refuses the activation"),
 			!bAccepted && !bReached);
-		H.CombatConfig->KinsectPiercerDiveWatchdogSeconds = SavedWatchdog;
+		IGTest::Action<UMHGZKinsectPiercerAbility>(H.CombatConfig)->KinsectPiercerDiveWatchdogSeconds = SavedWatchdog;
 	}
 	{
 		UAnimMontage* SavedMontage = UMHGZM5KinsectPiercerGateProbeAbility::TestMainMontage;

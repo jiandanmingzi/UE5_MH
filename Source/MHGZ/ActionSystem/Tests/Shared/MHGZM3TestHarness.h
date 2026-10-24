@@ -1,3 +1,4 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #pragma once
@@ -65,6 +66,10 @@ struct FMHGZM3Harness
 	URes_InsectGlaive* Resource = nullptr;
 	AKinsect* Kinsect = nullptr;
 	UInsectGlaiveCombatConfig* CombatConfig = nullptr;
+	IGTest::FScopedActionFixtures ActionFixtures;
+    FIGPowderVortexSettings PowderSettings;
+    float PowderSpawnAttackPower = 0.0f;
+    int32 PowderReserveMaxCount = 5;
 	UInsectGlaiveKinsectData* KinsectData = nullptr;
 	FGameplayTag WeaponSlot;
 
@@ -182,6 +187,7 @@ inline bool FMHGZM3Harness::Setup(bool bBlockTripleUpGE,
 		NewObject<UWeaponRuntimeDefinition>(PlayerState);
 	RuntimeDefinition->ResourceComponentClass = URes_InsectGlaive::StaticClass();
 	CombatConfig = NewObject<UInsectGlaiveCombatConfig>(PlayerState);
+	ActionFixtures.Initialize(CombatConfig);
 	UMHGZWeaponComboData* ComboData = NewObject<UMHGZWeaponComboData>(PlayerState);
 	CombatConfig->ComboData = ComboData;
 	RuntimeDefinition->CombatConfig = CombatConfig;

@@ -2,6 +2,45 @@
 
 #include "MHGZMonsterHitzoneComponent.h"
 #include "GameFramework/Actor.h"
+#include "Engine/World.h"
+
+void UMHGZMonsterHitzoneComponent::ApplyKinsectMarkDebuff(
+	UObject* Source, const FGuid& MarkID, const double ExpireAt)
+{
+	if (!IsValid(Source) || !MarkID.IsValid() || !GetWorld()
+		|| Source->GetWorld() != GetWorld() || !FMath::IsFinite(ExpireAt)
+		|| ExpireAt <= GetWorld()->GetTimeSeconds()) return;
+	// Dead sources/expired entries need no extra timer or component tick.
+	for (auto It = KinsectMarkDebuffs.CreateIterator(); It; ++It)
+	{
+		if (!It.Key().IsValid() || It.Value().ExpireAt <= GetWorld()->GetTimeSeconds()) It.RemoveCurrent();
+	}
+	KinsectMarkDebuffs.Add(Source, {MarkID, ExpireAt});
+}
+
+void UMHGZMonsterHitzoneComponent::RemoveKinsectMarkDebuff(
+	const UObject* Source, const FGuid& MarkID)
+{
+	const FKinsectMarkDebuff* Debuff = KinsectMarkDebuffs.Find(Source);
+	if (Debuff && Debuff->MarkID == MarkID) KinsectMarkDebuffs.Remove(Source);
+}
+
+bool UMHGZMonsterHitzoneComponent::HasKinsectMarkDebuffFrom(
+	const UObject* Source, const FGuid& MarkID) const
+{
+	const FKinsectMarkDebuff* Debuff = KinsectMarkDebuffs.Find(Source);
+	return IsValid(Source) && MarkID.IsValid() && GetWorld() && Debuff
+		&& Debuff->MarkID == MarkID && GetWorld()->GetTimeSeconds() < Debuff->ExpireAt;
+}
+
+bool UMHGZMonsterHitzoneComponent::HasKinsectMarkDebuff() const
+{
+	for (const auto& Entry : KinsectMarkDebuffs)
+	{
+		if (HasKinsectMarkDebuffFrom(Entry.Key.Get(), Entry.Value.MarkID)) return true;
+	}
+	return false;
+}
 
 UMHGZMonsterHitzoneComponent::UMHGZMonsterHitzoneComponent()
 {
@@ -89,6 +128,7 @@ float UMHGZMonsterHitzoneComponent::GetClosestPointOnQueryCollision(
 
 void UMHGZMonsterHitzoneComponent::OnComponentDestroyed(const bool bDestroyingHierarchy)
 {
+	KinsectMarkDebuffs.Reset();
 	if (IsValid(BoxQuery)) { BoxQuery->DestroyComponent(); }
 	BoxQuery = nullptr;
 	Super::OnComponentDestroyed(bDestroyingHierarchy);

@@ -473,7 +473,7 @@ bool UMHGZDrawAndSendKinsectAbility::BuildRequest(FKinsectFlightRequest& OutRequ
 	}
 
 	FillStandardSingleHitRequest(OutRequest, Activation, *Data, *Config,
-		Config->DrawSendKinsectMotionValue);
+		DrawSendKinsectMotionValue);
 	OutRequest.TrajectoryMode = EKinsectTrajectoryMode::AlongDirection;
 	OutRequest.DirectionSnapshot = Input.ActorForward.GetSafeNormal();
 	OutRequest.MaxDistance = Data->StraightFlightDistance;
@@ -716,3 +716,43 @@ void UMHGZMarkKinsectTargetAbility::ActivateAbility(const FGameplayAbilitySpecHa
 		&& Resource->LaunchKinsectMark(GetWeaponActivationContext().Input.Aim);
 	RequestEndAction(bLaunched ? EWeaponActionEndReason::Normal : EWeaponActionEndReason::Cancelled);
 }
+
+#if WITH_EDITOR
+#undef LOCTEXT_NAMESPACE
+#define LOCTEXT_NAMESPACE "MHGZDrawAndSendKinsectConfig"
+EDataValidationResult UMHGZDrawAndSendKinsectAbility::IsDataValid(FDataValidationContext& Context) const
+{
+	const EDataValidationResult Result = Super::IsDataValid(Context);
+	bool bInvalid = false;
+	auto AddError = [&Context, &bInvalid](const FText& Error)
+	{
+		Context.AddError(Error);
+		bInvalid = true;
+	};
+
+	auto CheckPositive = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value <= 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("NotPositive", "{0} must be > 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	auto CheckNonNegative = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value < 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("Negative", "{0} must be >= 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	CheckNonNegative(TEXT("DrawSendKinsectMotionValue"), DrawSendKinsectMotionValue);
+
+	return bInvalid ? EDataValidationResult::Invalid : (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);
+}
+#undef LOCTEXT_NAMESPACE
+#endif

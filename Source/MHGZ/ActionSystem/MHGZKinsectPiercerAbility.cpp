@@ -240,14 +240,14 @@ bool UMHGZKinsectPiercerAbility::HasUsableTrajectoryProfiles() const
 	const URes_InsectGlaive* Resource = GetUsableResource();
 	const UInsectGlaiveCombatConfig* Config = Resource ? Resource->GetCombatConfig() : nullptr;
 	if (!Config
-		|| !FMath::IsFinite(Config->KinsectPiercerDiveWatchdogSeconds)
-		|| Config->KinsectPiercerDiveWatchdogSeconds <= 0.0f)
+		|| !FMath::IsFinite(KinsectPiercerDiveWatchdogSeconds)
+		|| KinsectPiercerDiveWatchdogSeconds <= 0.0f)
 	{
 		return false;
 	}
 	// 203 由 Montage Root Motion 驱动，旧 LandingProfile 不参与激活门禁。
-	return Config->KinsectPiercerStartProfile.IsValid()
-		&& Config->KinsectPiercerDiveProfile.IsValid();
+	return KinsectPiercerStartProfile.IsValid()
+		&& KinsectPiercerDiveProfile.IsValid();
 }
 
 bool UMHGZKinsectPiercerAbility::HasRequiredSections(const UAnimMontage* Montage) const
@@ -487,7 +487,7 @@ void UMHGZKinsectPiercerAbility::ActivateAbility(
 	}
 
 	// Commit 时冻结倍率，整个 GA 的所有武器段共用；203 触地清层不影响本次快照。
-	FrozenDanceDamageMultiplier = Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectPiercer);
+	FrozenDanceDamageMultiplier = MHGZ::IGActionConfig::DanceDamageMultiplier(KinsectPiercerDanceDamageMultipliers, Resource->GetDanceStacks(), Resource->GetCombatConfig()->MaxDanceStacks);
 
 	if (!StartPhaseMovement(EKinsectPiercerPhase::Start200))
 	{
@@ -517,13 +517,13 @@ FWeaponMovementRequest UMHGZKinsectPiercerAbility::MakePhaseMovementRequest(
 	switch (InPhase)
 	{
 	case EKinsectPiercerPhase::Start200:
-		Request.RecordedTrajectory = Config->KinsectPiercerStartProfile;
+		Request.RecordedTrajectory = KinsectPiercerStartProfile;
 		Request.TrajectoryGroundPolicy = ERecordedTrajectoryGroundPolicy::ProtectedFlight;
 		Request.TrajectoryTailPolicy = ERecordedTrajectoryTailPolicy::HoldLastKey;
 		break;
 
 	case EKinsectPiercerPhase::Dive201:
-		Request.RecordedTrajectory = Config->KinsectPiercerDiveProfile;
+		Request.RecordedTrajectory = KinsectPiercerDiveProfile;
 		Request.TrajectoryGroundPolicy = ERecordedTrajectoryGroundPolicy::LandingAirborne;
 		// 201 的覆盖是被录制时的触地截断的，不是动作长度：飞得更高就必须续行。
 		Request.TrajectoryTailPolicy = ERecordedTrajectoryTailPolicy::IntegrateTerminalModel;
@@ -633,8 +633,8 @@ void UMHGZKinsectPiercerAbility::StartDiveWatchdog()
 	const UInsectGlaiveCombatConfig* Config = Resource ? Resource->GetCombatConfig() : nullptr;
 	UWorld* World = GetWorld();
 	if (!Config || !World
-		|| !FMath::IsFinite(Config->KinsectPiercerDiveWatchdogSeconds)
-		|| Config->KinsectPiercerDiveWatchdogSeconds <= 0.0f)
+		|| !FMath::IsFinite(KinsectPiercerDiveWatchdogSeconds)
+		|| KinsectPiercerDiveWatchdogSeconds <= 0.0f)
 	{
 		return;
 	}
@@ -642,7 +642,7 @@ void UMHGZKinsectPiercerAbility::StartDiveWatchdog()
 	// 这个计时器一秒都不会用上 —— 它不是 201→203 的出口。
 	World->GetTimerManager().SetTimer(DiveWatchdogTimer, this,
 		&UMHGZKinsectPiercerAbility::HandleDiveWatchdogExpired,
-		Config->KinsectPiercerDiveWatchdogSeconds, false);
+		KinsectPiercerDiveWatchdogSeconds, false);
 }
 
 void UMHGZKinsectPiercerAbility::ClearDiveWatchdog()
@@ -828,8 +828,8 @@ bool UMHGZKinsectPiercerAbility::PlayLandingMontage()
 
 	const URes_InsectGlaive* Resource = GetUsableResource();
 	const UInsectGlaiveCombatConfig* Config = Resource ? Resource->GetCombatConfig() : nullptr;
-	const float BlendInTime = Config && FMath::IsFinite(Config->KinsectPiercerLandingBlendInTime)
-		? FMath::Max(0.0f, Config->KinsectPiercerLandingBlendInTime) : 0.1f;
+	const float BlendInTime = Config && FMath::IsFinite(KinsectPiercerLandingBlendInTime)
+		? FMath::Max(0.0f, KinsectPiercerLandingBlendInTime) : 0.1f;
 
 	LandingMontageTask = UAbilityTask_MHGZPlayMontageAndWait::CreatePlayMontageAndWaitProxy(
 		this, TEXT("KinsectPiercerLandingMontage"), LandingMontage, 1.0f, LandingSectionName,
@@ -958,8 +958,8 @@ bool UMHGZKinsectPiercerAbility::BeginLandingSwitch(const FHitResult& Hit)
 			const UInsectGlaiveCombatConfig* Config = Resource
 				? Resource->GetCombatConfig() : nullptr;
 			const float BlendOutTime = Config
-				&& FMath::IsFinite(Config->KinsectPiercerLandingBlendInTime)
-				? FMath::Max(0.0f, Config->KinsectPiercerLandingBlendInTime) : 0.1f;
+				&& FMath::IsFinite(KinsectPiercerLandingBlendInTime)
+				? FMath::Max(0.0f, KinsectPiercerLandingBlendInTime) : 0.1f;
 			AnimInstance->Montage_Stop(BlendOutTime, ActiveMainMontage);
 		}
 	}
@@ -1439,6 +1439,7 @@ EDataValidationResult UMHGZKinsectPiercerAbility::IsDataValid(
 	FDataValidationContext& Context) const
 {
 	EDataValidationResult Result = Super::IsDataValid(Context);
+	if (ValidateOwnedActionConfig(Context) == EDataValidationResult::Invalid) return EDataValidationResult::Invalid;
 	bool bInvalid = false;
 	auto AddError = [&Context, &bInvalid](const FString& Message)
 	{
@@ -1495,4 +1496,66 @@ EDataValidationResult UMHGZKinsectPiercerAbility::IsDataValid(
 		: (Result == EDataValidationResult::NotValidated
 			? EDataValidationResult::Valid : Result);
 }
+#endif
+
+#if WITH_EDITOR
+#undef LOCTEXT_NAMESPACE
+#define LOCTEXT_NAMESPACE "MHGZKinsectPiercerConfig"
+EDataValidationResult UMHGZKinsectPiercerAbility::ValidateOwnedActionConfig(FDataValidationContext& Context) const
+{
+	const EDataValidationResult Result = EDataValidationResult::Valid;
+	bool bInvalid = false;
+	auto AddError = [&Context, &bInvalid](const FText& Error)
+	{
+		Context.AddError(Error);
+		bInvalid = true;
+	};
+
+	auto CheckPositive = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value <= 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("NotPositive", "{0} must be > 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	auto CheckNonNegative = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value < 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("Negative", "{0} must be >= 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	CheckPositive(TEXT("KinsectPiercerDiveWatchdogSeconds"), KinsectPiercerDiveWatchdogSeconds);
+	CheckNonNegative(TEXT("KinsectPiercerLandingBlendInTime"), KinsectPiercerLandingBlendInTime);
+	auto CheckTrajectoryProfile = [&AddError](const TCHAR* FieldName,
+		const FRecordedLocalTrajectoryProfile& Profile)
+	{
+		if (!Profile.Curve)
+		{
+			return;
+		}
+		if (!Profile.IsValid())
+		{
+			AddError(FText::Format(
+				LOCTEXT("InvalidPiercerTrajectory",
+					"{0} is assigned but not self-consistent: it needs strictly increasing finite keys starting at the origin, a positive CoveredSeconds no later than its last key, and finite terminal velocity/acceleration."),
+				FText::FromString(FieldName)));
+		}
+	};
+	CheckTrajectoryProfile(TEXT("KinsectPiercerStartProfile"), KinsectPiercerStartProfile);
+	CheckTrajectoryProfile(TEXT("KinsectPiercerDiveProfile"), KinsectPiercerDiveProfile);
+	CheckTrajectoryProfile(TEXT("KinsectPiercerLandingProfile"), KinsectPiercerLandingProfile);
+
+    if (KinsectPiercerDanceDamageMultipliers.IsEmpty() || !FMath::IsNearlyEqual(KinsectPiercerDanceDamageMultipliers[0], 1.0f)) AddError(FText::FromString(TEXT("舞踏倍率第0层必须为1。")));
+    for (float Value : KinsectPiercerDanceDamageMultipliers) if (!FMath::IsFinite(Value) || Value < 1.0f) AddError(FText::FromString(TEXT("舞踏倍率必须有限且不小于1。")));
+
+	return bInvalid ? EDataValidationResult::Invalid : (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);
+}
+#undef LOCTEXT_NAMESPACE
 #endif

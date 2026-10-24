@@ -31,7 +31,8 @@ enum class EKinsectState : uint8
 	/** 临时挂在招式专用插槽上；追加在末尾以保留旧状态序列化值。 */
 	ActionAttached UMETA(DisplayName = "动作临时附着"),
 	ActionReturning UMETA(DisplayName = "动作回槽中"),
-	ActionWaiting UMETA(DisplayName = "动作原地待机")
+	ActionWaiting UMETA(DisplayName = "动作原地待机"),
+	CoAttack UMETA(DisplayName = "地面协同飞行")
 };
 
 /** 猎虫飞行轨迹模式。 */
@@ -127,6 +128,7 @@ struct FKinsectFlightRequest
 	FVector TargetLocalPoint = FVector::ZeroVector;
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	bool bFollowTargetComponent = false;
+	/** Legacy compatibility only; terrain contacts no longer drive flight endings. */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	bool bAllowWorldHitAtTarget = false;
 	/** C++ action identity for the Resource-owned post-flight transaction. */
@@ -220,6 +222,13 @@ public:
 	/** 完整校验后原子提交一次飞行；校验失败不改变任何状态。 */
 	bool CanBeginFlight(const FKinsectFlightRequest& Request) const;
 	bool BeginFlight(const FKinsectFlightRequest& Request);
+	/** M1: kinematic, non-damaging cooperative flight; Resource owns its command. */
+	bool BeginCoAttack(const FWeaponRuntimeToken& RuntimeToken, uint64 CommandSerial,
+		uint64 DescendingThrustHoverSerial = 0);
+	/** Detach only from the arm, then hold a fixed world point without attack. */
+	bool BeginDescendingThrustWait(const FWeaponRuntimeToken& RuntimeToken,
+		uint64 CommandSerial, const FVector& Position);
+	bool ApplyCoAttackPose(uint64 CommandSerial, const FVector& Position, const FVector& Tangent);
 	static bool ResolveScreenCenterLaunchOrigin(const FVector& CameraOrigin,
 		const FVector& CameraDirection, const FVector& OwnerLocation, FVector& OutOrigin);
 	/** 由同一动作租约将棍尾临时附着原子转换为飞行，不先回手。 */
@@ -274,6 +283,8 @@ public:
 	FVector GetAttackForwardVector() const;
 	/** 用 Sweep 接触时的 Location 判断正面，而非本帧末的位置，避免高速穿过后漏判。 */
 	bool IsAttackContactInFront(const FHitResult& Hit) const;
+	/** Historical sweeps use the tangent at contact, not the current actor's final facing. */
+	static bool IsContactInFront(const FHitResult& Hit, const FVector& Forward);
 	bool HasPendingExtract() const { return !PendingExtractColors.IsEmpty(); }
 	/** 兼容普通单精华查询；多色显示必须读取完整容器。 */
 	FGameplayTag GetPendingExtractColor() const;
@@ -295,7 +306,8 @@ public:
 			|| State == EKinsectState::Returning
 			|| State == EKinsectState::ActionAttached
 			|| State == EKinsectState::ActionReturning
-			|| State == EKinsectState::ActionWaiting;
+			|| State == EKinsectState::ActionWaiting
+			|| State == EKinsectState::CoAttack;
 	}
 
 	// ── 引用（由 URes_InsectGlaive 注入） ──
@@ -309,7 +321,7 @@ protected:
 	virtual void BeginPlay() override;
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
-	/** 世界碰撞回调——只缓存 PendingWorldHit 并停 Movement，不直接结束飞行。 */
+	/** Legacy reflected callback; terrain contacts no longer stop or resolve flight. */
 	UFUNCTION()
 	void OnWorldCollision(UPrimitiveComponent* HitComp, AActor* OtherActor,
 		UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit);
@@ -339,7 +351,6 @@ private:
 	void HandleHitzoneHit(const FHitResult& Hit, float DeltaTime);
 
 	/** 处理缓存的墙撞结果并结束飞行。 */
-	void HandleWorldHit();
 
 	/** 距离 / ToPoint 到达判定。 */
 	void CheckFlightProgress();

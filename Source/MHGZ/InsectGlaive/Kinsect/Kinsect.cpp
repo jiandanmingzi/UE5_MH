@@ -72,7 +72,7 @@ USoundBase* AKinsect::ResolveFlightLoopSound() const
 {
 	const bool bFree = State == EKinsectState::Flying || State == EKinsectState::Hovering
 		|| State == EKinsectState::Returning || State == EKinsectState::ActionReturning
-		|| State == EKinsectState::ActionWaiting;
+		|| State == EKinsectState::ActionWaiting || State == EKinsectState::CoAttack;
 	const FWeaponRuntimeToken& Runtime = IsSlashActionControlled() ? ActionAttachmentToken.RuntimeToken
 		: State == EKinsectState::Returning
 		? ReturnRuntimeToken : ActiveRequest.RuntimeToken;
@@ -140,6 +140,14 @@ void AKinsect::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 	RefreshFlightAudio();
+	if (State == EKinsectState::CoAttack)
+	{
+		if (!ResourceComponent.IsValid() || !ResourceComponent->IsKinsectCommandCurrent(ActiveRequest))
+		{
+			Interrupt();
+		}
+		return; // the post-pose sampler is the only cooperative movement writer
+	}
 	if (State == EKinsectState::ActionReturning)
 	{
 		TickSlashPreparation(DeltaTime);
@@ -178,6 +186,7 @@ void AKinsect::Tick(float DeltaTime)
 	switch (State)
 	{
 	case EKinsectState::Flying:
+	{
 		if (ActiveRequest.TrajectoryMode == EKinsectTrajectoryMode::ToPoint
 			&& ActiveRequest.bFollowTargetComponent)
 		{
@@ -187,19 +196,26 @@ void AKinsect::Tick(float DeltaTime)
 				break;
 			}
 		}
-		// 先 Hitzone Sweep，再处理墙
+		// Terrain is an aim endpoint, never a physical hit or a flight interruption.
+		if (ActiveRequest.CommandSource == EKinsectCommandSource::DescendingThrust
+			&& ActiveRequest.TrajectoryMode == EKinsectTrajectoryMode::ToPoint)
+		{
+			const FVector Target = ActiveRequest.TargetPointSnapshot;
+			if (FVector::DotProduct(Target - LastTickLocation, Target - GetActorLocation()) <= 0.f)
+				SetActorLocation(Target, false, nullptr, ETeleportType::TeleportPhysics);
+		}
+		const FGuid SweptFlightID = ActiveRequest.FlightInstanceID;
+		const uint64 SweptSerial = ActiveRequest.CommandSerial;
 		SweepHitzones(DeltaTime);
-		if (State != EKinsectState::Flying)
+		if (State != EKinsectState::Flying || ActiveRequest.FlightInstanceID != SweptFlightID
+			|| ActiveRequest.CommandSerial != SweptSerial)
 		{
-			break; // SingleHit 已结束飞行
+			break; // ended or replaced inside a damage callback; do not advance the new flight
 		}
-		if (PendingWorldHit.bBlockingHit)
-		{
-			HandleWorldHit();
-			break;
-		}
+		PendingWorldHit.Reset();
 		CheckFlightProgress();
 		break;
+	}
 
 	case EKinsectState::Returning:
 		TickReturn();
@@ -297,6 +313,66 @@ bool AKinsect::CanBeginFlight(const FKinsectFlightRequest& Request) const
 {
 	return IsFlightRequestValid(Request) && Movement && Collision
 		&& !ActionAttachmentToken.IsValid();
+}
+
+bool AKinsect::BeginCoAttack(const FWeaponRuntimeToken& RuntimeToken, const uint64 CommandSerial,
+	const uint64 DescendingThrustHoverSerial)
+{
+	const bool bAuthorizedHover = State == EKinsectState::Hovering && DescendingThrustHoverSerial != 0
+		&& ActiveRequest.CommandSource == EKinsectCommandSource::DescendingThrust
+		&& ActiveRequest.CommandSerial == DescendingThrustHoverSerial;
+	if ((State != EKinsectState::Attached && !bAuthorizedHover) || CommandSerial == 0 || !Movement || !Collision || !Mesh
+		|| ActionAttachmentToken.IsValid() || !ResourceComponent.IsValid()
+		|| !ResourceComponent->IsKinsectCommandCurrent(CommandSerial,
+			EKinsectCommandSource::CoAttack, 0, RuntimeToken)
+		|| !FMath::IsFinite(GetReturnSpeed()) || GetReturnSpeed() <= 0.f) return false;
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Movement->StopMovementImmediately();
+	Movement->Deactivate();
+	Collision->DisableKinsectCollision();
+	PendingWorldHit.Reset();
+	HitzoneHitTimers.Reset();
+	bHasDealtDamage = false;
+	ActiveRequest = FKinsectFlightRequest(); // damage/extraction explicitly None
+	ActiveRequest.RuntimeToken = RuntimeToken;
+	ActiveRequest.CommandSource = EKinsectCommandSource::CoAttack;
+	ActiveRequest.CommandSerial = CommandSerial;
+	State = EKinsectState::CoAttack;
+	SetFlightVisualFacing(true);
+	RefreshFlightAudio();
+	return true;
+}
+
+bool AKinsect::BeginDescendingThrustWait(const FWeaponRuntimeToken& RuntimeToken,
+	const uint64 Serial, const FVector& Position)
+{
+	if (State != EKinsectState::Attached || Serial == 0 || Position.ContainsNaN()
+		|| !Movement || !Collision || !ResourceComponent.IsValid() || ActionAttachmentToken.IsValid()
+		|| !ResourceComponent->IsKinsectCommandCurrent(Serial, EKinsectCommandSource::DescendingThrust, 0, RuntimeToken)) return false;
+	DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	Movement->StopMovementImmediately(); Movement->Deactivate();
+	Collision->DisableKinsectCollision();
+	PendingWorldHit.Reset(); HitzoneHitTimers.Reset(); bHasDealtDamage = false;
+	ActiveRequest = FKinsectFlightRequest();
+	ActiveRequest.RuntimeToken = RuntimeToken;
+	ActiveRequest.CommandSource = EKinsectCommandSource::DescendingThrust;
+	ActiveRequest.CommandSerial = Serial;
+	SetActorLocation(Position, false, nullptr, ETeleportType::TeleportPhysics);
+	State = EKinsectState::Hovering;
+	SetFlightVisualFacing(true); RefreshFlightAudio();
+	return true;
+}
+
+bool AKinsect::ApplyCoAttackPose(const uint64 CommandSerial, const FVector& Position,
+	const FVector& Tangent)
+{
+	if (State != EKinsectState::CoAttack || ActiveRequest.CommandSerial != CommandSerial
+		|| !ResourceComponent.IsValid() || !ResourceComponent->IsKinsectCommandCurrent(ActiveRequest)
+		|| Position.ContainsNaN() || Tangent.ContainsNaN()) return false;
+	// Collision is query-disabled; neither sweep nor ProjectileMovement can override this pose.
+	SetActorLocation(Position, false, nullptr, ETeleportType::TeleportPhysics);
+	if (!Tangent.IsNearlyZero()) SetActorRotation(Tangent.Rotation());
+	return true;
 }
 
 bool AKinsect::BeginFlight(const FKinsectFlightRequest& Request)
@@ -586,7 +662,11 @@ FVector AKinsect::GetAttackForwardVector() const
 
 bool AKinsect::IsAttackContactInFront(const FHitResult& Hit) const
 {
-	const FVector Forward = GetAttackForwardVector();
+	return IsContactInFront(Hit, GetAttackForwardVector());
+}
+
+bool AKinsect::IsContactInFront(const FHitResult& Hit, const FVector& Forward)
+{
 	// Initial-overlap sweeps do not have a surface ImpactPoint. Their separating
 	// normal points out of the target; its opposite points toward the contact.
 	const FVector ToContact = Hit.bStartPenetrating
@@ -691,7 +771,7 @@ bool AKinsect::SweepAutomaticMarkContact(const uint64 ExpectedCommandSerial,
 
 	for (const FHitResult& Hit : Hits)
 	{
-		if (ResourceComponent->IsHitWithinKinsectMarkPatch(Hit))
+		if (ResourceComponent->IsHitOnKinsectMarkedPart(Hit))
 		{
 			OutHit = Hit;
 			return true;
@@ -1041,6 +1121,8 @@ void AKinsect::SweepHitzones(float DeltaTime)
 		}
 	}
 
+	const FGuid SweptFlightID = ActiveRequest.FlightInstanceID;
+	const uint64 SweptSerial = ActiveRequest.CommandSerial;
 	for (const FHitResult& Hit : Hits)
 	{
 		UMHGZMonsterHitzoneComponent* Hitzone =
@@ -1050,9 +1132,10 @@ void AKinsect::SweepHitzones(float DeltaTime)
 			continue;
 		}
 		HandleHitzoneHit(Hit, DeltaTime);
-		if (State != EKinsectState::Flying)
+		if (State != EKinsectState::Flying || ActiveRequest.FlightInstanceID != SweptFlightID
+			|| ActiveRequest.CommandSerial != SweptSerial)
 		{
-			break; // 飞行已结束（SingleHit 立即结束）
+			break; // completion or a reentrant command invalidates this old sweep
 		}
 	}
 }
@@ -1119,21 +1202,29 @@ void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 		return;
 	}
 
+	const FKinsectFlightRequest HitRequest = ActiveRequest;
+	const auto IsHitFlightCurrent = [&]()
+	{
+		return State == EKinsectState::Flying && ResourceComponent.IsValid()
+			&& ActiveRequest.FlightInstanceID == HitRequest.FlightInstanceID
+			&& ActiveRequest.CommandSerial == HitRequest.CommandSerial
+			&& ResourceComponent->IsKinsectCommandCurrent(HitRequest);
+	};
 	const FGuid HitInstanceID = FGuid::NewGuid();
 	const bool bDamageApplied = ResourceComponent->ApplyKinsectDamage(
-		Hit, ActiveRequest.MotionValue, HitInstanceID,
-		ActiveRequest.SourceAttackInstanceID);
-	if (!bDamageApplied)
+		Hit, HitRequest.MotionValue, HitInstanceID, HitRequest.SourceAttackInstanceID);
+	if (!bDamageApplied || !IsHitFlightCurrent())
 	{
 		return;
 	}
 	HitzoneHitTimers.Add(Hitzone, Now);
 	// 强化贯通成功伤害只写入猎虫携带；角色点灯统一等回手交付。
-	if (ActiveRequest.ExtractMode == EKinsectExtractMode::CollectPerValidHit
+	if (HitRequest.ExtractMode == EKinsectExtractMode::CollectPerValidHit
 		&& Hitzone->ExtractColorTag.IsValid())
 	{
-		ResourceComponent->CaptureExtractFromKinsectHit(ActiveRequest, Hit, HitInstanceID);
+		ResourceComponent->CaptureExtractFromKinsectHit(HitRequest, Hit, HitInstanceID);
 	}
+	if (!IsHitFlightCurrent()) return;
 
 	// 产粉策略统一在真实伤害 GE 成功后评估；失败命中不会启动冷却、占用ID或留下粉尘。
 	if (ActiveRequest.PowderSpawnPolicy != EIGPowderSpawnPolicy::None
@@ -1148,48 +1239,18 @@ void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 	}
 }
 
-void AKinsect::HandleWorldHit()
-{
-	const UPrimitiveComponent* HitComponent = PendingWorldHit.GetComponent();
-	const UPrimitiveComponent* AimedComponent = ActiveRequest.TargetComponent.Get();
-	const bool bHitCapturedAimComponent = AimedComponent
-		&& HitComponent == AimedComponent;
-	const float TargetContactTolerance = ActiveRequest.ArrivalRadius
-		+ (Collision ? Collision->GetScaledCapsuleRadius() : 0.0f) + 2.0f;
-	const bool bImpactNearCapturedPoint =
-		!PendingWorldHit.ImpactPoint.ContainsNaN()
-		&& FVector::DistSquared(PendingWorldHit.ImpactPoint,
-			ActiveRequest.TargetPointSnapshot)
-			<= FMath::Square(TargetContactTolerance);
-	if (ActiveRequest.CommandSource == EKinsectCommandSource::PowderVortex
-		&& ActiveRequest.bAllowWorldHitAtTarget
-		&& PendingWorldHit.bBlockingHit
-		&& (bHitCapturedAimComponent || bImpactNearCapturedPoint))
-	{
-		// A floor/wall hit on the exact component selected by the activation-time
-		// aim is the requested endpoint even when the Kinsect capsule touches the
-		// surface before its center enters the small arrival-radius tolerance.
-		ActiveRequest.TargetPointSnapshot = PendingWorldHit.ImpactPoint;
-		PendingWorldHit.Reset();
-		EndFlight(EKinsectFlightEndReason::Arrival);
-		return;
-	}
-	PendingWorldHit.Reset();
-	EndFlight(EKinsectFlightEndReason::WorldHit);
-}
-
 void AKinsect::CheckFlightProgress()
 {
 	const FVector CurrentLocation = GetActorLocation();
 	const float Travelled = FVector::Dist(CurrentLocation, FlightStartLocation);
-	const bool bPowderVortexToPoint =
+	const bool bPreciseToPoint =
 		ActiveRequest.TrajectoryMode == EKinsectTrajectoryMode::ToPoint
-		&& ActiveRequest.CommandSource == EKinsectCommandSource::PowderVortex;
+		&& (ActiveRequest.CommandSource == EKinsectCommandSource::PowderVortex
+			|| ActiveRequest.CommandSource == EKinsectCommandSource::DescendingThrust);
 
-	// Keep the established distance-first behavior for every existing flight. The
-	// vortex is the sole request allowed to resolve arrival before its distance cap,
-	// so a target captured exactly at MaxFlightRange remains reachable.
-	if (!bPowderVortexToPoint && Travelled >= ActiveRequest.MaxDistance)
+	// Preserve distance-first behavior except for precise vortex/dive endpoints,
+	// which must resolve arrival before their distance cap.
+	if (!bPreciseToPoint && Travelled >= ActiveRequest.MaxDistance)
 	{
 		EndFlight(EKinsectFlightEndReason::MaxDistance);
 		return;
@@ -1211,14 +1272,12 @@ void AKinsect::CheckFlightProgress()
 			FVector::DotProduct(ToTarget, Movement->Velocity.GetSafeNormal()) < 0.f;
 		if ((!ActiveRequest.bRequireHitzoneContactForArrival && bWithinArrivalRadius) || bPassedTarget)
 		{
-			// Auto-mark approaches end at a surface-normal offset from a small local
-			// patch. At 60 Hz a fast Kinsect can pass the point by more than the later
-			// contact tolerance in one ProjectileMovement step; leaving it at that
-			// overshot location makes the resource alternate between arrival and a
-			// fresh approach forever. Snap only this non-damaging, moving-mark request
-			// to its latest target point before the contact sweep begins.
+			// Snap auto-mark approaches to their moving surface point to avoid
+			// repeated overshoot/reapproach. The damaging dive is already clamped
+			// before its contact sweep; keep its final arrival at the exact snapshot.
 			if (bPassedTarget
-				&& ActiveRequest.CommandSource == EKinsectCommandSource::AutoMark)
+				&& (ActiveRequest.CommandSource == EKinsectCommandSource::AutoMark
+					|| ActiveRequest.CommandSource == EKinsectCommandSource::DescendingThrust))
 			{
 				SetActorLocation(ActiveRequest.TargetPointSnapshot, false, nullptr,
 					ETeleportType::TeleportPhysics);
@@ -1228,7 +1287,7 @@ void AKinsect::CheckFlightProgress()
 			return;
 		}
 
-		if (bPowderVortexToPoint && Travelled >= ActiveRequest.MaxDistance)
+		if (bPreciseToPoint && Travelled >= ActiveRequest.MaxDistance)
 		{
 			EndFlight(EKinsectFlightEndReason::MaxDistance);
 		}
@@ -1342,6 +1401,7 @@ bool AKinsect::ArmMovement(const FVector& Direction, float Speed,
 		Movement->Activate(true);
 	}
 	Movement->MaxSpeed = Speed;
+	Movement->bSweepCollision = false; // damage still uses the explicit Hitzone sweep
 	Movement->Velocity = SafeDirection * Speed;
 	Movement->UpdateComponentVelocity();
 	Movement->bRotationFollowsVelocity = !bKeepCollisionOrientation;
@@ -1463,17 +1523,7 @@ bool AKinsect::ResolveAttachSocketLocation(FVector& OutLocation) const
 void AKinsect::OnWorldCollision(UPrimitiveComponent* HitComp, AActor* OtherActor,
 	UPrimitiveComponent* OtherComp, FVector NormalImpulse, const FHitResult& Hit)
 {
-	if (State != EKinsectState::Flying)
-	{
-		return;
-	}
-
-	// 只缓存真实 HitResult 并停 Movement；墙处理统一放在 Actor Tick（先 Hitzone Sweep 再处理墙）
-	PendingWorldHit = Hit;
-	if (ActiveRequest.CommandSource == EKinsectCommandSource::AutoMark
-		&& ResourceComponent.IsValid())
-	{
-		ResourceComponent->RecordAutomaticMarkWorldBlock(ActiveRequest, Hit);
-	}
-	Movement->StopMovementImmediately();
+	// Keep the reflected callback for old assets, but ignore late terrain events.
+	// Neither extraction, damage, stop-simulation nor arrival is driven by this.
+	(void)HitComp; (void)OtherActor; (void)OtherComp; (void)NormalImpulse; (void)Hit;
 }

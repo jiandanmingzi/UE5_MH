@@ -16,7 +16,7 @@ import sys
 import unreal
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from ue_asset_utils import as_sequence, is_read_error, read_field_or_error as read_field
+from ue_asset_utils import as_sequence, blueprint_cdo, is_read_error, read_field_or_error as read_field
 
 
 def scalable_float_value(value):
@@ -131,20 +131,31 @@ def main():
         config_values = {}
         for field in (
             "send_kinsect_motion_value",
-            "draw_send_kinsect_motion_value",
-            "awakened_kinsect_motion_value",
-            "powder_damage_contribution",
             "powder_motion_value",
-            "powder_damage_multiplier",
         ):
             config_values[field] = read_field(config, field)
 
+    vortex_path = "/Game/Blueprints/Ability/InsectGlaive/GA_IG_PowderVortex"
+    vortex_asset = unreal.load_asset(vortex_path)
+    vortex_settings = read_field(blueprint_cdo(vortex_asset, unreal), "powder_vortex")
+    vortex_values = {name: read_field(vortex_settings, name) for name in
+                     ("motion_value_at1", "motion_value_at5", "motion_value_at10")}
+    action_values = {}
+    for name, fields in {
+        "DrawAndSendKinsect": ("draw_send_kinsect_motion_value",),
+        "JueChongJi": ("awakened_kinsect_motion_value", "awakened_red_kinsect_motion_value", "awakened_triple_kinsect_motion_value"),
+    }.items():
+        path = "/Game/Blueprints/Ability/InsectGlaive/GA_IG_" + name
+        cdo = blueprint_cdo(unreal.load_asset(path), unreal)
+        action_values[name] = {field: read_field(cdo, field) for field in fields}
     report = {
         "schema_version": 1,
         "mode": "AuditOnly",
         "abilities": abilities,
         "training_dummy": {"asset": dummy_path, "hitzones": dummy_hitzones, "error": dummy_error},
         "combat_config": {"asset": config_path, "values": config_values, "error": config_error},
+        "powder_vortex": {"asset": vortex_path, "motion_values": vortex_values},
+        "action_motion_values": action_values,
     }
     output = Path(unreal.Paths.project_saved_dir()) / "DamageUnitsAudit" / "before.json"
     output.parent.mkdir(parents=True, exist_ok=True)

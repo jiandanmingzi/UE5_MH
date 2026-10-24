@@ -31,8 +31,8 @@ def descending_thrust_audio(writing=False, inspection=False):
         names = targets + ('AM_IG_AirDodge', 'AM_IG_QianChengGanTiao',
             'AM_IG_QianChengGanTiao_W', 'AM_IG_ErLian', 'AM_IG_HengSao')
         montages = [snapshot('/Game/Weapons/InsectGlaive/Anims/Montage/' + n) for n in names]
-        config = unreal.load_asset('/Game/Weapons/InsectGlaive/Data/DA_IG_Combat')
-        profile = read_field(config, 'descending_thrust_air_profile')
+        ga = unreal.load_asset('/Game/Blueprints/Ability/InsectGlaive/GA_IG_JiXiTuCi')
+        profile = read_field(unreal.get_default_object(ga.generated_class()), 'descending_thrust_air_profile')
         curve = read_field(profile, 'curve')
         if not isinstance(curve, unreal.CurveVector):
             raise RuntimeError('Missing live DescendingThrust curve')

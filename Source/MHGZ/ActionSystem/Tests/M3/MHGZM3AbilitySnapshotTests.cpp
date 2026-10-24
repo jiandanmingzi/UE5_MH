@@ -1,3 +1,4 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
@@ -321,7 +322,7 @@ bool FMHGZM3DrawSendSnapshotConstruction::RunTest(const FString& Parameters)
 	TestEqual(TEXT("draw-send max distance is straight-flight distance"),
 		Kinsect->ActiveRequest.MaxDistance, H.KinsectData->StraightFlightDistance);
 	TestEqual(TEXT("draw-send motion value from config"),
-		Kinsect->ActiveRequest.MotionValue, H.CombatConfig->DrawSendKinsectMotionValue);
+		Kinsect->ActiveRequest.MotionValue, IGTest::Action<UMHGZDrawAndSendKinsectAbility>(H.CombatConfig)->DrawSendKinsectMotionValue);
 	TestEqual(TEXT("draw-send acquires kinsect active tag"),
 		H.ASC->GetTagCount(SnapshotKinsectActiveTag()), 1);
 

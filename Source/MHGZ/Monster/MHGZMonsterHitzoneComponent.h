@@ -96,11 +96,27 @@ public:
 	/** 强制恢复所有通道到常态 */
 	void ForceRestoreAllChannels();
 
+	/** 部位级虫印Debuff；按来源及实例隔离，不给整只怪物施加虫印。 */
+	void ApplyKinsectMarkDebuff(UObject* Source, const FGuid& MarkID, double ExpireAt);
+	void RemoveKinsectMarkDebuff(const UObject* Source, const FGuid& MarkID);
+	bool HasKinsectMarkDebuffFrom(const UObject* Source, const FGuid& MarkID) const;
+
+	/** 该部位是否仍带有任意有效来源的虫印Debuff。 */
+	UFUNCTION(BlueprintPure, Category = "MHGZ|Hitzone|Debuff")
+	bool HasKinsectMarkDebuff() const;
+
 protected:
 	virtual void OnRegister() override;
 	virtual void OnComponentDestroyed(bool bDestroyingHierarchy) override;
 
 private:
+	struct FKinsectMarkDebuff
+	{
+		FGuid MarkID;
+		double ExpireAt = 0.0;
+	};
+	TMap<TWeakObjectPtr<const UObject>, FKinsectMarkDebuff> KinsectMarkDebuffs;
+
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZMonsterBoxHitzoneQueryComponent> BoxQuery;
 };

@@ -1,3 +1,6 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
+#include "InsectGlaive/InsectGlaiveCombatConfig.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZM5KinsectSlashDamageTestTypes.h"
@@ -92,6 +95,21 @@ void UMHGZM5KinsectSlashDamageTestAbility::ActivateAbility(
 
 void UMHGZM5KinsectSlashDamageTestAbility::ConfigureForTest()
 {
+	// Transient legacy builder -> new GA owner; no runtime Combat fallback.
+	if (const auto* Host = GetRuntimeHost())
+	{
+		if (const auto* Fixture = Cast<UInsectGlaiveCombatConfig>(Host->GetCurrentContext().CombatConfig))
+		{
+			KinsectSlashDashProfile = IGTest::Action<UMHGZKinsectSlashAbility>(Fixture)->KinsectSlashDashProfile;
+			bUseCapturedKinsectSlashDash = IGTest::Action<UMHGZKinsectSlashAbility>(Fixture)->bUseCapturedKinsectSlashDash;
+			KinsectSlashMaxDistance = IGTest::Action<UMHGZKinsectSlashAbility>(Fixture)->KinsectSlashMaxDistance;
+			KinsectSlashDashDuration = IGTest::Action<UMHGZKinsectSlashAbility>(Fixture)->KinsectSlashDashDuration;
+			KinsectSlashMaxUpwardLaunchPitchDegrees = IGTest::Action<UMHGZKinsectSlashAbility>(Fixture)->KinsectSlashMaxUpwardLaunchPitchDegrees;
+			KinsectSlashDistanceCurve = IGTest::Action<UMHGZKinsectSlashAbility>(Fixture)->KinsectSlashDistanceCurve;
+			KinsectSlashDanceDamageMultipliers = IGTest::Action<UMHGZKinsectSlashAbility>(Fixture)->KinsectSlashDanceDamageMultipliers;
+		}
+	}
+
 	AttackSegments.Reset();
 	FAttackSegmentConfig& Segment = AttackSegments.AddDefaulted_GetRef();
 	Segment.Collision.HitzoneQueryTag = DamageGateTag(TEXT("Hitzone.Head"));
@@ -159,12 +177,9 @@ bool UMHGZM5KinsectSlashDamageTestAbility::ValidateActionDependencies() const
 	const bool bResourceReady = IGResource && RuntimeHost
 		&& RuntimeHost->GetResourceProvider() == IGResource
 		&& IGResource->GetKinsectActor() && IGResource->GetKinsectActor()->Mesh;
-	const bool bConfigReady = Config && Config->KinsectSlashDistanceCurve
-		&& Config->KinsectSlashMaxDistance > 0.0f
-		&& Config->KinsectSlashDashDuration > 0.0f
-		&& Config->KinsectSlashProbeRadius > 0.0f
-		&& Config->KinsectSlashProbeMaxStep > 0.0f
-		&& Config->KinsectSlashLateHitWindow >= 0.0f;
+	const bool bConfigReady = Config && IGTest::Action<UMHGZKinsectSlashAbility>(Config)->KinsectSlashDistanceCurve
+		&& IGTest::Action<UMHGZKinsectSlashAbility>(Config)->KinsectSlashMaxDistance > 0.0f
+		&& IGTest::Action<UMHGZKinsectSlashAbility>(Config)->KinsectSlashDashDuration > 0.0f;
 	const bool bAttackReady = AttackSegments.Num() == 3
 		&& AttackSegments[0].Damage.DamageEffectClass
 		&& AttackSegments[0].Damage.MotionValue.GetValueAtLevel(1.0f) > 0.0f
@@ -187,7 +202,7 @@ bool UMHGZM5KinsectSlashDamageTestAbility::ValidateActionDependencies() const
 
 	float TerminalSlope = 0.0f;
 	return MHGZWeaponMovementCurves::ValidateNormalizedProgressCurve(
-		Config->KinsectSlashDistanceCurve, TerminalSlope);
+		IGTest::Action<UMHGZKinsectSlashAbility>(Config)->KinsectSlashDistanceCurve, TerminalSlope);
 }
 
 bool UMHGZM5KinsectSlashDamageTestAbility::PrepareAttackMontage()
@@ -252,6 +267,7 @@ bool FMHGZM5KinsectSlashDamageTestHarness::Build()
 	UMHGZWeaponDefinition* WeaponDefinition = NewObject<UMHGZWeaponDefinition>(PlayerState);
 	UWeaponRuntimeDefinition* RuntimeDefinition = NewObject<UWeaponRuntimeDefinition>(PlayerState);
 	CombatConfig = NewObject<UMHGZM5KinsectSlashDamageTestCombatConfig>(PlayerState);
+		ActionFixtures.Initialize(CombatConfig);
 	UMHGZWeaponComboData* ComboData = NewObject<UMHGZWeaponComboData>(PlayerState);
 	UInsectGlaiveKinsectData* KinsectData = NewObject<UInsectGlaiveKinsectData>(PlayerState);
 	if (!WeaponDefinition || !RuntimeDefinition || !CombatConfig || !ComboData || !KinsectData)
@@ -269,8 +285,8 @@ bool FMHGZM5KinsectSlashDamageTestHarness::Build()
 	CombatConfig->KinsectAttachSocket = NAME_None;
 	CombatConfig->KinsectMarkLaunchSocket = NAME_None;
 	CombatConfig->RedEffectClass = UMHGZM5KinsectSlashDamageRedExtractGE::StaticClass();
-	CombatConfig->KinsectSlashDistanceCurve = MakeDamageGateCurve(CombatConfig);
-	if (!CombatConfig->KinsectSlashDistanceCurve)
+	IGTest::Action<UMHGZKinsectSlashAbility>(CombatConfig)->KinsectSlashDistanceCurve = MakeDamageGateCurve(CombatConfig);
+	if (!IGTest::Action<UMHGZKinsectSlashAbility>(CombatConfig)->KinsectSlashDistanceCurve)
 	{
 		return false;
 	}

@@ -110,7 +110,7 @@ FWeaponMovementRequest UMHGZAirDodgeAbility::BuildAirDodgeRequest(
 	const FWeaponActionToken& OwnerAction,
 	const FVector& LaunchDirection,
 	const FVector& FallbackFacing,
-	const UInsectGlaiveCombatConfig& Config)
+	const UMHGZAirDodgeAbility& Tuning)
 {
 	FVector Planar(LaunchDirection.X, LaunchDirection.Y, 0.0f);
 	if (Planar.IsNearlyZero())
@@ -132,8 +132,8 @@ FWeaponMovementRequest UMHGZAirDodgeAbility::BuildAirDodgeRequest(
 	// 水平分量同时是**方向来源**：ApplyBallisticVaultSource 用 LaunchVelocity.XY
 	// 归一化覆盖 DirectionSnapshot，所以「方向 = 摇杆角」与「完全不继承进入速度」
 	// 都是这条路由免费给的（真值：`147` 自己散在 3.1~12.1 m/s 而 `137` 恒 ~13）。
-	Request.LaunchVelocity = Planar * Config.AirDodgeHorizontalSpeed
-		+ FVector(0.0f, 0.0f, Config.AirDodgeVerticalSpeed);
+	Request.LaunchVelocity = Planar * Tuning.AirDodgeHorizontalSpeed
+		+ FVector(0.0f, 0.0f, Tuning.AirDodgeVerticalSpeed);
 	Request.DirectionSnapshot = Planar;
 	// 显式初速模式下 MaxDistance 会被 |vxy|·ResolvedDuration 覆盖（任务 :402），
 	// 这里写实测总长只为可读性 —— 它不参与求解。
@@ -431,7 +431,7 @@ bool UMHGZAirDodgeAbility::StartAirDodgeMovement()
 	// 瞬转已经把角色朝向也对到它了，所以这里的回退值只是「摇杆回中」那一种情形。
 	const FWeaponInputSnapshot& Input = GetWeaponActivationContext().Input;
 	const FWeaponMovementRequest Request = BuildAirDodgeRequest(GetActionToken(),
-		Input.WorldDirection, Character->GetActorForwardVector(), *CombatConfig);
+		Input.WorldDirection, Character->GetActorForwardVector(), *this);
 	if (!Request.HasValidBallisticParameters())
 	{
 		UE_LOG(LogMHGZ, Warning, TEXT("[AirDodge] 弹道参数不合法（显式初速组）。"));
@@ -738,3 +738,44 @@ void UMHGZAirDodgeAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 	}
 	RecordAirDodgeMovementPhase(EndingCharacter, TEXT("AirDodge.EndAbility.Finished"));
 }
+
+#if WITH_EDITOR
+#undef LOCTEXT_NAMESPACE
+#define LOCTEXT_NAMESPACE "MHGZAirDodgeConfig"
+EDataValidationResult UMHGZAirDodgeAbility::IsDataValid(FDataValidationContext& Context) const
+{
+	const EDataValidationResult Result = Super::IsDataValid(Context);
+	bool bInvalid = false;
+	auto AddError = [&Context, &bInvalid](const FText& Error)
+	{
+		Context.AddError(Error);
+		bInvalid = true;
+	};
+
+	auto CheckPositive = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value <= 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("NotPositive", "{0} must be > 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	auto CheckNonNegative = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value < 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("Negative", "{0} must be >= 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	CheckPositive(TEXT("AirDodgeHorizontalSpeed"), AirDodgeHorizontalSpeed);
+	CheckPositive(TEXT("AirDodgeVerticalSpeed"), AirDodgeVerticalSpeed);
+
+	return bInvalid ? EDataValidationResult::Invalid : (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);
+}
+#undef LOCTEXT_NAMESPACE
+#endif

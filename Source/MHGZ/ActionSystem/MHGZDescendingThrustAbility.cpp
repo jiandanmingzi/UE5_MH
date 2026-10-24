@@ -8,9 +8,11 @@
 #include "ActionSystem/AnimNotify_DescendingThrustEvent.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
+#include "InsectGlaive/Kinsect/Kinsect.h"
 #include "ActionSystem/MHGZGameplayEffectContext.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Animation/AnimTypes.h"
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
@@ -392,11 +394,11 @@ bool UMHGZDescendingThrustAbility::HasUsableTrajectoryProfile() const
 	const UInsectGlaiveCombatConfig* Config = Resource
 		? Resource->GetCombatConfig() : nullptr;
 	return Config
-		&& Config->DescendingThrustAirProfile.IsValid()
-		&& FMath::IsFinite(Config->DescendingThrustAirWatchdogSeconds)
-		&& Config->DescendingThrustAirWatchdogSeconds > 0.0f
-		&& FMath::IsFinite(Config->DescendingThrustLandingBlendInTime)
-		&& Config->DescendingThrustLandingBlendInTime >= 0.0f;
+		&& DescendingThrustAirProfile.IsValid()
+		&& FMath::IsFinite(DescendingThrustAirWatchdogSeconds)
+		&& DescendingThrustAirWatchdogSeconds > 0.0f
+		&& FMath::IsFinite(DescendingThrustLandingBlendInTime)
+		&& DescendingThrustLandingBlendInTime >= 0.0f;
 }
 
 bool UMHGZDescendingThrustAbility::IsReleaseFallbackInput(
@@ -690,6 +692,11 @@ void UMHGZDescendingThrustAbility::ActivateAbility(
 	const FGameplayAbilityActivationInfo ActivationInfo,
 	const FGameplayEventData* TriggerEventData)
 {
+	const AActor* Avatar = GetAvatarActorFromActorInfo();
+	const FVector KinsectOrigin = Avatar ? Avatar->GetActorLocation() : FVector::ZeroVector;
+	const URes_InsectGlaive* EntryResource = GetIGResourceComponent();
+	const bool bKinsectWasAttached = EntryResource && EntryResource->GetKinsectActor()
+		&& EntryResource->GetKinsectActor()->GetState() == EKinsectState::Attached;
 	ResetActivationState();
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 	if (!IsActionActivationCommitted() || !IsActive())
@@ -738,7 +745,7 @@ void UMHGZDescendingThrustAbility::ActivateAbility(
 		return;
 	}
 
-	FrozenDanceDamageMultiplier = Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::DescendingThrust);
+	FrozenDanceDamageMultiplier = MHGZ::IGActionConfig::DanceDamageMultiplier(DescendingThrustDanceDamageMultipliers, Resource->GetDanceStacks(), Resource->GetCombatConfig()->MaxDanceStacks);
 	if (!FMath::IsFinite(FrozenDanceDamageMultiplier)
 		|| FrozenDanceDamageMultiplier <= 0.0f)
 	{
@@ -757,6 +764,58 @@ void UMHGZDescendingThrustAbility::ActivateAbility(
 	}
 
 	ApplyFirstCorrectionAfterMovementStarts();
+	if (bKinsectWasAttached)
+		Resource->BeginDescendingThrustKinsect(DescendingActionToken, KinsectOrigin,
+			GetActivationAttackInstanceID(), KinsectDiveMotionValue);
+}
+
+bool UMHGZDescendingThrustAbility::ResolveKinsectDiveTarget(ACharacter& Character,
+	const UAnimMontage& Montage, const float MontagePosition, FVector& OutTarget)
+{
+	OutTarget = FVector::ZeroVector;
+	USkeletalMeshComponent* Mesh = Character.GetMesh();
+	const UCharacterMovementComponent* CMC = Character.GetCharacterMovement();
+	if (!Mesh || !CMC || !CMC->IsMovingOnGround() || !FMath::IsFinite(MontagePosition)
+		|| MontagePosition < 0.f || MontagePosition > Montage.GetPlayLength()) return false;
+	// Extract through the real Montage track, including trims/rates, then use the
+	// same mesh-to-world conversion as CMC. +Y in the source is not world +Y/Z.
+	FTransform RemainingLocal = Montage.ExtractRootMotionFromTrackRange(
+		MontagePosition, Montage.GetPlayLength(), FAnimExtractContext());
+	RemainingLocal.ScaleTranslation(Character.GetAnimRootMotionTranslationScale());
+	if (RemainingLocal.ContainsNaN()) return false;
+	const FTransform RemainingWorld = Mesh->ConvertLocalRootMotionToWorld(RemainingLocal);
+	FVector GroundDelta = RemainingWorld.GetTranslation();
+	GroundDelta.Z = 0.f; // Walking root motion does not change the capsule's height.
+	const FVector FinalForward = RemainingWorld.GetRotation().RotateVector(
+		Character.GetActorForwardVector()).GetSafeNormal2D();
+	if (RemainingWorld.ContainsNaN() || FinalForward.IsNearlyZero()) return false;
+	OutTarget = Character.GetActorLocation() + GroundDelta + FinalForward * 100.f;
+	return !OutTarget.ContainsNaN();
+}
+
+void UMHGZDescendingThrustAbility::OnAttackCollisionWindowRetired(const int32 SegmentIndex, const uint64 Occurrence)
+{
+	// Only the actual final ground window, never airborne hits or forced cleanup.
+	if (!bEndingDescendingThrust && IsActive() && Phase == EDescendingThrustPhase::GroundOver && SegmentIndex == 3)
+	{
+		ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
+		UAnimInstance* Anim = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
+		const FAnimMontageInstance* Instance = Anim ? Anim->GetMontageInstanceForID(LandingMontageInstanceID) : nullptr;
+		URes_InsectGlaive* Resource = GetIGResourceComponent();
+		FVector Target;
+		// During CMC TickCharacterPose the current animation step has not moved
+		// the capsule yet. Include it once; direct/post-movement callbacks use now.
+		const float RootMotionBase = Instance && Character->GetMesh()->bIsAutonomousTickPose
+			? Instance->GetPreviousPosition() : Instance ? Instance->GetPosition() : 0.f;
+		if (Resource && Character && Instance && Instance->Montage == LandingMontage
+			&& ResolveKinsectDiveTarget(*Character, *LandingMontage, RootMotionBase, Target)
+			&& Resource->StartDescendingThrustKinsectDive(DescendingActionToken, Target))
+		{
+			UE_LOG(LogMHGZ, Display, TEXT("[DescendingThrustKinsect] Over=%.6f rootBase=%.6f capsule=%s fixedFinalTarget=%s"),
+				Instance->GetPosition(), RootMotionBase, *Character->GetActorLocation().ToCompactString(), *Target.ToCompactString());
+		}
+	}
+	Super::OnAttackCollisionWindowRetired(SegmentIndex, Occurrence);
 }
 
 FWeaponMovementRequest UMHGZDescendingThrustAbility::MakeMovementRequest() const
@@ -777,7 +836,7 @@ FWeaponMovementRequest UMHGZDescendingThrustAbility::MakeMovementRequest() const
 		? Resource->GetCombatConfig() : nullptr;
 	if (Config)
 	{
-		Request.RecordedTrajectory = Config->DescendingThrustAirProfile;
+		Request.RecordedTrajectory = DescendingThrustAirProfile;
 		Request.Duration = Request.RecordedTrajectory.GetDuration();
 	}
 	return Request;
@@ -831,14 +890,14 @@ void UMHGZDescendingThrustAbility::StartWatchdog()
 		? Resource->GetCombatConfig() : nullptr;
 	UWorld* World = GetWorld();
 	if (!Config || !World || !FMath::IsFinite(
-		Config->DescendingThrustAirWatchdogSeconds)
-		|| Config->DescendingThrustAirWatchdogSeconds <= 0.0f)
+		DescendingThrustAirWatchdogSeconds)
+		|| DescendingThrustAirWatchdogSeconds <= 0.0f)
 	{
 		return;
 	}
 	World->GetTimerManager().SetTimer(WatchdogTimer, this,
 		&UMHGZDescendingThrustAbility::HandleWatchdogExpired,
-		Config->DescendingThrustAirWatchdogSeconds, false);
+		DescendingThrustAirWatchdogSeconds, false);
 }
 
 void UMHGZDescendingThrustAbility::ClearWatchdog()
@@ -1011,8 +1070,8 @@ bool UMHGZDescendingThrustAbility::PlayLandingMontage()
 	const UInsectGlaiveCombatConfig* Config = Resource
 		? Resource->GetCombatConfig() : nullptr;
 	const float BlendInTime = Config
-		&& FMath::IsFinite(Config->DescendingThrustLandingBlendInTime)
-		? FMath::Max(0.0f, Config->DescendingThrustLandingBlendInTime) : 0.1f;
+		&& FMath::IsFinite(DescendingThrustLandingBlendInTime)
+		? FMath::Max(0.0f, DescendingThrustLandingBlendInTime) : 0.1f;
 
 	TSet<int32> ExistingInstances;
 	for (const FAnimMontageInstance* Instance : AnimInstance->MontageInstances)
@@ -1154,9 +1213,9 @@ bool UMHGZDescendingThrustAbility::BeginLandingSwitch(const FHitResult& Hit)
 					? GetUsableResource()->GetCombatConfig() : nullptr;
 				const float BlendOutTime = Config
 					&& FMath::IsFinite(
-						Config->DescendingThrustLandingBlendInTime)
+						DescendingThrustLandingBlendInTime)
 					? FMath::Max(0.0f,
-						Config->DescendingThrustLandingBlendInTime) : 0.1f;
+						DescendingThrustLandingBlendInTime) : 0.1f;
 				AnimInstance->Montage_Stop(BlendOutTime, ActiveMainMontage);
 			}
 		}
@@ -1566,6 +1625,12 @@ void UMHGZDescendingThrustAbility::EndAbility(
 	const bool bReplicateEndAbility, const bool bWasCancelled)
 {
 	bEndingDescendingThrust = true;
+	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
+	{
+		const auto Reason = GetActionEndReason();
+		Resource->FinishDescendingThrustKinsect(DescendingActionToken,
+			bWasCancelled && Reason == EWeaponActionEndReason::Normal ? EWeaponActionEndReason::Interrupted : Reason);
+	}
 	DisableCollision();
 	ClearWatchdog();
 	Phase = EDescendingThrustPhase::Ended;
@@ -1724,6 +1789,7 @@ EDataValidationResult UMHGZDescendingThrustAbility::IsDataValid(
 	FDataValidationContext& Context) const
 {
 	const EDataValidationResult Result = Super::IsDataValid(Context);
+	if (ValidateOwnedActionConfig(Context) == EDataValidationResult::Invalid) return EDataValidationResult::Invalid;
 	bool bInvalid = false;
 	auto AddError = [&Context, &bInvalid](const FString& Message)
 	{
@@ -1790,4 +1856,67 @@ EDataValidationResult UMHGZDescendingThrustAbility::IsDataValid(
 		: (Result == EDataValidationResult::NotValidated
 			? EDataValidationResult::Valid : Result);
 }
+#endif
+
+#if WITH_EDITOR
+#undef LOCTEXT_NAMESPACE
+#define LOCTEXT_NAMESPACE "MHGZDescendingThrustConfig"
+EDataValidationResult UMHGZDescendingThrustAbility::ValidateOwnedActionConfig(FDataValidationContext& Context) const
+{
+	const EDataValidationResult Result = EDataValidationResult::Valid;
+	bool bInvalid = false;
+	auto AddError = [&Context, &bInvalid](const FText& Error)
+	{
+		Context.AddError(Error);
+		bInvalid = true;
+	};
+
+	auto CheckPositive = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value <= 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("NotPositive", "{0} must be > 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	auto CheckNonNegative = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value < 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("Negative", "{0} must be >= 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	CheckPositive(TEXT("DescendingThrustAirWatchdogSeconds"),
+		DescendingThrustAirWatchdogSeconds);
+	CheckNonNegative(TEXT("DescendingThrustLandingBlendInTime"),
+		DescendingThrustLandingBlendInTime);
+	CheckNonNegative(TEXT("DescendingThrustAirControl"), DescendingThrustAirControl);
+	auto CheckTrajectoryProfile = [&AddError](const TCHAR* FieldName,
+		const FRecordedLocalTrajectoryProfile& Profile)
+	{
+		if (!Profile.Curve)
+		{
+			return;
+		}
+		if (!Profile.IsValid())
+		{
+			AddError(FText::Format(
+				LOCTEXT("InvalidPiercerTrajectory",
+					"{0} is assigned but not self-consistent: it needs strictly increasing finite keys starting at the origin, a positive CoveredSeconds no later than its last key, and finite terminal velocity/acceleration."),
+				FText::FromString(FieldName)));
+		}
+	};
+	CheckTrajectoryProfile(TEXT("DescendingThrustAirProfile"), DescendingThrustAirProfile);
+
+    if (DescendingThrustDanceDamageMultipliers.IsEmpty() || !FMath::IsNearlyEqual(DescendingThrustDanceDamageMultipliers[0], 1.0f)) AddError(FText::FromString(TEXT("舞踏倍率第0层必须为1。")));
+    for (float Value : DescendingThrustDanceDamageMultipliers) if (!FMath::IsFinite(Value) || Value < 1.0f) AddError(FText::FromString(TEXT("舞踏倍率必须有限且不小于1。")));
+
+	return bInvalid ? EDataValidationResult::Invalid : (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);
+}
+#undef LOCTEXT_NAMESPACE
 #endif

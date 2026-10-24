@@ -3,6 +3,8 @@
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
 
 #include "Misc/AutomationTest.h"
+#include "UObject/UnrealType.h"
+#include "ActionSystem/MHGZDamageMath.h"
 
 #include "AbilitySystemComponent.h"
 #include "ActionSystem/MHGZDamageGameplayEffect.h"
@@ -91,24 +93,25 @@ FVortexTestTarget SpawnDamageTarget(UWorld& World, const FVector& Location,
 	return Target;
 }
 
-bool ConfigureVortex(FMHGZM3Harness& Harness)
+bool ConfigureVortex(FMHGZM3Harness& Harness, FIGPowderVortexSettings& Settings, float& AttackPower)
 {
 	Harness.CombatConfig->PowderActorClass = AIGPowderActor::StaticClass();
 	Harness.CombatConfig->PowderLifetime = 30.0f;
-	Harness.CombatConfig->PowderDamageContribution = 5.0f;
-	Harness.CombatConfig->PowderGatherRadius = 200.0f;
-	Harness.CombatConfig->PowderGatherMaxCount = 1; // legacy cap must not limit M6.3.4
-	Harness.CombatConfig->PowderVortexDelay = 1.0f;
-	Harness.CombatConfig->PowderVortexDamageAt1 = 10.0f;
-	Harness.CombatConfig->PowderVortexDamageAt5 = 50.0f;
-	Harness.CombatConfig->PowderVortexDamageAt10 = 100.0f;
-	Harness.CombatConfig->PowderVortexHitCueTag =
+	Harness.PowderSpawnAttackPower = 5.0f;
+	Settings.GatherRadius = 200.0f;
+	Harness.PowderReserveMaxCount = 1; // legacy cap must not limit M6.3.4
+	Settings.GatherDelay = 1.0f;
+	Settings.MotionValueAt1 = 10.0f;
+	Settings.MotionValueAt5 = 50.0f;
+	Settings.MotionValueAt10 = 100.0f;
+	Harness.KinsectData->KinsectAttackPower = 100.f;
+	AttackPower = 100.f;
+	Settings.HitCueTag =
 		M3::Tag(TEXT("GameplayCue.Hit.IG.Powder"));
-	Harness.CombatConfig->PowderVortexExplosionCueTag =
+	Settings.ExplosionCueTag =
 		M3::Tag(TEXT("GameplayCue.IG.PowderVortex"));
 	Harness.CombatConfig->PowderDespawnDistance = 0.0f;
-	return Harness.CombatConfig->PowderVortexHitCueTag.IsValid()
-		&& Harness.CombatConfig->PowderVortexExplosionCueTag.IsValid();
+	return Settings.IsValid();
 }
 
 bool SpawnPowder(FMHGZM3Harness& Harness, const FVector& Location)
@@ -119,7 +122,7 @@ bool SpawnPowder(FMHGZM3Harness& Harness, const FVector& Location)
 	SourceHit.ImpactPoint = Location;
 	SourceHit.ImpactNormal = FVector::UpVector;
 	return Harness.Resource->SpawnPowderForSuccessfulHit(
-		Harness.Host->GetCurrentToken(), FGuid::NewGuid(), FGuid::NewGuid(), SourceHit);
+		Harness.Host->GetCurrentToken(), FGuid::NewGuid(), FGuid::NewGuid(), SourceHit, Harness.PowderSpawnAttackPower, 100.0f);
 }
 
 FKinsectFlightRequest MakeVortexRequest(FMHGZM3Harness& Harness,
@@ -170,22 +173,29 @@ bool FMHGZM6PowderVortexTransactionTests::RunTest(const FString& Parameters)
 	{
 		int32 Count;
 		float ExpectedDirectDamage;
+		float AttackPower = 100.f;
+		float PowderMotionValue = 0.f;
 	};
 	const FTierCase Cases[] = {
 		{ 1, 10.0f }, { 4, 10.0f }, { 5, 50.0f },
-		{ 9, 50.0f }, { 10, 100.0f }
+		{ 9, 50.0f }, { 10, 100.0f },
+		{ 1, 20.f, 200.f, 30.f }, { 10, 100.f, 100.f, 30.f },
+		{ 100, 100.f, 100.f, 30.f }, { 10, 100.f, 100.f, 9.99f }
 	};
 
 	for (const FTierCase& Case : Cases)
 	{
 		FMHGZM3Harness Harness;
-		if (!Harness.Setup() || !ConfigureVortex(Harness))
+		if (!Harness.Setup() || !ConfigureVortex(Harness, Harness.Resource->ActivePowderVortexSettings, Harness.Resource->ActivePowderVortexAttackPower))
 		{
 			AddError(TEXT("M3 runtime or Powder Vortex config setup failed"));
 			Harness.Teardown();
 			return false;
 		}
 
+		Harness.KinsectData->KinsectAttackPower = Case.AttackPower;
+		Harness.Resource->ActivePowderVortexAttackPower = Case.AttackPower;
+		Harness.CombatConfig->PowderMaxCount = 200;
 		const FVector Center(700.0f, 0.0f, 100.0f);
 		FVortexTestTarget Target = SpawnDamageTarget(*Harness.World, Center);
 		FVortexTestTarget OutsideTarget = SpawnDamageTarget(*Harness.World,
@@ -200,10 +210,21 @@ bool FMHGZM6PowderVortexTransactionTests::RunTest(const FString& Parameters)
 			return false;
 		}
 
+		Target.Attributes->InitMaxHealth(10000.f);
+		Target.Attributes->InitHealth(10000.f);
+		auto SpawnMember = [&](const FVector& Location)
+		{
+			if (Case.PowderMotionValue <= 0.f) return SpawnPowder(Harness, Location);
+			Harness.CombatConfig->PowderMotionValue = Case.PowderMotionValue;
+			FHitResult Hit(Target.Actor, Target.FirstHitzone, Location, FVector::UpVector);
+			Hit.bBlockingHit = true;
+			return Harness.Resource->HandleSuccessfulKinsectDamage(Harness.Host->GetCurrentToken(),
+				FGuid::NewGuid(), FGuid::NewGuid(), Hit, EIGPowderSpawnPolicy::AwakenedEachHit);
+		};
 		for (int32 Index = 0; Index < Case.Count; ++Index)
 		{
 			TestTrue(TEXT("each initial in-radius powder is registered"),
-				SpawnPowder(Harness, Center + FVector(0.0f, 10.0f * Index, 0.0f)));
+				SpawnMember(Center + FVector(0.0f, 10.0f * (Index % 10), 0.0f)));
 		}
 		TestTrue(TEXT("an out-of-radius powder is registered before arrival"),
 			SpawnPowder(Harness, Center + FVector(300.0f, 0.0f, 0.0f)));
@@ -244,9 +265,10 @@ bool FMHGZM6PowderVortexTransactionTests::RunTest(const FString& Parameters)
 		int32 AppliedGECount = 0;
 		TArray<FGuid> StageIDs;
 		TArray<float> AppliedAttackPower;
+		TArray<float> AppliedMotionValues;
 		const FDelegateHandle DamageDelegate =
 			Target.ASC->OnGameplayEffectAppliedDelegateToSelf.AddLambda(
-				[&AppliedGECount, &StageIDs, &AppliedAttackPower](UAbilitySystemComponent*,
+				[&AppliedGECount, &StageIDs, &AppliedAttackPower, &AppliedMotionValues](UAbilitySystemComponent*,
 					const FGameplayEffectSpec& Spec, FActiveGameplayEffectHandle)
 				{
 					++AppliedGECount;
@@ -256,6 +278,7 @@ bool FMHGZM6PowderVortexTransactionTests::RunTest(const FString& Parameters)
 					StageIDs.Add(Context ? Context->AttackInstanceID : FGuid());
 					AppliedAttackPower.Add(Spec.GetSetByCallerMagnitude(
 						M3::Tag(TEXT("Damage.AttackPower")), true, -1.0f));
+					AppliedMotionValues.Add(Spec.GetSetByCallerMagnitude(M3::Tag(TEXT("Damage.MotionValue")), true, -1.f));
 				});
 
 		// A premature/stale callback is a no-op; the arrival-relative deadline remains owned.
@@ -263,7 +286,7 @@ bool FMHGZM6PowderVortexTransactionTests::RunTest(const FString& Parameters)
 		TestEqual(TEXT("commit cannot run before the one-second arrival deadline"),
 			Harness.Resource->GetPowderSnapshots().Num(), Case.Count + 2);
 		TestTrue(TEXT("early callback applies no damage"),
-			FMath::IsNearlyEqual(Target.Attributes->GetHealth(), 1000.0f));
+			FMath::IsNearlyEqual(Target.Attributes->GetHealth(), 10000.0f));
 
 		Reservation = Harness.Resource->PowderReservations.Find(
 			Harness.Resource->ActivePowderVortexReservationID);
@@ -274,8 +297,10 @@ bool FMHGZM6PowderVortexTransactionTests::RunTest(const FString& Parameters)
 		Harness.Resource->CommitPowderVortexTransaction(Request.CommandSerial);
 		Target.ASC->OnGameplayEffectAppliedDelegateToSelf.Remove(DamageDelegate);
 
-		const float ExpectedContributionDamage = 5.0f * Case.Count;
-		const float ExpectedHealth = 1000.0f - Case.ExpectedDirectDamage
+		const float ExpectedPerPowder = Case.PowderMotionValue > 0.f
+			? (Case.PowderMotionValue == 9.99f ? 9.f : float(int32(Case.AttackPower) * 30 / 100)) : 5.f;
+		const float ExpectedContributionDamage = ExpectedPerPowder * Case.Count;
+		const float ExpectedHealth = 10000.0f - Case.ExpectedDirectDamage
 			- ExpectedContributionDamage;
 		TestEqual(TEXT("both stage damages are applied to the one in-radius Actor"),
 			Target.Attributes->GetHealth(), ExpectedHealth);
@@ -290,12 +315,14 @@ bool FMHGZM6PowderVortexTransactionTests::RunTest(const FString& Parameters)
 				StageIDs[0].IsValid() && StageIDs[1].IsValid()
 				&& StageIDs[0] != StageIDs[1]);
 		}
-		TestEqual(TEXT("stage one uses the count-tier direct damage"),
+		TestEqual(TEXT("both damage stages keep explicit formula inputs"),
 			AppliedAttackPower.Num(), 2);
 		if (AppliedAttackPower.Num() == 2)
 		{
-			TestTrue(TEXT("stage one damage matches its 1/5/10 tier"),
-				FMath::IsNearlyEqual(AppliedAttackPower[0], Case.ExpectedDirectDamage));
+			TestEqual(TEXT("stage one retains the kinsect AP snapshot rather than a fixed damage number"),
+				AppliedAttackPower[0], Case.AttackPower);
+			TestEqual(TEXT("stage one retains the configured raw MV in the actual GE"),
+				AppliedMotionValues[0], Case.Count < 5 ? 10.f : (Case.Count < 10 ? 50.f : 100.f));
 			TestTrue(TEXT("stage two damage sums each powder's immutable Di"),
 				FMath::IsNearlyEqual(AppliedAttackPower[1], ExpectedContributionDamage));
 		}
@@ -323,7 +350,7 @@ bool FMHGZM6PowderVortexConsumesMarkAtGatherStart::RunTest(
 {
 	(void)Parameters;
 	FMHGZM3Harness Harness;
-	if (!Harness.Setup() || !ConfigureVortex(Harness))
+	if (!Harness.Setup() || !ConfigureVortex(Harness, Harness.Resource->ActivePowderVortexSettings, Harness.Resource->ActivePowderVortexAttackPower))
 	{
 		AddError(TEXT("M3 runtime or Powder Vortex config setup failed"));
 		Harness.Teardown();
@@ -352,7 +379,7 @@ bool FMHGZM6PowderVortexConsumesMarkAtGatherStart::RunTest(
 	// A real powder may coexist with the mark, but remains its own movable actor.
 	TestTrue(TEXT("spawn a distinct powder at the marked impact"),
 		Harness.Resource->SpawnPowderForSuccessfulHit(
-			Harness.Host->GetCurrentToken(), FGuid::NewGuid(), FGuid::NewGuid(), MarkHit));
+			Harness.Host->GetCurrentToken(), FGuid::NewGuid(), FGuid::NewGuid(), MarkHit, Harness.PowderSpawnAttackPower, 100.0f));
 	TestEqual(TEXT("one powder is registered beside the mark"),
 		Harness.Resource->GetPowderSnapshots().Num(), 1);
 
@@ -411,6 +438,10 @@ bool FMHGZM6PowderVortexConsumesMarkAtGatherStart::RunTest(
 	OutsideRequest.CommandSerial = Harness.Resource->AdvanceKinsectCommand(
 		EKinsectCommandSource::PowderVortex);
 	Harness.Resource->ActivePowderVortexCommandSerial = OutsideRequest.CommandSerial;
+	// This fixture jumps directly to arrival; a real second GA submits its
+	// settings through StartPowderVortex again after the prior cancellation.
+	Harness.Resource->ActivePowderVortexSettings.GatherRadius = 200.f;
+	Harness.Resource->ActivePowderVortexAttackPower = 100.f;
 	TestTrue(TEXT("vortex can begin a second arrival transaction"),
 		Harness.Resource->BeginPowderVortexGathering(
 			OutsideRequest, MarkLocationBefore));
@@ -435,7 +466,7 @@ bool FMHGZM6PowderVortexCancellationPreservesCurrentLocation::RunTest(
 {
 	(void)Parameters;
 	FMHGZM3Harness Harness;
-	if (!Harness.Setup() || !ConfigureVortex(Harness))
+	if (!Harness.Setup() || !ConfigureVortex(Harness, Harness.Resource->ActivePowderVortexSettings, Harness.Resource->ActivePowderVortexAttackPower))
 	{
 		AddError(TEXT("M3 runtime or Powder Vortex config setup failed"));
 		Harness.Teardown();
@@ -499,7 +530,7 @@ bool FMHGZM6PowderVortexZeroPowderDoesNotDamage::RunTest(
 {
 	(void)Parameters;
 	FMHGZM3Harness Harness;
-	if (!Harness.Setup() || !ConfigureVortex(Harness))
+	if (!Harness.Setup() || !ConfigureVortex(Harness, Harness.Resource->ActivePowderVortexSettings, Harness.Resource->ActivePowderVortexAttackPower))
 	{
 		AddError(TEXT("M3 runtime or Powder Vortex config setup failed"));
 		Harness.Teardown();
@@ -557,7 +588,7 @@ bool FMHGZM6PowderVortexAimsFromSnapshotAndManualRecallSupersedes::RunTest(
 {
 	(void)Parameters;
 	FMHGZM3Harness Harness;
-	if (!Harness.Setup() || !ConfigureVortex(Harness))
+	if (!Harness.Setup() || !ConfigureVortex(Harness, Harness.Resource->ActivePowderVortexSettings, Harness.Resource->ActivePowderVortexAttackPower))
 	{
 		AddError(TEXT("M3 runtime or Powder Vortex config setup failed"));
 		Harness.Teardown();
@@ -596,15 +627,22 @@ bool FMHGZM6PowderVortexAimsFromSnapshotAndManualRecallSupersedes::RunTest(
 	Aim.bHasHitResult = true;
 	Aim.HitResult = AimHit;
 
+	FIGPowderVortexSettings SubmittedSettings = Harness.Resource->ActivePowderVortexSettings;
 	TestTrue(TEXT("Resource starts ToPoint flight from the input-time hit snapshot"),
-		Harness.Resource->StartPowderVortex(Action, Aim));
+		Harness.Resource->StartPowderVortex(Action, Aim, SubmittedSettings));
+	SubmittedSettings.MotionValueAt1 = 999.f;
+	Harness.KinsectData->KinsectAttackPower = 999.f;
+	TestEqual(TEXT("the transaction owns a value snapshot, not live GA/config defaults"),
+		Harness.Resource->ActivePowderVortexSettings.MotionValueAt1, 10.f);
+	TestEqual(TEXT("first-stage attack power is frozen at submission"), Harness.Resource->ActivePowderVortexAttackPower, 100.f);
+	Harness.KinsectData->KinsectAttackPower = 100.f;
 	TestEqual(TEXT("Kinsect uses the PowderVortex command source"),
 		Harness.Kinsect->ActiveRequest.CommandSource,
 		EKinsectCommandSource::PowderVortex);
 	TestTrue(TEXT("monster target is followed by its component-local impact point"),
 		Harness.Kinsect->ActiveRequest.bFollowTargetComponent
 		&& Harness.Kinsect->ActiveRequest.TargetComponent.Get() == AimHitzone);
-	TestTrue(TEXT("blocking component aim allows near-target surface collision to count as arrival"),
+	TestFalse(TEXT("surface aim does not enable physical world-hit arrival"),
 		Harness.Kinsect->ActiveRequest.bAllowWorldHitAtTarget);
 	TestEqual(TEXT("flight starts from the snapshot, not a later camera read"),
 		Harness.Kinsect->ActiveRequest.TargetPointSnapshot, InitialPoint);
@@ -626,7 +664,12 @@ bool FMHGZM6PowderVortexAimsFromSnapshotAndManualRecallSupersedes::RunTest(
 	Harness.Kinsect->OnWorldCollision(nullptr, AimActor,
 		AimHitzone, FVector::ZeroVector, SurfaceHit);
 	Harness.Kinsect->Tick(1.0f / 60.0f);
-	TestEqual(TEXT("contact with the captured aim component completes flight even before the center reaches the aim point"),
+	TestEqual(TEXT("physical callback cannot end the captured-point flight early"),
+		Harness.Kinsect->GetState(), EKinsectState::Flying);
+	TestEqual(TEXT("no gather on a terrain-contact callback"), Harness.Resource->ActivePowderVortexReservationID, uint64(0));
+	Harness.Kinsect->SetActorLocation(InitialPoint + TargetMotion);
+	Harness.Kinsect->Tick(1.0f / 60.0f);
+	TestEqual(TEXT("actual captured point arrival completes flight"),
 		Harness.Kinsect->GetState(), EKinsectState::Hovering);
 	TestTrue(TEXT("surface arrival starts the Powder Vortex gather transaction"),
 		Harness.Resource->ActivePowderVortexReservationID != 0);
@@ -670,7 +713,7 @@ bool FMHGZM6PowderVortexAimsFromSnapshotAndManualRecallSupersedes::RunTest(
 	SecondAim.bHasHitResult = true;
 	SecondAim.HitResult = SecondAimHit;
 	TestTrue(TEXT("second Powder Vortex flight starts"),
-		Harness.Resource->StartPowderVortex(SecondAction, SecondAim));
+		Harness.Resource->StartPowderVortex(SecondAction, SecondAim, FIGPowderVortexSettings()));
 	AActor* OccluderActor = Harness.World->SpawnActor<AActor>(
 		AActor::StaticClass(), SecondTargetPoint - FVector(250.0f, 0.0f, 0.0f),
 		FRotator::ZeroRotator);
@@ -691,11 +734,54 @@ bool FMHGZM6PowderVortexAimsFromSnapshotAndManualRecallSupersedes::RunTest(
 	Harness.Kinsect->OnWorldCollision(nullptr, OccluderActor,
 		OccluderComponent, FVector::ZeroVector, OccluderHit);
 	Harness.Kinsect->Tick(1.0f / 60.0f);
-	TestEqual(TEXT("an unrelated blocker still terminates the aimed flight"),
-		Harness.Resource->ActivePowderVortexCommandSerial, uint64(0));
+	TestTrue(TEXT("unrelated blockers cannot cancel the aimed flight"),
+		Harness.Resource->ActivePowderVortexCommandSerial != 0);
+	TestEqual(TEXT("unrelated terrain leaves flight active"), Harness.Kinsect->GetState(), EKinsectState::Flying);
 	TestEqual(TEXT("unrelated blockers do not start gathering"),
 		Harness.Resource->ActivePowderVortexReservationID, uint64(0));
 	Harness.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZPowderVortexConfigurationSchema,
+	"MHGZ.Maintenance.PowderVortex.GAOwnershipAndChineseTooltips",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZPowderVortexConfigurationSchema::RunTest(const FString&)
+{
+	int32 Count = 0;
+	for (const UStruct* Type : {static_cast<const UStruct*>(UInsectGlaiveCombatConfig::StaticClass()),
+		static_cast<const UStruct*>(UWeaponCombatConfigBase::StaticClass()),
+		static_cast<const UStruct*>(FVaultTuning::StaticStruct()),
+		static_cast<const UStruct*>(FMHGZWeaponDamageProfile::StaticStruct()),
+		static_cast<const UStruct*>(FIGCoAttackTuning::StaticStruct()),
+		static_cast<const UStruct*>(FSegmentedDirectionalMovementProfile::StaticStruct()),
+		static_cast<const UStruct*>(FRecordedLocalTrajectoryProfile::StaticStruct()),
+		static_cast<const UStruct*>(FIGPowderVortexSettings::StaticStruct())})
+	{
+		for (TFieldIterator<FProperty> It(Type, EFieldIteratorFlags::ExcludeSuper); It; ++It)
+		{
+			++Count;
+			bool bChinese = false;
+			for (const TCHAR Ch : It->GetMetaData(TEXT("ToolTip")))
+			{
+				bChinese |= Ch >= 0x3400 && Ch <= 0x9fff;
+			}
+			TestTrue(*FString::Printf(TEXT("%s.%s has a Chinese editor hover tooltip"), *Type->GetName(), *It->GetName()), bChinese);
+		}
+	}
+	TestTrue(TEXT("all remaining Combat fields and custom nested settings were inspected"), Count >= 100);
+	for (const FName Name : {TEXT("PowderGatherRadius"), TEXT("PowderVortexDelay"), TEXT("PowderVortexDamageAt1"),
+		TEXT("PowderVortexDamageAt5"), TEXT("PowderVortexDamageAt10"), TEXT("PowderVortexExplosionRadius"),
+		TEXT("PowderVortexHitCueTag"), TEXT("PowderVortexExplosionCueTag"), TEXT("PowderVortexGatherSounds"),
+		TEXT("PowderVortexExplosionSound"), TEXT("PowderDamageContribution")})
+	{
+		const FProperty* P = UInsectGlaiveCombatConfig::StaticClass()->FindPropertyByName(Name);
+		TestNull(*FString::Printf(TEXT("%s removed after verified GA migration"), *Name.ToString()), P);
+	}
+	const FProperty* GAField = UMHGZPowderVortexAbility::StaticClass()->FindPropertyByName(TEXT("PowderVortex"));
+	TestTrue(TEXT("GA exposes the single authoritative settings field"), GAField && GAField->HasAnyPropertyFlags(CPF_Edit));
+	TestEqual(TEXT("AP100 MV30 uses the precise per-powder path"), MHGZDamageMath::PowderDamage(100.f, 30.f), 30.f);
+	TestEqual(TEXT("real fractional damage still floors"), MHGZDamageMath::PowderDamage(100.f, 9.99f), 9.f);
 	return true;
 }
 

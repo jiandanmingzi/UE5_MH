@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/DataValidation.h"
+#include "InsectGlaive/IGActionConfigTypes.h"
 #include "ActionSystem/MHGZKinsectSlashAbility.h"
 #include "InsectGlaive/Kinsect/Kinsect.h"
 #include "MHGZInsectGlaiveAbility.h"
@@ -41,6 +43,68 @@ class MHGZ_API UMHGZAwakenedKinsectAttackAbility : public UMHGZInsectGlaiveAbili
 	GENERATED_BODY()
 
 public:
+	// 专属数值随本GA保存；Combat同名旧字段不再参与运行时。
+	/** 觉虫击未消耗红灯时，猎虫每次成功命中的动作值；白/黄灯不改变本档。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎虫伤害", meta = (ClampMin = "0.0"))
+	float AwakenedKinsectMotionValue = 15.0f;
+
+	/** 消耗红灯但非三灯时的猎虫单次动作值。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎虫伤害", meta = (ClampMin = "0.0"))
+	float AwakenedRedKinsectMotionValue = 30.0f;
+
+	/** 原子消耗完整三灯时的猎虫单次动作值；不再与红灯档叠乘。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎虫伤害", meta = (ClampMin = "0.0"))
+	float AwakenedTripleKinsectMotionValue = 50.0f;
+
+	/** 20261012 F9：20段199均持续0.375–0.383s，采用0.38s保护飞行曲线，不由初始接地提前结束。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎人位移",
+		meta = (ClampMin = "0.01"))
+	float AwakenedHunterFlightDurationSeconds = 0.38f;
+
+	/** 方向取松键时冻结的准心目标；20261012干净空中样本初速4809/4842cm/s，保留4826。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎人位移",
+		meta = (ClampMin = "0.01"))
+	float AwakenedHunterFlightSpeed = 4826.0f;
+
+	/** 199 线性拟合重力候选约 1190cm/s²（UE Z-up）。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎人位移",
+		meta = (ClampMin = "0.01"))
+	float AwakenedHunterFlightGravityMagnitude = 1190.0f;
+
+	/** 近处地面准心的最短199路程；约550cm来自低角度短程样本，不按相机角度分档。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎人位移", meta = (ClampMin = "0.01"))
+	float AwakenedGroundTargetMinimumDistance = 550.0f;
+
+	/** 地面目标199的小抛弧初速：约140cm/s、1190重力对应约8cm抬升。不是向地板硬冲。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎人位移", meta = (ClampMin = "0.01"))
+	float AwakenedGroundTargetVerticalLaunchSpeed = 140.0f;
+
+	/** 206 回归速度候选；入口原始行常为零，默认仅采用拟合出的垂直分量。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎人位移")
+	FVector AwakenedHunterFallHandoffVelocity = FVector(0.0f, 0.0f, 900.0f);
+
+	/** 206 线性拟合重力候选约 2885cm/s²（UE Z-up）。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎人位移",
+		meta = (ClampMin = "0.01"))
+	float AwakenedHunterFallGravityMagnitude = 2885.0f;
+
+	/** 常驻 206 下坠表现；编辑器阶段指定正式 Montage，Root Motion 必须关闭。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎人位移")
+	TObjectPtr<UAnimMontage> AwakenedHunterFallMontage;
+
+	/** 觉虫击释放/丢虫相对参考朝向的最大水平修正角（度）。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|瞄准", meta = (ClampMin = "0.0", ClampMax = "180.0", ForceUnits = "deg"))
+	float AwakenedAimHorizontalCorrectionAngle = 90.0f;
+
+	/** 觉虫击丢虫方向的最大垂直修正角（度），不替代摄像头限制。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|瞄准", meta = (ClampMin = "0.0", ClampMax = "90.0", ForceUnits = "deg"))
+	float AwakenedAimCorrectionAngle = 60.0f;
+
+
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
 	UMHGZAwakenedKinsectAttackAbility();
 
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle,

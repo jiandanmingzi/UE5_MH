@@ -296,20 +296,20 @@ bool FMHGZM6EmptyPowderGatherPreflightIsReadOnly::RunTest(
 		return false;
 	}
 
-	H.CombatConfig->PowderGatherRadius = 100.0f;
-	H.CombatConfig->PowderGatherMaxCount = 5;
+	H.PowderSettings.GatherRadius = 100.0f;
+	H.PowderReserveMaxCount = 5;
 	const FVector Center = H.Kinsect->GetActorLocation();
 	TestTrue(TEXT("the resource begins with no registered powder"),
 		H.Resource->GetPowderSnapshots().IsEmpty());
 	TestFalse(TEXT("empty powder inventory fails the read-only gather preflight"),
-		H.Resource->CanGatherPowders(Center));
+		H.Resource->CanGatherPowders(Center, H.PowderSettings.GatherRadius));
 
 	FWeaponActionToken Action = H.MakeActionToken(UMHGZSendKinsectAbility::StaticClass());
 	TestTrue(TEXT("the test action is registered before attempting reservation"),
 		H.Host->RegisterAction(Action));
 	FIGPowderReservationToken Reservation;
 	TestFalse(TEXT("empty inventory cannot create a powder reservation"),
-		H.Resource->TryReservePowders(Action, Center, Reservation));
+		H.Resource->TryReservePowders(Action, Center, Reservation, H.PowderSettings.GatherRadius, H.PowderReserveMaxCount));
 	TestFalse(TEXT("failed reservation leaves the output token invalid"),
 		Reservation.IsValid());
 	TestTrue(TEXT("failed preflight leaves powder inventory unchanged"),
@@ -330,12 +330,12 @@ bool FMHGZM6PowderOwnershipReservationAndCommit::RunTest(const FString& Paramete
 
 	H.CombatConfig->PowderActorClass = AIGPowderActor::StaticClass();
 	H.CombatConfig->PowderLifetime = 30.0f;
-	H.CombatConfig->PowderDamageContribution = 5.0f;
-	H.CombatConfig->PowderVortexBaseDamage = 10.0f;
-	H.CombatConfig->PowderVortexExplosionRadius = 240.0f;
-	H.CombatConfig->PowderVortexBaseStagger = 2.0f;
-	H.CombatConfig->PowderGatherRadius = 100.0f;
-	H.CombatConfig->PowderGatherMaxCount = 2;
+	H.PowderSpawnAttackPower = 5.0f;
+
+	H.PowderSettings.ExplosionRadius = 240.0f;
+
+	H.PowderSettings.GatherRadius = 100.0f;
+	H.PowderReserveMaxCount = 2;
 
 	const FGuid AttackID = FGuid::NewGuid();
 	TArray<FGuid> HitIDs;
@@ -354,24 +354,24 @@ bool FMHGZM6PowderOwnershipReservationAndCommit::RunTest(const FString& Paramete
 			FVector(20.0f * (Index + 1), 0.0f, 0.0f));
 		TestTrue(FString::Printf(TEXT("successful hit %d spawns one powder"), Index),
 			H.Resource->SpawnPowderForSuccessfulHit(
-				H.Host->GetCurrentToken(), AttackID, HitIDs.Last(), Hit));
+				H.Host->GetCurrentToken(), AttackID, HitIDs.Last(), Hit, H.PowderSpawnAttackPower, 100.0f));
 	}
 	const FHitResult DuplicateHit = MakePowderSourceHit(
 		*H.Character, FVector(20.0f, 0.0f, 0.0f));
 	TestFalse(TEXT("same successful HitID cannot spawn a second powder"),
 		H.Resource->SpawnPowderForSuccessfulHit(
-			H.Host->GetCurrentToken(), AttackID, HitIDs[0], DuplicateHit));
+			H.Host->GetCurrentToken(), AttackID, HitIDs[0], DuplicateHit, H.PowderSpawnAttackPower, 100.0f));
 	TestTrue(TEXT("three owned powders can be gathered"),
-		H.Resource->CanGatherPowders(FVector::ZeroVector));
+		H.Resource->CanGatherPowders(FVector::ZeroVector, H.PowderSettings.GatherRadius));
 
 	FWeaponActionToken ActionA = H.MakeActionToken(UMHGZSendKinsectAbility::StaticClass());
 	FIGPowderReservationToken ReservationA;
 	TestFalse(TEXT("unregistered action cannot reserve owned powders"),
-		H.Resource->TryReservePowders(ActionA, FVector::ZeroVector, ReservationA));
+		H.Resource->TryReservePowders(ActionA, FVector::ZeroVector, ReservationA, H.PowderSettings.GatherRadius, H.PowderReserveMaxCount));
 	TestTrue(TEXT("first action registers with the active runtime"),
 		H.Host->RegisterAction(ActionA));
 	TestTrue(TEXT("first gather transaction reserves its nearest fixed set"),
-		H.Resource->TryReservePowders(ActionA, FVector::ZeroVector, ReservationA));
+		H.Resource->TryReservePowders(ActionA, FVector::ZeroVector, ReservationA, H.PowderSettings.GatherRadius, H.PowderReserveMaxCount));
 	TestTrue(TEXT("reservation token includes runtime/action identity"), ReservationA.IsValid());
 	const TArray<FIGPowderRuntimeSnapshot> AfterFirstReserve = H.Resource->GetPowderSnapshots();
 	int32 ReservedCount = 0;
@@ -386,7 +386,7 @@ bool FMHGZM6PowderOwnershipReservationAndCommit::RunTest(const FString& Paramete
 	TestTrue(TEXT("second action registers with the active runtime"),
 		H.Host->RegisterAction(ActionB));
 	TestTrue(TEXT("competing gather reserves only the remaining unreserved powder"),
-		H.Resource->TryReservePowders(ActionB, FVector::ZeroVector, ReservationB));
+		H.Resource->TryReservePowders(ActionB, FVector::ZeroVector, ReservationB, H.PowderSettings.GatherRadius, H.PowderReserveMaxCount));
 	TestTrue(TEXT("first reservation enters Gathering only once"),
 		H.Resource->BeginPowderGathering(ReservationA));
 	TestFalse(TEXT("duplicate GatherBegin is rejected"),
@@ -397,23 +397,23 @@ bool FMHGZM6PowderOwnershipReservationAndCommit::RunTest(const FString& Paramete
 		H.Resource->BeginPowderGathering(ReservationB));
 	FIGPowderExplosionSnapshot ExplosionA;
 	TestTrue(TEXT("first transaction commits"),
-		H.Resource->CommitPowderReservation(ReservationA, ExplosionA));
+		H.Resource->CommitPowderReservation(ReservationA, ExplosionA, H.PowderSettings.ExplosionRadius));
 	TestEqual(TEXT("first explosion consumes the fixed two-member set"),
 		ExplosionA.ConsumedCount, 2);
 	TestEqual(TEXT("contributions were snapshotted at creation"),
-		ExplosionA.TotalDamage, 20.0f);
+		ExplosionA.TotalDamage, 10.0f);
 	TestEqual(TEXT("radius is frozen in the result"),
 		ExplosionA.Radius, 240.0f);
 	TestFalse(TEXT("committed reservation cannot explode twice"),
-		H.Resource->CommitPowderReservation(ReservationA, ExplosionA));
+		H.Resource->CommitPowderReservation(ReservationA, ExplosionA, H.PowderSettings.ExplosionRadius));
 
 	FIGPowderExplosionSnapshot ExplosionB;
 	TestTrue(TEXT("second transaction commits independently"),
-		H.Resource->CommitPowderReservation(ReservationB, ExplosionB));
+		H.Resource->CommitPowderReservation(ReservationB, ExplosionB, H.PowderSettings.ExplosionRadius));
 	TestEqual(TEXT("second transaction consumes only remaining member"),
 		ExplosionB.ConsumedCount, 1);
 	TestEqual(TEXT("single remaining powder contributes once"),
-		ExplosionB.TotalDamage, 15.0f);
+		ExplosionB.TotalDamage, 5.0f);
 	TestTrue(TEXT("all consumed powder actors leave the resource registry"),
 		H.Resource->GetPowderSnapshots().IsEmpty());
 
@@ -440,13 +440,13 @@ bool FMHGZM6PowderOwnershipReservationAndCommit::RunTest(const FString& Paramete
 	const FHitResult FinalHit = MakePowderSourceHit(*FinalTarget, FVector(70.0f, 0.0f, 0.0f));
 	TestTrue(TEXT("first fixed-set powder spawns"),
 		H.Resource->SpawnPowderForSuccessfulHit(
-			H.Host->GetCurrentToken(), AttackID, FirstHitID, FirstHit));
+			H.Host->GetCurrentToken(), AttackID, FirstHitID, FirstHit, H.PowderSpawnAttackPower, 100.0f));
 	TestTrue(TEXT("second fixed-set powder spawns"),
 		H.Resource->SpawnPowderForSuccessfulHit(
-			H.Host->GetCurrentToken(), AttackID, SecondHitID, SecondHit));
+			H.Host->GetCurrentToken(), AttackID, SecondHitID, SecondHit, H.PowderSpawnAttackPower, 100.0f));
 	TestTrue(TEXT("third powder spawns outside the chosen fixed set"),
 		H.Resource->SpawnPowderForSuccessfulHit(
-			H.Host->GetCurrentToken(), AttackID, FinalHitID, FinalHit));
+			H.Host->GetCurrentToken(), AttackID, FinalHitID, FinalHit, H.PowderSpawnAttackPower, 100.0f));
 	TWeakObjectPtr<AIGPowderActor> FinalPowder;
 	for (TActorIterator<AIGPowderActor> It(H.World); It; ++It)
 	{
@@ -461,7 +461,7 @@ bool FMHGZM6PowderOwnershipReservationAndCommit::RunTest(const FString& Paramete
 	TestTrue(TEXT("powder transaction action registers"), H.Host->RegisterAction(ActionC));
 	FIGPowderReservationToken ReservationC;
 	TestTrue(TEXT("action reserves the nearest fixed two-powder set"),
-		H.Resource->TryReservePowders(ActionC, FVector(50.0f, 0.0f, 0.0f), ReservationC));
+		H.Resource->TryReservePowders(ActionC, FVector(50.0f, 0.0f, 0.0f), ReservationC, H.PowderSettings.GatherRadius, H.PowderReserveMaxCount));
 	TestTrue(TEXT("fixed-set transaction enters Gathering"),
 		H.Resource->BeginPowderGathering(ReservationC));
 	TWeakObjectPtr<AIGPowderActor> ExpiredMember;
@@ -480,17 +480,17 @@ bool FMHGZM6PowderOwnershipReservationAndCommit::RunTest(const FString& Paramete
 	}
 	FIGPowderExplosionSnapshot PartialExplosion;
 	TestTrue(TEXT("commit succeeds for surviving members of the fixed set"),
-		H.Resource->CommitPowderReservation(ReservationC, PartialExplosion));
+		H.Resource->CommitPowderReservation(ReservationC, PartialExplosion, H.PowderSettings.ExplosionRadius));
 	TestEqual(TEXT("commit reports the actual surviving powder count"),
 		PartialExplosion.ConsumedCount, 1);
 	TestEqual(TEXT("expired reserved powder is excluded from damage"),
-		PartialExplosion.TotalDamage, 15.0f);
+		PartialExplosion.TotalDamage, 5.0f);
 	if (FinalPowder.IsValid())
 	{
 		TestEqual(TEXT("unselected powder remains Available"),
 			FinalPowder->GetPowderState(), EIGPowderState::Available);
 		TestTrue(TEXT("same live action can reserve the unselected powder"),
-			H.Resource->TryReservePowders(ActionC, FVector(50.0f, 0.0f, 0.0f), ReservationC));
+			H.Resource->TryReservePowders(ActionC, FVector(50.0f, 0.0f, 0.0f), ReservationC, H.PowderSettings.GatherRadius, H.PowderReserveMaxCount));
 		TestTrue(TEXT("re-reserved powder enters Gathering"),
 			H.Resource->BeginPowderGathering(ReservationC));
 		const FTransform OriginalTransform = FinalPowder->GetActorTransform();
@@ -509,11 +509,11 @@ bool FMHGZM6PowderOwnershipReservationAndCommit::RunTest(const FString& Paramete
 	TestTrue(TEXT("stale-action test registers"), H.Host->RegisterAction(ActionD));
 	FIGPowderReservationToken ReservationD;
 	TestTrue(TEXT("stale-action test reserves powder"),
-		H.Resource->TryReservePowders(ActionD, FVector(50.0f, 0.0f, 0.0f), ReservationD));
+		H.Resource->TryReservePowders(ActionD, FVector(50.0f, 0.0f, 0.0f), ReservationD, H.PowderSettings.GatherRadius, H.PowderReserveMaxCount));
 	TestTrue(TEXT("ending the action unregisters its identity"), H.Host->UnregisterAction(ActionD));
 	FIGPowderExplosionSnapshot StaleExplosion;
 	TestFalse(TEXT("inactive action cannot commit its powder reservation"),
-		H.Resource->CommitPowderReservation(ReservationD, StaleExplosion));
+		H.Resource->CommitPowderReservation(ReservationD, StaleExplosion, H.PowderSettings.ExplosionRadius));
 	H.Resource->ReleasePowderReservation(ReservationD);
 	H.Teardown();
 	TestFalse(TEXT("runtime shutdown destroys its owned powder"), FinalPowder.IsValid());

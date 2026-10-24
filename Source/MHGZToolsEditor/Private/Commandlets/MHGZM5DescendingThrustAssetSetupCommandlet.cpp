@@ -1,3 +1,4 @@
+#include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "Commandlets/MHGZM5DescendingThrustAssetSetupCommandlet.h"
@@ -1680,9 +1681,9 @@ bool AuditBeforeApply(FSetupRun& Run)
 			return false;
 		}
 	}
-	if (Run.Combat->DescendingThrustAirProfile.Curve)
+	if (::MHGZ::IGEditor::RequireAction<UMHGZDescendingThrustAbility>(TEXT("JiXiTuCi")).DescendingThrustAirProfile.Curve)
 	{
-		if (Run.Combat->DescendingThrustAirProfile.Curve->GetPathName() != CurvePath)
+		if (::MHGZ::IGEditor::RequireAction<UMHGZDescendingThrustAbility>(TEXT("JiXiTuCi")).DescendingThrustAirProfile.Curve->GetPathName() != CurvePath)
 		{
 			Run.Errors.Add(TEXT("DA_IG_Combat already references a different Descending Thrust curve; preserving it."));
 			return false;
@@ -1784,13 +1785,13 @@ bool PrepareAssets(FSetupRun& Run)
 	if (Run.Curve && Run.bApply)
 	{
 		Run.ExpectedProfile.Curve = Run.Curve;
-		if (Run.Combat->DescendingThrustAirProfile.Curve
-			&& Run.Combat->DescendingThrustAirProfile.Curve != Run.Curve)
+		if (::MHGZ::IGEditor::RequireAction<UMHGZDescendingThrustAbility>(TEXT("JiXiTuCi")).DescendingThrustAirProfile.Curve
+			&& ::MHGZ::IGEditor::RequireAction<UMHGZDescendingThrustAbility>(TEXT("JiXiTuCi")).DescendingThrustAirProfile.Curve != Run.Curve)
 		{
 			Run.Errors.Add(TEXT("DA_IG_Combat already references another DescendingThrustAirProfile curve; preserving it."));
 			return false;
 		}
-		const FRecordedLocalTrajectoryProfile& ExistingProfile = Run.Combat->DescendingThrustAirProfile;
+		const FRecordedLocalTrajectoryProfile& ExistingProfile = ::MHGZ::IGEditor::RequireAction<UMHGZDescendingThrustAbility>(TEXT("JiXiTuCi")).DescendingThrustAirProfile;
 		const bool bProfileDiffers = ExistingProfile.Curve != Run.ExpectedProfile.Curve
 			|| !FMath::IsNearlyEqual(ExistingProfile.CoveredSeconds,
 				Run.ExpectedProfile.CoveredSeconds, 0.00001f)
@@ -1801,7 +1802,8 @@ bool PrepareAssets(FSetupRun& Run)
 		if (bProfileDiffers)
 		{
 			Run.Combat->Modify();
-			Run.Combat->DescendingThrustAirProfile = Run.ExpectedProfile;
+			::MHGZ::IGEditor::RequireAction<UMHGZDescendingThrustAbility>(TEXT("JiXiTuCi")).Modify();
+			::MHGZ::IGEditor::RequireAction<UMHGZDescendingThrustAbility>(TEXT("JiXiTuCi")).DescendingThrustAirProfile = Run.ExpectedProfile;
 		}
 	}
 	if (!ConfigureProfile(Run) || !ConfigureAbility(Run) || !ConfigureCombo(Run)
@@ -2175,8 +2177,8 @@ int32 UMHGZM5DescendingThrustAssetSetupCommandlet::Main(const FString& Params)
 	}
 	if (Run.bApply)
 	{
-		if (Run.Combat->DescendingThrustAirProfile.Curve != Run.Curve
-			|| !Run.Combat->DescendingThrustAirProfile.IsValid())
+		if (::MHGZ::IGEditor::RequireAction<UMHGZDescendingThrustAbility>(TEXT("JiXiTuCi")).DescendingThrustAirProfile.Curve != Run.Curve
+			|| !::MHGZ::IGEditor::RequireAction<UMHGZDescendingThrustAbility>(TEXT("JiXiTuCi")).DescendingThrustAirProfile.IsValid())
 		{
 			Run.Errors.Add(TEXT("DA_IG_Combat does not retain the generated, self-validating air trajectory profile."));
 		}

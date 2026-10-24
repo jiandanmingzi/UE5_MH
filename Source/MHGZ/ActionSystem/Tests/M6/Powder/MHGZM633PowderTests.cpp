@@ -100,7 +100,7 @@ bool ConfigurePowder(FMHGZM3Harness& Harness, const float Multiplier = 1.0f)
 {
 	Harness.CombatConfig->PowderActorClass = AIGPowderActor::StaticClass();
 	Harness.CombatConfig->PowderLifetime = 180.0f;
-	Harness.CombatConfig->PowderDamageContribution = 5.0f;
+	Harness.PowderSpawnAttackPower = 5.0f;
 	Harness.CombatConfig->PowderMotionValue = Multiplier * 100.0f;
 	return true;
 }
@@ -229,6 +229,9 @@ bool FMHGZAutoMarkPowderIndependentCooldown::RunTest(const FString&)
 	TestTrue(TEXT("ordinary damage after auto succeeds"),
 		ApplyAndNotifyKinsectHit(H, Hit, FGuid::NewGuid(), FGuid::NewGuid(), Ordinary, bSpawned));
 	TestTrue(TEXT("auto did not start the shared cooldown"), bSpawned);
+	TestTrue(TEXT("replacing the mark succeeds"), H.Resource->SetKinsectMarkFromMeleeHit(Hit));
+	TestFalse(TEXT("a new mark cannot reset the Resource-owned ordinary powder cooldown"),
+		H.Resource->HandleSuccessfulKinsectDamage(Runtime, FGuid::NewGuid(), FGuid::NewGuid(), Hit, Ordinary));
 	const auto AutoHitID = FGuid::NewGuid();
 	TestTrue(TEXT("automatic damage during ordinary cooldown succeeds"),
 		ApplyAndNotifyKinsectHit(H, Hit, FGuid::NewGuid(), AutoHitID, Auto, bSpawned));
@@ -249,11 +252,54 @@ bool FMHGZAutoMarkPowderIndependentCooldown::RunTest(const FString&)
 	TestEqual(TEXT("only successful distinct eligible hits created powder"), H.Resource->GetPowderSnapshots().Num(), 5);
 	FHitResult Outside = Hit;
 	Outside.ImpactPoint += FVector(1000, 0, 0);
-	TestFalse(TEXT("auto still requires contact inside the local mark patch"),
+	TestTrue(TEXT("a successful hit elsewhere on the marked part no longer depends on the visual patch"),
 		H.Resource->HandleSuccessfulKinsectDamage(Runtime, FGuid::NewGuid(), FGuid::NewGuid(), Outside, Auto));
+	auto OtherPart = Target;
+	OtherPart.Hitzone = NewObject<UMHGZMonsterHitzoneComponent>(Target.Actor);
+	OtherPart.Hitzone->RegisterComponent();
+	TestFalse(TEXT("another part of the same actor cannot generate mark powder"),
+		H.Resource->HandleSuccessfulKinsectDamage(Runtime, FGuid::NewGuid(), FGuid::NewGuid(),
+			MakePowderHit(OtherPart, Hit.ImpactPoint), Auto));
 	H.Resource->ClearKinsectMark(EIGMarkClearReason::Replaced);
 	TestFalse(TEXT("auto still requires a valid mark"),
 		H.Resource->HandleSuccessfulKinsectDamage(Runtime, FGuid::NewGuid(), FGuid::NewGuid(), Hit, Auto));
+	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZPowderPartDebuffContact,
+	"MHGZ.Maintenance.Mark.PowderUsesPartDebuff",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZPowderPartDebuffContact::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup(false, AMHGZM3TestCharacter::StaticClass(), true)) { H.Teardown(); return false; }
+	ConfigurePowder(H);
+	H.CombatConfig->MarkedHitPowderCooldown = 10.f;
+	auto Target = SpawnPowderTarget(*H.World, FVector(500, 0, 100), true, 250.f);
+	if (!TestNotNull(TEXT("damageable part"), Target.Attributes)) { H.Teardown(); return false; }
+	const auto MarkHit = MakePowderHit(Target, Target.Hitzone->GetComponentLocation() + FVector(0, 0, 250));
+	TestTrue(TEXT("Debuff establishes on the part"), H.Resource->SetKinsectMarkFromMeleeHit(MarkHit));
+	const auto FarHit = MakePowderHit(Target, Target.Hitzone->GetComponentLocation() + FVector(250, 0, 0));
+	bool bSpawned = false;
+	const auto Ordinary = EIGPowderSpawnPolicy::MarkedContact;
+	TestTrue(TEXT("real damage elsewhere on the same part succeeds"),
+		ApplyAndNotifyKinsectHit(H, FarHit, FGuid::NewGuid(), FGuid::NewGuid(), Ordinary, bSpawned));
+	TestTrue(TEXT("ordinary powder no longer requires the visual anchor"), bSpawned);
+	ApplyAndNotifyKinsectHit(H, FarHit, FGuid::NewGuid(), FGuid::NewGuid(), Ordinary, bSpawned);
+	TestFalse(TEXT("the same Runtime cooldown still applies"), bSpawned);
+	auto OtherPart = Target;
+	OtherPart.Hitzone = NewObject<UMHGZMonsterHitzoneComponent>(Target.Actor);
+	OtherPart.Hitzone->RegisterComponent();
+	const auto OtherHit = MakePowderHit(OtherPart, MarkHit.ImpactPoint);
+	TestTrue(TEXT("another part can take damage"),
+		ApplyAndNotifyKinsectHit(H, OtherHit, FGuid::NewGuid(), FGuid::NewGuid(), EIGPowderSpawnPolicy::AutoMarkContact, bSpawned));
+	TestFalse(TEXT("same actor and same visual point cannot borrow a part Debuff"), bSpawned);
+	H.Resource->ClearKinsectMark(EIGMarkClearReason::PowderVortex);
+	ApplyAndNotifyKinsectHit(H, FarHit, FGuid::NewGuid(), FGuid::NewGuid(), EIGPowderSpawnPolicy::AutoMarkContact, bSpawned);
+	TestFalse(TEXT("consumed Debuff no longer yields mark powder"), bSpawned);
+	ApplyAndNotifyKinsectHit(H, OtherHit, FGuid::NewGuid(), FGuid::NewGuid(), EIGPowderSpawnPolicy::AwakenedEachHit, bSpawned);
+	TestTrue(TEXT("awakened yellow extract remains independent of marks"), bSpawned);
 	H.Teardown();
 	return true;
 }
@@ -289,8 +335,8 @@ bool FMHGZM633PowderCapCountsReserved::RunTest(const FString& Parameters)
 		MarkTarget.Hitzone->GetComponentLocation());
 	TestTrue(TEXT("cap test establishes a valid mark patch"),
 		H.Resource->SetKinsectMarkFromMeleeHit(MarkHit));
-	H.CombatConfig->PowderGatherRadius = 1000.0f;
-	H.CombatConfig->PowderGatherMaxCount = 1;
+	H.PowderSettings.GatherRadius = 1000.0f;
+	H.PowderReserveMaxCount = 1;
 	const FGuid AttackID = FGuid::NewGuid();
 	FGuid FirstPowderHitID;
 	for (int32 Index = 0; Index < 99; ++Index)
@@ -306,7 +352,7 @@ bool FMHGZM633PowderCapCountsReserved::RunTest(const FString& Parameters)
 		TestNotNull(TEXT("low-level powder source actor exists"), Source);
 		if (!Source || !H.Resource->SpawnPowderForSuccessfulHit(
 			H.Host->GetCurrentToken(), AttackID, HitID,
-			MakeRawPowderSourceHit(*Source, Point)))
+			MakeRawPowderSourceHit(*Source, Point), H.PowderSpawnAttackPower, 100.0f))
 		{
 			AddError(FString::Printf(TEXT("failed to create powder %d/99"), Index + 1));
 			H.Teardown();
@@ -319,14 +365,14 @@ bool FMHGZM633PowderCapCountsReserved::RunTest(const FString& Parameters)
 	TestTrue(TEXT("gather action registers"), H.Host->RegisterAction(GatherAction));
 	FIGPowderReservationToken Reservation;
 	TestTrue(TEXT("one powder can be reserved before reaching the cap"),
-		H.Resource->TryReservePowders(GatherAction, FVector(0.0f, 0.0f, 12.0f), Reservation));
+		H.Resource->TryReservePowders(GatherAction, FVector(0.0f, 0.0f, 12.0f), Reservation, H.PowderSettings.GatherRadius, H.PowderReserveMaxCount));
 
 	const FVector HundredPoint(400.0f, 0.0f, 10.0f);
 	AActor* HundredSource = H.World->SpawnActor<AActor>(AActor::StaticClass(),
 		HundredPoint, FRotator::ZeroRotator);
 	TestTrue(TEXT("the 100th powder is accepted"), HundredSource
 		&& H.Resource->SpawnPowderForSuccessfulHit(H.Host->GetCurrentToken(), AttackID,
-			FGuid::NewGuid(), MakeRawPowderSourceHit(*HundredSource, HundredPoint)));
+			FGuid::NewGuid(), MakeRawPowderSourceHit(*HundredSource, HundredPoint), H.PowderSpawnAttackPower, 100.0f));
 
 	const FVector OverCapPoint(420.0f, 0.0f, 10.0f);
 	AActor* OverCapSource = H.World->SpawnActor<AActor>(AActor::StaticClass(),
@@ -334,7 +380,7 @@ bool FMHGZM633PowderCapCountsReserved::RunTest(const FString& Parameters)
 	TestFalse(TEXT("the 101st powder is rejected when one of the 100 is Reserved"),
 		OverCapSource && H.Resource->SpawnPowderForSuccessfulHit(
 			H.Host->GetCurrentToken(), AttackID, FGuid::NewGuid(),
-			MakeRawPowderSourceHit(*OverCapSource, OverCapPoint)));
+			MakeRawPowderSourceHit(*OverCapSource, OverCapPoint), H.PowderSpawnAttackPower, 100.0f));
 	const TArray<FIGPowderRuntimeSnapshot> Powders = H.Resource->GetPowderSnapshots();
 	TestEqual(TEXT("cap rejection preserves all 100 existing powders"), Powders.Num(), 100);
 	int32 ReservedCount = 0;
@@ -388,7 +434,7 @@ bool FMHGZM633PowderNaturalExpiryTest::RunTest(const FString& Parameters)
 	ConfigurePowder(H);
 	// Create a coherent 7 * 100 / 100 snapshot through the real spawn route.
 	// Mutating only DamageContribution no longer updates the formula inputs.
-	H.CombatConfig->PowderDamageContribution = 7.0f;
+	H.PowderSpawnAttackPower = 7.0f;
 
 	AActor* Source = H.World->SpawnActor<AActor>(AActor::StaticClass(),
 		FVector::ZeroVector, FRotator::ZeroRotator);
@@ -399,7 +445,7 @@ bool FMHGZM633PowderNaturalExpiryTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("natural-expiry powder source actor exists"), IsValid(Source));
 	if (!Source || !H.Resource->SpawnPowderForSuccessfulHit(
 		H.Host->GetCurrentToken(), AttackID, HitID,
-		MakeRawPowderSourceHit(*Source, FVector::ZeroVector)))
+		MakeRawPowderSourceHit(*Source, FVector::ZeroVector), H.PowderSpawnAttackPower, 100.0f))
 	{
 		AddError(TEXT("failed to create powder for natural-expiry test"));
 		H.Teardown();
@@ -542,7 +588,7 @@ bool FMHGZM633PowderDistanceDespawnTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("powder spawns at its hit point far from player"),
 		H.Resource->SpawnPowderForSuccessfulHit(H.Host->GetCurrentToken(),
 			FGuid::NewGuid(), HitID, MakePowderHit(Target,
-				Target.Hitzone->GetComponentLocation())));
+				Target.Hitzone->GetComponentLocation()), H.PowderSpawnAttackPower, 100.0f));
 	TestEqual(TEXT("powder is initially registered"),
 		H.Resource->GetPowderSnapshots().Num(), 1);
 

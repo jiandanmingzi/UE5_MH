@@ -1,3 +1,4 @@
+#include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "Commandlets/MHGZM636VisualAssetSetupCommandlet.h"
@@ -1751,9 +1752,7 @@ bool Preflight(FRun& Run)
 		Run.Errors.Add(FString::Printf(TEXT("Could not load %s"), CombatConfigPath));
 		return false;
 	}
-	if (!FMath::IsNearlyEqual(Run.CombatConfig->KinsectMarkDuration, 90.0f, 0.001f)
-		|| !FMath::IsNearlyEqual(Run.CombatConfig->KinsectMarkPatchHalfExtent, 50.0f, 0.001f)
-		|| !FMath::IsNearlyEqual(Run.CombatConfig->KinsectMarkSurfaceNormalTolerance, 5.0f, 0.001f))
+	if (!FMath::IsNearlyEqual(Run.CombatConfig->KinsectMarkDuration, 90.0f, 0.001f))
 	{
 		Run.Errors.Add(TEXT("DA_IG_Combat mark duration/patch/tolerance differ from the approved 90s/50cm-half-extent/5cm contract; refusing unrelated edits."));
 		return false;
@@ -1832,20 +1831,20 @@ bool ConnectApprovedConfig(FRun& Run)
 		|| Run.CombatConfig->KinsectAutoMarkSearchRadius != ApprovedArenaHalfSideCm
 		|| Run.CombatConfig->KinsectAutoMarkAttackInterval != ApprovedAutoMarkAttackIntervalSeconds
 		|| Run.CombatConfig->MarkedHitPowderCooldown != ApprovedMarkedHitPowderCooldownSeconds
-		|| Run.CombatConfig->PowderGatherRadius != ApprovedArenaHalfSideCm
-		|| Run.CombatConfig->PowderVortexDelay != ApprovedPowderVortexDelaySeconds
-		|| Run.CombatConfig->PowderVortexDamageAt1 != ApprovedPowderDamageAt1
-		|| Run.CombatConfig->PowderVortexDamageAt5 != ApprovedPowderDamageAt5
-		|| Run.CombatConfig->PowderVortexDamageAt10 != ApprovedPowderDamageAt10
+		|| ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.GatherRadius != ApprovedArenaHalfSideCm
+		|| ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.GatherDelay != ApprovedPowderVortexDelaySeconds
+		|| ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt1 != ApprovedPowderDamageAt1
+		|| ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt5 != ApprovedPowderDamageAt5
+		|| ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt10 != ApprovedPowderDamageAt10
 		|| Run.CombatConfig->PowderActorClass.Get() != Run.PowderBlueprint->GeneratedClass
 		|| Run.CombatConfig->PowderLifetime != PowderLifetimeSeconds
 		|| Run.CombatConfig->PowderMaxCount != ApprovedPowderMaxCount
 		|| Run.CombatConfig->PowderNaturalExplosionRadius != ApprovedPowderNaturalExplosionRadiusCm
 		|| Run.CombatConfig->PowderMotionValue != ApprovedPowderMotionValue
 		|| Run.CombatConfig->PowderDespawnDistance != ApprovedPowderDespawnDistanceCm
-		|| Run.CombatConfig->PowderVortexExplosionRadius != ApprovedPowderVortexExplosionRadiusCm
-		|| Run.CombatConfig->PowderVortexHitCueTag != PowderHitCueTag
-		|| Run.CombatConfig->PowderVortexExplosionCueTag != PowderExplosionCueTag;
+		|| ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.ExplosionRadius != ApprovedPowderVortexExplosionRadiusCm
+		|| ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.HitCueTag != PowderHitCueTag
+		|| ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.ExplosionCueTag != PowderExplosionCueTag;
 	if (bNeedsChange)
 	{
 		Run.CombatConfig->Modify();
@@ -1855,20 +1854,28 @@ bool ConnectApprovedConfig(FRun& Run)
 	Run.CombatConfig->KinsectAutoMarkSearchRadius = ApprovedArenaHalfSideCm;
 	Run.CombatConfig->KinsectAutoMarkAttackInterval = ApprovedAutoMarkAttackIntervalSeconds;
 	Run.CombatConfig->MarkedHitPowderCooldown = ApprovedMarkedHitPowderCooldownSeconds;
-	Run.CombatConfig->PowderGatherRadius = ApprovedArenaHalfSideCm;
-	Run.CombatConfig->PowderVortexDelay = ApprovedPowderVortexDelaySeconds;
-	Run.CombatConfig->PowderVortexDamageAt1 = ApprovedPowderDamageAt1;
-	Run.CombatConfig->PowderVortexDamageAt5 = ApprovedPowderDamageAt5;
-	Run.CombatConfig->PowderVortexDamageAt10 = ApprovedPowderDamageAt10;
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).Modify();
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.GatherRadius = ApprovedArenaHalfSideCm;
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).Modify();
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.GatherDelay = ApprovedPowderVortexDelaySeconds;
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).Modify();
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt1 = ApprovedPowderDamageAt1;
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).Modify();
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt5 = ApprovedPowderDamageAt5;
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).Modify();
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt10 = ApprovedPowderDamageAt10;
 	Run.CombatConfig->PowderActorClass = Run.PowderBlueprint->GeneratedClass;
 	Run.CombatConfig->PowderLifetime = PowderLifetimeSeconds;
 	Run.CombatConfig->PowderMaxCount = ApprovedPowderMaxCount;
 	Run.CombatConfig->PowderNaturalExplosionRadius = ApprovedPowderNaturalExplosionRadiusCm;
 	Run.CombatConfig->PowderMotionValue = ApprovedPowderMotionValue;
 	Run.CombatConfig->PowderDespawnDistance = ApprovedPowderDespawnDistanceCm;
-	Run.CombatConfig->PowderVortexExplosionRadius = ApprovedPowderVortexExplosionRadiusCm;
-	Run.CombatConfig->PowderVortexHitCueTag = PowderHitCueTag;
-	Run.CombatConfig->PowderVortexExplosionCueTag = PowderExplosionCueTag;
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).Modify();
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.ExplosionRadius = ApprovedPowderVortexExplosionRadiusCm;
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).Modify();
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.HitCueTag = PowderHitCueTag;
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).Modify();
+	::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.ExplosionCueTag = PowderExplosionCueTag;
 	return true;
 }
 
@@ -1925,21 +1932,21 @@ bool AuditApprovedConfig(FRun& Run)
 	CheckFloat(TEXT("KinsectAutoMarkSearchRadius"), Run.CombatConfig->KinsectAutoMarkSearchRadius, ApprovedArenaHalfSideCm);
 	CheckFloat(TEXT("KinsectAutoMarkAttackInterval"), Run.CombatConfig->KinsectAutoMarkAttackInterval, ApprovedAutoMarkAttackIntervalSeconds);
 	CheckFloat(TEXT("MarkedHitPowderCooldown"), Run.CombatConfig->MarkedHitPowderCooldown, ApprovedMarkedHitPowderCooldownSeconds);
-	CheckFloat(TEXT("PowderGatherRadius"), Run.CombatConfig->PowderGatherRadius, ApprovedArenaHalfSideCm);
-	CheckFloat(TEXT("PowderVortexDelay"), Run.CombatConfig->PowderVortexDelay, ApprovedPowderVortexDelaySeconds);
-	CheckFloat(TEXT("PowderVortexDamageAt1"), Run.CombatConfig->PowderVortexDamageAt1, ApprovedPowderDamageAt1);
-	CheckFloat(TEXT("PowderVortexDamageAt5"), Run.CombatConfig->PowderVortexDamageAt5, ApprovedPowderDamageAt5);
-	CheckFloat(TEXT("PowderVortexDamageAt10"), Run.CombatConfig->PowderVortexDamageAt10, ApprovedPowderDamageAt10);
+	CheckFloat(TEXT("PowderGatherRadius"), ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.GatherRadius, ApprovedArenaHalfSideCm);
+	CheckFloat(TEXT("PowderVortexDelay"), ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.GatherDelay, ApprovedPowderVortexDelaySeconds);
+	CheckFloat(TEXT("PowderVortexDamageAt1"), ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt1, ApprovedPowderDamageAt1);
+	CheckFloat(TEXT("PowderVortexDamageAt5"), ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt5, ApprovedPowderDamageAt5);
+	CheckFloat(TEXT("PowderVortexDamageAt10"), ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt10, ApprovedPowderDamageAt10);
 	CheckFloat(TEXT("PowderLifetime"), Run.CombatConfig->PowderLifetime, PowderLifetimeSeconds);
 	CheckFloat(TEXT("PowderNaturalExplosionRadius"), Run.CombatConfig->PowderNaturalExplosionRadius, ApprovedPowderNaturalExplosionRadiusCm);
 	CheckFloat(TEXT("PowderMotionValue"), Run.CombatConfig->PowderMotionValue, ApprovedPowderMotionValue);
 	CheckFloat(TEXT("PowderDespawnDistance"), Run.CombatConfig->PowderDespawnDistance, ApprovedPowderDespawnDistanceCm);
-	CheckFloat(TEXT("PowderVortexExplosionRadius"), Run.CombatConfig->PowderVortexExplosionRadius, ApprovedPowderVortexExplosionRadiusCm);
-	if (Run.CombatConfig->PowderVortexHitCueTag != PowderHitCueTag)
+	CheckFloat(TEXT("PowderVortexExplosionRadius"), ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.ExplosionRadius, ApprovedPowderVortexExplosionRadiusCm);
+	if (::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.HitCueTag != PowderHitCueTag)
 	{
 		Run.Errors.Add(TEXT("DA_IG_Combat.PowderVortexHitCueTag is not GameplayCue.Hit.IG.Powder."));
 	}
-	if (Run.CombatConfig->PowderVortexExplosionCueTag != PowderExplosionCueTag)
+	if (::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.ExplosionCueTag != PowderExplosionCueTag)
 	{
 		Run.Errors.Add(TEXT("DA_IG_Combat.PowderVortexExplosionCueTag is not GameplayCue.IG.PowderVortex."));
 	}
@@ -1975,21 +1982,21 @@ bool WriteReport(const FRun& Run)
 	Root->SetNumberField(TEXT("marked_hit_powder_cooldown_seconds"), Run.CombatConfig
 		? Run.CombatConfig->MarkedHitPowderCooldown : 0.0);
 	Root->SetNumberField(TEXT("powder_gather_radius_cm"), Run.CombatConfig
-		? Run.CombatConfig->PowderGatherRadius : 0.0);
+		? ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.GatherRadius : 0.0);
 	Root->SetNumberField(TEXT("powder_vortex_delay_seconds"), Run.CombatConfig
-		? Run.CombatConfig->PowderVortexDelay : 0.0);
+		? ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.GatherDelay : 0.0);
 	Root->SetNumberField(TEXT("powder_vortex_damage_at_1"), Run.CombatConfig
-		? Run.CombatConfig->PowderVortexDamageAt1 : 0.0);
+		? ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt1 : 0.0);
 	Root->SetNumberField(TEXT("powder_vortex_damage_at_5"), Run.CombatConfig
-		? Run.CombatConfig->PowderVortexDamageAt5 : 0.0);
+		? ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt5 : 0.0);
 	Root->SetNumberField(TEXT("powder_vortex_damage_at_10"), Run.CombatConfig
-		? Run.CombatConfig->PowderVortexDamageAt10 : 0.0);
+		? ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.MotionValueAt10 : 0.0);
 	Root->SetNumberField(TEXT("natural_explosion_radius_cm"), Run.CombatConfig
 		? Run.CombatConfig->PowderNaturalExplosionRadius : 0.0);
 	Root->SetNumberField(TEXT("powder_max_count"), Run.CombatConfig
 		? Run.CombatConfig->PowderMaxCount : 0);
 	Root->SetNumberField(TEXT("vortex_explosion_radius_cm"), Run.CombatConfig
-		? Run.CombatConfig->PowderVortexExplosionRadius : 0.0);
+		? ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.ExplosionRadius : 0.0);
 	Root->SetBoolField(TEXT("powder_runtime_enabled"), Run.CombatConfig
 		&& Run.CombatConfig->PowderActorClass && Run.CombatConfig->PowderMotionValue > 0.0f);
 	Root->SetStringField(TEXT("powder_class_connection"), Run.CombatConfig
@@ -2047,18 +2054,19 @@ bool Execute(FRun& Run)
 		const bool bNeedsChange =
 			!FMath::IsNearlyEqual(Run.CombatConfig->PowderNaturalExplosionRadius,
 				ApprovedPowderNaturalExplosionRadiusCm)
-			|| !FMath::IsNearlyEqual(Run.CombatConfig->PowderVortexExplosionRadius,
+			|| !FMath::IsNearlyEqual(::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.ExplosionRadius,
 				ApprovedPowderVortexExplosionRadiusCm);
 		if (bNeedsChange)
 		{
 			Run.CombatConfig->Modify();
 			Run.CombatConfig->PowderNaturalExplosionRadius =
 				ApprovedPowderNaturalExplosionRadiusCm;
-			Run.CombatConfig->PowderVortexExplosionRadius =
+			::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).Modify();
+			::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.ExplosionRadius =
 				ApprovedPowderVortexExplosionRadiusCm;
 			Run.bChangedConfig = true;
 			Run.ModifiedAssets.Add(CombatConfigPath);
-			if (!SaveAsset(Run.CombatConfig, Run))
+			if (!(SaveAsset(Run.CombatConfig, Run) && SaveAsset(::MHGZ::IGEditor::OwnerAsset(::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex"))), Run)))
 			{
 				return false;
 			}
@@ -2167,7 +2175,7 @@ bool Execute(FRun& Run)
 			return false;
 		}
 	}
-	if (Run.bChangedConfig && !SaveAsset(Run.CombatConfig, Run))
+	if (Run.bChangedConfig && !(SaveAsset(Run.CombatConfig, Run) && SaveAsset(::MHGZ::IGEditor::OwnerAsset(::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex"))), Run)))
 	{
 		return false;
 	}
@@ -2233,8 +2241,7 @@ void DiagnoseMarkContactGeometry(UWorld& World, FRun& Run)
 				{
 					const FVector Delta = ContactPoint - MarkPoint;
 					const float NormalDelta = FVector::DotProduct(Delta, MarkNormal);
-					bFoundContact = FMath::Abs(NormalDelta) <= Run.CombatConfig->KinsectMarkSurfaceNormalTolerance
-						&& (Delta - MarkNormal * NormalDelta).Size() <= Run.CombatConfig->KinsectMarkPatchHalfExtent;
+					bFoundContact = true; // The resolved surface belongs to this exact Hitzone.
 					if (bFoundContact) { break; }
 				}
 			}

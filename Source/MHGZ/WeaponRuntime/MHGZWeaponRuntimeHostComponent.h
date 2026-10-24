@@ -36,6 +36,8 @@ struct FMHGZAerialPresentationRootMotionTelemetry
 DECLARE_MULTICAST_DELEGATE_OneParam(FOnWeaponRuntimeInvalidated, const FWeaponRuntimeToken&);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FOnWeaponRuntimeReady,
 	const FWeaponRuntimeToken&, UMHGZWeaponResourceComponent*);
+/** Only emitted after a committed successor enters the exact active registry. */
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnWeaponActionRegistered, const FWeaponActionToken&);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FMHGZGroundDustEvent,
 	USkeletalMeshComponent*, SourceMesh, FVector, Location, FVector, SurfaceNormal);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FMHGZLandingEvent,
@@ -87,6 +89,11 @@ public:
 
 	/** 武器Resource、能力和ComboCoordinator均完成初始化后广播。 */
 	FOnWeaponRuntimeReady OnWeaponRuntimeReady;
+	FOnWeaponActionRegistered OnWeaponActionRegistered;
+	/** Successful exact DodgeAccept opening, before buffered input can supersede its source. */
+	FOnWeaponActionRegistered OnWeaponDodgeAcceptWindowOpened;
+	/** Exact last live combo-window closure; action cancellation uses its own end path. */
+	FOnWeaponActionRegistered OnWeaponComboWindowsClosed;
 
 	/** 只读扬尘表现事件：由有效蒙太奇通知及真实地表触发；声音可为空，未来特效可独立订阅。 */
 	UPROPERTY(BlueprintAssignable, Category="MHGZ|Presentation")

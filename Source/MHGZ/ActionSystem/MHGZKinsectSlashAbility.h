@@ -3,10 +3,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/DataValidation.h"
+#include "InsectGlaive/IGActionConfigTypes.h"
 #include "ActionSystem/MHGZInsectGlaiveAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZKinsectSlashAbility.generated.h"
 
+class UCurveFloat;
 class UAbilityTask_MHGZKinsectSlashProbe;
 class UAbilityTask_MHGZPlayMontageAndWait;
 class UAbilityTask_MHGZWeaponMovement;
@@ -127,6 +130,41 @@ class MHGZ_API UMHGZKinsectSlashAbility : public UMHGZInsectGlaiveAbility
 	GENERATED_BODY()
 
 public:
+	// 专属数值随本GA保存；Combat同名旧字段不再参与运行时。
+	/** 操虫斩187段实录位移配置，包含停留、直冲和滑翔阶段；单B与RT+B共用。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|操虫斩|位移")
+	FSegmentedDirectionalMovementProfile KinsectSlashDashProfile;
+
+	/** 是否使用当前实录操虫斩位移；仅关闭时才读取旧标量/曲线兼容参数。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "高级兼容|操虫斩")
+	bool bUseCapturedKinsectSlashDash = true;
+
+	/** 旧操虫斩标量距离（cm）；启用实录位移时无效。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "高级兼容|操虫斩", meta = (ClampMin = "0.01"))
+	float KinsectSlashMaxDistance = 840.0f;
+
+	/** 旧操虫斩标量位移时长（秒）；启用实录位移时无效。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "高级兼容|操虫斩", meta = (ClampMin = "0.01"))
+	float KinsectSlashDashDuration = 0.242f;
+
+	/** 操虫斩允许的最大上冲俯仰角（度）；更高准心角度夹紧到此值。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|操虫斩|瞄准",
+		meta = (ClampMin = "0.0", ClampMax = "89.0", ForceUnits = "deg"))
+	float KinsectSlashMaxUpwardLaunchPitchDegrees = 53.74f;
+
+	/** 旧操虫斩归一化距离曲线；启用实录位移时不读取。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "高级兼容|操虫斩")
+	TObjectPtr<UCurveFloat> KinsectSlashDistanceCurve;
+
+	/** 索引为舞踏层数（0/1/2/3）；仅武器段，出招时快照。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "资源|舞踏|增伤", meta = (ClampMin = "1.0"))
+	TArray<float> KinsectSlashDanceDamageMultipliers = { 1.0f, 1.1f, 1.2f, 1.3f };
+
+
+#if WITH_EDITOR
+	EDataValidationResult ValidateOwnedActionConfig(FDataValidationContext& Context) const;
+#endif
+
 	UMHGZKinsectSlashAbility();
 	virtual float GetStaminaRecoveryPerSecond() const override;
 

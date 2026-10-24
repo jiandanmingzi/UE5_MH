@@ -9,6 +9,7 @@
 #include "ActionSystem/MHGZGameplayEffectContext.h"
 #include "ActionSystem/MHGZWeaponComboData.h"
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
+#include "ActionSystem/MHGZKinsectSlashAbility.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
 #include "Misc/DataValidation.h"
@@ -57,18 +58,17 @@ bool FMHGZComboValidationTest::RunTest(const FString& Parameters)
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMHGZInsectGlaiveCombatValidationTest,
-	"MHGZ.M0.Validation.CombatConfigRejectsDanceArrayMismatch",
+	"MHGZ.M0.Validation.GARejectsInvalidDanceArray",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
 bool FMHGZInsectGlaiveCombatValidationTest::RunTest(const FString& Parameters)
 {
-	UInsectGlaiveCombatConfig* Config = NewObject<UInsectGlaiveCombatConfig>();
-	Config->MaxDanceStacks = 2;
-	Config->KinsectSlashDanceDamageMultipliers = { 1.0f };
+	UMHGZKinsectSlashAbility* Config = NewObject<UMHGZKinsectSlashAbility>();
+	Config->KinsectSlashDanceDamageMultipliers = { 2.0f };
 
 	FDataValidationContext Context;
 	TestEqual(TEXT("dance array mismatch is invalid"), Config->IsDataValid(Context), EDataValidationResult::Invalid);
-	TestTrue(TEXT("dance mismatch names the field"), HasIssueContaining(Context, TEXT("DanceDamageMultipliers")));
+	TestTrue(TEXT("dance mismatch names the field"), HasIssueContaining(Context, TEXT("舞踏倍率")));
 	return true;
 }
 

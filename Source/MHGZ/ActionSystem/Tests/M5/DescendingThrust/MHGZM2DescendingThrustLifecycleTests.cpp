@@ -1,3 +1,4 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
@@ -365,6 +366,7 @@ struct FDescendingThrustLifecycleHarness
 	UMHGZEquipmentComponent* Equipment = nullptr;
 	URes_InsectGlaive* Resource = nullptr;
 	UInsectGlaiveCombatConfig* CombatConfig = nullptr;
+	IGTest::FScopedActionFixtures ActionFixtures;
 	UMHGZInstrumentedCharacterMovementComponent* CMC = nullptr;
 	AActor* Target = nullptr;
 	UAbilitySystemComponent* TargetASC = nullptr;
@@ -457,6 +459,7 @@ struct FDescendingThrustLifecycleHarness
 		UWeaponRuntimeDefinition* RuntimeDefinition =
 			NewObject<UWeaponRuntimeDefinition>(PlayerState);
 		CombatConfig = NewObject<UInsectGlaiveCombatConfig>(PlayerState);
+		ActionFixtures.Initialize(CombatConfig);
 		UMHGZWeaponComboData* ComboData = NewObject<UMHGZWeaponComboData>(PlayerState);
 		UInsectGlaiveKinsectData* KinsectData =
 			NewObject<UInsectGlaiveKinsectData>(PlayerState);
@@ -474,10 +477,10 @@ struct FDescendingThrustLifecycleHarness
 		CombatConfig->KinsectData = KinsectData;
 		CombatConfig->KinsectAttachSocket = NAME_None;
 		CombatConfig->KinsectMarkLaunchSocket = NAME_None;
-		CombatConfig->DescendingThrustAirProfile =
+		IGTest::Action<UMHGZDescendingThrustAbility>(CombatConfig)->DescendingThrustAirProfile =
 			MakeDescendingThrustLifecycleProfile();
-		CombatConfig->DescendingThrustAirWatchdogSeconds = 8.0f;
-		CombatConfig->DescendingThrustLandingBlendInTime = 0.05f;
+		IGTest::Action<UMHGZDescendingThrustAbility>(CombatConfig)->DescendingThrustAirWatchdogSeconds = 8.0f;
+		IGTest::Action<UMHGZDescendingThrustAbility>(CombatConfig)->DescendingThrustLandingBlendInTime = 0.05f;
 		KinsectData->FlightSpeed = 2000.0f;
 		KinsectData->ReturnSpeed = 2500.0f;
 		KinsectData->MaxFlightRange = 3000.0f;
@@ -832,11 +835,14 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 		return false;
 	}
 	H.CombatConfig->MaxDanceStacks = 3;
-	H.CombatConfig->DescendingThrustDanceDamageMultipliers = { 1.0f, 1.1f, 1.3f, 1.5f };
+	IGTest::Action<UMHGZDescendingThrustAbility>(H.CombatConfig)->DescendingThrustDanceDamageMultipliers = { 1.0f, 1.1f, 1.3f, 1.5f };
 	const bool bDanceStackSeeded = H.Resource->AddDanceStack(
 		EIGDanceSource::KinsectSlash);
-	const float ExpectedFrozenMultiplier = H.Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::DescendingThrust);
+	// One seeded layer must freeze the GA's configured 1.1 bonus even though
+	// its ability is only granted later inside H.Activate().
+	const float ExpectedFrozenMultiplier = 1.1f;
 	const float StaminaBeforeActivation = H.ASC->GetNumericAttribute(UMHGZAttributeSet::GetStaminaAttribute());
+	const FVector KinsectActivationOrigin = H.Character->GetActorLocation();
 	if (!TestTrue(TEXT("one real Dance stack is present before Commit"), bDanceStackSeeded)
 		|| !TestTrue(*FString::Printf(TEXT("real GAS activation succeeds (%s)"),
 			*H.FailureStage), H.Activate()))
@@ -846,6 +852,10 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 	}
 	TestEqual(TEXT("production activation pays exactly 20 stamina at Commit"),
 		H.ASC->GetNumericAttribute(UMHGZAttributeSet::GetStaminaAttribute()), StaminaBeforeActivation - 20.f);
+	TestEqual(TEXT("production activation leaves attached kinsect hovering"),
+		H.Resource->GetKinsectActor()->GetState(), EKinsectState::Hovering);
+	TestTrue(TEXT("production activation uses hunter activation position"),
+		H.Resource->GetKinsectActor()->GetActorLocation().Equals(KinsectActivationOrigin, .01));
 	TestTrue(TEXT("confirmed aerial attack spends Host CantAttack"),
 		H.ASC->HasMatchingGameplayTag(DescLifecycleTag(
 			TEXT("Combat.State.Aerial.CantAttack"))));
@@ -992,6 +1002,8 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 		Snapshot.SuccessfulTargetCounts[0], 1);
 	TestTrue(TEXT("reopened segment 0 does not apply a second damage GE"),
 		FMath::IsNearlyEqual(H.TargetAttributes->GetHealth(), HealthAfterFirstWindows));
+	TestEqual(TEXT("airborne segment retirement cannot launch special dive"),
+		H.Resource->GetKinsectActor()->GetState(), EKinsectState::Hovering);
 
 	// Drive the real instrumented CMC in small physical steps. Only the enabled
 	// LandingAirborne lease may report the actual blocking floor as a landing.
@@ -1023,6 +1035,28 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 			&& H.Host->IsMontageRootMotionOwnedBy(Snapshot.ActionToken));
 	TestEqual(TEXT("landing leaves the CMC on the walkable floor"),
 		H.CMC->MovementMode, MOVE_Walking);
+	H.Ability->EnableCollision(2);
+	H.Ability->DisableCollision(2);
+	TestEqual(TEXT("first ground window cannot launch special dive"),
+		H.Resource->GetKinsectActor()->GetState(), EKinsectState::Hovering);
+	H.Ability->EnableCollision(3);
+	H.Ability->DisableCollision(3);
+	TestEqual(TEXT("actual last ground window retirement launches special dive"),
+		H.Resource->GetKinsectActor()->GetState(), EKinsectState::Flying);
+	TestEqual(TEXT("native retirement routes the special kinsect command"),
+		H.Resource->GetKinsectActor()->ActiveRequest.CommandSource, EKinsectCommandSource::DescendingThrust);
+	const float OverPosition = H.Character->GetMesh()->GetAnimInstance()
+		->GetMontageInstanceForID(Snapshot.LandingMontageInstanceID)->GetPosition();
+	const FTransform RemainingOver = H.Character->GetMesh()->ConvertLocalRootMotionToWorld(
+		TestConfiguration.LandingMontage->ExtractRootMotionFromTrackRange(
+			OverPosition, TestConfiguration.LandingMontage->GetPlayLength(), FAnimExtractContext()));
+	FVector ExpectedOverDelta = RemainingOver.GetTranslation();
+	ExpectedOverDelta.Z = 0.f;
+	const FVector ExpectedOverForward = RemainingOver.GetRotation()
+		.RotateVector(H.Character->GetActorForwardVector()).GetSafeNormal2D();
+	TestTrue(TEXT("native dive snapshots final Over capsule center plus forward 1m"),
+		H.Resource->GetKinsectActor()->ActiveRequest.TargetPointSnapshot.Equals(
+			H.Character->GetActorLocation() + ExpectedOverDelta + ExpectedOverForward * 100.f, .01));
 	TestTrue(*FString::Printf(
 		TEXT("Correction2 consumes and applies landing N-1 (consumed=%d valid=%d applied=%d frame=%llu activation=%llu current=%llu)"),
 		Snapshot.bCorrectionConsumed[1] ? 1 : 0,
@@ -1090,6 +1124,8 @@ bool FMHGZM2DescendingThrustProductionLifecycleTest::RunTest(
 	H.ASC->CancelAbilityHandle(H.AbilityHandle);
 	TestFalse(TEXT("cancelling an active Over ends the production GA"),
 		H.Ability->IsActive());
+	TestEqual(TEXT("production cancellation recalls only its special kinsect"),
+		H.Resource->GetKinsectActor()->GetState(), EKinsectState::Returning);
 	H.Ability->GetRuntimeTelemetrySnapshot(Snapshot);
 	TestEqual(TEXT("cancellation enters the terminal Ended phase"), Snapshot.Phase,
 		EDescendingThrustPhase::Ended);
@@ -1182,6 +1218,10 @@ bool FMHGZM2DescendingThrustNaturalOverCompletionTest::RunTest(
 		return false;
 	}
 
+	H.Ability->EnableCollision(3);
+	H.Ability->DisableCollision(3);
+	TestEqual(TEXT("natural-completion case has a real pending kinsect dive"),
+		H.Resource->GetKinsectActor()->GetState(), EKinsectState::Flying);
 	const int32 LandingMontageID = Snapshot.LandingMontageInstanceID;
 	const ERootMotionMode::Type SavedRootMotionMode =
 		H.Character->GetMesh()->GetAnimInstance()->RootMotionMode.GetValue();
@@ -1218,6 +1258,15 @@ bool FMHGZM2DescendingThrustNaturalOverCompletionTest::RunTest(
 			ActionToken));
 	TestEqual(TEXT("natural completion restores the previous AnimInstance root mode"),
 		AnimInstance->RootMotionMode.GetValue(), SavedRootMotionMode);
+	TestEqual(TEXT("native GA completion must not abort pending kinsect dive"),
+		H.Resource->GetKinsectActor()->GetState(), EKinsectState::Flying);
+	H.Host->OnWeaponComboWindowsClosed.Broadcast(ActionToken);
+	AKinsect* Kinsect = H.Resource->GetKinsectActor();
+	Kinsect->SetActorLocation(Kinsect->ActiveRequest.TargetPointSnapshot);
+	Kinsect->Tick(0);
+	H.Resource->TickComponent(.01f, LEVELTICK_All, nullptr);
+	TestEqual(TEXT("finished GA and ComboWindow leave arrived kinsect on standby"),
+		Kinsect->GetState(), EKinsectState::Hovering);
 
 	H.Teardown();
 	return true;

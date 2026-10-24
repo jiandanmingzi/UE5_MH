@@ -148,9 +148,6 @@ int32 UMHGZM631MarkConfigCommandlet::Main(const FString& Params)
 		TSharedRef<FJsonObject> ConfigReport = MakeShared<FJsonObject>();
 		ConfigReport->SetStringField(TEXT("asset"), Config->GetPathName());
 		ConfigReport->SetNumberField(TEXT("duration_before_seconds"), Config->KinsectMarkDuration);
-		ConfigReport->SetNumberField(TEXT("patch_half_extent_before_cm"), Config->KinsectMarkPatchHalfExtent);
-		ConfigReport->SetNumberField(TEXT("surface_normal_tolerance_before_cm"),
-			Config->KinsectMarkSurfaceNormalTolerance);
 
 		bool bConfigChanged = false;
 		if (bApply)
@@ -161,28 +158,14 @@ int32 UMHGZM631MarkConfigCommandlet::Main(const FString& Params)
 				Config->KinsectMarkDuration = MarkDurationSeconds;
 				bConfigChanged = true;
 			}
-			if (!FMath::IsNearlyEqual(Config->KinsectMarkPatchHalfExtent, MarkPatchHalfExtentCm))
-			{
-				Config->Modify();
-				Config->KinsectMarkPatchHalfExtent = MarkPatchHalfExtentCm;
-				bConfigChanged = true;
-			}
-			if (!FMath::IsNearlyEqual(Config->KinsectMarkSurfaceNormalTolerance,
-				MarkSurfaceNormalToleranceCm))
-			{
-				Config->Modify();
-				Config->KinsectMarkSurfaceNormalTolerance = MarkSurfaceNormalToleranceCm;
-				bConfigChanged = true;
-			}
+
+
 			if (bConfigChanged && !SaveAsset(*Config))
 			{
 				Errors.Add(TEXT("Failed to save DA_IG_Combat mark fields."));
 			}
 		}
 		ConfigReport->SetNumberField(TEXT("duration_after_seconds"), Config->KinsectMarkDuration);
-		ConfigReport->SetNumberField(TEXT("patch_half_extent_after_cm"), Config->KinsectMarkPatchHalfExtent);
-		ConfigReport->SetNumberField(TEXT("surface_normal_tolerance_after_cm"),
-			Config->KinsectMarkSurfaceNormalTolerance);
 		ConfigReport->SetBoolField(TEXT("changed"), bConfigChanged);
 		Root->SetObjectField(TEXT("combat_config"), ConfigReport);
 	}

@@ -87,18 +87,7 @@ bool UMHGZPowderVortexAbility::ValidatePowderVortexRuntimeDependencies() const
 		&& !Kinsect->IsSlashActionControlled()
 		&& Aim.Context == EWeaponAimSnapshotContext::Kinsect
 		&& IsFiniteVector(Aim.TargetPoint)
-		&& FMath::IsFinite(Config->PowderGatherRadius)
-		&& Config->PowderGatherRadius > 0.0f
-		&& FMath::IsFinite(Config->PowderVortexDelay)
-		&& Config->PowderVortexDelay > 0.0f
-		&& FMath::IsFinite(Config->PowderVortexDamageAt1)
-		&& Config->PowderVortexDamageAt1 > 0.0f
-		&& FMath::IsFinite(Config->PowderVortexDamageAt5)
-		&& Config->PowderVortexDamageAt5 > 0.0f
-		&& FMath::IsFinite(Config->PowderVortexDamageAt10)
-		&& Config->PowderVortexDamageAt10 > 0.0f
-		&& Config->PowderVortexHitCueTag.IsValid()
-		&& Config->PowderVortexExplosionCueTag.IsValid();
+		&& PowderVortex.IsValid();
 }
 
 bool UMHGZPowderVortexAbility::PrepareAttackMontage()
@@ -109,6 +98,7 @@ bool UMHGZPowderVortexAbility::PrepareAttackMontage()
 	}
 	bGatherNotifyHandled = false;
 	bKinsectCommandSubmitted = false;
+	CommittedPowderVortex = PowderVortex;
 	return true;
 }
 
@@ -124,7 +114,7 @@ bool UMHGZPowderVortexAbility::HandlePowderGatherBegin(
 	bGatherNotifyHandled = true;
 	URes_InsectGlaive* Resource = GetIGResourceComponent();
 	if (!Resource || !Resource->StartPowderVortex(ActionToken,
-		GetWeaponActivationContext().Input.Aim))
+		GetWeaponActivationContext().Input.Aim, CommittedPowderVortex))
 	{
 		return false;
 	}
@@ -158,6 +148,10 @@ EDataValidationResult UMHGZPowderVortexAbility::IsDataValid(
 	if (!AttackSegments.IsEmpty())
 	{
 		AddError(TEXT("Powder Vortex must use no AttackSegments; its two damage stages are Resource-owned."));
+	}
+	if (!PowderVortex.IsValid())
+	{
+		AddError(TEXT("聚爆配置无效：半径/延迟必须为正数，动作值为非负数，两个反馈Cue必须有效。"));
 	}
 	if (!InputTag.MatchesTagExact(PowderVortexInputTag()))
 	{

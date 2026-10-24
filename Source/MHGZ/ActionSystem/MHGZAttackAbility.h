@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Animation/AnimNotifyQueue.h"
 #include "CollisionShape.h"
 #include "Engine/HitResult.h"
 #include "ActionSystem/MHGZActionDirectionCorrectionTypes.h"
@@ -312,6 +313,14 @@ public:
 
 	/** 碰撞窗口内由 AnimNotifyState::NotifyTick 每帧调用 */
 	void TickCollision(int32 SegmentIndex, float DeltaSeconds);
+	/** Native notify routing: each successful Begin owns one occurrence, not just a ConfigIndex. */
+	void BeginCollisionFromNotify(int32 SegmentIndex, USkeletalMeshComponent* Mesh,
+		int32 MontageInstanceID, const FAnimNotifyEventReference& Reference);
+	void TickCollisionFromNotify(int32 SegmentIndex, USkeletalMeshComponent* Mesh,
+		int32 MontageInstanceID, const FAnimNotifyEventReference& Reference, float DeltaSeconds);
+	void EndCollisionFromNotify(int32 SegmentIndex, USkeletalMeshComponent* Mesh,
+		int32 MontageInstanceID, const FAnimNotifyEventReference& Reference);
+	uint64 GetCollisionWindowOccurrence(int32 SegmentIndex) const;
 
 	/** Attack-side exact window that permits this action to be superseded by Dodge. */
 	bool BeginDodgeAcceptWindow(FName NotifyEventID);
@@ -478,6 +487,9 @@ protected:
 
 	/** Notifies a derived action after its exact AttackCollision window is removed. */
 	virtual void OnAttackCollisionWindowClosed(int32 SegmentIndex) {}
+	/** Generic source lifecycle, before first sweep / on any retirement including replacement. */
+	virtual void OnAttackCollisionWindowOpened(int32 SegmentIndex, uint64 Occurrence) {}
+	virtual void OnAttackCollisionWindowRetired(int32 SegmentIndex, uint64 Occurrence) {}
 
 	/** Shared resolver for derived-action audits; use exactly the gameplay trace mesh. */
 	USkeletalMeshComponent* FindTraceMeshComponent(const FAttackCollisionConfig& Collision) const;
@@ -533,6 +545,7 @@ private:
 
 	struct FCollisionWindowRuntimeState
 	{
+		uint64 Occurrence = 0;
 		TArray<FTraceRegionRuntimeState> Regions;
 		TMap<TWeakObjectPtr<AActor>, FHitTargetRuntimeState> HitTargets;
 	};
@@ -547,6 +560,23 @@ private:
 
 	/** 每个 ConfigIndex 独立保存轨迹、命中和多跳状态，允许窗口重叠。 */
 	TMap<int32, FCollisionWindowRuntimeState> ActiveCollisionWindows;
+	struct FCollisionNotifyRoute
+	{
+		int32 Segment = INDEX_NONE;
+		int32 MontageID = INDEX_NONE;
+		TWeakObjectPtr<USkeletalMeshComponent> Mesh;
+		FName EventID;
+		uint64 Occurrence = 0;
+		// UE replaces EventReference on Tick and delivers End with its latest copy.
+		// Retaining context copies distinguishes an old End after a re-entrant Begin.
+		FAnimNotifyEventReference BeginReference;
+		FAnimNotifyEventReference LatestReference;
+	};
+	TArray<FCollisionNotifyRoute> CollisionNotifyRoutes;
+	uint64 NextCollisionOccurrence = 0;
+	void EnableCollisionInternal(int32 SegmentIndex, const FCollisionNotifyRoute* NotifyRoute);
+	int32 FindCollisionNotifyRoute(int32 SegmentIndex, USkeletalMeshComponent* Mesh,
+		int32 MontageInstanceID, const FAnimNotifyEventReference& Reference, bool bAllowNewTickContext) const;
 
 	/** NotifyEventID -> exact ledger token; the notify asset owns no mutable state. */
 	TMap<FName, FWeaponOwnedTagToken> DodgeAcceptWindowTokens;

@@ -323,6 +323,7 @@ void UMHGZAttackAbility::ActivateAbility(
 
 	// 重置状态
 	ActiveCollisionWindows.Empty();
+	CollisionNotifyRoutes.Reset();
 	CurrentSegmentIndex = 0;
 	bHasHitThisActivation = false;
 	bHasActiveRootMotionTask = false;
@@ -560,6 +561,7 @@ void UMHGZAttackAbility::EndAbility(
 		DirectionTask->EndTask();
 	}
 	ActiveDirectionCorrectionTask = nullptr;
+	CollisionNotifyRoutes.Reset();
 
 	// AbilityTask 会在 Ability 结束时负责停止 Montage 并解绑委托。
 	MontageTask = nullptr;
@@ -603,12 +605,18 @@ bool UMHGZAttackAbility::BeginDodgeAcceptWindow(FName NotifyEventID)
 	}
 
 	DodgeAcceptWindowTokens.Add(NotifyEventID, WindowToken);
+	// Freeze recovery sampling before the coordinator can consume a pre-input.
+	// Keep a value copy: listeners may end this action or register its successor.
+	const FWeaponActionToken OpenedAction = ActionToken;
+	Host->OnWeaponDodgeAcceptWindowOpened.Broadcast(OpenedAction);
+	if (!IsActive() || bIsEndingAbility || GetActionToken() != OpenedAction
+		|| !Host->IsActionRegistered(OpenedAction)) return true;
 	if (UMHGZAbilitySystemComponent* ASC = Cast<UMHGZAbilitySystemComponent>(
 		GetAbilitySystemComponentFromActorInfo()))
 	{
 		if (UGA_WeaponComboCoordinator* Coordinator = ASC->GetActiveComboCoordinator())
 		{
-			Coordinator->OnDodgeAcceptWindowOpened(ActionToken);
+			Coordinator->OnDodgeAcceptWindowOpened(OpenedAction);
 		}
 	}
 	return true;
@@ -934,7 +942,14 @@ FVector UMHGZAttackAbility::GetInActionCorrectionDirection() const
 
 void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)
 {
+	EnableCollisionInternal(SegmentIndex, nullptr);
+}
+
+void UMHGZAttackAbility::EnableCollisionInternal(int32 SegmentIndex,
+	const FCollisionNotifyRoute* NotifyRoute)
+{
 	if (!AttackSegments.IsValidIndex(SegmentIndex)) return;
+	const FWeaponActionToken SourceAction = GetActionToken();
 
 	CurrentSegmentIndex = SegmentIndex;
 	const FAttackSegmentConfig& Seg = AttackSegments[SegmentIndex];
@@ -956,7 +971,11 @@ void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)
 		{
 			Character->GetWorldTimerManager().ClearTimer(Pair.Value.TickTimer);
 		}
+		const uint64 ReplacedOccurrence = ExistingState->Occurrence;
 		ActiveCollisionWindows.Remove(SegmentIndex);
+		OnAttackCollisionWindowRetired(SegmentIndex, ReplacedOccurrence);
+		if (GetActionToken() != SourceAction || bIsEndingAbility
+			|| ActiveCollisionWindows.Contains(SegmentIndex)) return;
 	}
 
 	FCollisionWindowRuntimeState WindowState;
@@ -1029,7 +1048,19 @@ void UMHGZAttackAbility::EnableCollision(int32 SegmentIndex)
 		return;
 	}
 
+	if (++NextCollisionOccurrence == 0) ++NextCollisionOccurrence;
+	const uint64 Occurrence = WindowState.Occurrence = NextCollisionOccurrence;
 	ActiveCollisionWindows.Add(SegmentIndex, MoveTemp(WindowState));
+	if (NotifyRoute)
+	{
+		FCollisionNotifyRoute Route = *NotifyRoute;
+		Route.Occurrence = Occurrence;
+		CollisionNotifyRoutes.Add(MoveTemp(Route));
+	}
+	OnAttackCollisionWindowOpened(SegmentIndex, Occurrence);
+	// A first-hit or extension callback can synchronously end/re-enter the action.
+	if (GetActionToken() != SourceAction || bIsEndingAbility
+		|| GetCollisionWindowOccurrence(SegmentIndex) != Occurrence) return;
 	PerformSweepCheck(SegmentIndex); // 首帧零距离 Sweep，防止窗口开启时已与部位相交。
 }
 
@@ -1048,6 +1079,8 @@ void UMHGZAttackAbility::DisableCollision(int32 SegmentIndex)
 
 	FCollisionWindowRuntimeState* WindowState = ActiveCollisionWindows.Find(SegmentIndex);
 	if (!WindowState) return;
+	const uint64 ClosedOccurrence = WindowState->Occurrence;
+	const FWeaponActionToken ClosingAction = GetActionToken();
 
 	if (ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo()))
 	{
@@ -1068,9 +1101,12 @@ void UMHGZAttackAbility::DisableCollision(int32 SegmentIndex)
 		}
 	}
 
+	if (GetActionToken() != ClosingAction || GetCollisionWindowOccurrence(SegmentIndex) != ClosedOccurrence) return;
 	ActiveCollisionWindows.Remove(SegmentIndex);
+	OnAttackCollisionWindowRetired(SegmentIndex, ClosedOccurrence);
+	if (GetActionToken() != ClosingAction || ActiveCollisionWindows.Contains(SegmentIndex)) return;
 	OnAttackCollisionWindowClosed(SegmentIndex);
-	if (bEndForMiss && IsActive() && !bIsEndingAbility)
+	if (bEndForMiss && GetActionToken() == ClosingAction && IsActive() && !bIsEndingAbility)
 	{
 		EndAbility(CurrentSpecHandle, CurrentActorInfo, CurrentActivationInfo, false, true);
 	}

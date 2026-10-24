@@ -1,3 +1,6 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
+#include "InsectGlaive/InsectGlaiveCombatConfig.h"
+#include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZM5KinsectPiercerTestTypes.h"
@@ -23,6 +26,20 @@ bool UMHGZM5KinsectPiercerGateProbeAbility::bLastLandingMovementRequestValid = f
 
 void UMHGZM5KinsectPiercerGateProbeAbility::ApplyTestConfiguration()
 {
+	// Transient legacy builder -> new GA owner; no runtime Combat fallback.
+	if (const auto* Host = GetRuntimeHost())
+	{
+		if (const auto* Fixture = Cast<UInsectGlaiveCombatConfig>(Host->GetCurrentContext().CombatConfig))
+		{
+			KinsectPiercerStartProfile = IGTest::Action<UMHGZKinsectPiercerAbility>(Fixture)->KinsectPiercerStartProfile;
+			KinsectPiercerDiveProfile = IGTest::Action<UMHGZKinsectPiercerAbility>(Fixture)->KinsectPiercerDiveProfile;
+			KinsectPiercerLandingProfile = IGTest::Action<UMHGZKinsectPiercerAbility>(Fixture)->KinsectPiercerLandingProfile;
+			KinsectPiercerDiveWatchdogSeconds = IGTest::Action<UMHGZKinsectPiercerAbility>(Fixture)->KinsectPiercerDiveWatchdogSeconds;
+			KinsectPiercerLandingBlendInTime = IGTest::Action<UMHGZKinsectPiercerAbility>(Fixture)->KinsectPiercerLandingBlendInTime;
+			KinsectPiercerDanceDamageMultipliers = IGTest::Action<UMHGZKinsectPiercerAbility>(Fixture)->KinsectPiercerDanceDamageMultipliers;
+		}
+	}
+
 	// 只补测试关心的四样：两条 Montage、三段武器判定、RTY 输入标签。
 	// 其余字段（Section 名、门禁标签、曲线来源）走生产默认值 —— 那正是要被验的部分。
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.Weapon.RTY"));

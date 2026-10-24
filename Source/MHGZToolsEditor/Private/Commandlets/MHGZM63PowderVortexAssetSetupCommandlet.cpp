@@ -1,3 +1,4 @@
+#include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "Commandlets/MHGZM63PowderVortexAssetSetupCommandlet.h"
@@ -217,7 +218,7 @@ bool LoadDependencies(FRun& Run)
 		Run.Errors.Add(TEXT("AS_Unsh_CaoChong no longer matches the audited SK_Demo_Body / RateScale=2 source contract."));
 		return false;
 	}
-	Run.DelayAfterArrival = Combat->PowderVortexDelay;
+	Run.DelayAfterArrival = ::MHGZ::IGEditor::RequireAction<UMHGZPowderVortexAbility>(TEXT("PowderVortex")).PowderVortex.GatherDelay;
 	if (!FMath::IsFinite(Run.DelayAfterArrival)
 		|| !FMath::IsNearlyEqual(Run.DelayAfterArrival, 1.0f, 0.001f))
 	{

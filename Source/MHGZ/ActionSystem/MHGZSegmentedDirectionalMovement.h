@@ -18,31 +18,31 @@ struct MHGZ_API FSegmentedDirectionalMovementProfile
 	GENERATED_BODY()
 
 public:
-	/** Initial stationary hold before straight movement begins. */
+	/** 开始直冲前的静止停留时长（游戏秒）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0.0"))
 	float InitialHoldSeconds = 1.0f / 120.0f;
 
-	/** Duration of the measured straight-speed phase. */
+	/** 恒速直冲阶段的实录时长（游戏秒）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0.000001"))
 	float StraightSeconds = 5.0f / 60.0f;
 
-	/** Duration of the accelerating glide phase. */
+	/** 受重力与前向加速度影响的滑翔阶段时长（游戏秒）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0.000001"))
 	float GlideSeconds = 9.5f / 60.0f;
 
-	/** Straight-phase speed in cm/s. */
+	/** 直冲阶段沿冻结发射方向的速度（cm/s）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0.000001"))
 	float StraightSpeed = 6600.0f;
 
-	/** Initial glide speed in cm/s. */
+	/** 进入滑翔阶段时沿发射方向的初始速度（cm/s）。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0.000001"))
 	float GlideInitialSpeed = 1800.0f;
 
-	/** World-Z gravity magnitude during glide in cm/s^2. */
+	/** 滑翔期间沿世界Z向下的重力大小（cm/s²），填非负数。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0.0"))
 	float GlideGravityMagnitude = 1800.0f;
 
-	/** Forward acceleration during glide in cm/s^2. */
+	/** 滑翔期间沿冻结前向的加速度（cm/s²），不随实时镜头转动。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement", meta = (ClampMin = "0.0"))
 	float GlideForwardAcceleration = 360.0f;
 

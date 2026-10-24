@@ -5,6 +5,7 @@
 #include "MHGZGameplayEffectContext.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "AbilitySystemComponent.h"
+#include "MHGZDamageMath.h"
 
 namespace
 {
@@ -20,6 +21,7 @@ float RoundDamageChannel(float Value)
 	return FMath::IsFinite(Value) && Value > 0.0f
 		? FMath::Max(1.0f, FMath::RoundToFloat(Value)) : 0.0f;
 }
+
 }
 
 UMHGZDamageExecCalc::UMHGZDamageExecCalc()
@@ -135,14 +137,24 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 	const float SafeDanceMultiplier = FMath::IsFinite(DanceMultiplier)
 		? FMath::Max(1.0f, DanceMultiplier) : 1.0f;
 	float PhysicalDamage = 0.0f;
-	if (bWeaponDamage || bKinsectDamage)
+	double PreciseKinsectDamage = 0.0;
+	if (bWeaponDamage)
 	{
 		PhysicalDamage = AttackPower * (SafeMotionValue / 100.0f)
 			* (PhysicalHitzone / 100.0f);
 	}
+	else if (bKinsectDamage)
+	{
+		PreciseKinsectDamage = static_cast<double>(AttackPower)
+			* (static_cast<double>(SafeMotionValue) / 100.0)
+			* (static_cast<double>(PhysicalHitzone) / 100.0);
+		PhysicalDamage = static_cast<float>(PreciseKinsectDamage);
+	}
 	else if (CombatContext->DamageSourceType == EMHGZDamageSourceType::Powder)
 	{
-		PhysicalDamage = AttackPower * (SafeMotionValue / 100.0f);
+		PreciseKinsectDamage = static_cast<double>(AttackPower)
+			* (static_cast<double>(SafeMotionValue) / 100.0);
+		PhysicalDamage = static_cast<float>(PreciseKinsectDamage);
 	}
 	else
 	{
@@ -195,7 +207,7 @@ void UMHGZDamageExecCalc::Execute_Implementation(
 		// Kinsect and powder use their own attack-power/action-value formulas; they
 		// do not inherit hunter affinity, sharpness, element, or Dance modifiers.
 		FinalDamage = AttackPower > 0.0f && SafeMotionValue > 0.0f && FMath::IsFinite(PhysicalDamage)
-			? FMath::Max(1.0f, FMath::FloorToFloat(PhysicalDamage)) : 0.0f;
+			? FMath::Max(1.0f, static_cast<float>(MHGZDamageMath::FloorIntegerBoundary(PreciseKinsectDamage))) : 0.0f;
 	}
 	else
 	{

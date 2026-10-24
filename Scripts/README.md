@@ -12,6 +12,14 @@
 
 ## 常用执行入口
 
+Combat兼容清理（2026-10-24）已完成：现有入口加`-MHGZCombatCleanup`默认只读回查；首次`-MHGZCombatCleanupApply`已保存且禁止重放。66个旧/重复字段删除，只重存Combat；原包、共享值文本及37包保护hash见`Saved/Maintenance/CombatCleanup20261024/`。旧GA迁移只读审计严格允许这一次已验证的Combat hash链，不放宽GA及其它包保护；旧聚爆档位已由用户调为20/120/300，其更早10/50/100快照回查会拒绝，不能靠回退现有值绕过。旧迁移工具保留为依赖已有Saved事务的历史回查入口；新设备直接读取当前GA，不用它重建已删除的Schema。
+
+招式参数迁移入口（2026-10-24）：复用`AssetOrganization/migrate_powder_vortex_config.py`，加`-MHGZActionConfig`进入批量后端`migrate_ig_action_config.py`。10份GA/38项字段赋值已保存并独立回载，默认只读核对；`-MHGZActionConfigApply`只允许首次事务，已有`applied.json`拒绝重放。证据、原始精度数值及备份在`Saved/Maintenance/IGActionConfig20261024/ActionDefaults/`；28份保护包包括Combat/虫印弹/聚爆及相关引用。当前GA入口见[归属表](../docs/design/insect-glaive.md#当前配置归属2026-10-24覆盖下文历史combat招式参数说明)。历史初始化/动作值/曲线Apply工具仍写旧Combat字段，不能用于当前GA调参；不要重放。脚本的Commandlet开关通过`unreal.SystemLibrary.get_command_line()`识别；编辑器已打开仍遵守`ue_remote.py`入口，不另起写包进程。
+
+聚爆配置当前入口（2026-10-24）：`AssetOrganization/migrate_powder_vortex_config.py`已将十项专属参数保存到`GA_IG_PowderVortex → Powder Vortex`，Combat旧字段仅保留隐藏兼容。默认初次冻结来源/备份，完成后默认只读回载；显式`-MHGZPowderVortexConfigApply`仅允许首次迁移，不可重放。证据/备份在`Saved/Maintenance/PowderVortexConfig20261024/`；Combat包保持原hash。与旧的全局动作值迁移脚本不同，这个工具只写一份GA，不重置其它攻击动作值。旧粉尘音频只读入口已识别这次GA迁移，仍保留原音源/保护包核对，不可用旧Apply覆盖GA配置。
+
+本机短时原生定向检查若遇到NullRHI的`GetRestoredDimensions`布局断言，可使用UE原生命令`-ExecCmds="Automation Now;RunTests <筛选名>"`跳过默认5秒发现等待，并配合`-NoSaveConfig`。已从本机`AutomationCommandline.cpp`核对语法；只改变本次测试调度，不修改用户布局、引擎或断言，不把它当作长时间无界面任务的通用修复。
+
 普通Python使用本机真实解释器 `C:/apps/anaconda/python.exe`，不要使用WindowsApps占位程序。PowerShell中的路径按下例调用：
 
 ```powershell
@@ -37,7 +45,11 @@
 
 纯资产值修改不需要C++编译。编辑器打开时不另起写资产的Commandlet覆盖其未保存内容；资产变更需按工具约定备份和验证保存。报告成功只证明该脚本做完，不能替代实例创建/显示或PIE签收。
 
+猎虫协同资产入口：`AssetOrganization/setup_kinsect_coattack_pilot.py`，默认只读突刺；`--ground-five` / `-MHGZCoAttackGroundFive`回查上捞/袈裟/二连/横扫/飞圆；`--ground-second-five` / `-MHGZCoAttackGroundSecondFive`回查突进回旋斩/四连印斩/拔刀飞身跃入斩/飞身跃入斩/后撤斩。三批均已只改CoAttack保存并独立回载，每个实际源段猎虫动作值10；棍尖零偏移、0.2游戏秒延迟、原2500cm/s入位、不萃取，原武器伤害与Montage/Combo/Combat保持。备份/事务分别在`Saved/Maintenance/KinsectCoAttack20261023/{E1TuCi,E1GroundFive,E1GroundSecondFive}/`；只认显式批准批次的原备份→新hash链，不回滚或覆盖历史意图。已有intent均禁止重放Apply（Commandlet写入开关为各对应前缀加`Apply`）。突刺已有用户签收，新增资产回载不等于PIE验收；冻结点采用当前运行时Dodge Accept规则，不在本工具改通知。
+
 ## 已验证的限制与复用点
+
+急袭突刺特殊协同只读入口仍复用`AssetOrganization/setup_kinsect_coattack_pilot.py`：远程`--script-arg=--descending-thrust`，关闭编辑器Commandlet加`-MHGZCoAttackDescendingThrust`。核对现有GA继承的猎虫动作值10、四段武器配置、地面Over最后实际窗口、共享贯通间隔/品种飞速；另记录实际猎虫模型导入包围盒及381末窗关闭后/收招的Root轨道样本。报告在`Saved/Maintenance/KinsectCoAttack20261023/E1DescendingThrust/`。该模式拒绝Apply，不需要新通知或保存资产。
 
 | 内容 | 当前做法 |
 |---|---|

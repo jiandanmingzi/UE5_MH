@@ -1,8 +1,13 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "Res_InsectGlaive.h"
+#include "ActionSystem/MHGZDamageMath.h"
+#include "InsectGlaive/Kinsect/IGCoAttackComponent.h"
 
 #include "AbilitySystemComponent.h"
+#include "ActionSystem/MHGZKinsectSlashAbility.h"
+#include "ActionSystem/MHGZKinsectPiercerAbility.h"
+#include "ActionSystem/MHGZDescendingThrustAbility.h"
 #include "AbilitySystemGlobals.h"
 #include "ActionSystem/MHGZAbilitySystemComponent.h"
 #include "ActionSystem/MHGZDamageGameplayEffect.h"
@@ -65,6 +70,8 @@ FName KinsectCommandSourceName(const EKinsectCommandSource Source)
 	case EKinsectCommandSource::AutoMark: return TEXT("AutoMark");
 	case EKinsectCommandSource::PowderVortex: return TEXT("PowderVortex");
 	case EKinsectCommandSource::System: return TEXT("System");
+	case EKinsectCommandSource::CoAttack: return TEXT("CoAttack");
+	case EKinsectCommandSource::DescendingThrust: return TEXT("DescendingThrust");
 	default: return TEXT("None");
 	}
 }
@@ -295,6 +302,17 @@ void URes_InsectGlaive::ShutdownRuntime(EWeaponRuntimeEndReason Reason)
 	Super::ShutdownRuntime(Reason);
 }
 
+float URes_InsectGlaive::GetKinsectStaminaDrainMultiplier() const
+{
+	const bool bTriple = IsTripleUpActive();
+	if (!bTriple && !HasExtract(RedExtractTag())) return 1.0f;
+	const float Default = bTriple ? 0.5f : 0.75f;
+	const float Configured = CombatConfig ? (bTriple
+		? CombatConfig->TripleKinsectStaminaDrainMultiplier
+		: CombatConfig->RedKinsectStaminaDrainMultiplier) : Default;
+	return FMath::IsFinite(Configured) ? FMath::Clamp(Configured, 0.0f, 1.0f) : Default;
+}
+
 void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 	FActorComponentTickFunction* ThisTickFunction)
 {
@@ -310,15 +328,16 @@ void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 	const bool bSlashAwayFromArm = KinsectActor->IsSlashActionControlled()
 		&& State != EKinsectState::Attached;
 	const float PreviousStamina = KinsectStamina;
-	if (State == EKinsectState::Flying || bSlashAwayFromArm)
+	const float DrainMultiplier = GetKinsectStaminaDrainMultiplier();
+	if (State == EKinsectState::Flying || State == EKinsectState::CoAttack || bSlashAwayFromArm)
 	{
 		KinsectStamina = FMath::Max(0.f,
-			KinsectStamina - KinsectData->FlightDrainRate * DeltaTime);
+			KinsectStamina - KinsectData->FlightDrainRate * DrainMultiplier * DeltaTime);
 	}
 	else if (State == EKinsectState::Hovering)
 	{
 		KinsectStamina = FMath::Max(0.f,
-			KinsectStamina - KinsectData->HoverDrainRate * DeltaTime);
+			KinsectStamina - KinsectData->HoverDrainRate * DrainMultiplier * DeltaTime);
 	}
 	else if (State == EKinsectState::Attached)
 	{
@@ -332,8 +351,9 @@ void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 			KinsectStamina + KinsectData->StaminaRegenRate * DeltaTime);
 	}
 
-	if (PreviousStamina > 0.f && KinsectStamina <= 0.f
-		&& (State == EKinsectState::Flying || State == EKinsectState::Hovering || bSlashAwayFromArm))
+	if ((PreviousStamina > 0.f || DescendingThrustKinsect.IsSet()) && KinsectStamina <= 0.f
+		&& (State == EKinsectState::Flying || State == EKinsectState::Hovering
+			|| State == EKinsectState::CoAttack || bSlashAwayFromArm))
 	{
 		bDepletionEdgeTriggered = true;
 		PlayResourceSound(CombatConfig ? CombatConfig->KinsectDepletedSound : nullptr);
@@ -345,6 +365,7 @@ void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 	{
 		bDepletionEdgeTriggered = false;
 	}
+	TickDescendingThrustKinsect();
 
 	if (!FMath::IsNearlyEqual(PreviousStamina, KinsectStamina))
 	{
@@ -356,6 +377,7 @@ void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 	if (bHasTrackedMark
 		&& (!ActiveMarkHitzone.IsValid()
 			|| !IsValid(ActiveMarkHitzone->GetOwner())
+			|| !ActiveMarkHitzone->HasKinsectMarkDebuffFrom(this, ActiveMarkID)
 			|| (bActiveMarkUsesProjectile && !ActiveMarkProjectile.IsValid())))
 	{
 		ClearKinsectMark(EIGMarkClearReason::TargetInvalid);
@@ -425,6 +447,13 @@ bool URes_InsectGlaive::OnWeaponEquipped(UInsectGlaiveKinsectData* Data,
 
 void URes_InsectGlaive::OnWeaponUnequipped()
 {
+	ResetDescendingThrustKinsect();
+	if (CoAttackComponent)
+	{
+		CoAttackComponent->Stop();
+		CoAttackComponent->DestroyComponent();
+		CoAttackComponent = nullptr;
+	}
 	CancelPowderVortexTransaction(0, false);
 	CancelAutomaticMarkBehavior(true);
 	KinsectPlayerCommandLeaseToken = FWeaponActionToken();
@@ -750,6 +779,7 @@ void URes_InsectGlaive::OnKinsectFlightEnded(
 	FlightEndEvent.Reason = KinsectFlightEndReasonName(Reason);
 	FlightEndEvent.ActivationSequenceID = Request.ActionActivationSequenceID;
 	RecordCombatTelemetryEvent(MoveTemp(FlightEndEvent));
+	if (HandleDescendingThrustKinsectFlightEnd(Request, Reason)) return;
 	if (Request.CommandSource == EKinsectCommandSource::PowderVortex)
 	{
 		if (Request.CommandSerial != ActivePowderVortexCommandSerial)
@@ -845,6 +875,7 @@ uint64 URes_InsectGlaive::GetNextKinsectCommandSerial() const
 uint64 URes_InsectGlaive::AdvanceKinsectCommand(
 	const EKinsectCommandSource Source)
 {
+	ResetDescendingThrustKinsect(); // retire bookkeeping only, never overwrite a newly committed flight
 	const uint64 PreviousSerial = KinsectCommandSerial;
 	const EKinsectCommandSource PreviousSource = KinsectCommandSource;
 	const bool bCancelPowderVortex =
@@ -869,6 +900,16 @@ uint64 URes_InsectGlaive::AdvanceKinsectCommand(
 	}
 	KinsectCommandSerial = GetNextKinsectCommandSerial();
 	KinsectCommandSource = Source;
+	if (CoAttackComponent && CoAttackComponent->IsRunning())
+	{
+		CoAttackComponent->Stop();
+		// A new flight/attachment may already have been committed atomically.
+		// Never interrupt that new state while retiring the old sampler.
+		if (KinsectActor && KinsectActor->GetState() == EKinsectState::CoAttack)
+		{
+			KinsectActor->Interrupt();
+		}
+	}
 	if (Source != EKinsectCommandSource::None)
 	{
 		FWeaponCombatTelemetryEvent Event;
@@ -922,8 +963,9 @@ bool URes_InsectGlaive::IsAutomaticMarkBehaviorEligible() const
 		return false;
 	}
 	const UMHGZWeaponRuntimeHostComponent* Host = RuntimeContext.RuntimeToken.Host.Get();
-	return IsRuntimeRequestCurrent(RuntimeContext.RuntimeToken)
-		&& Host && !Host->HasRegisteredAction();
+	// Hunter attacks can coexist with a detached Kinsect's automatic command.
+	// The leases, attachment and command owner above arbitrate actual Kinsect use.
+	return IsRuntimeRequestCurrent(RuntimeContext.RuntimeToken) && Host;
 }
 
 void URes_InsectGlaive::CancelAutomaticMarkBehavior(
@@ -1089,16 +1131,48 @@ bool URes_InsectGlaive::PerformAutomaticMarkContactAttack()
 		Event.TargetActor = ActiveMarkTargetActor->GetFName();
 		Event.Hitzone = ActiveMarkHitzone->GetFName();
 		Event.ImpactPoint = KinsectActor->GetActorLocation();
-		Event.Reason = TEXT("NoHitzoneContactInsidePatch");
+		Event.Reason = TEXT("NoMarkedPartContact");
 		RecordCombatTelemetryEvent(MoveTemp(Event));
 		return false;
 	}
 	const FGuid HitInstanceID = FGuid::NewGuid();
 	const FGuid AttackInstanceID = FGuid::NewGuid();
+	const FKinsectFlightRequest ContactRequest = KinsectActor->ActiveRequest;
+	const TWeakObjectPtr<AKinsect> ContactKinsect = KinsectActor;
+	const TWeakObjectPtr<UMHGZMonsterHitzoneComponent> ContactPart =
+		UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
+	const auto IsContactCurrent = [&]()
+	{
+		return ContactKinsect.IsValid() && KinsectActor == ContactKinsect.Get()
+			&& KinsectActor->GetState() == EKinsectState::Hovering
+			&& KinsectActor->ActiveRequest.FlightInstanceID == ContactRequest.FlightInstanceID
+			&& IsKinsectCommandCurrent(ContactRequest);
+	};
 	const bool bDamageApplied = ApplyKinsectDamage(Hit,
 		CombatConfig->SendKinsectMotionValue, HitInstanceID, AttackInstanceID);
-	if (bDamageApplied)
+	if (bDamageApplied && IsContactCurrent())
 	{
+		// Seeking stays non-extracting. Only this successful real contact may
+		// collect, using the ordinary single-color cargo and return-delivery path.
+		if (ContactPart.IsValid()
+			&& KinsectActor->CapturePendingExtractColor(ContactPart->ExtractColorTag))
+		{
+			FWeaponCombatTelemetryEvent Event;
+			Event.EventName = TEXT("KinsectCargoCaptured");
+			Event.ResourceTag = ContactPart->ExtractColorTag.GetTagName();
+			Event.SourceAttackID = AttackInstanceID;
+			Event.HitID = HitInstanceID;
+			Event.CommandSerial = ContactRequest.CommandSerial;
+			Event.MarkID = ActiveMarkID;
+			Event.TargetActor = Hit.GetActor()->GetFName();
+			Event.Hitzone = ContactPart->GetFName();
+			Event.ImpactPoint = Hit.ImpactPoint;
+			Event.Reason = TEXT("AutoMarkPendingReturn");
+			RecordCombatTelemetryEvent(MoveTemp(Event));
+			BroadcastResourceUIState(true);
+		}
+		// Damage/UI callbacks may issue a newer player command.
+		if (!IsContactCurrent()) return bDamageApplied;
 		HandleSuccessfulKinsectDamage(RuntimeContext.RuntimeToken,
 			AttackInstanceID, HitInstanceID, Hit,
 			EIGPowderSpawnPolicy::AutoMarkContact);
@@ -1124,12 +1198,10 @@ void URes_InsectGlaive::UpdateAutomaticMarkBehavior()
 	}
 	if (!IsAutomaticMarkBehaviorEligible())
 	{
-		const UMHGZWeaponRuntimeHostComponent* Host =
-			RuntimeContext.RuntimeToken.Host.Get();
 		const bool bDeferredByPriority = HasValidKinsectMark()
 			&& KinsectActor->GetState() != EKinsectState::Attached
 			&& (KinsectPlayerCommandLeaseToken.IsValid()
-				|| (Host && Host->HasRegisteredAction())
+				|| KinsectActionAttachmentToken.IsValid()
 				|| (KinsectCommandSource != EKinsectCommandSource::None
 					&& KinsectCommandSource != EKinsectCommandSource::AutoMark));
 		if (bDeferredByPriority && !bAutoMarkDeferredByPriority)
@@ -1214,8 +1286,14 @@ void URes_InsectGlaive::UpdateAutomaticMarkBehavior()
 	}
 	if (Now >= NextAutoMarkActionWorldTime)
 	{
+		const uint64 ContactSerial = AutoMarkCommandSerial;
+		const uint64 ContactMarkSerial = AutoMarkCommandMarkSerial;
 		PerformAutomaticMarkContactAttack();
-		NextAutoMarkActionWorldTime = Now + CombatConfig->KinsectAutoMarkAttackInterval;
+		if (KinsectCommandSerial == ContactSerial && MarkSerial == ContactMarkSerial
+			&& !bRuntimeShuttingDown && CombatConfig)
+		{
+			NextAutoMarkActionWorldTime = Now + CombatConfig->KinsectAutoMarkAttackInterval;
+		}
 	}
 }
 
@@ -1797,6 +1875,14 @@ bool URes_InsectGlaive::ApplyKinsectDamage(
 	const FHitResult& Hit, const float MotionValue, const FGuid& HitInstanceID,
 	const FGuid& SourceAttackID)
 {
+	return ApplyKinsectDamageWithSnapshot(Hit, MotionValue, GetModifiedKinsectAttackPower(),
+		HitInstanceID, SourceAttackID);
+}
+
+bool URes_InsectGlaive::ApplyKinsectDamageWithSnapshot(
+	const FHitResult& Hit, const float MotionValue, const float AttackPower,
+	const FGuid& HitInstanceID, const FGuid& SourceAttackID)
+{
 	const auto RecordDamageResult = [this, &Hit, &HitInstanceID, &SourceAttackID](
 		const bool bApplied, const FName Reason)
 	{
@@ -1819,7 +1905,9 @@ bool URes_InsectGlaive::ApplyKinsectDamage(
 	UAbilitySystemComponent* SourceASC = GetPlayerASC();
 	UAbilitySystemComponent* TargetASC = Target
 		? UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target) : nullptr;
-	if (!Hitzone || !SourceASC || !TargetASC || !HitInstanceID.IsValid())
+	if (!Hitzone || !SourceASC || !TargetASC || !HitInstanceID.IsValid()
+		|| !FMath::IsFinite(AttackPower) || AttackPower < 0.f
+		|| !FMath::IsFinite(MotionValue) || MotionValue < 0.f)
 	{
 		RecordDamageResult(false, TEXT("InvalidHitzoneASCOrHitID"));
 		return false;
@@ -1859,7 +1947,7 @@ bool URes_InsectGlaive::ApplyKinsectDamage(
 		FGameplayTag::RequestGameplayTag(TEXT("Damage.BaseStagger")), 0.0f);
 	Spec.Data->SetSetByCallerMagnitude(
 		FGameplayTag::RequestGameplayTag(TEXT("Damage.AttackPower")),
-		GetModifiedKinsectAttackPower());
+		AttackPower);
 	const bool bApplied = SourceASC->ApplyGameplayEffectSpecToTarget(*Spec.Data, TargetASC)
 		.WasSuccessfullyApplied();
 	RecordDamageResult(bApplied, bApplied
@@ -1961,15 +2049,12 @@ bool URes_InsectGlaive::SetKinsectMarkInternal(
 	AIGMarkProjectile* Projectile)
 {
 	if (bRuntimeShuttingDown || !CombatConfig || !GetWorld() || !Hitzone
+		|| Hitzone->GetWorld() != GetWorld()
 		|| !IsValid(Hitzone->GetOwner())
 		|| !FMath::IsFinite(ImpactPoint.X) || !FMath::IsFinite(ImpactPoint.Y)
 		|| !FMath::IsFinite(ImpactPoint.Z)
 		|| !FMath::IsFinite(CombatConfig->KinsectMarkDuration)
 		|| CombatConfig->KinsectMarkDuration <= 0.0f
-		|| !FMath::IsFinite(CombatConfig->KinsectMarkPatchHalfExtent)
-		|| CombatConfig->KinsectMarkPatchHalfExtent <= 0.0f
-		|| !FMath::IsFinite(CombatConfig->KinsectMarkSurfaceNormalTolerance)
-		|| CombatConfig->KinsectMarkSurfaceNormalTolerance < 0.0f
 		|| (Projectile && Projectile->GetOwner() != GetOwner()))
 	{
 		return false;
@@ -2049,9 +2134,8 @@ bool URes_InsectGlaive::SetKinsectMarkInternal(
 	ActiveMarkBoneName = Hitzone->BoneName;
 	bActiveMarkUsesProjectile = Projectile != nullptr;
 	const FTransform HitzoneTransform = Hitzone->GetComponentTransform();
-	// Use the resolved mesh surface as the canonical mark location for both the
-	// visual and the 20 cm gameplay patch. This keeps proxy-sphere hit points from
-	// moving the mark into the target's interior.
+	// The surface point is only the visual/automatic-seek anchor; the Debuff
+	// applies to the whole hitzone, independent of effect size or surface location.
 	ActiveMarkLocalPoint = HitzoneTransform.InverseTransformPosition(VisualSurfacePoint);
 	ActiveMarkLocalNormal = HitzoneRotation.UnrotateVector(
 		VisualSurfaceNormal).GetSafeNormal();
@@ -2062,6 +2146,7 @@ bool URes_InsectGlaive::SetKinsectMarkInternal(
 	ActiveMarkCreatedAt = CreatedAt;
 	ActiveMarkExpireTime = ExpireAt;
 	ActiveMarkID = FGuid::NewGuid();
+	Hitzone->ApplyKinsectMarkDebuff(this, ActiveMarkID, ExpireAt);
 	if (TargetAttributes && TargetASC)
 	{
 		MarkTargetHealthChangedDelegateHandle =
@@ -2099,6 +2184,10 @@ void URes_InsectGlaive::ExpireKinsectMark(const uint64 ExpectedMarkSerial)
 
 void URes_InsectGlaive::ClearKinsectMark(EIGMarkClearReason Reason)
 {
+	if (UMHGZMonsterHitzoneComponent* Part = ActiveMarkHitzone.Get())
+	{
+		Part->RemoveKinsectMarkDebuff(this, ActiveMarkID);
+	}
 	if (ActiveMarkID.IsValid())
 	{
 		FWeaponCombatTelemetryEvent MarkEvent;
@@ -2309,6 +2398,7 @@ void URes_InsectGlaive::ClearKinsectMarkEffect()
 bool URes_InsectGlaive::HasValidKinsectMark() const
 {
 	if (!ActiveMarkHitzone.IsValid()
+		|| !ActiveMarkHitzone->HasKinsectMarkDebuffFrom(this, ActiveMarkID)
 		|| !IsValid(ActiveMarkHitzone->GetOwner())
 		|| !ActiveMarkTargetActor.IsValid()
 		|| ActiveMarkTargetActor.Get() != ActiveMarkHitzone->GetOwner()
@@ -2352,7 +2442,7 @@ bool URes_InsectGlaive::GetKinsectMarkSurfaceFrame(
 		&& !OutNormal.IsNearlyZero();
 }
 
-bool URes_InsectGlaive::IsHitWithinKinsectMarkPatch(const FHitResult& Hit) const
+bool URes_InsectGlaive::IsHitOnKinsectMarkedPart(const FHitResult& Hit) const
 {
 	const UMHGZMonsterHitzoneComponent* HitHitzone =
 		UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent());
@@ -2360,7 +2450,7 @@ bool URes_InsectGlaive::IsHitWithinKinsectMarkPatch(const FHitResult& Hit) const
 		|| GetWorld()->GetTimeSeconds() >= ActiveMarkExpireTime
 		|| !Hit.bBlockingHit
 		|| Hit.GetActor() != ActiveMarkTargetActor.Get()
-		|| !HitHitzone
+		|| HitHitzone != ActiveMarkHitzone.Get()
 		|| !FMath::IsFinite(Hit.ImpactPoint.X)
 		|| !FMath::IsFinite(Hit.ImpactPoint.Y)
 		|| !FMath::IsFinite(Hit.ImpactPoint.Z))
@@ -2368,39 +2458,7 @@ bool URes_InsectGlaive::IsHitWithinKinsectMarkPatch(const FHitResult& Hit) const
 		return false;
 	}
 
-	const FQuat Rotation = ActiveMarkHitzone->GetComponentQuat();
-	const FVector MarkPoint = ActiveMarkHitzone->GetComponentTransform()
-		.TransformPosition(ActiveMarkLocalPoint);
-	const FVector Normal = Rotation.RotateVector(ActiveMarkLocalNormal).GetSafeNormal();
-	const FVector TangentX = Rotation.RotateVector(ActiveMarkLocalTangentX).GetSafeNormal();
-	const FVector TangentY = Rotation.RotateVector(ActiveMarkLocalTangentY).GetSafeNormal();
-	if (Normal.IsNearlyZero() || TangentX.IsNearlyZero() || TangentY.IsNearlyZero())
-	{
-		return false;
-	}
-
-	// Use the current component rotation only, not its scale. The configured
-	// 100cm x 100cm footprint remains a fixed world-space patch when the hitzone
-	// component is enlarged.
-	FVector ContactSurfacePoint = Hit.ImpactPoint;
-	if (const AMHGZMonsterBase* Monster = Cast<AMHGZMonsterBase>(Hit.GetActor()))
-	{
-		FVector ResolvedPoint = ContactSurfacePoint;
-		FVector ResolvedNormal = Hit.ImpactNormal;
-		if (Monster->ResolveHitEffectVisualSurface(HitHitzone,
-			Hit.ImpactPoint, Hit.ImpactNormal,
-			Hit.TraceStart - Hit.ImpactPoint, ResolvedPoint, ResolvedNormal)
-			&& !ResolvedPoint.ContainsNaN() && !ResolvedNormal.IsNearlyZero())
-		{
-			ContactSurfacePoint = ResolvedPoint;
-		}
-	}
-	const FVector Delta = ContactSurfacePoint - MarkPoint;
-	const float HalfExtent = CombatConfig->KinsectMarkPatchHalfExtent;
-	const float NormalTolerance = CombatConfig->KinsectMarkSurfaceNormalTolerance;
-	return FMath::Abs(FVector::DotProduct(Delta, TangentX)) <= HalfExtent
-		&& FMath::Abs(FVector::DotProduct(Delta, TangentY)) <= HalfExtent
-		&& FMath::Abs(FVector::DotProduct(Delta, Normal)) <= NormalTolerance;
+	return HitHitzone->HasKinsectMarkDebuffFrom(this, ActiveMarkID);
 }
 
 bool URes_InsectGlaive::AddDanceStack(EIGDanceSource Source)
@@ -2443,23 +2501,41 @@ void URes_InsectGlaive::ClearDanceStacks(EIGDanceClearReason Reason)
 
 float URes_InsectGlaive::GetDanceDamageMultiplier(const EIGDanceDamageAction Action) const
 {
-	return CombatConfig ? CombatConfig->GetDanceDamageMultiplier(Action, DanceStacks) : 1.0f;
+	// Preserve the Blueprint query, but resolve its defaults from the granted GA.
+	// Executing GAs freeze their own instance values directly at commit.
+	const UAbilitySystemComponent* ASC = GetPlayerASC();
+	if (!ASC || !CombatConfig) return 1.0f;
+	for (const FGameplayAbilitySpec& Spec : ASC->GetActivatableAbilities())
+	{
+		const TArray<float>* Values = nullptr;
+		if (Action == EIGDanceDamageAction::KinsectSlash)
+		{
+			if (const auto* GA = Cast<UMHGZKinsectSlashAbility>(Spec.Ability)) Values = &GA->KinsectSlashDanceDamageMultipliers;
+		}
+		else if (Action == EIGDanceDamageAction::KinsectPiercer)
+		{
+			if (const auto* GA = Cast<UMHGZKinsectPiercerAbility>(Spec.Ability)) Values = &GA->KinsectPiercerDanceDamageMultipliers;
+		}
+		else if (Action == EIGDanceDamageAction::DescendingThrust)
+		{
+			if (const auto* GA = Cast<UMHGZDescendingThrustAbility>(Spec.Ability)) Values = &GA->DescendingThrustDanceDamageMultipliers;
+		}
+		if (Values) return MHGZ::IGActionConfig::DanceDamageMultiplier(*Values, DanceStacks, CombatConfig->MaxDanceStacks);
+	}
+	return 1.0f;
 }
 
 bool URes_InsectGlaive::SpawnPowderForSuccessfulHit(
 	const FWeaponRuntimeToken& Runtime,
 	const FGuid& SourceAttackID,
 	const FGuid& HitID,
-	const FHitResult& Hit)
+	const FHitResult& Hit, const float KinsectAttackPower, const float MotionValue)
 {
-	if (!CombatConfig || !FMath::IsFinite(CombatConfig->PowderDamageContribution)
-		|| CombatConfig->PowderDamageContribution < 0.0f)
-	{
-		return false;
-	}
-	return SpawnPowderInternal(Runtime, SourceAttackID, HitID, Hit,
-		CombatConfig->PowderDamageContribution, EIGPowderSpawnPolicy::None,
-		CombatConfig->PowderDamageContribution, 100.0f);
+	if (!FMath::IsFinite(KinsectAttackPower) || KinsectAttackPower < 0.0f
+        || !FMath::IsFinite(MotionValue) || MotionValue < 0.0f) return false;
+    return SpawnPowderInternal(Runtime, SourceAttackID, HitID, Hit,
+        MHGZDamageMath::PowderDamage(KinsectAttackPower, MotionValue), EIGPowderSpawnPolicy::None,
+        KinsectAttackPower, MotionValue);
 }
 
 bool URes_InsectGlaive::HandleSuccessfulKinsectDamage(
@@ -2516,9 +2592,9 @@ bool URes_InsectGlaive::HandleSuccessfulKinsectDamage(
 			RecordRejectedSpawn(TEXT("NotMonsterHitzone"));
 			return false;
 		}
-		if (!IsHitWithinKinsectMarkPatch(Hit))
+		if (!IsHitOnKinsectMarkedPart(Hit))
 		{
-			RecordRejectedSpawn(TEXT("OutsideMarkPatch"));
+			RecordRejectedSpawn(TEXT("UnmarkedPart"));
 			return false;
 		}
 		if (SpawnPolicy == EIGPowderSpawnPolicy::MarkedContact
@@ -2544,7 +2620,7 @@ bool URes_InsectGlaive::HandleSuccessfulKinsectDamage(
 	}
 	const float AttackPowerSnapshot = GetModifiedKinsectAttackPower();
 	const float MotionValueSnapshot = CombatConfig->PowderMotionValue;
-	const float DamageSnapshot = AttackPowerSnapshot * (MotionValueSnapshot / 100.0f);
+	const float DamageSnapshot = MHGZDamageMath::PowderDamage(AttackPowerSnapshot, MotionValueSnapshot);
 	if (!FMath::IsFinite(AttackPowerSnapshot) || AttackPowerSnapshot <= 0.0f
 		|| !FMath::IsFinite(DamageSnapshot) || DamageSnapshot <= 0.0f)
 	{
@@ -3002,7 +3078,7 @@ void URes_InsectGlaive::ApplyNaturalPowderExplosion(
 }
 
 bool URes_InsectGlaive::StartPowderVortex(const FWeaponActionToken& Action,
-	const FWeaponAimSnapshot& AimSnapshot)
+	const FWeaponAimSnapshot& AimSnapshot, const FIGPowderVortexSettings& Settings)
 {
 	UMHGZWeaponRuntimeHostComponent* Host = RuntimeContext.RuntimeToken.Host.Get();
 	if (bRuntimeShuttingDown || ActivePowderVortexCommandSerial != 0
@@ -3013,18 +3089,7 @@ bool URes_InsectGlaive::StartPowderVortex(const FWeaponActionToken& Action,
 		|| KinsectActionAttachmentToken.IsValid()
 		|| AimSnapshot.Context != EWeaponAimSnapshotContext::Kinsect
 		|| !IsFiniteVector(AimSnapshot.TargetPoint)
-		|| !FMath::IsFinite(CombatConfig->PowderGatherRadius)
-		|| CombatConfig->PowderGatherRadius <= 0.0f
-		|| !FMath::IsFinite(CombatConfig->PowderVortexDelay)
-		|| CombatConfig->PowderVortexDelay <= 0.0f
-		|| !FMath::IsFinite(CombatConfig->PowderVortexDamageAt1)
-		|| CombatConfig->PowderVortexDamageAt1 <= 0.0f
-		|| !FMath::IsFinite(CombatConfig->PowderVortexDamageAt5)
-		|| CombatConfig->PowderVortexDamageAt5 <= 0.0f
-		|| !FMath::IsFinite(CombatConfig->PowderVortexDamageAt10)
-		|| CombatConfig->PowderVortexDamageAt10 <= 0.0f
-		|| !CombatConfig->PowderVortexHitCueTag.IsValid()
-		|| !CombatConfig->PowderVortexExplosionCueTag.IsValid()
+		|| !Settings.IsValid()
 		|| !FMath::IsFinite(KinsectData->FlightSpeed)
 		|| KinsectData->FlightSpeed <= 0.0f
 		|| !FMath::IsFinite(KinsectData->MaxFlightRange)
@@ -3093,13 +3158,9 @@ bool URes_InsectGlaive::StartPowderVortex(const FWeaponActionToken& Action,
 		}
 	}
 	// Any blocking point captured by the activation-time aim is a legitimate
-	// Powder Vortex destination, including ordinary component hits (e.g. the
-	// floor). The Kinsect capsule can contact that surface just before its center
-	// reaches the saved point; HandleWorldHit accepts only impacts inside the
-	// existing arrival-radius tolerance, so unrelated occluders still cancel.
-	Request.bAllowWorldHitAtTarget =
-		(AimHit && AimHit->bBlockingHit)
-		|| (AimSnapshot.bHasBlockingHit && AimSnapshot.BlockingHit.bBlockingHit);
+	// A floor/wall remains an aim point, not a physical Kinsect hit. Arrival is
+	// resolved only from the saved/moving point, with no terrain-stop exception.
+	Request.bAllowWorldHitAtTarget = false; // legacy reflected field
 
 	const uint64 CommandSerial = AdvanceKinsectCommand(
 		EKinsectCommandSource::PowderVortex);
@@ -3120,6 +3181,8 @@ bool URes_InsectGlaive::StartPowderVortex(const FWeaponActionToken& Action,
 
 	ActivePowderVortexCommandSerial = CommandSerial;
 	ActivePowderVortexReservationID = 0;
+	ActivePowderVortexSettings = Settings;
+	ActivePowderVortexAttackPower = GetModifiedKinsectAttackPower();
 	SetKinsectActiveTag(true);
 	return true;
 }
@@ -3154,7 +3217,7 @@ bool URes_InsectGlaive::BeginPowderVortexGathering(
 
 	const double Now = GetWorld()->GetTimeSeconds();
 	const double RadiusSquared = FMath::Square(
-		static_cast<double>(CombatConfig->PowderGatherRadius));
+		static_cast<double>(ActivePowderVortexSettings.GatherRadius));
 	TArray<AIGPowderActor*> Candidates;
 	// The attached mark is not a powder member and is never moved by the gather
 	// presentation. A mark in the attraction radius is consumed directly when
@@ -3177,7 +3240,7 @@ bool URes_InsectGlaive::BeginPowderVortexGathering(
 	Pending.Token = Token;
 	Pending.Center = Center;
 	Pending.CreatedWorldTime = Now;
-	Pending.GatherDeadlineWorldTime = Now + CombatConfig->PowderVortexDelay;
+	Pending.GatherDeadlineWorldTime = Now + ActivePowderVortexSettings.GatherDelay;
 	Pending.bPowderVortexTransaction = true;
 	Pending.bGathering = true;
 	for (AIGPowderActor* Powder : Candidates)
@@ -3261,7 +3324,7 @@ bool URes_InsectGlaive::BeginPowderVortexGathering(
 			CommitPowderVortexTransaction(ExpectedCommandSerial);
 		});
 	GetWorld()->GetTimerManager().SetTimer(PowderVortexCommitTimer,
-		CommitDelegate, CombatConfig->PowderVortexDelay, false);
+		CommitDelegate, ActivePowderVortexSettings.GatherDelay, false);
 	StartPowderVortexGatherSounds(Center);
 	return true;
 }
@@ -3273,7 +3336,7 @@ void URes_InsectGlaive::StartPowderVortexGatherSounds(const FVector& Center)
 	{
 		return;
 	}
-	for (USoundBase* Sound : CombatConfig->PowderVortexGatherSounds)
+	for (USoundBase* Sound : ActivePowderVortexSettings.GatherSounds)
 	{
 		if (Sound)
 		{
@@ -3364,14 +3427,17 @@ void URes_InsectGlaive::CommitPowderVortexTransaction(
 	const FReservedPowderSet Reservation = *Found;
 	StopPowderVortexGatherSounds();
 	TArray<AIGPowderActor*> LiveMembers;
-	float Stage2Damage = 0.0f;
+	double Stage2Damage = 0.0;
 	for (const FReservedPowderMember& Member : Reservation.Members)
 	{
 		AIGPowderActor* Powder = Member.Actor.Get();
 		if (Powder && Powder->CanCommitReservation(Reservation.Token, Now))
 		{
 			LiveMembers.Add(Powder);
-			Stage2Damage += Powder->GetDamageContribution();
+			// Sum the damage of individually exploding powders, never previously
+			// rounded float ratios. Every member keeps its own generation-time AP/MV.
+			Stage2Damage += MHGZDamageMath::PowderDamage(
+				Powder->GetKinsectAttackPowerSnapshot(), Powder->GetMotionValueSnapshot());
 		}
 		else if (Powder)
 		{
@@ -3384,16 +3450,16 @@ void URes_InsectGlaive::CommitPowderVortexTransaction(
 	FIGPowderExplosionSnapshot Explosion;
 	Explosion.Center = Reservation.Center;
 	Explosion.ConsumedCount = LiveMembers.Num();
-	Explosion.Radius = CombatConfig->PowderVortexExplosionRadius;
+	Explosion.Radius = ActivePowderVortexSettings.ExplosionRadius;
 	Explosion.BaseStagger = 0.0f;
 	if (!LiveMembers.IsEmpty())
 	{
 		const int32 Count = LiveMembers.Num();
-		Explosion.Stage1Damage = Count < 5
-			? CombatConfig->PowderVortexDamageAt1
-			: (Count < 10 ? CombatConfig->PowderVortexDamageAt5
-				: CombatConfig->PowderVortexDamageAt10);
-		Explosion.Stage2Damage = Stage2Damage;
+		Explosion.Stage1AttackPower = ActivePowderVortexAttackPower;
+		Explosion.Stage1MotionValue = Count < 5 ? ActivePowderVortexSettings.MotionValueAt1
+			: (Count < 10 ? ActivePowderVortexSettings.MotionValueAt5 : ActivePowderVortexSettings.MotionValueAt10);
+		Explosion.Stage1Damage = MHGZDamageMath::PowderDamage(Explosion.Stage1AttackPower, Explosion.Stage1MotionValue);
+		Explosion.Stage2Damage = static_cast<float>(Stage2Damage);
 		Explosion.Stage1AttackID = FGuid::NewGuid();
 		Explosion.Stage2AttackID = FGuid::NewGuid();
 		Explosion.ExplosionID = Explosion.Stage1AttackID;
@@ -3428,9 +3494,15 @@ void URes_InsectGlaive::CommitPowderVortexTransaction(
 	CommitEvent.MemberCount = Explosion.ConsumedCount;
 	CommitEvent.Damage = Explosion.TotalDamage;
 	RecordCombatTelemetryEvent(MoveTemp(CommitEvent));
-	ApplyPowderVortexExplosion(Explosion);
+	const FIGPowderVortexSettings ExplosionSettings = ActivePowderVortexSettings;
+	ApplyPowderVortexExplosion(Explosion, ExplosionSettings);
 
-	ActivePowderVortexCommandSerial = 0;
+	if (ActivePowderVortexCommandSerial == ExpectedCommandSerial)
+	{
+		ActivePowderVortexCommandSerial = 0;
+		ActivePowderVortexSettings = FIGPowderVortexSettings();
+		ActivePowderVortexAttackPower = 0.f;
+	}
 	if (KinsectCommandSerial == ExpectedCommandSerial
 		&& KinsectCommandSource == EKinsectCommandSource::PowderVortex)
 	{
@@ -3500,6 +3572,8 @@ void URes_InsectGlaive::CancelPowderVortexTransaction(
 	}
 	ActivePowderVortexReservationID = 0;
 	ActivePowderVortexCommandSerial = 0;
+	ActivePowderVortexSettings = FIGPowderVortexSettings();
+	ActivePowderVortexAttackPower = 0.f;
 	if (bReleaseCommand && CancelledSerial != 0
 		&& KinsectCommandSerial == CancelledSerial
 		&& KinsectCommandSource == EKinsectCommandSource::PowderVortex)
@@ -3510,7 +3584,7 @@ void URes_InsectGlaive::CancelPowderVortexTransaction(
 }
 
 void URes_InsectGlaive::ApplyPowderVortexExplosion(
-	const FIGPowderExplosionSnapshot& Explosion)
+	const FIGPowderExplosionSnapshot& Explosion, const FIGPowderVortexSettings& Settings)
 {
 	if (!IsFiniteVector(Explosion.Center))
 	{
@@ -3528,7 +3602,7 @@ void URes_InsectGlaive::ApplyPowderVortexExplosion(
 	CueParameters.Instigator = SourceActor;
 	CueParameters.EffectCauser = SourceActor;
 	CueParameters.EffectContext = SourceASC->MakeEffectContext();
-	SourceASC->ExecuteGameplayCue(CombatConfig->PowderVortexExplosionCueTag,
+	SourceASC->ExecuteGameplayCue(Settings.ExplosionCueTag,
 		CueParameters);
 	if (Explosion.ConsumedCount <= 0)
 	{
@@ -3536,7 +3610,7 @@ void URes_InsectGlaive::ApplyPowderVortexExplosion(
 	}
 	// A single spatial burst per transaction, not one per powder, target or stage.
 	for (USoundBase* Sound : { CombatConfig->PowderExplosionSound.Get(),
-		CombatConfig->PowderVortexExplosionSound.Get() })
+		Settings.ExplosionSound.Get() })
 	{
 		if (Sound)
 		{
@@ -3544,14 +3618,14 @@ void URes_InsectGlaive::ApplyPowderVortexExplosion(
 		}
 	}
 	ApplyPowderVortexDamageStage(Explosion, Explosion.Stage1AttackID,
-		Explosion.Stage1Damage);
+		Explosion.Stage1Damage, Settings.HitCueTag);
 	ApplyPowderVortexDamageStage(Explosion, Explosion.Stage2AttackID,
-		Explosion.Stage2Damage);
+		Explosion.Stage2Damage, Settings.HitCueTag);
 }
 
 void URes_InsectGlaive::ApplyPowderVortexDamageStage(
 	const FIGPowderExplosionSnapshot& Explosion, const FGuid& StageAttackID,
-	const float Damage)
+	const float Damage, const FGameplayTag HitCueTag)
 {
 	if (!StageAttackID.IsValid() || !FMath::IsFinite(Damage) || Damage <= 0.0f
 		|| !GetWorld() || !CombatConfig)
@@ -3641,7 +3715,7 @@ void URes_InsectGlaive::ApplyPowderVortexDamageStage(
 		Context->HitzoneTag = Hitzone->HitzoneTag;
 		Context->DamageSourceType = EMHGZDamageSourceType::Powder;
 		Context->bUseHitzoneDefense = false;
-		Context->HitCueTag = CombatConfig->PowderVortexHitCueTag;
+		Context->HitCueTag = HitCueTag;
 
 		FGameplayEffectSpecHandle Spec = SourceASC->MakeOutgoingSpec(
 			UMHGZDamageGameplayEffect::StaticClass(), 1.0f, ContextHandle);
@@ -3650,11 +3724,13 @@ void URes_InsectGlaive::ApplyPowderVortexDamageStage(
 			continue;
 		}
 		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(
-			TEXT("Damage.AttackPower")), Damage);
-		// Stage 1 is the existing fixed 1/5/10-powder threshold bonus; Stage 2
-		// passes an already summed set of per-powder AP×MV/100 snapshots.
+			TEXT("Damage.AttackPower")), StageAttackID == Explosion.Stage1AttackID
+				? Explosion.Stage1AttackPower : Damage);
+		// Stage 1 retains its actual GA motion value and AP snapshot. Stage 2
+		// adapts the sum of individually rounded powder damage with MV=100.
 		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(
-			TEXT("Damage.MotionValue")), 100.0f);
+			TEXT("Damage.MotionValue")), StageAttackID == Explosion.Stage1AttackID
+				? Explosion.Stage1MotionValue : 100.0f);
 		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(
 			TEXT("Damage.BaseStagger")), 0.0f);
 		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(
@@ -3686,30 +3762,29 @@ void URes_InsectGlaive::ApplyPowderVortexDamageStage(
 	}
 }
 
-bool URes_InsectGlaive::CanGatherPowders(const FVector& Center) const
+bool URes_InsectGlaive::CanGatherPowders(const FVector& Center, const float GatherRadius) const
 {
 	if (bRuntimeShuttingDown || !CombatConfig || !GetWorld()
 		|| !RuntimeContext.RuntimeToken.IsValid()
 		|| !IsRuntimeRequestCurrent(RuntimeContext.RuntimeToken)
 		|| !FMath::IsFinite(Center.X) || !FMath::IsFinite(Center.Y)
 		|| !FMath::IsFinite(Center.Z)
-		|| !FMath::IsFinite(CombatConfig->PowderGatherRadius)
-		|| CombatConfig->PowderGatherRadius <= 0.0f
-		|| CombatConfig->PowderGatherMaxCount <= 0)
+		|| !FMath::IsFinite(GatherRadius)
+		|| GatherRadius <= 0.0f)
 	{
 		return false;
 	}
 
 	const double Now = GetWorld()->GetTimeSeconds();
 	const double RadiusSquared = FMath::Square(
-		static_cast<double>(CombatConfig->PowderGatherRadius));
+		static_cast<double>(GatherRadius));
 	int32 AvailableCount = 0;
 	for (const TWeakObjectPtr<AIGPowderActor>& WeakPowder : OwnedPowders)
 	{
 		const AIGPowderActor* Powder = WeakPowder.Get();
 		if (Powder && Powder->IsAvailableFor(this, RuntimeContext.RuntimeToken, Now)
 			&& FVector::DistSquared(Center, Powder->GetActorLocation()) <= RadiusSquared
-			&& ++AvailableCount >= CombatConfig->PowderGatherMaxCount)
+			&& ++AvailableCount > 0)
 		{
 			return true;
 		}
@@ -3718,7 +3793,7 @@ bool URes_InsectGlaive::CanGatherPowders(const FVector& Center) const
 }
 
 bool URes_InsectGlaive::TryReservePowders(const FWeaponActionToken& Action,
-	const FVector& Center, FIGPowderReservationToken& OutToken)
+	const FVector& Center, FIGPowderReservationToken& OutToken, const float GatherRadius, const int32 MaxCount)
 {
 	OutToken = FIGPowderReservationToken();
 	UMHGZWeaponRuntimeHostComponent* Host = RuntimeContext.RuntimeToken.Host.Get();
@@ -3727,7 +3802,7 @@ bool URes_InsectGlaive::TryReservePowders(const FWeaponActionToken& Action,
 		|| !Host || !Host->IsActionRegistered(Action)
 		|| !CombatConfig || !FMath::IsFinite(Center.X)
 		|| !FMath::IsFinite(Center.Y) || !FMath::IsFinite(Center.Z)
-		|| !CanGatherPowders(Center))
+		|| MaxCount <= 0 || !CanGatherPowders(Center, GatherRadius))
 	{
 		return false;
 	}
@@ -3747,7 +3822,7 @@ bool URes_InsectGlaive::TryReservePowders(const FWeaponActionToken& Action,
 	};
 	const double Now = GetWorld()->GetTimeSeconds();
 	const double RadiusSquared = FMath::Square(
-		static_cast<double>(CombatConfig->PowderGatherRadius));
+		static_cast<double>(GatherRadius));
 	TArray<FCandidate> Candidates;
 	for (const TWeakObjectPtr<AIGPowderActor>& WeakPowder : OwnedPowders)
 	{
@@ -3770,7 +3845,7 @@ bool URes_InsectGlaive::TryReservePowders(const FWeaponActionToken& Action,
 		}
 		return A.Actor->GetSpawnSequenceID() < B.Actor->GetSpawnSequenceID();
 	});
-	Candidates.SetNum(FMath::Min(Candidates.Num(), CombatConfig->PowderGatherMaxCount));
+	Candidates.SetNum(FMath::Min(Candidates.Num(), MaxCount));
 	if (Candidates.IsEmpty())
 	{
 		return false;
@@ -3883,7 +3958,7 @@ bool URes_InsectGlaive::UpdatePowderGathering(
 
 bool URes_InsectGlaive::CommitPowderReservation(
 	const FIGPowderReservationToken& Token,
-	FIGPowderExplosionSnapshot& OutExplosion)
+	FIGPowderExplosionSnapshot& OutExplosion, const float ExplosionRadius)
 {
 	OutExplosion = FIGPowderExplosionSnapshot();
 	UMHGZWeaponRuntimeHostComponent* Host = RuntimeContext.RuntimeToken.Host.Get();
@@ -3900,16 +3975,8 @@ bool URes_InsectGlaive::CommitPowderReservation(
 	{
 		return false;
 	}
-	if (!FMath::IsFinite(CombatConfig->PowderVortexBaseDamage)
-		|| CombatConfig->PowderVortexBaseDamage < 0.0f
-		|| !FMath::IsFinite(CombatConfig->PowderVortexExplosionRadius)
-		|| CombatConfig->PowderVortexExplosionRadius <= 0.0f
-		|| !FMath::IsFinite(CombatConfig->PowderVortexBaseStagger)
-		|| CombatConfig->PowderVortexBaseStagger < 0.0f)
-	{
-		ReleasePowderReservation(Token);
-		return false;
-	}
+	if (!FMath::IsFinite(ExplosionRadius) || ExplosionRadius <= 0.0f)
+    { ReleasePowderReservation(Token); return false; }
 
 	// Copy and remove the transaction before changing actors; EndPlay callbacks may
 	// update the registry synchronously when the consumed actors are destroyed.
@@ -3917,7 +3984,7 @@ bool URes_InsectGlaive::CommitPowderReservation(
 	PowderReservations.Remove(Token.ReservationID);
 	const double Now = GetWorld()->GetTimeSeconds();
 	TArray<AIGPowderActor*> LiveMembers;
-	float TotalDamage = CombatConfig->PowderVortexBaseDamage;
+	double TotalDamage = 0.0;
 	for (const FReservedPowderMember& Member : Reservation.Members)
 	{
 		AIGPowderActor* Powder = Member.Actor.Get();
@@ -3931,7 +3998,7 @@ bool URes_InsectGlaive::CommitPowderReservation(
 			Powder->ReleaseReservation(Token, Member.OriginalTransform, Now);
 		}
 	}
-	if (LiveMembers.IsEmpty() || !FMath::IsFinite(TotalDamage))
+	if (LiveMembers.IsEmpty() || !FMath::IsFinite(TotalDamage) || TotalDamage > static_cast<double>(MAX_flt))
 	{
 		// If all reserved members expired/died, fail and release any surviving stale
 		// members; a partial live set is valid and is committed below at actual count.
@@ -3954,8 +4021,8 @@ bool URes_InsectGlaive::CommitPowderReservation(
 	Snapshot.Center = Reservation.Center;
 	Snapshot.ConsumedCount = LiveMembers.Num();
 	Snapshot.TotalDamage = TotalDamage;
-	Snapshot.Radius = CombatConfig->PowderVortexExplosionRadius;
-	Snapshot.BaseStagger = CombatConfig->PowderVortexBaseStagger;
+	Snapshot.Radius = ExplosionRadius;
+	Snapshot.BaseStagger = 0.0f;
 	OutExplosion = Snapshot;
 
 	for (AIGPowderActor* Powder : LiveMembers)
@@ -3991,6 +4058,8 @@ void URes_InsectGlaive::ReleasePowderReservation(
 
 void URes_InsectGlaive::ClearOwnedPowders(const EWeaponRuntimeEndReason Reason)
 {
+	ActivePowderVortexSettings = FIGPowderVortexSettings();
+	ActivePowderVortexAttackPower = 0.f;
 	StopPowderVortexGatherSounds();
 	const int32 Count = OwnedPowders.Num();
 	const TArray<TWeakObjectPtr<AIGPowderActor>> Powders = OwnedPowders;

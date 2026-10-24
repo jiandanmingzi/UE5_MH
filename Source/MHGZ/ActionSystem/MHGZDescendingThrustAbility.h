@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/DataValidation.h"
+#include "InsectGlaive/IGActionConfigTypes.h"
 #include "ActionSystem/MHGZInsectGlaiveAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZDescendingThrustAbility.generated.h"
@@ -97,6 +99,37 @@ class MHGZ_API UMHGZDescendingThrustAbility : public UMHGZInsectGlaiveAbility
 	GENERATED_BODY()
 
 public:
+	// 专属数值随本GA保存；Combat同名旧字段不再参与运行时。
+	/**
+	 * 380 的参数化基曲线：X=水平位移时间积分 H(t)（秒），Y=0，Z=世界竖直位移（cm）。
+	 * 运行时仅按 LockedPlanarVelocity 大小缩放 X；保护飞行转下潜时不重置此曲线时钟。
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|急袭突刺|位移")
+	FRecordedLocalTrajectoryProfile DescendingThrustAirProfile;
+
+	/** 曲线尾段仍未真实接地时的异常看门狗；不作为正常落地出口。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|急袭突刺|位移",
+		meta = (ClampMin = "0.1", ForceUnits = "s"))
+	float DescendingThrustAirWatchdogSeconds = 12.0f;
+
+	/** 真实落地切到常驻381 Over Montage时的视觉混入。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|急袭突刺|表现",
+		meta = (ClampMin = "0.0", ForceUnits = "s"))
+	float DescendingThrustLandingBlendInTime = 0.1f;
+
+	/** 急袭突刺 AdditiveInertia 的空气输入修正缩放 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|急袭突刺", meta = (ClampMin = "0.0"))
+	float DescendingThrustAirControl = 0.5f;
+
+	/** 四段武器伤害共用 Commit 清层前的快照，包括地面段。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "资源|舞踏|增伤", meta = (ClampMin = "1.0"))
+	TArray<float> DescendingThrustDanceDamageMultipliers = { 1.0f, 1.1f, 1.3f, 1.5f };
+
+
+#if WITH_EDITOR
+	EDataValidationResult ValidateOwnedActionConfig(FDataValidationContext& Context) const;
+#endif
+
 	UMHGZDescendingThrustAbility();
 
 	/** True only when the sampled raw stick magnitude is strictly above 0.50. */
@@ -149,6 +182,7 @@ protected:
 	virtual void ApplyActivationDirectionCorrection() override;
 	virtual void HandleSuccessfulAttackDamage(const FHitResult& Hit,
 		int32 SegmentIndex) override;
+	virtual void OnAttackCollisionWindowRetired(int32 SegmentIndex, uint64 Occurrence) override;
 	virtual bool CanApplyCollisionHit(const FHitResult& Hit,
 		int32 SegmentIndex) const override;
 	virtual void OnMontageCompleted() override;
@@ -160,6 +194,7 @@ protected:
 
 private:
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
+	friend class FMHGZDescendingCoEndpointTest;
 	friend class FMHGZM5LandingDodgeHandoffTestAccess;
 	friend class FMHGZIGDanceDamageTest;
 #endif
@@ -193,6 +228,9 @@ private:
 	void ClearWatchdog();
 
 	// Damage identity and lifecycle.
+	/** Predict the unobstructed ground Over endpoint once; the insect never homes. */
+	static bool ResolveKinsectDiveTarget(ACharacter& Character, const UAnimMontage& Montage,
+		float MontagePosition, FVector& OutTarget);
 	void GenerateSegmentDamageInstanceIDs();
 	void RecordDamagedTarget(int32 SegmentIndex, const AActor* Target);
 	bool HasDamagedTarget(int32 SegmentIndex, const AActor* Target) const;
@@ -264,6 +302,10 @@ private:
 		Category = "DescendingThrust|Kinsect Mark",
 		meta = (ClampMin = "0", ClampMax = "3", AllowPrivateAccess = "true"))
 	int32 MarkSegmentIndex = 2;
+	/** Optional kinsect dive; never adds an activation stamina requirement. */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DescendingThrust|Kinsect",
+		meta = (ClampMin = "0.0", AllowPrivateAccess = "true"))
+	float KinsectDiveMotionValue = 10.f;
 
 	FWeaponActionToken DescendingActionToken;
 	FWeaponActionToken MovementActionToken;

@@ -2,6 +2,10 @@
 
 #include "MHGZInsectGlaiveAbility.h"
 #include "ActionSystem/AnimNotify_IG_AerialHandoff.h"
+#include "ActionSystem/AnimNotifyState_AttackCollision.h"
+#include "ActionSystem/AnimNotifyState_ComboWindow.h"
+#include "ActionSystem/AnimNotifyState_DodgeAcceptWindow.h"
+#include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "MHGZAbilitySystemComponent.h"
@@ -12,6 +16,44 @@
 #include "GameFramework/CharacterMovementComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "MHGZ.h"
+
+namespace
+{
+struct FRemainingCoAttackWindows { bool bKnown = false, bAttack = false, bCombo = false, bDodgeAccept = false; };
+
+// Follow the actual section links, not the last notify in the whole asset:
+// alternative entries and skipped sections must not keep recovery sampling alive.
+FRemainingCoAttackWindows RemainingCoAttackWindows(ACharacter* Character, UAnimMontage* Montage)
+{
+	FRemainingCoAttackWindows Result;
+	UAnimInstance* Anim = Character && Character->GetMesh() ? Character->GetMesh()->GetAnimInstance() : nullptr;
+	FAnimMontageInstance* Instance = Anim && Montage ? Anim->GetActiveInstanceForMontage(Montage) : nullptr;
+	if (!Instance) return Result;
+	const float Position = Instance->GetPosition();
+	int32 Section = Montage->GetSectionIndexFromPosition(Position);
+	TSet<int32> Visited;
+	float Cursor = Position;
+	Result.bKnown = true;
+	while (Section != INDEX_NONE)
+	{
+		if (Visited.Contains(Section)) { Result.bAttack = Result.bCombo = Result.bDodgeAccept = true; break; } // live loop, not a final exit
+		Visited.Add(Section);
+		float Start, End;
+		Montage->GetSectionStartAndEndTime(Section, Start, End);
+		for (const FAnimNotifyEvent& Event : Montage->Notifies)
+		{
+			if (Event.GetTriggerTime() < Start || Event.GetTriggerTime() >= End
+				|| Event.GetEndTriggerTime() <= Cursor + 1.e-4f) continue;
+			Result.bAttack |= Event.NotifyStateClass && Event.NotifyStateClass->IsA<UAnimNotifyState_AttackCollision>();
+			Result.bCombo |= Event.NotifyStateClass && Event.NotifyStateClass->IsA<UAnimNotifyState_ComboWindow>();
+			Result.bDodgeAccept |= Event.NotifyStateClass && Event.NotifyStateClass->IsA<UAnimNotifyState_DodgeAcceptWindow>();
+		}
+		Section = Instance->GetNextSectionID(Section);
+		Cursor = -FLT_MAX;
+	}
+	return Result;
+}
+}
 
 UMHGZInsectGlaiveAbility::UMHGZInsectGlaiveAbility()
 {
@@ -61,6 +103,8 @@ void UMHGZInsectGlaiveAbility::ActivateAbility(
 	const FGameplayEventData* TriggerEventData)
 {
 	// 父类（UMHGZAttackAbility）：扣耐力、方向修正、播 Montage
+	bCoAttackEntryStaminaChecked = false;
+	bCoAttackEntryStaminaAllowed = false;
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 	if (!IsActionActivationCommitted()) return;
 
@@ -69,6 +113,7 @@ void UMHGZInsectGlaiveAbility::ActivateAbility(
 	// 激活残留的 true 会让 exit 判据以为本次已经越过释放点。
 	bAerialHandoffReached = false;
 	bAerialHandoffAuthored = false;
+	TryStartKinsectCoAttack();
 
 	// Legacy only. Migrated actions resolve per-event audio in actual Montage Notifies.
 	if (!bUseAuthoredSwingAudio && TripleUpSwingSound)
@@ -80,6 +125,58 @@ void UMHGZInsectGlaiveAbility::ActivateAbility(
 			UGameplayStatics::PlaySound2D(this, TripleUpSwingSound);
 		}
 	}
+}
+
+bool UMHGZInsectGlaiveAbility::TryStartKinsectCoAttack()
+{
+	if (!IsActive() || !IsActionActivationCommitted() || !CoAttack.bEnabled) return false;
+	FAttackCollisionConfig Trace;
+	Trace.TraceMeshComponentTag = CoAttack.MeshTag;
+	Trace.TraceRegions.AddDefaulted_GetRef().EndSocketName = CoAttack.Socket;
+	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
+	{
+		if (!bCoAttackEntryStaminaChecked)
+		{
+			bCoAttackEntryStaminaChecked = true;
+			bCoAttackEntryStaminaAllowed = Resource->HasKinsectCoAttackEntryStamina();
+		}
+		if (!bCoAttackEntryStaminaAllowed) return false;
+		return Resource->BeginKinsectCoAttack(GetActionToken(), FindTraceMeshComponent(Trace), CoAttack);
+	}
+	return false;
+}
+
+void UMHGZInsectGlaiveAbility::OnAttackCollisionWindowOpened(const int32 Segment, const uint64 Occurrence)
+{
+	Super::OnAttackCollisionWindowOpened(Segment, Occurrence);
+	if (!CoAttack.bEnabled || !AttackSegments.IsValidIndex(Segment)) return;
+	const float* MotionValue = CoAttack.SegmentMotionValues.Find(Segment);
+	const FAttackSegmentConfig& Config = AttackSegments[Segment];
+	// LockedTargetTicks is intentionally not copied to cooperative contact damage.
+	if (!MotionValue || !FMath::IsFinite(*MotionValue) || *MotionValue <= 0.f
+		|| Config.MultiHitPolicy != EAttackMultiHitPolicy::ContactOnly) return;
+	// Covers a notify delivered synchronously while the montage is first starting.
+	TryStartKinsectCoAttack();
+	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
+		Resource->OpenKinsectCoAttackWindow(GetActionToken(), Segment, Occurrence,
+			GetActivationAttackInstanceID(), *MotionValue,
+			FMath::Max(1, Config.MultiHitCount), Config.MultiHitInterval);
+}
+
+void UMHGZInsectGlaiveAbility::OnAttackCollisionWindowRetired(const int32 Segment, const uint64 Occurrence)
+{
+	if (CoAttack.bEnabled)
+		if (URes_InsectGlaive* Resource = GetIGResourceComponent())
+		{
+			Resource->CloseKinsectCoAttackWindow(GetActionToken(), Occurrence);
+			const auto Remaining = RemainingCoAttackWindows(Cast<ACharacter>(GetAvatarActorFromActorInfo()),
+				ActiveAttackMontage);
+			// DodgeAccept is the normal freeze boundary, including actions without
+			// any ComboWindow. Preserve the legacy fallback only if neither remains.
+			if (Remaining.bKnown && !Remaining.bAttack && !Remaining.bCombo && !Remaining.bDodgeAccept)
+				Resource->FinishKinsectCoAttackPath(GetActionToken(), true);
+		}
+	Super::OnAttackCollisionWindowRetired(Segment, Occurrence);
 }
 
 bool UMHGZInsectGlaiveAbility::CheckExtractRequirement(FGameplayTag ExtractColor) const
@@ -264,6 +361,16 @@ void UMHGZInsectGlaiveAbility::EndAbility(
 		}
 	}
 	CloseAerialHandoff();
+	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
+	{
+		const EWeaponActionEndReason Reason = GetActionEndReason();
+		// Superseded is a GAS cancellation too; retain its receipts until the
+		// successfully registered successor decides whether it can join.
+		if ((!bWasCancelled && Reason == EWeaponActionEndReason::Normal)
+			|| Reason == EWeaponActionEndReason::Superseded)
+			Resource->FinishKinsectCoAttack(GetActionToken());
+		else Resource->EndKinsectCoAttack(GetActionToken());
+	}
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 
 	// 中止滞空 = 「空中可操作」的领取点：handoff 没到就被打断时，先恢复 Falling，

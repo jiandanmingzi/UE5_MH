@@ -407,7 +407,7 @@ RuntimeHost 初始化时先订阅 Equipment Delegate，再主动读取一次当�
 2. 取消当前武器 Ability 与协调器，等待其同步清理回调结束。
 3. 停止位移所有者、攻击窗口、ProjectileMovement、Tick、Timer 和 Delegate。
 4. 广播 `OnWeaponRuntimeInvalidated(CurrentToken)`；本地 HUD 先解绑该 Token 的 Resource Widget，AimComponent 解除该 Runtime 绑定。角色 Health/Stamina 的 ASC 绑定只在 Possess/Avatar 变化时切换，不因单纯换武器解除。RuntimeHost 不直接依赖 UI 模块。
-5. 虫棍资源召回或销毁猎虫，解除粉尘预留并销毁所属粉尘，清除虫印和舞踏。
+5. 虫棍资源召回或销毁猎虫，解除粉尘预留并销毁所属粉尘，清除虫印和舞踏。虫印自2026-10-24改为目标Hitzone的部位级Debuff，Resource退出时同时移除该来源的部位状态，不能只删特效。
 6. 按保存的 Handle 移除精华/三灯/临时 GE；TagLedger `ReleaseAll(CurrentToken)` 清全部临时 Loose Tag Token。
 7. 广播资源失效，最后 `DestroyComponent`。Demo 未启用 WeaponResource EntryModifier，不把 `ClearAllEntryModifiers` 作为依赖；未来接通词条后只按来源句柄清理。
 
@@ -712,7 +712,7 @@ M3输入接线补充（2026-10-03急袭突刺目标覆盖旧空中单RT）：`FW
 **工作：**
 
 1. 保留已签收觉虫击普通/三灯分支、激活与丢虫90°修正、猎人飞行/召回和命中舞踏；仅对新公共产粉路径做针对性回归。
-2. 按M6.3.1～M6.3.5实现90s局部虫印、自动攻击与玩家优先仲裁、局部命中10s产粉/贯通例外、180s自然爆炸/远距消失/100团，以及准心目标到达后1s两段聚爆。现有近战建印来源为虫印斩ConfigIndex=0、急袭地面第一击=2、四连印斩GA第二个伤害段=1、觉虫击猎人冲刺=0，均须成功结算武器伤害；猎虫自身伤害不属于这些来源。旧最近5团/单段合并/取消回出生点不再适用。
+2. 按M6.3.1～M6.3.5实现虫印、自动攻击与玩家优先仲裁、180s自然爆炸/远距消失/100团，以及准心目标到达后1s两段聚爆。2026-10-24虫印改为90s部位级Debuff：命中被标记部位即可评估产粉，不再受表面斑块范围限制；普通10s共享CD、自动寻印及觉虫击黄灯独立产粉例外保持。现有近战建印来源为虫印斩ConfigIndex=0、急袭地面第一击=2、四连印斩GA第二个伤害段=1、觉虫击猎人冲刺=0，均须成功结算武器伤害；猎虫自身伤害不属于这些来源。旧最近5团/单段合并/取消回出生点不再适用。
 3. 删除当前空壳 UISubsystem；由 HUD 独占 WBP_HUD 与资源面板生命周期，在 Possess 时绑定 RuntimeHost，把 ResourceWidget 插入主 HUD 资源插槽，并通过 Resource/Aim/Feedback Delegate 显示三灯、猎虫、舞踏、准心颜色和伤害数字；不轮询 Actor、不写 UI Loose Tag、不让资源面板单独 AddToViewport。
 4. 完成伤害数字常驻Widget/Actor/唯一数字Cue及PIE；其他命中/三灯提示等视觉Cue与音效延期，不列本轮Demo门禁。保留其未来设计，不顺带生成特效。
 

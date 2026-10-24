@@ -68,7 +68,9 @@ enum class EKinsectCommandSource : uint8
 	Action UMETA(DisplayName = "Action Lease"),
 	AutoMark UMETA(DisplayName = "Automatic Mark"),
 	System UMETA(DisplayName = "System Return"),
-	PowderVortex UMETA(DisplayName = "Powder Vortex")
+	PowderVortex UMETA(DisplayName = "Powder Vortex"),
+	CoAttack UMETA(DisplayName = "Ground Cooperative Attack"),
+	DescendingThrust UMETA(DisplayName = "Descending Thrust Kinsect")
 };
 
 /**

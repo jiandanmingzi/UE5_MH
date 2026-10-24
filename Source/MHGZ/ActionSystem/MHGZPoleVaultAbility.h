@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/DataValidation.h"
+#include "InsectGlaive/IGActionConfigTypes.h"
 #include "MHGZInsectGlaiveAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZPoleVaultAbility.generated.h"
@@ -222,6 +224,29 @@ class MHGZ_API UMHGZPoleVaultAbility : public UMHGZInsectGlaiveAbility
 	GENERATED_BODY()
 
 public:
+	// 专属数值随本GA保存；Combat同名旧字段不再参与运行时。
+	/**
+	 * 撑杆跳（四个方向 × 两种灯态）的**动作数值**，一个变体一条。
+	 *
+	 * 后撑杆跳两条就是迁移前的那四个字段，值逐字未变；前 / 左 / 右六条由
+	 * `Scripts/MHRise/build_vault_curves.py` 从 MHR 实机录制算出（构造里灌默认值）。
+	 *
+	 * 由 MHR 实录轨迹重建。Jump 段保留 Montage Root Motion；从 Jump_Over 的段边界起
+	 * CurvedVault 接管，走完整条弧后交给 CMC。重力、碰撞与接地都不再由 GA 的路径接管。
+	 *
+	 * 交棒点在哪儿**不是配置**：它由 `(JumpDuration + JumpOverDuration) / ArcDuration`
+	 * 在运行时算出，残余自由落体时长即 `(1 − 它) × ArcDuration`。
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|撑杆跳")
+	TArray<FVaultTuning> VaultTunings;
+
+
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
+	const FVaultTuning* FindVaultTuning(EDirectionalInput Direction, bool bWhite) const;
+
 	UMHGZPoleVaultAbility();
 	virtual float GetStaminaRecoveryPerSecond() const override;
 

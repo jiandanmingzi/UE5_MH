@@ -233,7 +233,7 @@ bool FMHGZM6AwakenedKinsectPowderFollowsOnlySuccessfulPiercingDamage::RunTest(
 
 	H.CombatConfig->PowderActorClass = AIGPowderActor::StaticClass();
 	H.CombatConfig->PowderLifetime = 30.0f;
-	H.CombatConfig->PowderDamageContribution = 2.0f;
+	H.PowderSpawnAttackPower = 2.0f;
 	H.CombatConfig->PowderMotionValue = 50.0f;
 
 	const FVector StartLocation = H.Kinsect->GetActorLocation();

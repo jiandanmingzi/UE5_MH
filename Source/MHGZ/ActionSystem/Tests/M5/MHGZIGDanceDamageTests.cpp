@@ -1,3 +1,4 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
@@ -46,17 +47,20 @@ bool FMHGZIGDanceDamageTest::RunTest(const FString& Parameters)
 		TestEqual(TEXT("real resource accumulated the requested stacks"), H.Resource->GetDanceStacks(), Stacks);
 		TestEqual(TEXT("unspecified action cannot inherit a damage bonus"), H.Resource->GetDanceDamageMultiplier(), 1.0f);
 		TestEqual(TEXT("slash action selects its own array"),
-			H.Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectSlash), SlashExpected[Stacks]);
+			MHGZ::IGActionConfig::DanceDamageMultiplier(GetDefault<UMHGZKinsectSlashAbility>()->KinsectSlashDanceDamageMultipliers, Stacks, H.CombatConfig->MaxDanceStacks), SlashExpected[Stacks]);
 		TestEqual(TEXT("thrust action selects its own array"),
-			H.Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::DescendingThrust), ThrustExpected[Stacks]);
+			MHGZ::IGActionConfig::DanceDamageMultiplier(GetDefault<UMHGZDescendingThrustAbility>()->DescendingThrustDanceDamageMultipliers, Stacks, H.CombatConfig->MaxDanceStacks), ThrustExpected[Stacks]);
 		TestEqual(TEXT("piercer action selects its own array"),
-			H.Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectPiercer), PiercerExpected[Stacks]);
+			MHGZ::IGActionConfig::DanceDamageMultiplier(GetDefault<UMHGZKinsectPiercerAbility>()->KinsectPiercerDanceDamageMultipliers, Stacks, H.CombatConfig->MaxDanceStacks), PiercerExpected[Stacks]);
 		if (!TestTrue(TEXT("real slash activation captures its starting multiplier"), H.ActivateAbility()))
 		{
 			H.Teardown();
 			return false;
 		}
 		TestEqual(TEXT("slash uses activation-time layers"), H.Ability->FrozenDanceDamageMultiplier, SlashExpected[Stacks]);
+		IGTest::Action<UMHGZKinsectSlashAbility>(H.CombatConfig)->KinsectSlashDanceDamageMultipliers = { 1.0f, 9.0f, 9.0f, 9.0f };
+		TestEqual(TEXT("Blueprint query resolves the granted GA and ignores obsolete Combat values"),
+			H.Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectSlash), SlashExpected[Stacks]);
 		FHitResult Hit(H.TargetActor, H.Hitzone, FVector(25.0, 0.0, 0.0), FVector::UpVector);
 		Hit.bBlockingHit = true;
 		const float KinsectMotion = H.Ability->AttackSegments[0].Damage.MotionValue.GetValueAtLevel(1.0f);
@@ -86,12 +90,12 @@ bool FMHGZIGDanceDamageTest::RunTest(const FString& Parameters)
 		UMHGZDescendingThrustAbility* Thrust = NewObject<UMHGZDescendingThrustAbility>(H.ASC);
 		Thrust->SetCurrentActorInfo(H.AbilityHandle, H.ASC->AbilityActorInfo.Get());
 		Thrust->AttackSegments.Init(H.Ability->AttackSegments[1], 4);
-		Thrust->FrozenDanceDamageMultiplier = H.CombatConfig->GetDanceDamageMultiplier(EIGDanceDamageAction::DescendingThrust, Stacks);
+		Thrust->FrozenDanceDamageMultiplier = MHGZ::IGActionConfig::DanceDamageMultiplier(Thrust->DescendingThrustDanceDamageMultipliers, Stacks, H.CombatConfig->MaxDanceStacks);
 		Thrust->GenerateSegmentDamageInstanceIDs();
 		UMHGZKinsectPiercerAbility* Piercer = NewObject<UMHGZKinsectPiercerAbility>(H.ASC);
 		Piercer->SetCurrentActorInfo(H.AbilityHandle, H.ASC->AbilityActorInfo.Get());
 		Piercer->AttackSegments.Init(H.Ability->AttackSegments[1], 3);
-		Piercer->FrozenDanceDamageMultiplier = H.CombatConfig->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectPiercer, Stacks);
+		Piercer->FrozenDanceDamageMultiplier = MHGZ::IGActionConfig::DanceDamageMultiplier(Piercer->KinsectPiercerDanceDamageMultipliers, Stacks, H.CombatConfig->MaxDanceStacks);
 		H.Resource->ClearDanceStacks(EIGDanceClearReason::Landed);
 		TestEqual(TEXT("landing clears real resource layers"), H.Resource->GetDanceStacks(), 0);
 		for (int32 Segment = 0; Segment < 4; ++Segment)
@@ -119,13 +123,13 @@ bool FMHGZIGDanceDamageTest::RunTest(const FString& Parameters)
 		H.Teardown();
 	}
 
-	UInsectGlaiveCombatConfig* Config = NewObject<UInsectGlaiveCombatConfig>();
+	UMHGZKinsectSlashAbility* Config = NewObject<UMHGZKinsectSlashAbility>();
 	Config->KinsectSlashDanceDamageMultipliers.SetNum(2);
-	TestEqual(TEXT("missing layer does not borrow a lower layer"), Config->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectSlash, 3), 1.0f);
+	TestEqual(TEXT("missing layer does not borrow a lower layer"), MHGZ::IGActionConfig::DanceDamageMultiplier(Config->KinsectSlashDanceDamageMultipliers, 3, 3), 1.0f);
 	Config->KinsectSlashDanceDamageMultipliers[1] = std::numeric_limits<float>::quiet_NaN();
-	TestEqual(TEXT("invalid numeric multiplier is neutral"), Config->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectSlash, 1), 1.0f);
-	TestEqual(TEXT("zero layers always remain neutral"), Config->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectPiercer, 0), 1.0f);
-	TestEqual(TEXT("unknown action is neutral"), Config->GetDanceDamageMultiplier(static_cast<EIGDanceDamageAction>(255), 3), 1.0f);
+	TestEqual(TEXT("invalid numeric multiplier is neutral"), MHGZ::IGActionConfig::DanceDamageMultiplier(Config->KinsectSlashDanceDamageMultipliers, 1, 3), 1.0f);
+	TestEqual(TEXT("zero layers always remain neutral"), MHGZ::IGActionConfig::DanceDamageMultiplier(Config->KinsectSlashDanceDamageMultipliers, 0, 3), 1.0f);
+	TestEqual(TEXT("unknown action is neutral"), MHGZ::IGActionConfig::DanceDamageMultiplier({}, 3, 3), 1.0f);
 	return true;
 }
 

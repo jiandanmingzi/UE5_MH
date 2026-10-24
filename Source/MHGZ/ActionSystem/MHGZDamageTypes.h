@@ -29,6 +29,7 @@ struct FMHGZWeaponDamageProfile
 {
 	GENERATED_BODY()
 
+	/** 武器属性种类；无属性时不结算属性伤害，与物理伤害类型分开。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Damage")
 	EMHGZElementType ElementType = EMHGZElementType::None;
 

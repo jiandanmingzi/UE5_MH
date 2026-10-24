@@ -77,6 +77,7 @@ struct MHGZ_API FRecordedLocalTrajectoryProfile
 {
 	GENERATED_BODY()
 
+	/** 从录制重建的局部位移曲线：X水平前、Y水平右、Z世界上；横轴秒，纵轴cm。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
 	TObjectPtr<UCurveVector> Curve;
 

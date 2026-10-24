@@ -1,3 +1,4 @@
+#include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "Commandlets/MHGZM5KinsectPiercerAssetSetupCommandlet.h"
@@ -340,14 +341,14 @@ void AddCombatConfigReport(FSetupRun& Run, const UInsectGlaiveCombatConfig* Comb
 	Json->SetStringField(TEXT("path"), CombatConfig->GetPathName());
 	Json->SetArrayField(TEXT("kinsectPiercerProfiles"), {
 		JsonObjectValue(ProfileJson(TEXT("KinsectPiercerStartProfile"),
-			CombatConfig->KinsectPiercerStartProfile)),
+			::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerStartProfile)),
 		JsonObjectValue(ProfileJson(TEXT("KinsectPiercerDiveProfile"),
-			CombatConfig->KinsectPiercerDiveProfile)),
+			::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerDiveProfile)),
 		JsonObjectValue(ProfileJson(TEXT("KinsectPiercerLandingProfile"),
-			CombatConfig->KinsectPiercerLandingProfile))
+			::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerLandingProfile))
 	});
 	Json->SetNumberField(TEXT("landingBlendInSeconds"),
-		CombatConfig->KinsectPiercerLandingBlendInTime);
+		::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerLandingBlendInTime);
 	Run.Report->SetObjectField(TEXT("nativeCombatConfig"), Json.ToSharedRef());
 }
 
@@ -1228,9 +1229,9 @@ bool SetupMontage(FSetupRun& Run, FMontagePlan& Plan, const bool bMain,
 bool IsProfileReady(FSetupRun& Run, const UInsectGlaiveCombatConfig& CombatConfig)
 {
 	const FRecordedLocalTrajectoryProfile* Profiles[] = {
-		&CombatConfig.KinsectPiercerStartProfile,
-		&CombatConfig.KinsectPiercerDiveProfile,
-		&CombatConfig.KinsectPiercerLandingProfile
+		&::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerStartProfile,
+		&::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerDiveProfile,
+		&::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerLandingProfile
 	};
 	const TCHAR* Names[] = {
 		TEXT("KinsectPiercerStartProfile"), TEXT("KinsectPiercerDiveProfile"),
@@ -1243,29 +1244,29 @@ bool IsProfileReady(FSetupRun& Run, const UInsectGlaiveCombatConfig& CombatConfi
 			Run.Error(FString::Printf(TEXT("Combat profile is missing or invalid: %s"), Names[Index]));
 		}
 	}
-	if (CombatConfig.KinsectPiercerStartProfile.IsValid()
-		&& !FMath::IsNearlyEqual(CombatConfig.KinsectPiercerStartProfile.CoveredSeconds,
+	if (::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerStartProfile.IsValid()
+		&& !FMath::IsNearlyEqual(::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerStartProfile.CoveredSeconds,
 			ExpectedStartSeconds, 0.001f))
 	{
 		Run.Error(TEXT("KinsectPiercerStartProfile.CoveredSeconds differs from the calibrated 0.391327 s phase."));
 	}
-	if (CombatConfig.KinsectPiercerLandingProfile.IsValid()
-		&& !FMath::IsNearlyEqual(CombatConfig.KinsectPiercerLandingProfile.CoveredSeconds,
+	if (::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerLandingProfile.IsValid()
+		&& !FMath::IsNearlyEqual(::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerLandingProfile.CoveredSeconds,
 			ExpectedLandingSeconds, 0.001f))
 	{
 		Run.Error(TEXT("KinsectPiercerLandingProfile.CoveredSeconds differs from the calibrated 1.566650 s phase."));
 	}
-	if (!FMath::IsNearlyEqual(CombatConfig.KinsectPiercerLandingBlendInTime,
+	if (!FMath::IsNearlyEqual(::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerLandingBlendInTime,
 		0.10f, 0.001f))
 	{
 		Run.Error(TEXT("CombatConfig landing montage blend-in must remain 0.1 s."));
 	}
 	float DiveLastKeySeconds = 0.0f;
-	if (CombatConfig.KinsectPiercerDiveProfile.Curve
+	if (::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerDiveProfile.Curve
 		&& MHGZRecordedLocalTrajectory::ValidateCurve(
-			CombatConfig.KinsectPiercerDiveProfile.Curve, DiveLastKeySeconds))
+			::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerDiveProfile.Curve, DiveLastKeySeconds))
 	{
-		const float CoveredSeconds = CombatConfig.KinsectPiercerDiveProfile.CoveredSeconds;
+		const float CoveredSeconds = ::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerDiveProfile.CoveredSeconds;
 		const bool bUsesLastKeyDomain = FMath::IsNearlyEqual(CoveredSeconds,
 			ExpectedDiveLastKeySeconds, 0.00001f)
 			&& FMath::IsNearlyEqual(DiveLastKeySeconds, ExpectedDiveLastKeySeconds, 0.00001f);
@@ -1288,7 +1289,7 @@ bool IsProfileReady(FSetupRun& Run, const UInsectGlaiveCombatConfig& CombatConfi
 			TEXT("M3 selects the 0.358333 s last-key endpoint; the held tail after the last key is zero, with the recorded 0.341667 s model anchor reported separately."));
 		Run.Report->SetObjectField(TEXT("diveCoverageDecision"), Decision.ToSharedRef());
 	}
-	else if (CombatConfig.KinsectPiercerDiveProfile.IsValid())
+	else if (::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerDiveProfile.IsValid())
 	{
 		Run.Error(TEXT("Dive curve failed the native recorded-trajectory key audit."));
 	}
@@ -2288,7 +2289,7 @@ bool ExecuteSetup(FSetupRun& Run)
 		float DesiredRuntime = 0.0f;
 		if (Index == 0 && CombatConfig)
 		{
-			DesiredRuntime = CombatConfig->KinsectPiercerStartProfile.CoveredSeconds;
+			DesiredRuntime = ::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerStartProfile.CoveredSeconds;
 		}
 		else if ((Index == 1 || Index == 2))
 		{
@@ -2416,7 +2417,7 @@ bool ExecuteSetup(FSetupRun& Run)
 	}
 	if (LandingPlan.Montage && CombatConfig
 		&& (!FMath::IsNearlyEqual(LandingPlan.Montage->BlendIn.GetBlendTime(),
-			CombatConfig->KinsectPiercerLandingBlendInTime, 0.0001f)
+			::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerLandingBlendInTime, 0.0001f)
 		|| !FMath::IsNearlyEqual(LandingPlan.Montage->BlendOut.GetBlendTime(),
 			OrdinaryBlendOutTime, 0.0001f)
 		|| !LandingPlan.Montage->bEnableAutoBlendOut))
@@ -2533,7 +2534,7 @@ bool ExecuteSetup(FSetupRun& Run)
 			{
 				SetupMontage(Run, *Plan, Plan == &MainPlan,
 					Sequences[0], Sequences[1], Sequences[2], Sequences[3],
-					CombatConfig->KinsectPiercerLandingBlendInTime);
+					::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi")).KinsectPiercerLandingBlendInTime);
 			}
 		}
 

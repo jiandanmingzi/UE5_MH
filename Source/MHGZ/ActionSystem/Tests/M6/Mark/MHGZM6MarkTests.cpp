@@ -147,11 +147,11 @@ bool FMHGZM6MonsterBaseMarkProjectsFromProxyToVisibleMesh::RunTest(
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
-	FMHGZM6MarkUsesWorldSpacePatchAndFollowsHitzone,
-	"MHGZ.M6.Mark.WorldSpacePatchFollowsTargetWithoutScaleInflation",
+	FMHGZM6MarkPartDebuffFollowsHitzone,
+	"MHGZ.M6.Mark.PartDebuffFollowsTarget",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FMHGZM6MarkUsesWorldSpacePatchAndFollowsHitzone::RunTest(
+bool FMHGZM6MarkPartDebuffFollowsHitzone::RunTest(
 	const FString& Parameters)
 {
 	FMHGZM3Harness Harness;
@@ -163,8 +163,6 @@ bool FMHGZM6MarkUsesWorldSpacePatchAndFollowsHitzone::RunTest(
 
 	TestEqual(TEXT("new combat config uses the required 90-second mark default"),
 		Harness.CombatConfig->KinsectMarkDuration, 90.0f);
-	TestEqual(TEXT("mark patch half extent matches the 100cm visual footprint"),
-		Harness.CombatConfig->KinsectMarkPatchHalfExtent, 50.0f);
 	FMHGZM6MarkTarget Target = SpawnMarkTarget(*Harness.World,
 		FVector(300.0f, 0.0f, 100.0f), false);
 	if (!TestNotNull(TEXT("target actor exists"), Target.Actor)
@@ -174,7 +172,7 @@ bool FMHGZM6MarkUsesWorldSpacePatchAndFollowsHitzone::RunTest(
 		return false;
 	}
 
-	// Enlarging the dummy/hitzone must not enlarge the gameplay footprint.
+	// Part identity, not a visual footprint, defines the marked region.
 	Target.Hitzone->SetWorldScale3D(FVector(4.0f));
 	const FVector MarkPoint = Target.Hitzone->GetComponentLocation()
 		+ FVector(0.0f, 0.0f, 30.0f);
@@ -187,14 +185,15 @@ bool FMHGZM6MarkUsesWorldSpacePatchAndFollowsHitzone::RunTest(
 		FMath::IsNearlyEqual(static_cast<float>(Harness.Resource->GetKinsectMarkExpireTime()
 			- Harness.World->GetTimeSeconds()), 90.0f, 0.01f));
 
-	TestTrue(TEXT("a hit inside the 100cm square patch matches"),
-		Harness.Resource->IsHitWithinKinsectMarkPatch(MakeMarkHit(
+	TestTrue(TEXT("the target part owns a visible-to-Blueprint Debuff"), Target.Hitzone->HasKinsectMarkDebuff());
+	TestTrue(TEXT("a hit near the visual anchor matches"),
+		Harness.Resource->IsHitOnKinsectMarkedPart(MakeMarkHit(
 			Target, MarkPoint + FVector(49.0f, -49.0f, 0.0f))));
-	TestFalse(TEXT("a hit beyond the fixed 50cm half-width does not match"),
-		Harness.Resource->IsHitWithinKinsectMarkPatch(MakeMarkHit(
+	TestTrue(TEXT("the same part matches beyond the old half-width"),
+		Harness.Resource->IsHitOnKinsectMarkedPart(MakeMarkHit(
 			Target, MarkPoint + FVector(50.1f, 0.0f, 0.0f))));
-	TestFalse(TEXT("a hit beyond the surface-normal tolerance does not match"),
-		Harness.Resource->IsHitWithinKinsectMarkPatch(MakeMarkHit(
+	TestTrue(TEXT("the same part matches beyond the old surface-normal tolerance"),
+		Harness.Resource->IsHitOnKinsectMarkedPart(MakeMarkHit(
 			Target, MarkPoint + FVector(0.0f, 0.0f, 5.1f))));
 	FMHGZM6MarkTarget SameActorDifferentComponent = Target;
 	SameActorDifferentComponent.Hitzone =
@@ -203,9 +202,14 @@ bool FMHGZM6MarkUsesWorldSpacePatchAndFollowsHitzone::RunTest(
 	SameActorDifferentComponent.Hitzone->RegisterComponent();
 	SameActorDifferentComponent.Hitzone->SetWorldLocation(
 		Target.Hitzone->GetComponentLocation());
-	TestTrue(TEXT("a different Hitzone on the same actor matches by surface location"),
-		Harness.Resource->IsHitWithinKinsectMarkPatch(MakeMarkHit(
+	TestFalse(TEXT("another part on the same actor cannot borrow the Debuff at the same point"),
+		Harness.Resource->IsHitOnKinsectMarkedPart(MakeMarkHit(
 			SameActorDifferentComponent, MarkPoint)));
+	TestFalse(TEXT("the other part is not marked"), SameActorDifferentComponent.Hitzone->HasKinsectMarkDebuff());
+	Target.Hitzone->ConfigureQueryShape(EMHGZHitzoneShape::Box, FVector(60));
+	FHitResult BoxHit(Target.Actor, Target.Hitzone->GetQueryCollisionComponent(), MarkPoint, FVector::UpVector);
+	BoxHit.bBlockingHit = true;
+	TestTrue(TEXT("box query child resolves the same marked part"), Harness.Resource->IsHitOnKinsectMarkedPart(BoxHit));
 
 	FVector WorldMark = FVector::ZeroVector;
 	TestTrue(TEXT("mark world point is available before target movement"),
@@ -255,6 +259,8 @@ bool FMHGZM6MarkClearsOnDeathAndReplacement::RunTest(const FString& Parameters)
 		Harness.Resource->SetKinsectMarkFromMeleeHit(MakeMarkHit(First, FirstPoint)));
 	TestTrue(TEXT("a later valid mark replaces the first"),
 		Harness.Resource->SetKinsectMarkFromMeleeHit(MakeMarkHit(Second, SecondPoint)));
+	TestFalse(TEXT("replacing clears the old part Debuff"), First.Hitzone->HasKinsectMarkDebuff());
+	TestTrue(TEXT("replacement applies the new part Debuff"), Second.Hitzone->HasKinsectMarkDebuff());
 
 	First.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetHealthAttribute(), 0.0f);
 	TestTrue(TEXT("death of the replaced target cannot clear the current mark"),
@@ -262,6 +268,7 @@ bool FMHGZM6MarkClearsOnDeathAndReplacement::RunTest(const FString& Parameters)
 	Second.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetHealthAttribute(), 0.0f);
 	TestFalse(TEXT("current target death clears its mark immediately"),
 		Harness.Resource->HasValidKinsectMark());
+	TestFalse(TEXT("target death also clears its part Debuff"), Second.Hitzone->HasKinsectMarkDebuff());
 
 	Harness.Teardown();
 	return true;
@@ -323,7 +330,38 @@ bool FMHGZM6MarkExpiresAndDeadTargetCannotReplace::RunTest(
 	TestFalse(TEXT("world-time expiry clears the mark"),
 		Harness.Resource->HasValidKinsectMark());
 
+	TestFalse(TEXT("expiry clears the actual part Debuff"), Living.Hitzone->HasKinsectMarkDebuff());
 	Harness.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZMarkDebuffOwnership,
+	"MHGZ.Maintenance.Mark.PartDebuffOwnershipAndCleanup",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZMarkDebuffOwnership::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup()) { H.Teardown(); return false; }
+	auto Target = SpawnMarkTarget(*H.World, FVector(300, 0, 100), false);
+	if (!TestNotNull(TEXT("part exists"), Target.Hitzone)) { H.Teardown(); return false; }
+	const FGuid ForeignID = FGuid::NewGuid();
+	Target.Hitzone->ApplyKinsectMarkDebuff(H.Character, ForeignID, H.World->GetTimeSeconds() + 90.0);
+	TestTrue(TEXT("part accepts another source's status"), Target.Hitzone->HasKinsectMarkDebuffFrom(H.Character, ForeignID));
+	const auto Hit = MakeMarkHit(Target, Target.Hitzone->GetComponentLocation());
+	TestTrue(TEXT("own mark applies independently"), H.Resource->SetKinsectMarkFromMeleeHit(Hit));
+	Target.Hitzone->RemoveKinsectMarkDebuff(H.Character, FGuid::NewGuid());
+	TestTrue(TEXT("stale instance removal cannot clear a new status"), Target.Hitzone->HasKinsectMarkDebuffFrom(H.Character, ForeignID));
+	H.Resource->ClearKinsectMark(EIGMarkClearReason::PowderVortex);
+	TestTrue(TEXT("consuming own mark does not remove another source"), Target.Hitzone->HasKinsectMarkDebuffFrom(H.Character, ForeignID));
+	TestFalse(TEXT("own source no longer qualifies for powder"), H.Resource->IsHitOnKinsectMarkedPart(Hit));
+	Target.Hitzone->RemoveKinsectMarkDebuff(H.Character, ForeignID);
+	TestFalse(TEXT("no status after the final source is removed"), Target.Hitzone->HasKinsectMarkDebuff());
+	Target.Hitzone->ApplyKinsectMarkDebuff(H.Character, ForeignID, H.World->GetTimeSeconds() - 1.0);
+	TestFalse(TEXT("expired status cannot be applied"), Target.Hitzone->HasKinsectMarkDebuff());
+	TestTrue(TEXT("apply before shutdown"), H.Resource->SetKinsectMarkFromMeleeHit(Hit));
+	H.Resource->ShutdownRuntime(EWeaponRuntimeEndReason::WeaponChanged);
+	TestFalse(TEXT("runtime shutdown removes the part status"), Target.Hitzone->HasKinsectMarkDebuff());
+	H.Teardown();
 	return true;
 }
 

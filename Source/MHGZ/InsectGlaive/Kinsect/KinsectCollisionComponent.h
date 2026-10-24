@@ -8,7 +8,7 @@
 
 /**
  * UKinsectCollisionComponent — 猎虫专用碰撞胶囊（AKinsect 的 Root）。
- * 使用 "Kinsect" preset：QueryOnly / WorldStatic=Block / Weapon=Ignore / Hitzone=Ignore；
+ * 使用 "Kinsect" preset：QueryOnly / 所有物理响应Ignore，真实Hitzone通过独立查询判定；
  * 不生成 Overlap 事件，命中判定由 AKinsect 的代码 Capsule Sweep 完成。
  */
 UCLASS(ClassGroup = (MHGZ), BlueprintType, meta = (BlueprintSpawnableComponent))

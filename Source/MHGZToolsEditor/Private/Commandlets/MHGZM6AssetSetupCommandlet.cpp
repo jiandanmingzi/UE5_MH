@@ -1,3 +1,4 @@
+#include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "Commandlets/MHGZM6AssetSetupCommandlet.h"
@@ -910,11 +911,11 @@ bool ConfigureCombat(FRun& Run)
 		Run.Errors.Add(TEXT("Cannot audit/configure AwakenedHunterFallMontage without DA_IG_Combat and the fall Montage."));
 		return false;
 	}
-	if (Run.Combat->AwakenedHunterFallMontage == Run.FallMontage)
+	if (::MHGZ::IGEditor::RequireAction<UMHGZAwakenedKinsectAttackAbility>(TEXT("JueChongJi")).AwakenedHunterFallMontage == Run.FallMontage)
 	{
 		return true;
 	}
-	if (Run.Combat->AwakenedHunterFallMontage)
+	if (::MHGZ::IGEditor::RequireAction<UMHGZAwakenedKinsectAttackAbility>(TEXT("JueChongJi")).AwakenedHunterFallMontage)
 	{
 		Run.Errors.Add(TEXT("DA_IG_Combat already references a different AwakenedHunterFallMontage; preserving it."));
 		return false;
@@ -924,9 +925,9 @@ bool ConfigureCombat(FRun& Run)
 		Run.Errors.Add(TEXT("DA_IG_Combat.AwakenedHunterFallMontage is not assigned."));
 		return false;
 	}
-	Run.Combat->Modify();
-	Run.Combat->AwakenedHunterFallMontage = Run.FallMontage;
-	Run.ChangedAssets.AddUnique(Run.Combat->GetPathName());
+	::MHGZ::IGEditor::RequireAction<UMHGZAwakenedKinsectAttackAbility>(TEXT("JueChongJi")).Modify();
+	::MHGZ::IGEditor::RequireAction<UMHGZAwakenedKinsectAttackAbility>(TEXT("JueChongJi")).AwakenedHunterFallMontage = Run.FallMontage;
+	Run.ChangedAssets.AddUnique(::MHGZ::IGEditor::OwnerAsset(::MHGZ::IGEditor::RequireAction<UMHGZAwakenedKinsectAttackAbility>(TEXT("JueChongJi")))->GetPathName());
 	return true;
 }
 

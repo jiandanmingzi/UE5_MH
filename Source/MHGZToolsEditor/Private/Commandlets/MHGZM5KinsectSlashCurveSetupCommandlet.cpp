@@ -1,3 +1,4 @@
+#include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "Commandlets/MHGZM5KinsectSlashCurveSetupCommandlet.h"
@@ -257,8 +258,7 @@ int32 UMHGZM5KinsectSlashCurveSetupCommandlet::Main(const FString& Params)
 		return 1;
 	}
 
-	UInsectGlaiveCombatConfig* Config =
-		LoadObject<UInsectGlaiveCombatConfig>(nullptr, CombatConfigObjectPath);
+	UMHGZKinsectSlashAbility* Config = &::MHGZ::IGEditor::RequireAction<UMHGZKinsectSlashAbility>(TEXT("CaoChongZhan"));
 	if (!Config)
 	{
 		UE_LOG(LogTemp, Error, TEXT("[KinsectSlashCurveSetup] Could not load %s."), CombatConfigObjectPath);
@@ -330,7 +330,7 @@ int32 UMHGZM5KinsectSlashCurveSetupCommandlet::Main(const FString& Params)
 	{
 		Config->Modify();
 		Config->KinsectSlashDistanceCurve = Curve;
-		bConfigSaved = SaveAsset(*Config);
+		bConfigSaved = SaveAsset(*::MHGZ::IGEditor::OwnerAsset(::MHGZ::IGEditor::RequireAction<UMHGZKinsectSlashAbility>(TEXT("CaoChongZhan"))));
 	}
 	const bool bReferenceReadBack = Config->KinsectSlashDistanceCurve == Curve;
 	const FString Report = FString::Printf(

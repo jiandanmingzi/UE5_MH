@@ -423,4 +423,164 @@ bool FMHGZM632ReturnedKinsectDoesNotAutoRedeploy::RunTest(
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZAutoMarkDuringHunterAttack,
+	"MHGZ.Maintenance.Kinsect.AutoMarkDuringHunterAttack",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMHGZAutoMarkDuringHunterAttack::RunTest(const FString&)
+{
+	FScopedM632FrameCounter FrameCounterGuard;
+	UClass* AttackClass = LoadClass<UGameplayAbility>(nullptr,
+		TEXT("/Game/Blueprints/Ability/InsectGlaive/GA_IG_TuCi.GA_IG_TuCi_C"));
+	if (!TestNotNull(TEXT("resident ordinary ground attack class exists"), AttackClass)) return false;
+	// Both starting a seek while attacking and attacking during an existing seek.
+	for (const bool bSeekAlreadyRunning : {false, true})
+	{
+		FMHGZM632Harness H;
+		if (!H.Setup()) { H.Teardown(); return false; }
+		H.CombatConfig->KinsectAutoMarkSearchRadius = 1500.f;
+		H.CombatConfig->KinsectAutoMarkAttackInterval = .1f;
+		H.KinsectData->FlightSpeed = 600.f;
+		auto Target = SpawnM632MarkTarget(*H.World, FVector(700, 0, 0), true);
+		if (!TestNotNull(TEXT("real marked damage target exists"), Target.Attributes))
+		{
+			H.Teardown(); return false;
+		}
+		Target.Attributes->InitMaxHealth(1000.f);
+		Target.Attributes->InitHealth(1000.f);
+		Target.Hitzone->ExtractColorTag = M3::Tag(TEXT("WeaponResource.IG.Extract.Red"));
+		TestTrue(TEXT("mark is established"), H.Resource->SetKinsectMarkFromMeleeHit(
+			MakeM632MarkHit(Target, Target.Hitzone->GetComponentLocation() + FVector(0, 0, 30))));
+		TestTrue(TEXT("player deploys the Kinsect"), H.Resource->DeployKinsect(MakeM632PlayerHoverRequest(H)));
+		H.Kinsect->Interrupt();
+		FKinsectFlightRequest PreviousAuto;
+		if (bSeekAlreadyRunning)
+		{
+			TickM632World(H, 1, 1.f / 60.f);
+			if (!TestEqual(TEXT("automatic seek starts before the hunter attack"), H.Kinsect->GetState(), EKinsectState::Flying))
+			{
+				H.Teardown(); return false;
+			}
+			PreviousAuto = H.Kinsect->ActiveRequest;
+		}
+		const auto Attack = H.MakeActionToken(AttackClass);
+		TestTrue(TEXT("ordinary attack registers with the host"), H.Host->RegisterAction(Attack));
+		const auto Attacking = M3::Tag(TEXT("Combat.State.Attacking"));
+		H.ASC->AddLooseGameplayTag(Attacking);
+		TickM632World(H, 1, 1.f / 60.f);
+		if (!TestEqual(TEXT("hunter attack does not prevent or interrupt seeking"), H.Kinsect->GetState(), EKinsectState::Flying))
+		{
+			H.Teardown(); return false;
+		}
+		TestEqual(TEXT("automatic command keeps ownership"), H.Kinsect->ActiveRequest.CommandSource, EKinsectCommandSource::AutoMark);
+		if (bSeekAlreadyRunning)
+		{
+			TestTrue(TEXT("starting an attack preserves the existing automatic flight identity"),
+				H.Resource->IsKinsectCommandCurrent(PreviousAuto));
+			TestEqual(TEXT("starting an attack does not restart automatic flight"),
+				H.Kinsect->ActiveRequest.FlightInstanceID, PreviousAuto.FlightInstanceID);
+		}
+		for (int32 Frame = 0; Frame < 180 && Target.Attributes->GetHealth() >= 1000.f; ++Frame)
+			TickM632World(H, 1, 1.f / 60.f);
+		TestTrue(TEXT("automatic contact deals real damage during the hunter attack"), Target.Attributes->GetHealth() < 1000.f);
+		TestTrue(TEXT("automatic contact collects cargo during the hunter attack"), H.Kinsect->HasPendingExtract());
+		const float FirstHealth = Target.Attributes->GetHealth();
+		TickM632World(H, 12, 1.f / 60.f);
+		TestTrue(TEXT("automatic attacks continue at the configured interval"), Target.Attributes->GetHealth() < FirstHealth);
+		TestTrue(TEXT("the hunter attack remains registered throughout"), H.Host->IsActionRegistered(Attack));
+		TestTrue(TEXT("the hunter remains in Attacking state"), H.ASC->HasMatchingGameplayTag(Attacking));
+
+		TestTrue(TEXT("an actual player Kinsect lease still preempts automation"), H.Resource->BeginKinsectPlayerCommandLease(Attack));
+		const float LeasedHealth = Target.Attributes->GetHealth();
+		TickM632World(H, 12, 1.f / 60.f);
+		TestEqual(TEXT("no automatic damage while a player lease owns the Kinsect"), Target.Attributes->GetHealth(), LeasedHealth);
+		H.Resource->EndKinsectPlayerCommandLease(Attack);
+		for (int32 Frame = 0; Frame < 180 && Target.Attributes->GetHealth() >= LeasedHealth; ++Frame)
+			TickM632World(H, 1, 1.f / 60.f);
+		TestTrue(TEXT("automation resumes when the lease ends despite the ongoing hunter attack"), Target.Attributes->GetHealth() < LeasedHealth);
+		TestTrue(TEXT("resuming automation does not end the hunter action"), H.Host->IsActionRegistered(Attack));
+		TestTrue(TEXT("manual recall still takes priority while the hunter attacks"), H.Resource->RecallKinsect());
+		for (int32 Frame = 0; Frame < 180 && H.Kinsect->GetState() != EKinsectState::Attached; ++Frame)
+			TickM632World(H, 1, 1.f / 60.f);
+		TestEqual(TEXT("manual recall returns the Kinsect to the arm"), H.Kinsect->GetState(), EKinsectState::Attached);
+		TickM632World(H, 12, 1.f / 60.f);
+		TestEqual(TEXT("the mark cannot automatically redeploy an attached Kinsect"), H.Kinsect->GetState(), EKinsectState::Attached);
+		H.ASC->RemoveLooseGameplayTag(Attacking);
+		H.Teardown();
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZAutoMarkExtractCargo,
+	"MHGZ.Maintenance.Kinsect.AutoMarkExtractCargoAndReturn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZAutoMarkExtractCargo::RunTest(const FString&)
+{
+	FScopedM632FrameCounter FrameCounterGuard;
+	const auto Red = M3::Tag(TEXT("WeaponResource.IG.Extract.Red"));
+	const auto White = M3::Tag(TEXT("WeaponResource.IG.Extract.White"));
+	// Empty cargo, existing ordinary cargo, rejected damage, GE callback recall.
+	for (int32 Mode = 0; Mode < 4; ++Mode)
+	{
+		FMHGZM632Harness H;
+		if (!H.Setup()) { H.Teardown(); return false; }
+		H.CombatConfig->KinsectAutoMarkSearchRadius = 1200.f;
+		H.CombatConfig->KinsectAutoMarkAttackInterval = .1f;
+		auto Target = SpawnM632MarkTarget(*H.World, FVector(300, 0, 0), true);
+		if (!TestNotNull(TEXT("real damage target"), Target.ASC)) { H.Teardown(); return false; }
+		Target.Hitzone->ExtractColorTag = Red;
+		const auto MarkHit = MakeM632MarkHit(Target, Target.Hitzone->GetComponentLocation() + FVector(0, 0, 30));
+		TestTrue(TEXT("mark establishes"), H.Resource->SetKinsectMarkFromMeleeHit(MarkHit));
+		if (Mode == 1) TestTrue(TEXT("ordinary cargo already contains white"), H.Kinsect->CapturePendingExtractColor(White));
+		int32 DamageAttempts = 0;
+		if (Mode == 2)
+		{
+			FGameplayEffectApplicationQuery Reject;
+			Reject.BindLambda([&](const FActiveGameplayEffectsContainer&, const FGameplayEffectSpec&)
+			{ ++DamageAttempts; return false; });
+			Target.ASC->GameplayEffectApplicationQueries.Add(Reject);
+		}
+		if (Mode == 3)
+		{
+			Target.ASC->OnGameplayEffectAppliedDelegateToSelf.AddLambda(
+				[&](UAbilitySystemComponent*, const FGameplayEffectSpec&, FActiveGameplayEffectHandle)
+				{ ++DamageAttempts; H.Resource->RecallKinsect(); });
+		}
+		TestTrue(TEXT("player deploys"), H.Resource->DeployKinsect(MakeM632PlayerHoverRequest(H)));
+		H.Kinsect->Interrupt();
+		for (int32 Frame = 0; Frame < 120 && Target.Attributes->GetHealth() >= 100.f && DamageAttempts == 0; ++Frame)
+		{
+			TickM632World(H, 1, 1.f / 60.f);
+		}
+		if (Mode >= 2)
+		{
+			TestTrue(TEXT("test reaches a real contact damage attempt"), DamageAttempts > 0);
+			TestFalse(TEXT("rejected or superseded contact cannot collect cargo"), H.Kinsect->HasPendingExtract());
+			TestFalse(TEXT("rejected or superseded contact cannot grant a hunter extract"), H.Resource->HasExtract(Red));
+			if (Mode == 2) TestEqual(TEXT("GE rejection preserves target health"), Target.Attributes->GetHealth(), 100.f);
+		}
+		else
+		{
+			TestTrue(TEXT("automatic attack actually deals damage"), Target.Attributes->GetHealth() < 100.f);
+			const auto Expected = Mode == 1 ? White : Red;
+			TestEqual(TEXT("normal single-color cargo is collected/preserved"), H.Kinsect->GetPendingExtractColor(), Expected);
+			TestEqual(TEXT("UI shows the carried color before returning"), H.Resource->GetUIState().KinsectPendingExtractColor, Expected);
+			TestFalse(TEXT("automatic hit does not grant the hunter red directly"), H.Resource->HasExtract(Red));
+			TickM632World(H, 12, 1.f / 60.f);
+			TestEqual(TEXT("repeated attacks neither duplicate nor replace ordinary cargo"), H.Kinsect->GetPendingExtractColors().Num(), 1);
+			TestTrue(TEXT("manual recall starts"), H.Resource->RecallKinsect());
+			for (int32 Frame = 0; Frame < 120 && H.Kinsect->GetState() != EKinsectState::Attached; ++Frame)
+			{
+				TickM632World(H, 1, 1.f / 60.f);
+			}
+			TestEqual(TEXT("returns to the arm"), H.Kinsect->GetState(), EKinsectState::Attached);
+			TestTrue(TEXT("return delivers the original carried extract"), H.Resource->HasExtract(Expected));
+			TestFalse(TEXT("return atomically clears carried extracts"), H.Kinsect->HasPendingExtract());
+			TestFalse(TEXT("UI cargo clears after delivery"), H.Resource->GetUIState().KinsectPendingExtractColor.IsValid());
+		}
+		H.Teardown();
+	}
+	return true;
+}
+
 #endif

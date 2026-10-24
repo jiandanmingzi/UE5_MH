@@ -1,3 +1,4 @@
+#include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
 #if WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
@@ -866,11 +867,11 @@ bool FMHGZM6AwakenedKinsectHunterFlightLifecycle::RunTest(const FString& Paramet
 		BodyMesh->SetAnimInstanceClass(UAnimInstance::StaticClass());
 		H.ASC->RefreshAbilityActorInfo();
 
-		H.CombatConfig->AwakenedHunterFlightDurationSeconds = 0.38f;
-		H.CombatConfig->AwakenedHunterFlightSpeed = 4826.0f;
-		H.CombatConfig->AwakenedHunterFlightGravityMagnitude = 1190.0f;
-		H.CombatConfig->AwakenedHunterFallGravityMagnitude = 2885.0f;
-		H.CombatConfig->AwakenedHunterFallHandoffVelocity = FVector(0.0f, 0.0f, 900.0f);
+		IGTest::Action<UMHGZAwakenedKinsectAttackAbility>(H.CombatConfig)->AwakenedHunterFlightDurationSeconds = 0.38f;
+		IGTest::Action<UMHGZAwakenedKinsectAttackAbility>(H.CombatConfig)->AwakenedHunterFlightSpeed = 4826.0f;
+		IGTest::Action<UMHGZAwakenedKinsectAttackAbility>(H.CombatConfig)->AwakenedHunterFlightGravityMagnitude = 1190.0f;
+		IGTest::Action<UMHGZAwakenedKinsectAttackAbility>(H.CombatConfig)->AwakenedHunterFallGravityMagnitude = 2885.0f;
+		IGTest::Action<UMHGZAwakenedKinsectAttackAbility>(H.CombatConfig)->AwakenedHunterFallHandoffVelocity = FVector(0.0f, 0.0f, 900.0f);
 		H.CombatConfig->AerialLandingMontage = LoadObject<UAnimMontage>(nullptr,
 			TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_AerialLanding.AM_IG_AerialLanding"));
 		if (!TestNotNull(TEXT("loads the shared persistent aerial landing montage"), H.CombatConfig->AerialLandingMontage.Get()))
@@ -1150,9 +1151,9 @@ bool FMHGZM6AwakenedHunterFlightMarks::RunTest(const FString& Parameters)
 			TEXT("/Game/Characters/Demo/Meshes/Body/SKM_Demo_Body.SKM_Demo_Body")));
 		Mesh->SetAnimInstanceClass(UAnimInstance::StaticClass());
 		H.ASC->RefreshAbilityActorInfo();
-		H.CombatConfig->AwakenedHunterFlightDurationSeconds = 0.38f;
-		H.CombatConfig->AwakenedHunterFlightSpeed = 4826.0f;
-		H.CombatConfig->AwakenedHunterFlightGravityMagnitude = 1190.0f;
+		IGTest::Action<UMHGZAwakenedKinsectAttackAbility>(H.CombatConfig)->AwakenedHunterFlightDurationSeconds = 0.38f;
+		IGTest::Action<UMHGZAwakenedKinsectAttackAbility>(H.CombatConfig)->AwakenedHunterFlightSpeed = 4826.0f;
+		IGTest::Action<UMHGZAwakenedKinsectAttackAbility>(H.CombatConfig)->AwakenedHunterFlightGravityMagnitude = 1190.0f;
 		if (!TestNotNull(TEXT("real weapon-tail socket"), AddKinsectWeaponSocketForTest(*H.Character))) { H.Teardown(); return false; }
 		if (bEmpowered) { TestTrue(TEXT("TripleUp branch"), AddTripleUp(*H.Resource)); }
 		const FGameplayAbilitySpecHandle Handle = H.GiveAbility(UMHGZM6AwakenedKinsectAbilityTestDouble::StaticClass());

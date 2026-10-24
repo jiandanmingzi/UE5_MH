@@ -1,3 +1,4 @@
+#include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 #include "Commandlets/MHGZM5KinsectPiercerCurveSetupCommandlet.h"
 
@@ -295,7 +296,7 @@ int32 UMHGZM5KinsectPiercerCurveSetupCommandlet::Main(const FString& Params)
 		I.Matches = I.Existing && Matches(*I.Existing, I.Samples);
 		Imports.Add(MoveTemp(I));
 	}
-	UInsectGlaiveCombatConfig* Combat = LoadObject<UInsectGlaiveCombatConfig>(nullptr, CombatPath);
+	UMHGZKinsectPiercerAbility* Combat = &::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi"));
 	if (!Combat) Errors.Add(TEXT("Missing DA_IG_Combat"));
 	if (Imports.Num() != 3) Errors.Add(TEXT("All three phases must validate before any asset is changed"));
 	if (Errors.IsEmpty())
@@ -331,7 +332,7 @@ int32 UMHGZM5KinsectPiercerCurveSetupCommandlet::Main(const FString& Params)
 					else Errors.Add(Imports[N].Phase + TEXT(": Combat profile not wired to canonical curve/duration/tail"));
 				}
 			}
-			if (Dirty) { if (!Save(*Combat)) Errors.Add(TEXT("Save failed: DA_IG_Combat")); else Changed.Add(CombatPath); }
+			if (Dirty) { if (!Save(*::MHGZ::IGEditor::OwnerAsset(::MHGZ::IGEditor::RequireAction<UMHGZKinsectPiercerAbility>(TEXT("QiangHuaCaoChongChuanCi"))))) Errors.Add(TEXT("Save failed: DA_IG_Combat")); else Changed.Add(CombatPath); }
 		}
 	}
 	TSharedRef<FJsonObject> Report = MakeShared<FJsonObject>();

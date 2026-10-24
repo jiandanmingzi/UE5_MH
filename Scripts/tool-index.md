@@ -8,6 +8,12 @@
 
 ## Audio
 
+Combat兼容清理回查：同一`migrate_powder_vortex_config.py`入口加`-MHGZCombatCleanup`；只重存Combat的首次Apply已完成并禁止重放，66字段删除、现用值/37保护包保持，证据`Saved/Maintenance/CombatCleanup20261024/`。清理后的旧迁移只读入口须按精确的before→after证明识别本次Combat变更，不能宽放其它包或旧聚爆档位漂移；无Saved旧事务时不重建旧Schema。
+
+单招参数批量迁移/回查：[AssetOrganization/migrate_ig_action_config.py](AssetOrganization/migrate_ig_action_config.py)，由现有`migrate_powder_vortex_config.py -MHGZActionConfig`调度。10 GA/38字段赋值已保存回载；默认只读，首次显式`-MHGZActionConfigApply`已完成且禁止重放。排除虫印弹与共享规则；Combat及28份保护包不变，证据`Saved/Maintenance/IGActionConfig20261024/ActionDefaults/`。使用原生结构导出+精确反射子字段避免浮点舍入，不重跑历史全局动作值/曲线Apply。
+
+当前聚爆GA配置迁移/回查：[AssetOrganization/migrate_powder_vortex_config.py](AssetOrganization/migrate_powder_vortex_config.py)，UE Python，默认只读来源/回载；唯一显式写入开关`-MHGZPowderVortexConfigApply`，仅首次保存`GA_IG_PowderVortex`。十项配置/音频从旧Combat冻结源迁入，第一段数字现为动作值；逐次快照由Resource持有。已有`applied.json`禁止重放；保留GA/Combat备份、非聚爆CDO文本与Combat二进制hash。普通粉尘MV/CD仍在Combat，旧全局动作值迁移不适用于此任务。
+
 | 最新分支入口 | 环境 | 用途 | 状态 |
 |---|---|---|---|
 | [Audio/audio_notify_tracks.py](Audio/audio_notify_tracks.py)的cloth-only模式 | 现有`setup_current_weapon_audio --cloth-tracks`／`-MHGZAudioClothTracks` | 同帧衣服声分配独立ClothAudio副轨；从完整原生轨道数组读取索引，避免API去重/加载自动错轨 | 6包11点已保存回载，16项规则检查；不改时间/声音/Gameplay，不重放Apply；证据`ClothTracks20261023/StableLanes/` |
@@ -52,6 +58,10 @@
 | [Audio/NativeBridge/probe_native_audio.py](Audio/NativeBridge/probe_native_audio.py) | Windows Python、隔离Capstone | 有界只读反汇编/队列引用；`--audio-backend-callers`列固定448KiB调用，`--audio-object-writers`列RequestInfo+600写入 | 仅读指定Rise进程及代码/异常表；无对象搜索、写内存/注入/执行；输出仅Saved |
 
 ## AssetOrganization
+
+| 最新入口 | 环境 | 用途 | 状态/边界 |
+|---|---|---|---|
+| [AssetOrganization/setup_kinsect_coattack_pilot.py](AssetOrganization/setup_kinsect_coattack_pilot.py) | UE Python；远程或关闭编辑器时Commandlet | 默认突刺；`--ground-five`/`--ground-second-five`分别回查两批普通地面协同；`--descending-thrust`（`-MHGZCoAttackDescendingThrust`）只读核对急袭特殊协同原生默认值/实际地面末窗/共享间隔 | 地面三批已保存/独立回载，已有intent禁止重放Apply；急袭模式拒绝Apply、不改通知或保存Content，证据`E1DescendingThrust/`；保留各批保护hash链，新增范围未PIE签收 |
 
 | 工具 | 环境 | 用途简述 | 状态 |
 |---|---|---|---|

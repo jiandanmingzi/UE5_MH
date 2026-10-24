@@ -947,8 +947,8 @@ bool MigrateCollisionWindows(const FString& Params, const bool bAuditOnly)
 		Ability->AttackSegments[0].Collision.TraceRegions.IsEmpty()
 		|| Ability->AttackSegments[0].Collision.TraceRegions[0].EndSocketName != AnchorSocket;
 	if (bNeedsLegacyRadiusSeed
-		&& (!FMath::IsFinite(CombatConfig->KinsectSlashProbeRadius)
-			|| CombatConfig->KinsectSlashProbeRadius <= 0.0f))
+		&& (!FMath::IsFinite(20.0f)
+			|| 20.0f <= 0.0f))
 	{
 		UE_LOG(LogTemp, Error,
 			TEXT("[KinsectSlashAssets][Audit] Segment 0 has no calibrated Anchor radius and the deprecated ProbeRadius seed is invalid; refusing to invent a radius."));
@@ -982,7 +982,7 @@ bool MigrateCollisionWindows(const FString& Params, const bool bAuditOnly)
 		? FWeaponTraceRegion() : KinsectSegment.Collision.TraceRegions[0];
 	if (bNeedsLegacyRadiusSeed)
 	{
-		KinsectRegion.Radius = CombatConfig->KinsectSlashProbeRadius;
+		KinsectRegion.Radius = 20.0f;
 	}
 	KinsectSegment.Collision.TraceRegions.Reset();
 	KinsectRegion.StartSocketName = NAME_None;

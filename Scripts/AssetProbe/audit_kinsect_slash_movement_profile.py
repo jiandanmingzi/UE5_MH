@@ -17,7 +17,7 @@ if config is None or ability_asset is None:
     raise RuntimeError("Missing existing CombatConfig or production Kinsect Slash blueprint")
 
 ability = unreal.get_default_object(ability_asset.generated_class())
-profile = config.get_editor_property("kinsect_slash_dash_profile")
+profile = ability.get_editor_property("kinsect_slash_dash_profile")
 fields = (
     "initial_hold_seconds", "straight_seconds", "glide_seconds", "straight_speed",
     "glide_initial_speed", "glide_gravity_magnitude", "glide_forward_acceleration",
@@ -25,8 +25,8 @@ fields = (
 values = {field: float(profile.get_editor_property(field)) for field in fields}
 if not all(math.isfinite(value) and value >= 0 for value in values.values()):
     raise RuntimeError("Non-finite/negative measured movement profile")
-if not config.get_editor_property("use_captured_kinsect_slash_dash"):
-    raise RuntimeError("Existing CombatConfig opted out of the new measured profile")
+if not ability.get_editor_property("use_captured_kinsect_slash_dash"):
+    raise RuntimeError("Existing GA opted out of the new measured profile")
 
 report = {
     "asset": path(config),
@@ -34,7 +34,7 @@ report = {
     "captured_dash_enabled": True,
     "profile": values,
     "duration_seconds": sum(values[field] for field in fields[:3]),
-    "legacy_distance_curve_unused": path(config.get_editor_property("kinsect_slash_distance_curve")),
+    "legacy_distance_curve_unused": path(ability.get_editor_property("kinsect_slash_distance_curve")),
     "miss_gravity_magnitude": ability.get_editor_property("miss_gravity_magnitude"),
     "dance": {},
     "montages": {},

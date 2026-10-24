@@ -316,9 +316,9 @@ bool UMHGZKinsectSlashAbility::ValidateActionDependencies() const
 	if (!IsLiveAerialSlashStateValid(ASC, Host) || !Resource || !Config
 		|| !Character || !Character->GetMesh() || !Character->GetMesh()->GetAnimInstance()
 		|| !Kinsect || !Kinsect->Mesh || !Kinsect->Mesh->GetSkeletalMeshAsset()
-		|| (Config->bUseCapturedKinsectSlashDash ? !Config->KinsectSlashDashProfile.IsValid()
-			: (!Config->KinsectSlashDistanceCurve || Config->KinsectSlashMaxDistance <= 0.0f
-				|| Config->KinsectSlashDashDuration <= 0.0f))
+		|| (bUseCapturedKinsectSlashDash ? !KinsectSlashDashProfile.IsValid()
+			: (!KinsectSlashDistanceCurve || KinsectSlashMaxDistance <= 0.0f
+				|| KinsectSlashDashDuration <= 0.0f))
 		|| Config->KinsectSlashAttachSocket.IsNone()
 		|| !HasRequiredDanceMontage()
 		|| !DanceFromDashTuning.IsValid() || !DanceFromMissTuning.IsValid()
@@ -352,8 +352,8 @@ bool UMHGZKinsectSlashAbility::ValidateActionDependencies() const
 	}
 
 	float TerminalSlope = 0.0f;
-	return Config->bUseCapturedKinsectSlashDash || MHGZWeaponMovementCurves::ValidateNormalizedProgressCurve(
-		Config->KinsectSlashDistanceCurve, TerminalSlope);
+	return bUseCapturedKinsectSlashDash || MHGZWeaponMovementCurves::ValidateNormalizedProgressCurve(
+		KinsectSlashDistanceCurve, TerminalSlope);
 }
 
 FGameplayEffectSpecHandle UMHGZKinsectSlashAbility::MakeDamageSpec(
@@ -676,7 +676,7 @@ void UMHGZKinsectSlashAbility::ActivateAbility(
 	// 本次命中可增加舞踏，但不能反过来加强本次 189 的后续武器段。
 	if (const URes_InsectGlaive* Resource = GetIGResourceComponent())
 	{
-		FrozenDanceDamageMultiplier = Resource->GetDanceDamageMultiplier(EIGDanceDamageAction::KinsectSlash);
+		FrozenDanceDamageMultiplier = MHGZ::IGActionConfig::DanceDamageMultiplier(KinsectSlashDanceDamageMultipliers, Resource->GetDanceStacks(), Resource->GetCombatConfig()->MaxDanceStacks);
 	}
 	const FGameplayTag ResolvedInput = GetWeaponActivationContext().Input.ResolvedInputTag;
 	AimSource = ResolvedInput.MatchesTagExact(WeaponBTag())
@@ -1104,20 +1104,20 @@ bool UMHGZKinsectSlashAbility::LockAimAndDirection()
 		const URes_InsectGlaive* Resource = GetIGResourceComponent();
 		const UInsectGlaiveCombatConfig* Config = Resource
 			? Resource->GetCombatConfig() : nullptr;
-		if (!Config || !FMath::IsFinite(Config->KinsectSlashMaxUpwardLaunchPitchDegrees))
+		if (!Config || !FMath::IsFinite(KinsectSlashMaxUpwardLaunchPitchDegrees))
 		{
 			return false;
 		}
 
 		const FRotator UnclampedRotation = LaunchDirection.Rotation();
-		if (UnclampedRotation.Pitch > Config->KinsectSlashMaxUpwardLaunchPitchDegrees)
+		if (UnclampedRotation.Pitch > KinsectSlashMaxUpwardLaunchPitchDegrees)
 		{
 			FRotator ClampedRotation = UnclampedRotation;
-			ClampedRotation.Pitch = Config->KinsectSlashMaxUpwardLaunchPitchDegrees;
+			ClampedRotation.Pitch = KinsectSlashMaxUpwardLaunchPitchDegrees;
 			LaunchDirection = ClampedRotation.Vector().GetSafeNormal();
 			UE_LOG(LogMHGZ, Display,
 				TEXT("[KinsectSlash] Aim pitch clamped from %.2f to captured upward limit %.2f degrees."),
-				UnclampedRotation.Pitch, Config->KinsectSlashMaxUpwardLaunchPitchDegrees);
+				UnclampedRotation.Pitch, KinsectSlashMaxUpwardLaunchPitchDegrees);
 		}
 	}
 
@@ -1183,25 +1183,25 @@ FVector UMHGZKinsectSlashAbility::ResolveDashTerminalVelocity() const
 	const URes_InsectGlaive* Resource = GetIGResourceComponent();
 	const UInsectGlaiveCombatConfig* Config = Resource
 		? Resource->GetCombatConfig() : nullptr;
-	if (Config && Config->bUseCapturedKinsectSlashDash)
+	if (Config && bUseCapturedKinsectSlashDash)
 	{
-		return Config->KinsectSlashDashProfile.GetVelocity(LaunchDirection,
-			Config->KinsectSlashDashProfile.GetDuration());
+		return KinsectSlashDashProfile.GetVelocity(LaunchDirection,
+			KinsectSlashDashProfile.GetDuration());
 	}
-	if (!Config || !Config->KinsectSlashDistanceCurve
-		|| Config->KinsectSlashDashDuration <= KINDA_SMALL_NUMBER)
+	if (!Config || !KinsectSlashDistanceCurve
+		|| KinsectSlashDashDuration <= KINDA_SMALL_NUMBER)
 	{
 		return FVector::ZeroVector;
 	}
 
 	float TerminalSlope = 0.0f;
 	if (!MHGZWeaponMovementCurves::ValidateNormalizedProgressCurve(
-		Config->KinsectSlashDistanceCurve, TerminalSlope))
+		KinsectSlashDistanceCurve, TerminalSlope))
 	{
 		return FVector::ZeroVector;
 	}
-	return LaunchDirection * (Config->KinsectSlashMaxDistance * TerminalSlope
-		/ Config->KinsectSlashDashDuration);
+	return LaunchDirection * (KinsectSlashMaxDistance * TerminalSlope
+		/ KinsectSlashDashDuration);
 }
 
 FWeaponMovementRequest UMHGZKinsectSlashAbility::MakeDashMovementRequest() const
@@ -1216,16 +1216,16 @@ FWeaponMovementRequest UMHGZKinsectSlashAbility::MakeDashMovementRequest() const
 	}
 
 	Request.OwnerAction = GetActionToken();
-	Request.Mode = Config->bUseCapturedKinsectSlashDash ? EWeaponMovementMode::SegmentedDirectional
+	Request.Mode = bUseCapturedKinsectSlashDash ? EWeaponMovementMode::SegmentedDirectional
 		: EWeaponMovementMode::CurvedDirectional;
 	Request.DirectionSnapshot = LaunchDirection;
-	Request.SegmentedProfile = Config->KinsectSlashDashProfile;
-	Request.Duration = Config->bUseCapturedKinsectSlashDash ? Request.SegmentedProfile.GetDuration()
-		: Config->KinsectSlashDashDuration;
-	Request.MaxDistance = Config->bUseCapturedKinsectSlashDash
+	Request.SegmentedProfile = KinsectSlashDashProfile;
+	Request.Duration = bUseCapturedKinsectSlashDash ? Request.SegmentedProfile.GetDuration()
+		: KinsectSlashDashDuration;
+	Request.MaxDistance = bUseCapturedKinsectSlashDash
 		? Request.SegmentedProfile.GetOffset(LaunchDirection, Request.Duration).Size()
-		: Config->KinsectSlashMaxDistance;
-	Request.DistanceCurve = Config->KinsectSlashDistanceCurve;
+		: KinsectSlashMaxDistance;
+	Request.DistanceCurve = KinsectSlashDistanceCurve;
 	Request.RotationPolicy = EActionRotationPolicy::Locked;
 	Request.CancelVelocityPolicy = EMovementCancelVelocityPolicy::PreserveVelocity;
 	return Request;
@@ -2206,6 +2206,7 @@ EDataValidationResult UMHGZKinsectSlashAbility::IsDataValid(
 	FDataValidationContext& Context) const
 {
 	EDataValidationResult Result = Super::IsDataValid(Context);
+	if (ValidateOwnedActionConfig(Context) == EDataValidationResult::Invalid) return EDataValidationResult::Invalid;
 	bool bInvalid = false;
 	auto AddError = [&Context, &bInvalid](const FString& Message)
 	{
@@ -2271,4 +2272,77 @@ EDataValidationResult UMHGZKinsectSlashAbility::IsDataValid(
 		: (Result == EDataValidationResult::NotValidated
 			? EDataValidationResult::Valid : Result);
 }
+#endif
+
+#if WITH_EDITOR
+#undef LOCTEXT_NAMESPACE
+#define LOCTEXT_NAMESPACE "MHGZKinsectSlashConfig"
+EDataValidationResult UMHGZKinsectSlashAbility::ValidateOwnedActionConfig(FDataValidationContext& Context) const
+{
+	const EDataValidationResult Result = EDataValidationResult::Valid;
+	bool bInvalid = false;
+	auto AddError = [&Context, &bInvalid](const FText& Error)
+	{
+		Context.AddError(Error);
+		bInvalid = true;
+	};
+
+	auto CheckPositive = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value <= 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("NotPositive", "{0} must be > 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	auto CheckNonNegative = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value < 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("Negative", "{0} must be >= 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	if (bUseCapturedKinsectSlashDash)
+	{
+		if (!KinsectSlashDashProfile.IsValid())
+		{
+			AddError(LOCTEXT("InvalidKinsectSlashDashProfile",
+				"KinsectSlashDashProfile must contain finite, valid phase durations, speeds, gravity and acceleration."));
+		}
+	}
+	else
+	{
+		CheckPositive(TEXT("KinsectSlashMaxDistance"), KinsectSlashMaxDistance);
+		CheckPositive(TEXT("KinsectSlashDashDuration"), KinsectSlashDashDuration);
+	}
+	if (!FMath::IsFinite(KinsectSlashMaxUpwardLaunchPitchDegrees)
+		|| KinsectSlashMaxUpwardLaunchPitchDegrees <= 0.0f
+		|| KinsectSlashMaxUpwardLaunchPitchDegrees >= 90.0f)
+	{
+		AddError(LOCTEXT("InvalidKinsectSlashMaxUpwardLaunchPitch",
+			"KinsectSlashMaxUpwardLaunchPitchDegrees must be finite and between 0 and 90 degrees."));
+	}
+	if (!bUseCapturedKinsectSlashDash && KinsectSlashDistanceCurve)
+	{
+		float TerminalSlope = 0.0f;
+		const bool bCurveValid = MHGZWeaponMovementCurves::ValidateNormalizedProgressCurve(
+			KinsectSlashDistanceCurve, TerminalSlope);
+		if (!bCurveValid)
+		{
+			AddError(LOCTEXT("InvalidKinsectSlashDistanceCurve",
+			"KinsectSlashDistanceCurve must use finite, monotonic linear keys on [0,1] and map 0 to 0 and 1 to 1 with positive terminal progress."));
+		}
+	}
+
+    if (KinsectSlashDanceDamageMultipliers.IsEmpty() || !FMath::IsNearlyEqual(KinsectSlashDanceDamageMultipliers[0], 1.0f)) AddError(FText::FromString(TEXT("舞踏倍率第0层必须为1。")));
+    for (float Value : KinsectSlashDanceDamageMultipliers) if (!FMath::IsFinite(Value) || Value < 1.0f) AddError(FText::FromString(TEXT("舞踏倍率必须有限且不小于1。")));
+
+	return bInvalid ? EDataValidationResult::Invalid : (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);
+}
+#undef LOCTEXT_NAMESPACE
 #endif

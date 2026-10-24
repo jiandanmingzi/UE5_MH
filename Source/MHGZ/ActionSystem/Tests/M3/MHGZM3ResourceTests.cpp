@@ -367,4 +367,48 @@ bool FMHGZM3TripleAtomicConsume::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZKinsectExtractDrain,
+	"MHGZ.Maintenance.Kinsect.ExtractStaminaDrain",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZKinsectExtractDrain::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup()) { H.Teardown(); return false; }
+	H.Kinsect->DetachFromActor(FDetachmentTransformRules::KeepWorldTransform);
+	auto CheckDrain = [&](const float Multiplier)
+	{
+		TestEqual(TEXT("current extract multiplier"), H.Resource->GetKinsectStaminaDrainMultiplier(), Multiplier);
+		for (const auto State : {EKinsectState::Flying, EKinsectState::Hovering, EKinsectState::CoAttack})
+		{
+			H.Kinsect->State = State;
+			const float Before = H.Resource->GetKinsectStamina();
+			const float BaseRate = State == EKinsectState::Hovering ? 3.f : 8.f;
+			H.Resource->TickComponent(1.f, LEVELTICK_All, nullptr);
+			TestTrue(TEXT("real drain scales flight, hover and coattack without altering the base rate"),
+				FMath::IsNearlyEqual(Before - H.Resource->GetKinsectStamina(), BaseRate * Multiplier));
+		}
+	};
+	CheckDrain(1.f);
+	TestTrue(TEXT("white only"), H.Resource->ApplyExtract(WhiteTag()));
+	TestEqual(TEXT("white alone does not reduce drain"), H.Resource->GetKinsectStaminaDrainMultiplier(), 1.f);
+	H.Resource->ConsumeExtract(WhiteTag());
+	TestTrue(TEXT("red applies"), H.Resource->ApplyExtract(RedTag()));
+	CheckDrain(.75f);
+	H.Resource->ConsumeExtract(RedTag());
+	TestEqual(TEXT("consuming red removes the reduction immediately"), H.Resource->GetKinsectStaminaDrainMultiplier(), 1.f);
+	H.Resource->ApplyExtract(RedTag());
+	H.Resource->ApplyExtract(WhiteTag());
+	H.Resource->ApplyExtract(OrangeTag());
+	TestTrue(TEXT("triple active with singles replaced"), H.Resource->IsTripleUpActive());
+	CheckDrain(.5f);
+	H.Kinsect->State = EKinsectState::Attached;
+	const float BeforeRegen = H.Resource->GetKinsectStamina();
+	H.Resource->TickComponent(1.f, LEVELTICK_All, nullptr);
+	TestEqual(TEXT("triple does not reduce attached regeneration"), H.Resource->GetKinsectStamina() - BeforeRegen, 15.f);
+	TestTrue(TEXT("consume triple"), H.Resource->TryConsumeTripleUpAtomic());
+	TestEqual(TEXT("consume immediately restores baseline drain"), H.Resource->GetKinsectStaminaDrainMultiplier(), 1.f);
+	H.Teardown();
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR

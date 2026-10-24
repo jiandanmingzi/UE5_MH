@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/DataValidation.h"
+#include "InsectGlaive/IGActionConfigTypes.h"
 #include "MHGZInsectGlaiveAbility.h"
 #include "MHGZAirDodgeAbility.generated.h"
 
@@ -49,6 +51,33 @@ class MHGZ_API UMHGZAirDodgeAbility : public UMHGZInsectGlaiveAbility
 	GENERATED_BODY()
 
 public:
+	// 专属数值随本GA保存；Combat同名旧字段不再参与运行时。
+	/**
+	 * 实录反推的水平初速（cm/s）；方向取输入快照里的世界系摇杆方向（八向连续角，不量化）。
+	 *
+	 * 蒙太奇刻意**不在**这里：按项目分工，动作蒙太奇由 GA 蓝图指派
+	 * （`UMHGZAttackAbility::AttackMontage`），配置只放运行时数值 —— 与撑杆跳同构。
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|空回",
+		meta = (ClampMin = "0.01"))
+	float AirDodgeHorizontalSpeed = 900.0f;
+
+	/**
+	 * 实录反推的垂直初速（cm/s，向上）。它与水平初速一起决定整条弧：
+	 * 源时长 = 2·vz/g、顶点 = vz²/(2g)（g 取 CMC 当前重力 = AerialFallGravityScale × 980）。
+	 *
+	 * ⚠ 顶点**不在**时长中点（上升 0.497 s、下降 0.688 s），所以**不能**改用
+	 * 「顶点 + 时长」那组参数：那条路由引擎按 4H/D 反算 v0，代入会得到 989 而不是 1182。
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|空回",
+		meta = (ClampMin = "0.01"))
+	float AirDodgeVerticalSpeed = 1182.0f;
+
+
+#if WITH_EDITOR
+	virtual EDataValidationResult IsDataValid(FDataValidationContext& Context) const override;
+#endif
+
 	UMHGZAirDodgeAbility();
 
 	/**
@@ -61,7 +90,7 @@ public:
 		const FWeaponActionToken& OwnerAction,
 		const FVector& LaunchDirection,
 		const FVector& FallbackFacing,
-		const UInsectGlaiveCombatConfig& Config);
+		const UMHGZAirDodgeAbility& Tuning);
 
 	// （旧空回专用 AerialPreInputLifetime 槽已移除：Input.AirDodge 自身仍不预输入；
 	// 其它 Input.Weapon 空中动作改用 ComboCoordinator 的共享预输入槽。）

@@ -168,6 +168,7 @@ const FVaultDirectionSeed GDirectionSeeds[] = {
 
 UMHGZPoleVaultAbility::UMHGZPoleVaultAbility()
 {
+	VaultTunings = MHGZ::IGActionConfig::MakeDefaultVaultTunings();
 	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
 	StaminaCost = FScalableFloat(25.f);
 	InputTag = FGameplayTag::RequestGameplayTag(TEXT("Input.Weapon.RTA"));
@@ -520,7 +521,7 @@ bool UMHGZPoleVaultAbility::ValidateActionDependencies() const
 		}
 	}
 
-	const FVaultTuning* Tuning = CombatConfig->FindVaultTuning(Direction, bWhite);
+	const FVaultTuning* Tuning = FindVaultTuning(Direction, bWhite);
 	if (!Tuning)
 	{
 		UE_LOG(LogMHGZ, Warning,
@@ -972,7 +973,7 @@ bool UMHGZPoleVaultAbility::StartForwardVaultTrajectoryMovement()
 		? Cast<UInsectGlaiveCombatConfig>(Host->GetCurrentContext().CombatConfig) : nullptr;
 	const FVaultProfile* Profile = ResolveVaultProfile();
 	const FVaultTuning* Tuning = CombatConfig
-		? CombatConfig->FindVaultTuning(EDirectionalInput::Forward, bUseWhiteBackVault) : nullptr;
+		? FindVaultTuning(EDirectionalInput::Forward, bUseWhiteBackVault) : nullptr;
 	if (!Host || !CombatConfig || !Profile || !Tuning
 		|| Profile->Direction != EDirectionalInput::Forward)
 	{
@@ -1135,7 +1136,7 @@ bool UMHGZPoleVaultAbility::StartBackVaultMovement()
 	// 本次移动的全部来源都从 (方向, 灯态) 查出来，不再读平铺字段。
 	const FVaultProfile* Profile = ResolveVaultProfile();
 	const FVaultTuning* Tuning = CombatConfig
-		? CombatConfig->FindVaultTuning(GetVaultDirection(), bUseWhiteBackVault) : nullptr;
+		? FindVaultTuning(GetVaultDirection(), bUseWhiteBackVault) : nullptr;
 	if (!Profile || !Tuning)
 	{
 		UE_LOG(LogMHGZ, Warning,
@@ -1647,3 +1648,89 @@ void UMHGZPoleVaultAbility::TryFinishBackVault()
 		RequestEndAction(EWeaponActionEndReason::Normal);
 	}
 }
+
+const FVaultTuning* UMHGZPoleVaultAbility::FindVaultTuning(EDirectionalInput Direction, bool bWhite) const
+{
+    return VaultTunings.FindByPredicate([=](const FVaultTuning& T) { return T.Direction == Direction && T.bWhite == bWhite; });
+}
+
+#if WITH_EDITOR
+#undef LOCTEXT_NAMESPACE
+#define LOCTEXT_NAMESPACE "MHGZPoleVaultConfig"
+EDataValidationResult UMHGZPoleVaultAbility::IsDataValid(FDataValidationContext& Context) const
+{
+	const EDataValidationResult Result = Super::IsDataValid(Context);
+	bool bInvalid = false;
+	auto AddError = [&Context, &bInvalid](const FText& Error)
+	{
+		Context.AddError(Error);
+		bInvalid = true;
+	};
+
+	auto CheckPositive = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value <= 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("NotPositive", "{0} must be > 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	auto CheckNonNegative = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value < 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("Negative", "{0} must be >= 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	if (VaultTunings.Num() == 0)
+	{
+		AddError(LOCTEXT("VaultTuningsEmpty",
+			"VaultTunings is empty: every vault direction will fail to activate."));
+	}
+	for (const FVaultTuning& Tuning : VaultTunings)
+	{
+		const FString Label = FString::Printf(TEXT("VaultTunings[%d/%s]"),
+			static_cast<int32>(Tuning.Direction), Tuning.bWhite ? TEXT("white") : TEXT("normal"));
+		CheckPositive(*(Label + TEXT(".VaultDuration")), Tuning.VaultDuration);
+		CheckPositive(*(Label + TEXT(".ArcDuration")), Tuning.ArcDuration);
+		CheckPositive(*(Label + TEXT(".Distance")), Tuning.Distance);
+		CheckPositive(*(Label + TEXT(".ApexHeight")), Tuning.ApexHeight);
+		if (!FMath::IsFinite(Tuning.ArcDuration) || !FMath::IsFinite(Tuning.VaultDuration))
+		{
+			continue;
+		}
+		if (Tuning.ArcDuration < Tuning.VaultDuration)
+		{
+			AddError(FText::FromString(FString::Printf(
+				TEXT("%s: ArcDuration %.4f < VaultDuration %.4f -- the movement window is "
+					 "longer than the normalization domain, so HandoffProgress would exceed "
+					 "1.0 and the movement would be rejected at runtime."),
+				*Label, Tuning.ArcDuration, Tuning.VaultDuration)));
+			continue;
+		}
+		// 残余自由落体 = ArcDuration - VaultDuration。非白灯实测 0.2347 s（下坠段
+		// `143`/`157` 就是它）；白灯没有独立下坠段，实测为 0。容差给到 ±0.06 s：
+		// 下坠段短一次就少 0.03 s，那是录制抖动，不是配置错误。
+		const float Residual = Tuning.ArcDuration - Tuning.VaultDuration;
+		const bool bResidualOk = Tuning.bWhite
+			? FMath::IsNearlyZero(Residual, 0.02f)
+			: (Residual >= 0.18f && Residual <= 0.30f);
+		if (!bResidualOk)
+		{
+			AddError(FText::FromString(FString::Printf(
+				TEXT("%s: residual free fall %.4f s is outside the measured range "
+					 "(normal 0.18~0.30, white 0). A too-long window stretches the recorded "
+					 "path; a too-short one cuts the arc off before the ground."),
+				*Label, Residual)));
+		}
+	}
+
+	return bInvalid ? EDataValidationResult::Invalid : (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);
+}
+#undef LOCTEXT_NAMESPACE
+#endif

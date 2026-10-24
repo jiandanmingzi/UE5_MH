@@ -7,6 +7,56 @@
 #include "IGPowderTypes.generated.h"
 
 class AIGPowderActor;
+class USoundBase;
+
+/** 聚爆单招配置：由GA编辑，提交后按值交给Resource，生命周期可长于GA。 */
+USTRUCT(BlueprintType)
+struct FIGPowderVortexSettings
+{
+	GENERATED_BODY()
+
+	/** 聚集球半径（cm），不限制可聚集的粉尘数量。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.01", ForceUnits = "cm"))
+	float GatherRadius = 3000.f;
+	/** 猎虫到达目标点后，从开始吸粉到引爆的游戏秒数。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.01", ForceUnits = "s"))
+	float GatherDelay = 1.f;
+	/** 消耗1–4团粉尘时，第一段伤害的动作值；最终伤害=本次猎虫攻击力×动作值/100。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	float MotionValueAt1 = 10.f;
+	/** 消耗5–9团粉尘时第一段动作值；不会与其他数量档叠加。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	float MotionValueAt5 = 50.f;
+	/** 消耗至少10团粉尘时第一段动作值；零团不造成两段伤害。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.0"))
+	float MotionValueAt10 = 100.f;
+	/** 两段聚爆共用的伤害球半径（cm），不影响吸粉半径或视觉尺寸。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, meta = (ClampMin = "0.01", ForceUnits = "cm"))
+	float ExplosionRadius = 300.f;
+	/** 各目标受伤时执行的反馈Cue，不负责附加伤害。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FGameplayTag HitCueTag = FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.Hit.IG.Powder"));
+	/** 聚爆真正提交时在聚集点执行一次的爆炸表现Cue。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	FGameplayTag ExplosionCueTag = FGameplayTag::RequestGameplayTag(TEXT("GameplayCue.IG.PowderVortex"));
+	/** 到达后开始播放的空间聚集声层；引爆、取消或卸装立即停止。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TArray<TObjectPtr<USoundBase>> GatherSounds;
+	/** 有粉尘时引爆的附加声音；与Combat内共享基础粉尘爆炸声各播一次。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly)
+	TObjectPtr<USoundBase> ExplosionSound;
+
+	bool IsValid() const
+	{
+		return FMath::IsFinite(GatherRadius) && GatherRadius > 0.f
+			&& FMath::IsFinite(GatherDelay) && GatherDelay > 0.f
+			&& FMath::IsFinite(ExplosionRadius) && ExplosionRadius > 0.f
+			&& FMath::IsFinite(MotionValueAt1) && MotionValueAt1 >= 0.f
+			&& FMath::IsFinite(MotionValueAt5) && MotionValueAt5 >= 0.f
+			&& FMath::IsFinite(MotionValueAt10) && MotionValueAt10 >= 0.f
+			&& HitCueTag.IsValid() && ExplosionCueTag.IsValid();
+	}
+};
 
 UENUM(BlueprintType)
 enum class EIGPowderState : uint8
@@ -144,6 +194,12 @@ struct FIGPowderExplosionSnapshot
 
 	UPROPERTY(BlueprintReadOnly)
 	float Stage1Damage = 0.0f;
+
+	/** 第一段保留原始攻击力快照与动作值，由统一粉尘公式实际结算。 */
+	UPROPERTY(BlueprintReadOnly)
+	float Stage1AttackPower = 0.0f;
+	UPROPERTY(BlueprintReadOnly)
+	float Stage1MotionValue = 0.0f;
 
 	UPROPERTY(BlueprintReadOnly)
 	float Stage2Damage = 0.0f;

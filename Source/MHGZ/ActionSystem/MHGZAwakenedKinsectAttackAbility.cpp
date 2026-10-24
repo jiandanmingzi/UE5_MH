@@ -291,12 +291,8 @@ bool UMHGZAwakenedKinsectAttackAbility::ValidateActionDependencies() const
 		|| Input.Aim.Context != EWeaponAimSnapshotContext::Action
 		|| !IsFiniteVector(Input.Aim.TargetPoint)
 		|| !ResolveLockedAimDirection(Input.ActorForward, Input.Aim.Direction,
-			GetIGResourceComponent()->GetCombatConfig()
-				? GetIGResourceComponent()->GetCombatConfig()->AwakenedAimHorizontalCorrectionAngle
-				: -1.0f,
-			GetIGResourceComponent()->GetCombatConfig()
-				? GetIGResourceComponent()->GetCombatConfig()->AwakenedAimCorrectionAngle
-				: -1.0f,
+			AwakenedAimHorizontalCorrectionAngle,
+			AwakenedAimCorrectionAngle,
 			ValidatedAimDirection)
 		|| !AttackMontage
 		|| !DanceMontage
@@ -339,33 +335,33 @@ bool UMHGZAwakenedKinsectAttackAbility::ValidateActionDependencies() const
 	if (!Config || !KinsectData || !Kinsect
 		|| !Character || Config->KinsectSlashAttachSocket.IsNone()
 		|| !FindAwakenedKinsectWeaponMesh(Character, Config->KinsectSlashAttachSocket)
-		|| !FMath::IsFinite(Config->AwakenedAimHorizontalCorrectionAngle)
-		|| Config->AwakenedAimHorizontalCorrectionAngle < 0.f
-		|| Config->AwakenedAimHorizontalCorrectionAngle > 180.f
-		|| !FMath::IsFinite(Config->AwakenedAimCorrectionAngle)
-		|| Config->AwakenedAimCorrectionAngle < 0.f
-		|| Config->AwakenedAimCorrectionAngle > 90.f
-		|| !FMath::IsFinite(Config->AwakenedKinsectMotionValue)
-		|| Config->AwakenedKinsectMotionValue < 0.f
-		|| !FMath::IsFinite(Config->AwakenedRedKinsectMotionValue)
-		|| Config->AwakenedRedKinsectMotionValue < Config->AwakenedKinsectMotionValue
-		|| !FMath::IsFinite(Config->AwakenedTripleKinsectMotionValue)
-		|| Config->AwakenedTripleKinsectMotionValue < Config->AwakenedRedKinsectMotionValue
-		|| !FMath::IsFinite(Config->AwakenedHunterFlightDurationSeconds)
-		|| Config->AwakenedHunterFlightDurationSeconds <= 0.f
-		|| !FMath::IsFinite(Config->AwakenedHunterFlightSpeed)
-		|| Config->AwakenedHunterFlightSpeed <= 0.f
-		|| !FMath::IsFinite(Config->AwakenedHunterFlightGravityMagnitude)
-		|| Config->AwakenedHunterFlightGravityMagnitude <= 0.f
-		|| !FMath::IsFinite(Config->AwakenedGroundTargetMinimumDistance)
-		|| Config->AwakenedGroundTargetMinimumDistance <= 0.f
-		|| !FMath::IsFinite(Config->AwakenedGroundTargetVerticalLaunchSpeed)
-		|| Config->AwakenedGroundTargetVerticalLaunchSpeed <= 0.f
-		|| !FMath::IsFinite(Config->AwakenedHunterFallGravityMagnitude)
-		|| Config->AwakenedHunterFallGravityMagnitude <= 0.f
-		|| !IsFiniteVector(Config->AwakenedHunterFallHandoffVelocity)
-		|| Config->AwakenedHunterFallHandoffVelocity.Z <= 0.f
-		|| !Config->AwakenedHunterFallMontage
+		|| !FMath::IsFinite(AwakenedAimHorizontalCorrectionAngle)
+		|| AwakenedAimHorizontalCorrectionAngle < 0.f
+		|| AwakenedAimHorizontalCorrectionAngle > 180.f
+		|| !FMath::IsFinite(AwakenedAimCorrectionAngle)
+		|| AwakenedAimCorrectionAngle < 0.f
+		|| AwakenedAimCorrectionAngle > 90.f
+		|| !FMath::IsFinite(AwakenedKinsectMotionValue)
+		|| AwakenedKinsectMotionValue < 0.f
+		|| !FMath::IsFinite(AwakenedRedKinsectMotionValue)
+		|| AwakenedRedKinsectMotionValue < AwakenedKinsectMotionValue
+		|| !FMath::IsFinite(AwakenedTripleKinsectMotionValue)
+		|| AwakenedTripleKinsectMotionValue < AwakenedRedKinsectMotionValue
+		|| !FMath::IsFinite(AwakenedHunterFlightDurationSeconds)
+		|| AwakenedHunterFlightDurationSeconds <= 0.f
+		|| !FMath::IsFinite(AwakenedHunterFlightSpeed)
+		|| AwakenedHunterFlightSpeed <= 0.f
+		|| !FMath::IsFinite(AwakenedHunterFlightGravityMagnitude)
+		|| AwakenedHunterFlightGravityMagnitude <= 0.f
+		|| !FMath::IsFinite(AwakenedGroundTargetMinimumDistance)
+		|| AwakenedGroundTargetMinimumDistance <= 0.f
+		|| !FMath::IsFinite(AwakenedGroundTargetVerticalLaunchSpeed)
+		|| AwakenedGroundTargetVerticalLaunchSpeed <= 0.f
+		|| !FMath::IsFinite(AwakenedHunterFallGravityMagnitude)
+		|| AwakenedHunterFallGravityMagnitude <= 0.f
+		|| !IsFiniteVector(AwakenedHunterFallHandoffVelocity)
+		|| AwakenedHunterFallHandoffVelocity.Z <= 0.f
+		|| !AwakenedHunterFallMontage
 		|| !FMath::IsFinite(Config->AwakenedPierceHitInterval)
 		|| Config->AwakenedPierceHitInterval <= 0.f
 		|| !FMath::IsFinite(Config->KinsectArrivalRadius)
@@ -489,8 +485,8 @@ bool UMHGZAwakenedKinsectAttackAbility::BuildPendingKinsectRequest(
 		|| Input.Aim.Context != EWeaponAimSnapshotContext::Action
 		|| !IsFiniteVector(Input.Aim.TargetPoint)
 		|| !ResolveLockedAimDirection(Input.ActorForward, Input.Aim.Direction,
-			Config->AwakenedAimHorizontalCorrectionAngle,
-			Config->AwakenedAimCorrectionAngle, InitialAimDirection))
+			AwakenedAimHorizontalCorrectionAngle,
+			AwakenedAimCorrectionAngle, InitialAimDirection))
 	{
 		return false;
 	}
@@ -534,8 +530,8 @@ void UMHGZAwakenedKinsectAttackAbility::ApplyConsumedExtractEffects(
 	const bool bWhite = ConsumedExtractSnapshot.HasTagExact(AwakenedWhiteExtractTag());
 	const bool bOrange = ConsumedExtractSnapshot.HasTagExact(AwakenedOrangeExtractTag());
 	PendingKinsectRequest.MotionValue = bEmpoweredKinsectBranch
-		? Config.AwakenedTripleKinsectMotionValue
-		: (bRed ? Config.AwakenedRedKinsectMotionValue : Config.AwakenedKinsectMotionValue);
+		? AwakenedTripleKinsectMotionValue
+		: (bRed ? AwakenedRedKinsectMotionValue : AwakenedKinsectMotionValue);
 	PendingKinsectRequest.DamageMode = bWhite ? EKinsectDamageMode::Piercing : EKinsectDamageMode::SingleHit;
 	PendingKinsectRequest.ExtractMode = bWhite ? EKinsectExtractMode::CollectPerValidHit : EKinsectExtractMode::FirstHitOnly;
 	PendingKinsectRequest.RehitInterval = bWhite ? Config.AwakenedPierceHitInterval : 0.0f;
@@ -965,7 +961,7 @@ bool UMHGZAwakenedKinsectAttackAbility::StartHunterFlight(
 	// Keep the release-frame world target, not a parallel camera ray. No live camera retargeting.
 	if (!ResolveLockedTargetDirection(ReleaseActorForward, LockedHunterTargetPoint,
 		Character->GetActorLocation(), ReleaseAimSnapshot.Direction,
-		Config->AwakenedAimHorizontalCorrectionAngle, Config->AwakenedAimCorrectionAngle,
+		AwakenedAimHorizontalCorrectionAngle, AwakenedAimCorrectionAngle,
 		LockedHunterFlightDirection))
 	{
 		return false;
@@ -975,13 +971,13 @@ bool UMHGZAwakenedKinsectAttackAbility::StartHunterFlight(
 	FVector GroundForward;
 	const bool bRequestBuilt = bGroundTarget
 		? (ResolveLockedAimDirection(ReleaseActorForward, ReleaseAimSnapshot.Direction,
-			Config->AwakenedAimHorizontalCorrectionAngle, Config->AwakenedAimCorrectionAngle, GroundForward)
+			AwakenedAimHorizontalCorrectionAngle, AwakenedAimCorrectionAngle, GroundForward)
 			&& BuildGroundTargetHunterFlightMovementRequest(GroundForward,
-				Character->GetActorLocation(), LockedHunterTargetPoint, Config->AwakenedHunterFlightSpeed,
-				Config->AwakenedHunterFlightDurationSeconds, Config->AwakenedHunterFlightGravityMagnitude,
-				Config->AwakenedGroundTargetMinimumDistance, Config->AwakenedGroundTargetVerticalLaunchSpeed, Request))
-		: BuildHunterFlightMovementRequest(LockedHunterFlightDirection, Config->AwakenedHunterFlightSpeed,
-			Config->AwakenedHunterFlightDurationSeconds, Config->AwakenedHunterFlightGravityMagnitude, Request);
+				Character->GetActorLocation(), LockedHunterTargetPoint, AwakenedHunterFlightSpeed,
+				AwakenedHunterFlightDurationSeconds, AwakenedHunterFlightGravityMagnitude,
+				AwakenedGroundTargetMinimumDistance, AwakenedGroundTargetVerticalLaunchSpeed, Request))
+		: BuildHunterFlightMovementRequest(LockedHunterFlightDirection, AwakenedHunterFlightSpeed,
+			AwakenedHunterFlightDurationSeconds, AwakenedHunterFlightGravityMagnitude, Request);
 	if (!bRequestBuilt)
 	{
 		UE_LOG(LogMHGZ, Warning,
@@ -989,9 +985,9 @@ bool UMHGZAwakenedKinsectAttackAbility::StartHunterFlight(
 			ActionToken.ActivationSequenceID,
 			*LockedHunterFlightDirection.ToCompactString(),
 			LockedHunterFlightDirection.Rotation().Pitch,
-			Config->AwakenedHunterFlightSpeed,
-			Config->AwakenedHunterFlightDurationSeconds,
-			Config->AwakenedHunterFlightGravityMagnitude);
+			AwakenedHunterFlightSpeed,
+			AwakenedHunterFlightDurationSeconds,
+			AwakenedHunterFlightGravityMagnitude);
 		return false;
 	}
 	LockedHunterFlightDirection = Request.LaunchVelocity.GetSafeNormal();
@@ -1002,7 +998,7 @@ bool UMHGZAwakenedKinsectAttackAbility::StartHunterFlight(
 		return false;
 	}
 	if (!Host->ApplyAerialFallingPhysicsOverride(ActionToken,
-		Config->AwakenedHunterFlightGravityMagnitude, 0.0f))
+		AwakenedHunterFlightGravityMagnitude, 0.0f))
 	{
 		UE_LOG(LogMHGZ, Error,
 			TEXT("[AwakenedKinsect] Could not apply the hunter-flight gravity override (action=%u movementMode=%d)."),
@@ -1054,9 +1050,9 @@ bool UMHGZAwakenedKinsectAttackAbility::StartHunterFlight(
 	UE_LOG(LogMHGZ, Display,
 		TEXT("[AwakenedKinsect] Hunter flight 199 started: action=%u dir=%s speed=%.1f duration=%.3f gravity=%.1f"),
 		ActionToken.ActivationSequenceID, *LockedHunterFlightDirection.ToCompactString(),
-		Config->AwakenedHunterFlightSpeed,
-		Config->AwakenedHunterFlightDurationSeconds,
-		Config->AwakenedHunterFlightGravityMagnitude);
+		AwakenedHunterFlightSpeed,
+		AwakenedHunterFlightDurationSeconds,
+		AwakenedHunterFlightGravityMagnitude);
 	return true;
 }
 
@@ -1162,7 +1158,7 @@ void UMHGZAwakenedKinsectAttackAbility::HandleHunterFlightMovementFinished(
 	UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
 	if (!Config || !Host || !Character || !CMC || Host->IsGrounded()
 		|| !Host->ApplyAerialFallingPhysicsOverride(GetActionToken(),
-			Config->AwakenedHunterFallGravityMagnitude, 0.0f))
+			AwakenedHunterFallGravityMagnitude, 0.0f))
 	{
 		RequestEndAction(EWeaponActionEndReason::Interrupted);
 		return;
@@ -1170,13 +1166,13 @@ void UMHGZAwakenedKinsectAttackAbility::HandleHunterFlightMovementFinished(
 
 	// 206 的 F9 首样本是状态边界零速；去掉边界样本后，回归初始垂直速度约
 	// +821..+986cm/s。以可调候选速度重置垂直分量，并清除 199 的水平惯性。
-	CMC->Velocity = Config->AwakenedHunterFallHandoffVelocity;
+	CMC->Velocity = AwakenedHunterFallHandoffVelocity;
 	CMC->SetMovementMode(MOVE_Falling);
 	bHunterFallTransitionCommitted = true;
 	RequestEndAction(EWeaponActionEndReason::Normal);
 
 	if (!Host->BeginAerialFalling(false, AwakenedFallingStyleTag(),
-		Config->AwakenedHunterFallMontage, true))
+		AwakenedHunterFallMontage, true))
 	{
 		UE_LOG(LogMHGZ, Warning,
 			TEXT("[AwakenedKinsect] Could not start the 206 falling presentation; falling back to the standard IG profile."));
@@ -1600,7 +1596,7 @@ bool UMHGZAwakenedKinsectAttackAbility::CommitKinsectLaunch(
 	const UInsectGlaiveCombatConfig* Config = Resource ? Resource->GetCombatConfig() : nullptr;
 	if (!Kinsect || !Config || !ResolveLockedTargetDirection(ReleaseActorForward,
 		LockedHunterTargetPoint, Kinsect->GetActorLocation(), ReleaseAimSnapshot.Direction,
-		Config->AwakenedAimHorizontalCorrectionAngle, Config->AwakenedAimCorrectionAngle,
+		AwakenedAimHorizontalCorrectionAngle, AwakenedAimCorrectionAngle,
 		LockedKinsectDirection))
 	{
 		RequestEndAction(EWeaponActionEndReason::Cancelled);
@@ -1790,8 +1786,8 @@ bool UMHGZAwakenedKinsectAttackAbility::LockReleaseAim()
 	if (!Config || !Hunter
 		|| !ResolveLockedTargetDirection(ReleaseActorForward, ReleaseAimSnapshot.TargetPoint,
 			Hunter->GetActorLocation(), ReleaseAimSnapshot.Direction,
-			Config->AwakenedAimHorizontalCorrectionAngle,
-			Config->AwakenedAimCorrectionAngle,
+			AwakenedAimHorizontalCorrectionAngle,
+			AwakenedAimCorrectionAngle,
 			LockedKinsectDirection))
 	{
 		return false;
@@ -1802,7 +1798,7 @@ bool UMHGZAwakenedKinsectAttackAbility::LockReleaseAim()
 	UCharacterMovementComponent* HunterCMC = HunterCharacter ? HunterCharacter->GetCharacterMovement() : nullptr;
 	if (HunterCharacter && HunterCMC && HasRealGroundTarget(*HunterCharacter, *HunterCMC, ReleaseAimSnapshot)
 		&& !ResolveLockedAimDirection(ReleaseActorForward, ReleaseAimSnapshot.Direction,
-			Config->AwakenedAimHorizontalCorrectionAngle, Config->AwakenedAimCorrectionAngle,
+			AwakenedAimHorizontalCorrectionAngle, AwakenedAimCorrectionAngle,
 			LockedHunterFlightDirection))
 	{
 		return false;
@@ -1815,11 +1811,11 @@ bool UMHGZAwakenedKinsectAttackAbility::LockReleaseAim()
 	const float ReleaseCorrectionDelta = FMath::FindDeltaAngleDegrees(
 		ReleaseYaw, TargetYaw);
 	if (FMath::Abs(ReleaseCorrectionDelta)
-		> Config->AwakenedAimHorizontalCorrectionAngle + 0.01f)
+		> AwakenedAimHorizontalCorrectionAngle + 0.01f)
 	{
 		UE_LOG(LogMHGZ, Warning,
 			TEXT("[AwakenedKinsect] Resolved release yaw exceeded its configured cap (delta=%.2f cap=%.2f)."),
-			ReleaseCorrectionDelta, Config->AwakenedAimHorizontalCorrectionAngle);
+			ReleaseCorrectionDelta, AwakenedAimHorizontalCorrectionAngle);
 		return false;
 	}
 
@@ -1830,8 +1826,8 @@ bool UMHGZAwakenedKinsectAttackAbility::LockReleaseAim()
 		*ReleaseActorForward.ToCompactString(),
 		*ReleaseAimSnapshot.Direction.ToCompactString(),
 		*LockedKinsectDirection.ToCompactString(),
-		Config->AwakenedAimHorizontalCorrectionAngle,
-		Config->AwakenedAimCorrectionAngle);
+		AwakenedAimHorizontalCorrectionAngle,
+		AwakenedAimCorrectionAngle);
 	return true;
 }
 
@@ -2138,3 +2134,81 @@ bool UMHGZAwakenedKinsectAttackAbility::DisableAttackMontageRootMotionForHunterF
 	}
 	return !AttackMontage->HasRootMotion() || Instance->IsRootMotionDisabled();
 }
+
+#if WITH_EDITOR
+#undef LOCTEXT_NAMESPACE
+#define LOCTEXT_NAMESPACE "MHGZAwakenedKinsectAttackConfig"
+EDataValidationResult UMHGZAwakenedKinsectAttackAbility::IsDataValid(FDataValidationContext& Context) const
+{
+	const EDataValidationResult Result = Super::IsDataValid(Context);
+	bool bInvalid = false;
+	auto AddError = [&Context, &bInvalid](const FText& Error)
+	{
+		Context.AddError(Error);
+		bInvalid = true;
+	};
+
+	auto CheckPositive = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value <= 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("NotPositive", "{0} must be > 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	auto CheckNonNegative = [&AddError](const TCHAR* FieldName, float Value)
+	{
+		if (!FMath::IsFinite(Value) || Value < 0.f)
+		{
+			AddError(FText::Format(
+				LOCTEXT("Negative", "{0} must be >= 0 (current {1})."),
+				FText::FromString(FieldName), FText::AsNumber(Value)));
+		}
+	};
+
+	CheckNonNegative(TEXT("AwakenedKinsectMotionValue"), AwakenedKinsectMotionValue);
+	CheckNonNegative(TEXT("AwakenedRedKinsectMotionValue"), AwakenedRedKinsectMotionValue);
+	CheckNonNegative(TEXT("AwakenedTripleKinsectMotionValue"), AwakenedTripleKinsectMotionValue);
+	CheckPositive(TEXT("AwakenedHunterFlightDurationSeconds"), AwakenedHunterFlightDurationSeconds);
+	CheckPositive(TEXT("AwakenedHunterFlightSpeed"), AwakenedHunterFlightSpeed);
+	CheckPositive(TEXT("AwakenedHunterFlightGravityMagnitude"), AwakenedHunterFlightGravityMagnitude);
+	CheckPositive(TEXT("AwakenedGroundTargetMinimumDistance"), AwakenedGroundTargetMinimumDistance);
+	CheckPositive(TEXT("AwakenedGroundTargetVerticalLaunchSpeed"), AwakenedGroundTargetVerticalLaunchSpeed);
+	CheckPositive(TEXT("AwakenedHunterFallGravityMagnitude"), AwakenedHunterFallGravityMagnitude);
+	if (!FMath::IsFinite(AwakenedHunterFallHandoffVelocity.X)
+		|| !FMath::IsFinite(AwakenedHunterFallHandoffVelocity.Y)
+		|| !FMath::IsFinite(AwakenedHunterFallHandoffVelocity.Z)
+		|| AwakenedHunterFallHandoffVelocity.Z <= 0.0f)
+	{
+		AddError(LOCTEXT("InvalidAwakenedHunterFallHandoffVelocity",
+			"AwakenedHunterFallHandoffVelocity must be finite and have positive UE Z velocity."));
+	}
+	if (AwakenedRedKinsectMotionValue < AwakenedKinsectMotionValue
+		|| AwakenedTripleKinsectMotionValue < AwakenedRedKinsectMotionValue)
+	{
+		AddError(LOCTEXT("InvalidAwakenedMotionValueOrder",
+			"Awakened Kinsect motion values must satisfy base <= red <= triple."));
+	}
+	if (!FMath::IsFinite(AwakenedAimHorizontalCorrectionAngle)
+		|| AwakenedAimHorizontalCorrectionAngle < 0.f
+		|| AwakenedAimHorizontalCorrectionAngle > 180.f)
+	{
+		AddError(FText::Format(
+			LOCTEXT("InvalidAwakenedAimHorizontalCorrectionAngle", "AwakenedAimHorizontalCorrectionAngle must be within [0, 180] degrees (current {0})."),
+			FText::AsNumber(AwakenedAimHorizontalCorrectionAngle)));
+	}
+	if (!FMath::IsFinite(AwakenedAimCorrectionAngle)
+		|| AwakenedAimCorrectionAngle < 0.f || AwakenedAimCorrectionAngle > 90.f)
+	{
+		AddError(FText::Format(
+			LOCTEXT("InvalidAimCorrectionAngle", "AwakenedAimCorrectionAngle (pitch) must be within [0, 90] degrees (current {0})."),
+			FText::AsNumber(AwakenedAimCorrectionAngle)));
+	}
+	if (!AwakenedHunterFallMontage) AddError(FText::FromString(TEXT("觉虫击下落蒙太奇不能为空。")));
+
+	return bInvalid ? EDataValidationResult::Invalid : (Result == EDataValidationResult::NotValidated ? EDataValidationResult::Valid : Result);
+}
+#undef LOCTEXT_NAMESPACE
+#endif

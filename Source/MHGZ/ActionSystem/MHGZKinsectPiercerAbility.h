@@ -3,6 +3,8 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Misc/DataValidation.h"
+#include "InsectGlaive/IGActionConfigTypes.h"
 #include "ActionSystem/MHGZInsectGlaiveAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
 #include "MHGZKinsectPiercerAbility.generated.h"
@@ -84,6 +86,48 @@ class MHGZ_API UMHGZKinsectPiercerAbility : public UMHGZInsectGlaiveAbility
 	GENERATED_BODY()
 
 public:
+	// 专属数值随本GA保存；Combat同名旧字段不再参与运行时。
+	/** 200 起手段：保护飞行，曲线跑完即转 201。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|强化操虫穿刺|位移")
+	FRecordedLocalTrajectoryProfile KinsectPiercerStartProfile;
+
+	/**
+	 * 201 下潜段：允许真实触地，覆盖之外按同模型续行。
+	 *
+	 * 它的覆盖时长（实测 0.3665 s）是**被触地截断**的结果，不是动作本身的长度 ——
+	 * 所以这一段永远不会按时长结束，只由真实触地或看门狗结束。
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|强化操虫穿刺|位移")
+	FRecordedLocalTrajectoryProfile KinsectPiercerDiveProfile;
+
+	/** 203 录制真值对照；运行时落地改用 Montage Root Motion，不读取此 profile。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "参考数据|强化操虫穿刺")
+	FRecordedLocalTrajectoryProfile KinsectPiercerLandingProfile;
+
+	/**
+	 * 201 的独立看门狗（秒）。
+	 *
+	 * 只处理「既没触地、也没结束」的异常会话 —— 正常落地走真实 `ProcessLanded`，
+	 * 一秒都不会用到它。它绝不是 201→203 的定时出口。
+	 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|强化操虫穿刺|位移",
+		meta = (ClampMin = "0.1", ForceUnits = "s"))
+	float KinsectPiercerDiveWatchdogSeconds = 12.0f;
+
+	/** 203 的初始视觉混入；主 Montage 换 `_Over` 那一下用。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|强化操虫穿刺|表现",
+		meta = (ClampMin = "0.0", ForceUnits = "s"))
+	float KinsectPiercerLandingBlendInTime = 0.1f;
+
+	/** 整个强化操虫穿刺 GA 的全部武器伤害段，包括203触地后；出招时快照。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "资源|舞踏|增伤", meta = (ClampMin = "1.0"))
+	TArray<float> KinsectPiercerDanceDamageMultipliers = { 1.0f, 1.3f, 1.5f, 2.0f };
+
+
+#if WITH_EDITOR
+	EDataValidationResult ValidateOwnedActionConfig(FDataValidationContext& Context) const;
+#endif
+
 	UMHGZKinsectPiercerAbility();
 
 	virtual bool CanActivateAbility(

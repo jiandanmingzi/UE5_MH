@@ -1,5 +1,28 @@
 # 虫棍资源系统（操虫棍·Insect Glaive）
 
+## 当前配置归属（2026-10-24，覆盖下文历史Combat招式参数说明）
+
+单招专属参数由常驻GA的**类默认值**持有；打开对应GA后可搜索下表字段名。迁移保持现有资产数值、曲线引用、伤害段和蒙太奇不变。
+
+| 调整对象 | GA资产（`/Game/Blueprints/Ability/InsectGlaive/`） | 参数入口 |
+|---|---|---|
+| 空回 | `GA_IG_AirDodge` | `AirDodgeHorizontalSpeed / AirDodgeVerticalSpeed` |
+| 四方向撑杆跳 | `GA_IG_QianChengGanTiao / HouChengGanTiao / ZuoChengGanTiao / YouChengGanTiao` | 各GA的`VaultTunings`；原`VaultProfiles`仍持有动画/归一化轨迹 |
+| 操虫斩 | `GA_IG_CaoChongZhan` | `KinsectSlashDashProfile`、上冲角、旧标量位移兼容开关及曲线、`KinsectSlashDanceDamageMultipliers` |
+| 强化操虫穿刺 | `GA_IG_QiangHuaCaoChongChuanCi` | `KinsectPiercer*Profile`、下潜看门狗、落地混入、专属舞踏倍率；LandingProfile仍仅作真值参考，运行时落地使用Montage Root Motion |
+| 急袭突刺 | `GA_IG_JiXiTuCi` | `DescendingThrustAirProfile`、空中看门狗、落地混入、专属舞踏倍率；AirControl保留原调参值，当前无运行时读取方 |
+| 觉虫击 | `GA_IG_JueChongJi` | `Awakened*`中的猎人飞行/下落、近地目标、瞄准修正及无灯/红灯/三灯猎虫动作值 |
+| 拔刀操虫 | `GA_IG_DrawAndSendKinsect` | `DrawSendKinsectMotionValue` |
+| 粉尘聚爆 | `GA_IG_PowderVortex → Powder Vortex` | 数量档动作值、吸引/爆炸范围、延迟、Cue及专属声音 |
+
+`DA_IG_Combat`继续管理精华效果/时长、资源与舞踏层数、公共下落/落地、猎虫共享规则、虫印Debuff及粉尘生成/自然爆炸。**虫印弹本轮不迁移**，射程/速度/判定/发射挂点仍在Combat。
+
+以下字段虽带招式前缀，仍有多个读取方，继续在Combat编辑：`KinsectSlashAttachSocket`（操虫斩、觉虫击共用），`AwakenedPierceHitInterval`（觉虫击、急袭突刺贯通共用），`SendKinsectMotionValue`（普通操虫、自动寻印共用）。舞踏层数仍由Resource管理；执行中招式从自身GA数组冻结倍率，旧Blueprint资源查询从已授予GA默认配置读取，未授予返回1。
+
+Combat中的66个兼容字段已删除：包含已迁入GA的35个重复字段，以及猎虫滑翔、旧降龙、旧聚爆、旧虫印斑块、旧操虫斩探测和旧觉虫击定时/距离等31项。Combat资产已重存，现用共享值不变；对应GA仍保留实际使用的参数，包括操虫斩可用的旧曲线回退路径。低层粉尘生成接口显式接收AP/MV，预留接口显式接收范围/数量，低层提交只汇总单团贡献并显式接收半径，不再读取旧聚爆固定基础伤害/硬直。正式聚爆的两段伤害仍由GA提交的配置驱动。
+
+历史初始化/曲线生成/动作值Apply工具不可重放；涉及的原生读取方已改为访问常驻GA，旧虫印斑块读写已移除。迁移工具只用于已有Saved事务的历史回查，不依赖其在新设备上重建旧Schema；直接调参使用当前GA。批量迁移证据见`Saved/Maintenance/IGActionConfig20261024/ActionDefaults/`，清理备份/现用字段对比与独立回载见`Saved/Maintenance/CombatCleanup20261024/`。
+
 > **音效现状（2026-10-20，覆盖下文旧激活即播描述）：** 动画同步声音由精确实例点Notify触发，现43 Montage/422点（322有音源＋100衣服空点）；普通前后跳/空回推进漏配已补，137空回入场前推进与156白灯前跳Over的错误对应已纠正。AKinsect自有组件管理自由飞行/悬停/返航循环及成功离手短音；回手、武器附着、Runtime失效/销毁停循环。精华提示在真实回手交付按命令去重，不提前点灯。猎虫命中基础声由真实结算后的`GameplayCue.Hit.Kinsect`派发到`GCN_Hit_Kinsect`，只收Kinsect上下文，在真实接触点播放；旧武器主声仍排除Kinsect。配置/回载不等于PIE耳听或原作所有分支已还原；前跳阶段适配、粉尘等限制见[维护计划1.29](../using/崛起虫棍攻击与命中音效实施计划.md)。配置优先、细调后置，不恢复旧三灯激活即播主链。
 
 > **实施状态说明（以源码、配置和 Content 为准）：** 本文负责猎虫实体、耐力、三色精华、三灯、UI 与词条；具体地面/空中动作、舞踏、位移和粉尘规则以 [insect-glaive-actions.md](insect-glaive-actions.md) 为准。M3 基础资源、M4/E4 动作与资产、M5 空中动作/舞踏/落地链均已按[阶段门禁](milestone-gates.md)验收；M5总验收已关闭。当前M6.3.1～.6代码及虫印/虫粉表现、DA接线已静态完成，E6.2只剩PIE闭环；后续M6.4再实现HUD/Widget。收刀、空中受击或死亡清舞踏不扩成当前 Demo 要求。
@@ -491,7 +514,7 @@ GameplayCue.Hit.Kinsect              ← 猎虫命中反馈（小号火花+音�
 ### 管理方式
 
 - **归属**：`URes_InsectGlaive` 内部 `float KinsectStamina` / `float MaxKinsectStamina`，非 GAS Attribute（遵循决策 #43）
-- **消耗速率**：飞行期间 `FlightDrainRate`、悬停期间 `HoverDrainRate`（< FlightDrainRate）
+- **消耗速率（2026-10-24）**：飞行/协同/操虫斩离臂沿用 `FlightDrainRate`，悬停沿用 `HoverDrainRate`；实时乘当前有效精华倍率：无红灯1、红灯且非三灯0.75、三灯0.5（覆盖红灯，不叠乘）。`DA_IG_Combat → 资源|精华|倍率 → RedKinsectStaminaDrainMultiplier / TripleKinsectStaminaDrainMultiplier`可调；回耐速率与出招耐力门槛不变，灯被消费/到期后立即恢复对应倍率。
 - **回复速率**：`StaminaRegenRate`（休息时——Attached 状态——每秒回复量）
 - **Tick 启用**：由 Character WeaponRuntimeHost 注册运行时组件并驱动 Tick；卸装、死亡或 Pawn 销毁时先停止 Tick，再召回/销毁猎虫和粉尘并移除精华/舞踏状态。
 - **耐力归零检测——阈值边沿**：Tick 保存扣减前数值，只在 `Previous>0 && Current<=0` 且 State 为 Flying/Hovering 时触发一次 ForceRecall 和一次音效。Current 持续为 0、已经 Returning 或 Attached 时不得重复触发。
@@ -607,11 +630,20 @@ ApplyExtract(Color)
 
 **状态（2026-10-09）：** M6.3.1～.6代码、定点两阶段聚爆、视觉资产和DA静态接线均已完成并通过对应审计/自动化。下列玩法合同尚需E6.2 PIE逐项验证；不可把静态验证当作完整战斗闭环签收。
 
-- 每名玩家的Resource只持有一个局部虫印：地面虫印斩指定有效武器段、急袭突刺地面第一击成功提交伤害时创建/替换。以真实命中点为中心，沿目标表面切向覆盖100×100cm（半宽50cm），与约1m视觉云团对齐；持续90s。死亡、到期、新印替换才按玩法规则清除，收虫/收刀不清。销毁目标和Runtime关闭仅作技术清理。
-- 自动虫印攻击不主动让Attached猎虫离手；猎虫已离手、没有高优先级指令且虫印在寻印范围内时才启动。玩家送虫/定点攻击、召回、招式附着与觉虫击等先执行，猎虫请求完成且仍在外才恢复自动寻印；不能仅以猎人Montage结束判定玩家指令完成。
-- 所有猎虫成功伤害入口共用产粉结算。普通手动/招式猎虫命中虫印局部区域受Runtime共享10s冷却；自动寻印攻击每次成功命中有效虫印区域均独立产粉（`AutoMarkContact`），不检查、启动或刷新普通CD，仍按原自动攻击频率行动。觉虫击消耗黄灯后，单击或贯通的每次成功伤害均独立产粉，不受此冷却和虫印限制；无黄灯保留普通虫印产粉规则。所有路径同HitID至多一团，仍受粉尘容量限制；武器段不因命中虫印而产粉。
+- **虫印改为部位级Debuff（2026-10-24）**：成功建印时在实际命中的`UMHGZMonsterHitzoneComponent`登记来源Resource、实例ID和到期时间。每人仍只有一个90s虫印，不扩为整只怪物；同一部位任意位置的有效猎虫命中均可产粉，不再检查100×100cm表面斑块或法向厚度。同一怪物的其他部位不能借用，即使特效重叠；Box查询子组件解析回其拥有的Hitzone。原表面点仅用于特效附着与自动寻印，视觉尺寸不再决定Gameplay覆盖。新印替换、目标死亡/失效、到期、范围内聚爆消耗及Runtime关闭同步移除该来源的Debuff；收虫/收刀不清，旧实例回调不能清除新印或其他来源。部位提供蓝图只读`HasKinsectMarkDebuff`查询；这不是施加到整怪ASC的全身状态。
+- 自动虫印攻击不主动让Attached猎虫离手；猎虫已离手、没有高优先级指令且虫印在寻印范围内时才启动。**猎人的普通攻击不单独阻止或中断自由猎虫自动寻印**；不以Host存在任意Action或`Combat.State.Attacking`作为全局禁用条件。优先级由实际猎虫玩家租约、招式附着及命令所有者决定；普通协同仍不能从自由态强行接管猎虫。玩家送虫/定点攻击、召回、招式附着与觉虫击等先执行，猎虫请求完成且仍在外才恢复自动寻印，即使猎人仍在执行普通攻击；不能仅以猎人Montage结束判定玩家指令完成。
+- **自动攻击萃取（2026-10-24）**：接近阶段仍无伤害/萃取；实际自动接触伤害成功且命令/虫印仍有效后，按该部位`ExtractColorTag`调用普通单色携带逻辑，立即刷新猎虫携带UI，但不直接点亮角色精华。已有颜色不被覆盖、重复颜色不新增；猎虫继续原自动攻击/悬停，真正回手后统一交付并清空携带。失败伤害、旧实例或被玩家命令抢占的命中不能采集；觉虫击/急袭贯通的多色规则不变。
+- 所有猎虫成功伤害入口共用产粉结算。普通手动/招式/协同猎虫命中本玩家虫印Debuff部位受Runtime共享10s冷却；自动寻印攻击每次成功命中该部位均独立产粉（`AutoMarkContact`），不检查、启动或刷新普通CD，仍按原自动攻击频率行动。觉虫击消耗黄灯后，单击或贯通的每次成功伤害均独立产粉，不受此冷却和虫印限制；无黄灯保留普通虫印产粉规则。所有路径同HitID至多一团，仍受粉尘容量限制；武器段不因命中虫印而产粉。
 - 虫粉世界空间位置独立于怪物，每团保存生成时猎虫攻击力形成的固定伤害快照。存活180s、远距只消失、最多100团；自然到期一次直径1m固定伤害，不吃肉质。
 - 粉尘聚爆以冻结准心目标为中心，由Resource持有猎虫指令及聚爆事务。到达后收集范围内本玩家全部虫粉、刷新180s寿命，1s后以直径2m结算数量阶梯伤害和各团固定伤害之和两段。操虫/收虫抢占取消；猎人正常Montage结束不取消已提交事务。完整参数、去重和出口见M6计划。
+
+**聚爆调参入口（2026-10-24）：** `/Game/Blueprints/Ability/InsectGlaive/GA_IG_PowderVortex → 类默认值 → Powder Vortex`。`MotionValueAt1 / At5 / At10`为第一段1–4、5–9、≥10团对应的动作值，不是固定伤害；零团不结算。第一段按本次提交时的猎虫攻击力快照×数量档动作值/100，由统一粉尘伤害GE结算。当前迁入的动作值为10/50/100，吸引半径3000cm、爆炸半径300cm、到达后延迟1s；原Cue、聚集声与附加爆炸声也迁入GA。GA激活时冻结配置，提交给Resource后按次持有，正常蒙太奇结束不取消聚爆。
+
+第二段为各粉尘“分别单独引爆”的实际伤害之和：单团先用double计算`生成时猎虫攻击力 × PowderMotionValue / 100`，按原规则取整（真正小数向下、正数最小伤害保持），再以double累加，避免提前float算出29.999…后取29。不使用字符串四则运算。单团动作值仍在`DA_IG_Combat → 粉尘共享|规则 → PowderMotionValue`，修改不追溯已有粉尘；聚爆期间新得到的灯/猎虫攻击力不改写本次第一段或已有粉尘快照。
+
+Combat现按共享精华、猎虫、粉尘和空中规则分类；直接字段及项目嵌套结构都有中文悬停说明。虫印弹保留在Combat，其余已迁移招式的数值在对应GA类默认值编辑；66个旧兼容/重复字段已删除。完整当前入口见本文开头的配置归属表。
+
+**产粉CD归属：** `LastMarkedContactPowderWorldTime`属于Resource，不在虫印Debuff上；新建/替换虫印不会重置。当前保存的DA为5s（原生默认10s），本次保留。普通手动/招式/地面协同为`MarkedContact`，受此共享CD；自动寻印为`AutoMarkContact`，黄灯觉虫击为逐击策略，二者按既有规则不占用/刷新普通CD。不能仅凭“建印那一下看见粉尘”认定CD挂在印上；本轮不调整这些机制。
 
 Demo 唯一消耗三灯的动作是觉虫击。降龙已于2026-10-01移出当前Demo/M5范围；旧的 `Extract Surge`、`Triple Burst` 和“降龙消耗红灯”方案均不属于当前目标设计。
 

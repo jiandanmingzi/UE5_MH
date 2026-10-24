@@ -188,7 +188,7 @@ FString BakePhase(const FRoute& Route, const EPhase Phase,
 	{
 		return TEXT("该方向的 VaultProfiles 里没有这一条");
 	}
-	const FVaultTuning* Tuning = Config.FindVaultTuning(Route.Direction, Route.bWhite);
+	const FVaultTuning* Tuning = Ability->FindVaultTuning(Route.Direction, Route.bWhite);
 	if (!Tuning)
 	{
 		return TEXT("CombatConfig 的 VaultTunings 里没有这一条");

@@ -893,6 +893,13 @@ void UGA_WeaponComboCoordinator::CloseComboWindow(
 		Host->ReleaseTags(Entry->TagToken);
 	}
 	ComboWindows.Remove(Key);
+	bool bHasOtherWindow = false;
+	for (const auto& Pair : ComboWindows) bHasOtherWindow |= Pair.Value.ActionToken == ActionToken;
+	if (!bHasOtherWindow)
+	{
+		if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost(); Host && Host->IsActionRegistered(ActionToken))
+			Host->OnWeaponComboWindowsClosed.Broadcast(ActionToken);
+	}
 }
 
 bool UGA_WeaponComboCoordinator::CanDodgeSupersedeActiveAction() const

@@ -296,4 +296,65 @@ bool FMHGZDamageGeneratedHitzone::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZKinsectDamageIntegerBoundary,
+	"MHGZ.Maintenance.Damage.KinsectPowder.IntegerPercentBoundaries",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZKinsectDamageIntegerBoundary::RunTest(const FString&)
+{
+	FDamageFormulaFixture F;
+	if (!TestTrue(TEXT("fixture builds"), F.Setup())) return false;
+	for (const auto SourceType : {EMHGZDamageSourceType::Kinsect, EMHGZDamageSourceType::Powder})
+	for (const int32 Power : {25, 50, 100, 200, 1000})
+	for (const int32 Motion : {5, 10, 15, 20, 25, 30, 40})
+	for (const int32 Hitzone : {20, 25, 50, 75, 100})
+	{
+		F.Hitzone->DefenseMultiplier = float(Hitzone);
+		F.TargetAttributes->InitHealth(10000.f);
+		auto Spec = F.MakeSpec(float(Motion), 9.f, SourceType);
+		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(TEXT("Damage.AttackPower")), float(Power));
+		// Independent exact integer arithmetic, never recalculate via float ratio.
+		const int32 Expected = FMath::Max(1, SourceType == EMHGZDamageSourceType::Kinsect
+			? Power * Motion * Hitzone / 10000 : Power * Motion / 100);
+		TestEqual(*FString::Printf(TEXT("actual GE type=%d AP=%d MV=%d HZ=%d"),
+			int32(SourceType), Power, Motion, Hitzone), F.Apply(Spec), float(Expected));
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZKinsectDamageFractionFloor,
+	"MHGZ.Maintenance.Damage.KinsectPowder.FractionsRemainFloored",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZKinsectDamageFractionFloor::RunTest(const FString&)
+{
+	FDamageFormulaFixture F;
+	if (!TestTrue(TEXT("fixture builds"), F.Setup())) return false;
+	F.Hitzone->DefenseMultiplier = 100.f;
+	F.Profile.PhysicalSharpnessMultiplier = F.Profile.ElementSharpnessMultiplier = 9.f;
+	F.SourceASC->SetNumericAttributeBase(UMHGZAttributeSet::GetCriticalRateAttribute(), 100.f);
+	auto Apply = [&](float Power, float Motion, EMHGZDamageSourceType Type)
+	{
+		F.TargetAttributes->InitHealth(10000.f);
+		auto Spec = F.MakeSpec(Motion, 9.f, Type);
+		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(TEXT("Damage.AttackPower")), Power);
+		Spec.Data->SetSetByCallerMagnitude(FGameplayTag::RequestGameplayTag(TEXT("Damage.DanceMultiplier")), 2.f);
+		return F.Apply(Spec);
+	};
+	for (const auto Type : {EMHGZDamageSourceType::Kinsect, EMHGZDamageSourceType::Powder})
+	{
+		TestEqual(TEXT("AP100 MV10 is 10, independent of gear/crit/dance"), Apply(100, 10, Type), 10.f);
+		TestEqual(TEXT("AP100 MV20 is 20"), Apply(100, 20, Type), 20.f);
+		TestEqual(TEXT("true 9.99 remains floored"), Apply(100, 9.99f, Type), 9.f);
+		TestEqual(TEXT("one float step below 10 is not promoted"), Apply(100, 9.999999046325684f, Type), 9.f);
+		TestEqual(TEXT("one float step above 10 still floors to 10"), Apply(100, 10.000000953674316f, Type), 10.f);
+		TestEqual(TEXT("non-integral power still floors, not rounds"), Apply(99.9f, 10, Type), 9.f);
+		TestEqual(TEXT("existing positive sub-one minimum preserved"), Apply(1, 10, Type), 1.f);
+		TestEqual(TEXT("zero power still yields zero"), Apply(0, 10, Type), 0.f);
+		TestEqual(TEXT("zero motion still yields zero"), Apply(100, 0, Type), 0.f);
+		TestEqual(TEXT("negative motion still yields zero"), Apply(100, -10, Type), 0.f);
+	}
+	F.Hitzone->PhysicalHitzoneMultipliers.Add(EMHGZPhysicalDamageType::Sever, 50.f);
+	TestEqual(TEXT("kinsect still uses typed physical percent"), Apply(100, 10, EMHGZDamageSourceType::Kinsect), 5.f);
+	TestEqual(TEXT("powder still ignores physical flesh"), Apply(100, 10, EMHGZDamageSourceType::Powder), 10.f);
+	return true;
+}
 #endif

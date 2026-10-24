@@ -579,8 +579,10 @@ bool UMHGZWeaponRuntimeHostComponent::RegisterAction(const FWeaponActionToken& A
 		// Insect Glaive handoff path. Same-token source replacements are idempotent.
 		ClearAerialPlanarAcceleration();
 		ActiveActions.Add(ActionToken);
+		const FWeaponActionToken Registered = ActionToken;
+		OnWeaponActionRegistered.Broadcast(Registered);
 	}
-	return true;
+	return IsActionRegistered(ActionToken);
 }
 
 bool UMHGZWeaponRuntimeHostComponent::IsActionRegistered(

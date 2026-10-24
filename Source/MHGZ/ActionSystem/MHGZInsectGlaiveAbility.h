@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "MHGZAttackAbility.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
+#include "InsectGlaive/Kinsect/IGCoAttackTypes.h"
 #include "MHGZInsectGlaiveAbility.generated.h"
 
 class URes_InsectGlaive;
@@ -135,6 +136,11 @@ public:
 		bool bWasCancelled) override;
 
 	// ── 配置 ──
+	/** 仅地面有效；默认关闭。段动作值表为空时只演示轨迹。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|CoAttack")
+	FIGCoAttackSource CoAttack;
+	/** Used at successful registration, before a successor starts its montage. */
+	bool TryStartKinsectCoAttack();
 
 	/** 三灯攻击音效——每个攻击 GA 激活时播放 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Audio")
@@ -149,6 +155,8 @@ public:
 	bool ConsumeExtractAndApplyBurst(FGameplayTag ExtractType, TSubclassOf<UGameplayEffect> BurstGE);
 
 protected:
+	virtual void OnAttackCollisionWindowOpened(int32 SegmentIndex, uint64 Occurrence) override;
+	virtual void OnAttackCollisionWindowRetired(int32 SegmentIndex, uint64 Occurrence) override;
 	/** 获取虫棍资源组件 */
 	URes_InsectGlaive* GetIGResourceComponent() const;
 
@@ -168,6 +176,8 @@ protected:
 	void CloseAerialHandoff();
 
 private:
+	bool bCoAttackEntryStaminaChecked = false;
+	bool bCoAttackEntryStaminaAllowed = false;
 	/** 最早可操作帧那一帧拿到的 tag，随本次激活存续。 */
 	FWeaponOwnedTagToken AerialHandoffTag;
 	/** 锁存：越过最早可操作帧后只增不减，供 exit 判据与调试读。 */
