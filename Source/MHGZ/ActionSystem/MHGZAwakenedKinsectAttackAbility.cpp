@@ -341,6 +341,9 @@ bool UMHGZAwakenedKinsectAttackAbility::ValidateActionDependencies() const
 		|| !FMath::IsFinite(AwakenedAimCorrectionAngle)
 		|| AwakenedAimCorrectionAngle < 0.f
 		|| AwakenedAimCorrectionAngle > 90.f
+		|| !FMath::IsFinite(AwakenedKinsectAimRayMergeDistance)
+		|| AwakenedKinsectAimRayMergeDistance <= 0.f
+		|| AwakenedKinsectMinimumHitsPerTarget < 1 || AwakenedKinsectMinimumHitsPerTarget > 64
 		|| !FMath::IsFinite(AwakenedKinsectMotionValue)
 		|| AwakenedKinsectMotionValue < 0.f
 		|| !FMath::IsFinite(AwakenedRedKinsectMotionValue)
@@ -535,6 +538,7 @@ void UMHGZAwakenedKinsectAttackAbility::ApplyConsumedExtractEffects(
 	PendingKinsectRequest.DamageMode = bWhite ? EKinsectDamageMode::Piercing : EKinsectDamageMode::SingleHit;
 	PendingKinsectRequest.ExtractMode = bWhite ? EKinsectExtractMode::CollectPerValidHit : EKinsectExtractMode::FirstHitOnly;
 	PendingKinsectRequest.RehitInterval = bWhite ? Config.AwakenedPierceHitInterval : 0.0f;
+	PendingKinsectRequest.MinimumPiercingHitsPerTarget = bWhite ? AwakenedKinsectMinimumHitsPerTarget : 0;
 	PendingKinsectRequest.PowderSpawnPolicy = bOrange
 		? EIGPowderSpawnPolicy::AwakenedEachHit : EIGPowderSpawnPolicy::MarkedContact;
 	// Piercing and powder are independent from travel speed and endpoint recall.
@@ -1594,8 +1598,8 @@ bool UMHGZAwakenedKinsectAttackAbility::CommitKinsectLaunch(
 	URes_InsectGlaive* Resource = GetIGResourceComponent();
 	AKinsect* Kinsect = Resource ? Resource->GetKinsectActor() : nullptr;
 	const UInsectGlaiveCombatConfig* Config = Resource ? Resource->GetCombatConfig() : nullptr;
-	if (!Kinsect || !Config || !ResolveLockedTargetDirection(ReleaseActorForward,
-		LockedHunterTargetPoint, Kinsect->GetActorLocation(), ReleaseAimSnapshot.Direction,
+	if (!Kinsect || !Config || !ResolveLockedAimDirection(ReleaseActorForward,
+		ReleaseAimSnapshot.Direction,
 		AwakenedAimHorizontalCorrectionAngle, AwakenedAimCorrectionAngle,
 		LockedKinsectDirection))
 	{
@@ -1603,7 +1607,14 @@ bool UMHGZAwakenedKinsectAttackAbility::CommitKinsectLaunch(
 		return false;
 	}
 	PendingKinsectRequest.DirectionSnapshot = LockedKinsectDirection;
-	PendingKinsectRequest.TargetPointSnapshot = LockedHunterTargetPoint;
+	PendingKinsectRequest.TrajectoryMode = EKinsectTrajectoryMode::MergeToAimRay;
+	PendingKinsectRequest.AimOriginSnapshot = ReleaseAimSnapshot.Origin;
+	PendingKinsectRequest.AimRayMergeDistance = AwakenedKinsectAimRayMergeDistance;
+	// Within the correction cone this is the exact saved center ray. Outside it,
+	// use its angle-limited counterpart instead of steering toward an illegal target.
+	const double TargetDistance = FVector::Distance(ReleaseAimSnapshot.Origin, LockedHunterTargetPoint);
+	PendingKinsectRequest.TargetPointSnapshot = ReleaseAimSnapshot.Origin
+		+ LockedKinsectDirection * TargetDistance;
 	if (!Resource || !bKinsectActionAttached
 		|| !Resource->IsKinsectActionAttachmentCurrent(ActionToken)
 		|| PendingKinsectRequest.RuntimeToken != ActionToken.RuntimeToken
@@ -2171,6 +2182,8 @@ EDataValidationResult UMHGZAwakenedKinsectAttackAbility::IsDataValid(FDataValida
 	CheckNonNegative(TEXT("AwakenedKinsectMotionValue"), AwakenedKinsectMotionValue);
 	CheckNonNegative(TEXT("AwakenedRedKinsectMotionValue"), AwakenedRedKinsectMotionValue);
 	CheckNonNegative(TEXT("AwakenedTripleKinsectMotionValue"), AwakenedTripleKinsectMotionValue);
+	if (AwakenedKinsectMinimumHitsPerTarget < 1 || AwakenedKinsectMinimumHitsPerTarget > 64)
+		AddError(LOCTEXT("InvalidAwakenedMinimumHits", "AwakenedKinsectMinimumHitsPerTarget must be within [1, 64]."));
 	CheckPositive(TEXT("AwakenedHunterFlightDurationSeconds"), AwakenedHunterFlightDurationSeconds);
 	CheckPositive(TEXT("AwakenedHunterFlightSpeed"), AwakenedHunterFlightSpeed);
 	CheckPositive(TEXT("AwakenedHunterFlightGravityMagnitude"), AwakenedHunterFlightGravityMagnitude);

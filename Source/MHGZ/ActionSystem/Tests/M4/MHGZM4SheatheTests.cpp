@@ -12,6 +12,9 @@
 #include "AbilitySystemComponent.h"
 #include "MHGZCharacter.h"
 #include "InputActionValue.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Engine/SkeletalMesh.h"
 #include "../Shared/MHGZM3TestHarness.h"
 #include "../Shared/MHGZM4TestTypes.h"
 
@@ -387,7 +390,8 @@ bool FMHGZM4PlayerActionLocksGateDirectAndComboInput::RunTest(
 
 	for (const TCHAR* LockTagName : {
 		TEXT("Combat.State.Sheathing"),
-		TEXT("Combat.State.Dodging") })
+		TEXT("Combat.State.Dodging"),
+		TEXT("Combat.State.Aerial.Landing") })
 	{
 		const FGameplayTag LockTag = M3::Tag(LockTagName);
 		H.ASC->AddLooseGameplayTag(LockTag);
@@ -416,6 +420,48 @@ bool FMHGZM4PlayerActionLocksGateDirectAndComboInput::RunTest(
 		}
 		TestEqual(TEXT("ending unlocked action returns combo to idle"),
 			Coordinator->GetCurrentState(), FName(TEXT("Idle")));
+	}
+
+	// Reproduce the reported owner: a real Host landing, without a live attack GA.
+	// Do not simulate its protection by adding a loose tag or ending a delegate.
+	USkeletalMeshComponent* Mesh = H.Character->GetMesh();
+	Mesh->SetSkeletalMeshAsset(LoadObject<USkeletalMesh>(nullptr,
+		TEXT("/Game/Characters/Demo/Meshes/Body/SKM_Demo_Body.SKM_Demo_Body")));
+	Mesh->SetAnimInstanceClass(UAnimInstance::StaticClass());
+	UAnimInstance* Anim = Mesh->GetAnimInstance();
+	UAnimMontage* Landing = LoadObject<UAnimMontage>(nullptr,
+		TEXT("/Game/Weapons/InsectGlaive/Anims/Montage/AM_IG_AerialLanding.AM_IG_AerialLanding"));
+	H.CombatConfig->AerialLandingMontage = Landing;
+	if (TestNotNull(TEXT("actual landing montage loads"), Landing)
+		&& TestNotNull(TEXT("landing anim instance exists"), Anim)
+		&& TestTrue(TEXT("Host starts the actual shared landing"), H.Host->PlayAerialLandingPresentation()))
+	{
+		FAnimMontageInstance* Instance = Anim->GetActiveInstanceForMontage(Landing);
+		const int32 LandingID = Instance ? Instance->GetInstanceID() : INDEX_NONE;
+		TestTrue(TEXT("landing owns a real montage instance"), LandingID != INDEX_NONE && H.Host->IsAerialLanding());
+		for (int32 Frame=0;Frame<120 && H.Host->IsAerialLanding();++Frame)
+		{
+			if (Frame==0 || Frame==12)
+			{
+				TestFalse(TEXT("direct GAS activation cannot steal landing slot"),
+					H.TryActivateWithInput(ActionHandle,M3::MakePosedInput(true,false)));
+				FWeaponAbilityActivationContext Discarded;
+				H.ASC->ConsumePendingActivationContext(ActionHandle,Discarded);
+				SendWeaponInput();
+				TestFalse(TEXT("combo input cannot start an attack during landing"),Coordinator->GetActiveTransition().IsSet());
+				const FAnimMontageInstance* StillPlaying = Anim->GetActiveInstanceForMontage(Landing);
+				TestTrue(TEXT("rejected attacks preserve exact landing instance"),
+					StillPlaying && StillPlaying->GetInstanceID()==LandingID);
+			}
+			Mesh->TickAnimation(1.f/60.f,false);
+			Mesh->RefreshBoneTransforms();
+		}
+		TestFalse(TEXT("natural montage completion releases landing ownership"),H.Host->IsAerialLanding());
+		TestFalse(TEXT("natural completion removes landing input lock"),
+			H.ASC->HasMatchingGameplayTag(M3::Tag(TEXT("Combat.State.Aerial.Landing"))));
+		SendWeaponInput();
+		TestEqual(TEXT("fresh attack works immediately after natural landing end"),
+			Coordinator->GetCurrentState(),FName(TEXT("Action")));
 	}
 
 	H.Teardown();

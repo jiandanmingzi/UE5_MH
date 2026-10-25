@@ -1,7 +1,7 @@
+#include "Commandlets/MHGZM5KinsectSlashCurveSetupCommandlet.h"
 #include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
-#include "Commandlets/MHGZM5KinsectSlashCurveSetupCommandlet.h"
 
 #include "ActionSystem/MHGZWeaponMovementCurves.h"
 #include "Curves/CurveFloat.h"

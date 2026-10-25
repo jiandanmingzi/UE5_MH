@@ -6,6 +6,15 @@
 
 项目资产采用“系统域顶层、武器类型作为次级目录”的结构，不额外增加 `/Game/MHGZ` 或 `/Game/Combat` 顶层目录。
 
+### 2026-10-25 维护整理
+
+复用`Scripts/AssetOrganization/organize_assets.py`及[25项显式清单](../../Scripts/AssetOrganization/Manifests/project-files-20261025.json)：18个零引用旧EntryHold/视觉混合序列移入`Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy`，7个`Imported/Review/useless`候选合并到同级`UnusedCandidate`。仅归档，不删除动画，不按名称猜测招式身份。
+
+迁移前逐项确认UE引用及Source/Config字符串引用为空，源包有SHA-256备份。独立进程回载25/25，目标均为AnimSequence且反向引用为0，旧源包/Redirector均为0；其余786个Content文件保持原hash，包括用户原有地图、GA、Combat、木桩与运行时资产改动。另删除10个已有资产目录的多余`.gitkeep`，保留空目录占位。四向翻滚EntryHold、功能性Root Motion/IP及仍使用的声音配置保持。
+
+备份与证据在`Saved/AssetOrganization/ProjectFiles20261025/`及`Saved/AssetOrganization/project-files-20261025-{dry-run,apply}.json`。本批迁移和独立回载均0错误/0警告；没有编译C++、重新接线、全量资产验证、Cook、PIE或Git提交。下文历次资产数量/目录是对应日期快照，不作为当前硬性数量。
+
+
 > 2026-08-11 资产内容审计后的处置更新：下文第 1/7/11 批记录是已完成的历史目录整理，不代表这些旧原型继续保留。`DT_WeaponComboConfig`、旧 `DA_IG_Combo`、`GA_IG_BaDao`、`GA_IG_R_TuCI`、`AM_Shth_BaDao`、`AM_Shth_R_TuCi` 与零引用旧 `DA_IG_HuoLongGun` 将按 [E0 删除重建合同](demo-setup.md#23-e0-的停止点) 在 M2 解除引用后删除；原始 `AS_Shth_*`、Skeleton、美术与核心蓝图继续保留。
 
 首批整理只处理低风险、项目自有资产：
@@ -112,7 +121,7 @@
 
 ## 执行方式
 
-可重复使用的工具见 `Scripts/README.md`。`organize_assets.py` 与 `organize_asset_roots.py` 必须显式传入 `--manifest=<path>`，默认只执行检查；只有额外传入 `--apply` 才会调用 Unreal AssetTools。存在待移动资产时，脚本会检查清单中的 `backup_directory`，并要求源包与备份的 SHA-256 一致。`audit_animation_assets.py` 和 `audit_asset_paths.py` 是只读审计工具，项目级 Redirector 检查由 `verify_project_assets.py` 完成。移动或清理后仍须按资产类型执行反向引用、蓝图编译、C++ 编译和地图 Cook 验证。
+可重复使用的工具见 `Scripts/README.md`。`organize_assets.py` 与 `organize_asset_roots.py` 必须显式传入 `--manifest=<path>`，默认只执行检查；只有额外传入 `--apply` 才会调用 Unreal AssetTools。存在待移动资产时，脚本会检查清单中的 `backup_directory`，并要求源包与备份的 SHA-256 一致。`audit_animation_assets.py` 和 `audit_asset_paths.py` 是只读审计工具，项目级 Redirector 检查由 `verify_project_assets.py` 完成。移动后按实际影响核对引用、路径和保存结果；编译、Cook及PIE按维护规范决定，不因零引用资产归档自动全量执行。
 
 ## 后续批次
 

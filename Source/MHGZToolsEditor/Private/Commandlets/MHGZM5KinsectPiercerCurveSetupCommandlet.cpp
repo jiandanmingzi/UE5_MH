@@ -1,6 +1,6 @@
+#include "Commandlets/MHGZM5KinsectPiercerCurveSetupCommandlet.h"
 #include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
-#include "Commandlets/MHGZM5KinsectPiercerCurveSetupCommandlet.h"
 
 #if WITH_EDITOR
 #include "AssetRegistry/AssetRegistryModule.h"

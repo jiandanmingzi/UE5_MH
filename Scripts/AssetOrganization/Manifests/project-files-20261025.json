@@ -1,0 +1,164 @@
+{
+  "schema_version": 1,
+  "batch": "project-files-20261025",
+  "backup_directory": "Saved/AssetOrganization/ProjectFiles20261025/Backup",
+  "protected_paths": [
+    "/Game/Maps",
+    "/Game/Blueprints",
+    "/Game/Monster",
+    "/Game/Weapons/InsectGlaive/Anims/Montage",
+    "/Game/Weapons/InsectGlaive/Data"
+  ],
+  "moves": [
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_ChongYin_HengSaoEntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_ChongYin_HengSaoEntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_ChongYin_IdleEntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_ChongYin_IdleEntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_FeiShenYueRu_EntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_FeiShenYueRu_EntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_FeiYuan_ErLianCoreBlend",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_FeiYuan_ErLianCoreBlend",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_FeiYuan_HengSaoCoreBlend",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_FeiYuan_HengSaoCoreBlend",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_FeiYuan_RecoveryBlend",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_FeiYuan_RecoveryBlend",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_HengSao_CoreBlend",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_HengSao_CoreBlend",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_HengSao_EntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_HengSao_EntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_HouChe_EntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_HouChe_EntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_JiaSha_TuJinEntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_JiaSha_TuJinEntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_ShangLao_FeiShenEntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_ShangLao_FeiShenEntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_ShangLao_IdleEntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_ShangLao_IdleEntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_ShangLao_TuJinBackEntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_ShangLao_TuJinBackEntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_SiLianYinZhan_SharedEntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_SiLianYinZhan_SharedEntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_TuCi_EntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_TuCi_EntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_TuCi_FeiYuanEntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_TuCi_FeiYuanEntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_TuJinHuiXuan_EntryHold",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_TuJinHuiXuan_EntryHold",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/AS_IG_TuJinHuiXuan_EntryToCoreBlend",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Generated/Legacy/AS_IG_TuJinHuiXuan_EntryToCoreBlend",
+      "reason": "Archive unreferenced synthetic holds/blends",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/useless/AS_Unsh_猎虫回归前摇",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/UnusedCandidate/AS_Unsh_猎虫回归前摇",
+      "reason": "Merge duplicate unused-candidate folder",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/useless/AS_Unsh_猎虫回归结束",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/UnusedCandidate/AS_Unsh_猎虫回归结束",
+      "reason": "Merge duplicate unused-candidate folder",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/useless/AS_Unsh_猎虫回归落地",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/UnusedCandidate/AS_Unsh_猎虫回归落地",
+      "reason": "Merge duplicate unused-candidate folder",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/useless/AS_Unsh_空中铁虫丝跳跃前摇",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/UnusedCandidate/AS_Unsh_空中铁虫丝跳跃前摇",
+      "reason": "Merge duplicate unused-candidate folder",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/useless/AS_Unsh_铁虫丝跳跃前摇",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/UnusedCandidate/AS_Unsh_铁虫丝跳跃前摇",
+      "reason": "Merge duplicate unused-candidate folder",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/useless/AS_Unsh_铁虫丝跳跃落地",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/UnusedCandidate/AS_Unsh_铁虫丝跳跃落地",
+      "reason": "Merge duplicate unused-candidate folder",
+      "expected_referencers_after_move": []
+    },
+    {
+      "source": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/useless/AS_Unsh_铁虫丝跳跃起跳过程",
+      "destination": "/Game/Weapons/InsectGlaive/Anims/Sequences/Imported/Review/UnusedCandidate/AS_Unsh_铁虫丝跳跃起跳过程",
+      "reason": "Merge duplicate unused-candidate folder",
+      "expected_referencers_after_move": []
+    }
+  ]
+}

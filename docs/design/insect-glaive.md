@@ -10,12 +10,16 @@
 | 四方向撑杆跳 | `GA_IG_QianChengGanTiao / HouChengGanTiao / ZuoChengGanTiao / YouChengGanTiao` | 各GA的`VaultTunings`；原`VaultProfiles`仍持有动画/归一化轨迹 |
 | 操虫斩 | `GA_IG_CaoChongZhan` | `KinsectSlashDashProfile`、上冲角、旧标量位移兼容开关及曲线、`KinsectSlashDanceDamageMultipliers` |
 | 强化操虫穿刺 | `GA_IG_QiangHuaCaoChongChuanCi` | `KinsectPiercer*Profile`、下潜看门狗、落地混入、专属舞踏倍率；LandingProfile仍仅作真值参考，运行时落地使用Montage Root Motion |
-| 急袭突刺 | `GA_IG_JiXiTuCi` | `DescendingThrustAirProfile`、空中看门狗、落地混入、专属舞踏倍率；AirControl保留原调参值，当前无运行时读取方 |
-| 觉虫击 | `GA_IG_JueChongJi` | `Awakened*`中的猎人飞行/下落、近地目标、瞄准修正及无灯/红灯/三灯猎虫动作值 |
+| 急袭突刺 | `GA_IG_JiXiTuCi` | `DescendingThrustAirProfile`、空中看门狗、落地混入、专属舞踏倍率；`Ability → Cost`中发动耐力门槛0、单次消耗20；AirControl保留原调参值，当前无运行时读取方 |
+| 觉虫击 | `GA_IG_JueChongJi` | `Awakened*`中的猎人飞行/下落、近地目标、瞄准修正及无灯/红灯/三灯猎虫动作值；`AwakenedKinsectAimRayMergeDistance`默认250cm；`AwakenedKinsectMinimumHitsPerTarget`默认每只命中怪物保底6次（仅白灯贯通） |
 | 拔刀操虫 | `GA_IG_DrawAndSendKinsect` | `DrawSendKinsectMotionValue` |
 | 粉尘聚爆 | `GA_IG_PowderVortex → Powder Vortex` | 数量档动作值、吸引/爆炸范围、延迟、Cue及专属声音 |
 
 `DA_IG_Combat`继续管理精华效果/时长、资源与舞踏层数、公共下落/落地、猎虫共享规则、虫印Debuff及粉尘生成/自然爆炸。**虫印弹本轮不迁移**，射程/速度/判定/发射挂点仍在Combat。
+
+**发动耐力与实际扣耐（2026-10-24）：** 所有动作GA的`类默认值 → Ability → Cost → 发动所需最低耐力`（`StaminaActivationRequirement`）独立于`StaminaCost`。`-1`保留原行为：Instant需付得起经过耗耐倍率计算的完整成本，其他策略无额外门槛；`0`无GA耐力门槛；正值检查原始耐力点数，不随耗耐倍率变化。实际扣耐仍走原成本GE，不足时归0。Combo边`StaminaRequired`是额外的独立门槛，两者需同时满足；改成0不等于免除GA自身要求。急袭突刺GA默认门槛0、扣耐20，其他GA继承`-1`。
+
+**觉虫击猎虫轨迹（2026-10-24）：** 松开按键时冻结相机Origin/Direction/目标，猎虫从丢虫通知当下的棍尾实际位置连续起飞；前段以曲线汇入准心射线，汇入点在目标前，近目标自动缩短。后段和穿透目标后沿同一射线延长，末端切向连续，不瞬移到屏幕中心，也不追随之后移动的相机。`招式参数 → 觉虫击 → 猎虫飞行 → AwakenedKinsectAimRayMergeDistance`默认250cm，仅控制汇入形状。超出原yaw/pitch修正上限时采用受限方向的射线，不绕过限制追向原目标。沿实际弧长以原固定速度推进，总时长仍由丢虫至猎人起飞通知间隔决定；每20cm以内逐段扫掠真实轨迹，沿用现有伤害/贯通/产粉/精华与召回规则。普通操虫的臂上对准方式、猎人飞行曲线及镜头不变。
 
 以下字段虽带招式前缀，仍有多个读取方，继续在Combat编辑：`KinsectSlashAttachSocket`（操虫斩、觉虫击共用），`AwakenedPierceHitInterval`（觉虫击、急袭突刺贯通共用），`SendKinsectMotionValue`（普通操虫、自动寻印共用）。舞踏层数仍由Resource管理；执行中招式从自身GA数组冻结倍率，旧Blueprint资源查询从已授予GA默认配置读取，未授予返回1。
 

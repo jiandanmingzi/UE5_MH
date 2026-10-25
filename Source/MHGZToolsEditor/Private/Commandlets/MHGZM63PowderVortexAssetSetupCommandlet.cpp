@@ -1,7 +1,7 @@
+#include "Commandlets/MHGZM63PowderVortexAssetSetupCommandlet.h"
 #include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
-#include "Commandlets/MHGZM63PowderVortexAssetSetupCommandlet.h"
 
 #if WITH_EDITOR
 

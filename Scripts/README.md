@@ -6,6 +6,8 @@
 
 ## 先找工具
 
+- 按用途进入：`AssetProbe/` 诊断，`AssetOrganization/` 资产配置与迁移，`Audio/` 音效，`MHRise/` 与 `MHWorld/` 原游戏录制/分析，`Setup/` 可选环境安装；共享远程入口和反射适配器保留在根目录。
+- World录制器与说明已归入[MHWorld](MHWorld/Recorder.md)；独立行数统计见[Tools](../Tools/README.md)。仅移动文件，不修改游戏内安装件。
 - [完整工具索引](tool-index.md)：Python、PowerShell、Lua及编辑器Commandlet，按环境和目录查找。用途来自现有脚本说明，历史工具有明确标记；调用前核对参数和写入范围。
 - 关键词查找：`rg -n '关键词' Scripts/tool-index.md`；新工具加入时同步索引。命令参数以脚本的 `--help` 或文件头为准。
 - 不确定接口时先看下面的已知限制，不重复探测已经证实不支持的API。
@@ -44,6 +46,8 @@ Combat兼容清理（2026-10-24）已完成：现有入口加`-MHGZCombatCleanup
 ```
 
 纯资产值修改不需要C++编译。编辑器打开时不另起写资产的Commandlet覆盖其未保存内容；资产变更需按工具约定备份和验证保存。报告成功只证明该脚本做完，不能替代实例创建/显示或PIE签收。
+
+训练场木桩维护：`AssetProbe/configure_demo_training_targets.py`负责圆柱/半球目标，`training_target_query_meshes.py`扩展贴合曲面的实体UCX受击形状。Blender `--build-query-meshes`生成查询FBX；UE `-MHGZPreciseTrainingQueries`冻结/回查（已有新事务时默认入口即为此回查），显式`Apply`才迁移3份配置、导入4份查询网格；仅在内存生成受击组件，不保存地图或修改外观/实体阻挡。原10-24检查只证明AABB包含外观，不能证明曲面贴合，现由真实烘焙碰撞的表面/内部/外部检查替代。当前备份/证据`Saved/Maintenance/TrainingTargetQueries20261025/`；历史Apply/Resume/Refine/ReplacePreservedCollision及10-24的Apply/ResumeLayout/Repair均已执行，禁止重放。原10-24来源/备份仍在`TrainingTargets20261024/`，其旧配置哈希已由本次授权迁移替代。UE5.6的`GetSimpleCollisionCount`不统计ConvexElems，须直接读取BodySetup.AggGeom.ConvexElems；Commandlet网格编辑工具使用无状态CDO方法，复杂碰撞还需显式开启Section碰撞。
 
 猎虫协同资产入口：`AssetOrganization/setup_kinsect_coattack_pilot.py`，默认只读突刺；`--ground-five` / `-MHGZCoAttackGroundFive`回查上捞/袈裟/二连/横扫/飞圆；`--ground-second-five` / `-MHGZCoAttackGroundSecondFive`回查突进回旋斩/四连印斩/拔刀飞身跃入斩/飞身跃入斩/后撤斩。三批均已只改CoAttack保存并独立回载，每个实际源段猎虫动作值10；棍尖零偏移、0.2游戏秒延迟、原2500cm/s入位、不萃取，原武器伤害与Montage/Combo/Combat保持。备份/事务分别在`Saved/Maintenance/KinsectCoAttack20261023/{E1TuCi,E1GroundFive,E1GroundSecondFive}/`；只认显式批准批次的原备份→新hash链，不回滚或覆盖历史意图。已有intent均禁止重放Apply（Commandlet写入开关为各对应前缀加`Apply`）。突刺已有用户签收，新增资产回载不等于PIE验收；冻结点采用当前运行时Dodge Accept规则，不在本工具改通知。
 
@@ -113,8 +117,8 @@ ABP连线/编译状态诊断复用`unreal.MHGZAnimationSeamLibrary.audit_anim_bl
 | `audit_asset_paths.py` | 审计显式传入的 `/Game/...` 包、资产类型与反向引用 | 仅向 `Saved/AssetOrganization` 写报告 |
 | `organize_assets.py` | 按显式 JSON manifest 移动逐个 Unreal 资产 | 默认只读；只有 `--apply` 才移动资产 |
 | `organize_asset_roots.py` | 按显式 JSON manifest 移动完整资产根目录 | 默认只读；只有 `--apply` 才移动资产 |
-| `verify_demo_structure.py` | 用普通 Python 检查 Demo 目录骨架、占位文件与关键 DataAsset 位置 | 只读 |
-| `verify_project_assets.py` | 在 UnrealEditor-Cmd 中检查最终资产数量、旧路径、Redirector、Skeleton 并编译蓝图 | 仅向 `Saved/AssetOrganization` 写报告 |
+| `verify_demo_structure.py` | 历史初始目录骨架/占位/旧Data快照；不用于当前维护验收 | 只读 |
+| `verify_project_assets.py` | 历史443包基线检查；不用于当前维护数量或全量验收 | 仅向 `Saved/AssetOrganization` 写报告 |
 | `audit_damage_formula_units.py` | 检查虫棍动作值、木桩肉质及猎虫/虫粉配置 | 只读资产；向`Saved/DamageUnitsAudit`写报告 |
 | `apply_damage_formula_units.py` | 已完成的旧单位迁移，保留追溯 | 写资产并备份；勿自动重跑，现有0–100肉质可能小于1.5 |
 | `probe_m6_ui.py` | 检查UI资产、能力和引用 | 只读资产 |

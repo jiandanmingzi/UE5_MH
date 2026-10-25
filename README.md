@@ -6,6 +6,8 @@
 
 ## 快速入口
 
+- [项目目录规范](docs/design/directory-structure.md)：源码、UE资产、脚本、真值与本机产物的归属。
+- [文档导航](docs/README.md)：当前维护、设计、编辑器、参考数据和历史档案。
 - [维护规范与低优先级问题](docs/using/README.md)：Demo已阶段性完成；后续小修按需验证，不默认运行回归或全量资产检查。
 - [Demo阶段档案与回归封存](docs/archive/demo-2026-10-13/README.md)：开发期实施计划、验证成绩与按需恢复入口。
 

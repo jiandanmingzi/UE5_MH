@@ -6,11 +6,21 @@
 
 ```text
 docs/
-├── design/             玩法、架构、接口、代码生成和实施计划
-└── editor/             代码完成后的 UE5 资产接线、迁移和人工验收
+├── README.md           文档导航
+├── using/              当前维护规范、状态、进行中的计划与已知问题
+├── design/             当前玩法、架构、接口与未来设计
+├── editor/             UE5资产接线、编辑器工具与按需验收
+├── reference/          录制真值、规范曲线、动作值与声音映射
+└── archive/            按日期保留的阶段审计、计划和维护流水
 ```
 
-`docs` 根目录不放业务文档。代码任务以 `design/README.md` 为入口；编辑器任务以 `editor/README.md` 为入口。设计规则发生变化时先更新 design，再同步 editor 中受影响的具体操作。
+`docs` 根目录只放导航。日常任务先看 `using/README.md` 与 `using/current-status.md`；再按需读设计或编辑器文档。已完成审计归档，不删除未实现的未来设计。音效和协同计划仍有待确认边界，继续保留在 using。
+
+## Scripts、Tools与本机产物
+
+`Scripts/` 按资产诊断、资产组织、音效、Rise、World、Setup分域；根目录保留README、索引、`ue_remote.py`及`ue_asset_utils.py`共享入口。World录制器在`Scripts/MHWorld/`，用户级可选安装在`Scripts/Setup/`；不因整理重新部署。`Tools/`保存独立开发工具。
+
+`Saved/`保存录制衍生数据、日志、维护报告及回滚备份；其中已入库的`_mhr_frames/`与`_mhr_curves/`是真值资产，不能按缓存删除。`Intermediate/`、`DerivedDataCache/`、`Binaries/`与IDE目录由工具管理，普通文件整理不清空或归档它们。
 
 ## Source
 
@@ -33,6 +43,8 @@ Source/MHGZ/
 ```
 
 源码按运行时职责划分。移动 `.h/.cpp` 时需要同步 include 和 `MHGZ.Build.cs`；原生类名和 `/Script/MHGZ` 不随源码文件夹改变。
+
+`Source/MHGZEditor/`和`Source/MHGZToolsEditor/`是现有独立编辑器模块；Commandlet与资产作者工具归ToolsEditor。测试继续按M阶段保留，本轮不移动源码或改变模块依赖。
 
 Demo 重构后 `UI/` 由 `MHGZHUD`、`MHGZMainHUDWidget`、通用/资源/准心 Widget 基类和 AimComponent 组成；现有空壳 `MHGZUISubsystem` 删除。`ActionSystem/` 的玩家动作 Notify 通过 RuntimeHost 的 ActionToken/Montage Registry 定位实例，不建立按武器类型分叉的 Notify 目录。
 
@@ -58,11 +70,10 @@ Content/
 │       ├── Materials/              M_Demo_*、MI_Demo_*
 │       ├── Meshes/                 SKM_Demo_*、SK_Demo_*、PA_Demo_*
 │       └── Textures/               T_Demo_*
-├── Data/                           旧 DT_WeaponComboConfig 仅保留到 M2 解除读取，E3 删除；目标运行时不读取 Combo/Resource 全局桥接表
 ├── GameplayCues/
-│   ├── InsectGlaive/
-│   ├── Hit/
-│   └── ...                         以后按 GameplayCue Tag 根节点扩展
+│   ├── GCN_Hit_*                   当前伤害数字、猎虫和武器声音Cue
+│   ├── InsectGlaive/               预留
+│   └── Hit/                        预留；未为整理移动在用Cue路径
 ├── GameplayEffects/
 │   ├── Core/
 │   └── InsectGlaive/
@@ -73,11 +84,11 @@ Content/
 ├── Environment/
 │   └── DemoArena/                  训练平台网格、材质、纹理和原型交互资产
 ├── Maps/
-│   └── L_DemoArena                 10×10 格封闭训练平台；项目唯一地图
+│   └── L_DemoArena                 当前大型训练平台、空气墙与两种无限血量木桩；唯一默认地图
 ├── Monster/
 │   └── TrainingDummy/
 │       ├── Anims/
-│       ├── Data/                   DA_TrainingDummy
+│       ├── Data/                   默认、Large和Hemisphere三份木桩配置
 │       ├── Materials/
 │       ├── Meshes/
 │       └── Textures/
@@ -86,9 +97,9 @@ Content/
 │   └── ThirdPerson/
 │       └── Input/                  模板 InputAction 与 Mapping Context
 ├── UI/
-│   ├── Common/                     血量、耐力等通用控件
+│   ├── Common/                     预留通用控件
 │   ├── Feedback/                   伤害数字等瞬时战斗反馈
-│   ├── HUD/                        主 HUD 与准心
+│   ├── HUD/                        主HUD、准心、血量与耐力条
 │   └── InsectGlaive/               猎虫耐力与三灯 UI
 ├── VFX/
 │   └── Combat/Hit/                 通用命中特效
@@ -135,7 +146,14 @@ Content/
 1. `.uasset`、`.umap` 只能通过 Content Browser 或 AssetTools 移动。
 2. 移动前生成源路径、目标路径、反向引用和冲突报告。
 3. C++、INI 与普通字符串中的 `/Game/...` 路径必须手工同步。
-4. 移动后验证目标资产、反向引用、Redirector、蓝图编译和 C++ 构建。
+4. 移动后定向核对目标资产、反向引用和Redirector；编译、Cook与PIE按实际影响及维护规范选择。
 5. 地图与外部 Actor 永远作为独立批次处理。
 
 迁移记录见 [资产整理记录](../editor/asset-organization.md)，可重复执行工具及用途见 [Scripts/README.md](../../Scripts/README.md)。
+
+## 生成动画与候选资源（2026-10-25）
+
+- `Anims/Sequences/Generated/`保留在用功能序列（四向翻滚保持段、急袭/强化操虫穿刺IP与RM等），不能因名称含Hold/IP误删。
+- `Generated/Legacy/`是18份已退役的保持/视觉混合资产，保留追溯，不自动接回Montage。
+- `Imported/Review/Unknown/`保留身份未确认序列；`Imported/Review/UnusedCandidate/`统一保存当前未使用候选，原`useless`已合并。
+- 资产经UE AssetTools移动，按批核对字符串路径与引用；已有资产目录不再保留`.gitkeep`，空目录仍保留占位。

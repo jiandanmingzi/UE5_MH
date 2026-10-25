@@ -67,11 +67,45 @@ void UMHGZMonsterHitzoneComponent::ConfigureQueryShape(
 	if (Shape == EMHGZHitzoneShape::Sphere)
 	{
 		if (BoxQuery) { BoxQuery->DestroyComponent(); BoxQuery = nullptr; }
+		if (MeshQuery) { MeshQuery->DestroyComponent(); MeshQuery = nullptr; }
 		SetCollisionEnabled(ECollisionEnabled::QueryOnly);
 		return;
 	}
 	// Keep metadata and attachments stable while replacing the active query shape.
 	SetCollisionEnabled(ECollisionEnabled::NoCollision);
+	if (Shape == EMHGZHitzoneShape::Mesh)
+	{
+		if (BoxQuery) { BoxQuery->DestroyComponent(); BoxQuery = nullptr; }
+		if (!QueryMesh || !GetOwner() || IsTemplate())
+		{
+			if (MeshQuery) { MeshQuery->DestroyComponent(); MeshQuery = nullptr; }
+			return;
+		}
+		if (!MeshQuery)
+		{
+			MeshQuery = NewObject<UMHGZMonsterMeshHitzoneQueryComponent>(GetOwner());
+			MeshQuery->HitzoneOwner = this;
+			MeshQuery->SetupAttachment(this);
+			GetOwner()->AddInstanceComponent(MeshQuery);
+			MeshQuery->SetVisibility(false);
+			MeshQuery->SetHiddenInGame(true);
+			MeshQuery->SetCastShadow(false);
+			MeshQuery->SetCanEverAffectNavigation(false);
+			MeshQuery->SetStaticMesh(QueryMesh);
+			MeshQuery->SetRelativeScale3D(QueryMeshScale);
+			MeshQuery->SetCollisionProfileName(TEXT("MonsterHitzone"));
+			MeshQuery->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore);
+			MeshQuery->SetGenerateOverlapEvents(false);
+			MeshQuery->RegisterComponent();
+		}
+		else
+		{
+			MeshQuery->SetStaticMesh(QueryMesh);
+			MeshQuery->SetRelativeScale3D(QueryMeshScale);
+		}
+		return;
+	}
+	if (MeshQuery) { MeshQuery->DestroyComponent(); MeshQuery = nullptr; }
 	if (!BoxQuery && GetOwner() && !IsTemplate())
 	{
 		BoxQuery = NewObject<UMHGZMonsterBoxHitzoneQueryComponent>(GetOwner());
@@ -92,6 +126,7 @@ void UMHGZMonsterHitzoneComponent::ConfigureQueryShape(
 
 UPrimitiveComponent* UMHGZMonsterHitzoneComponent::GetQueryCollisionComponent() const
 {
+	if (QueryShape == EMHGZHitzoneShape::Mesh) return MeshQuery;
 	return QueryShape == EMHGZHitzoneShape::Box ? static_cast<UPrimitiveComponent*>(BoxQuery.Get())
 		: const_cast<UMHGZMonsterHitzoneComponent*>(this);
 }
@@ -110,11 +145,19 @@ UMHGZMonsterHitzoneComponent* UMHGZMonsterHitzoneComponent::Resolve(
 		return Owner && Owner->GetOwner() == Box->GetOwner()
 			&& Owner->GetQueryCollisionComponent() == Box ? Owner : nullptr;
 	}
+	if (const auto* Mesh = Cast<UMHGZMonsterMeshHitzoneQueryComponent>(HitComponent))
+	{
+		UMHGZMonsterHitzoneComponent* Owner = Mesh->HitzoneOwner.Get();
+		return Owner && Owner->GetOwner() == Mesh->GetOwner()
+			&& Owner->GetQueryCollisionComponent() == Mesh ? Owner : nullptr;
+	}
 	return nullptr;
 }
 
 float UMHGZMonsterHitzoneComponent::GetQueryBoundingRadius() const
 {
+	if (QueryShape == EMHGZHitzoneShape::Mesh)
+		return MeshQuery ? MeshQuery->Bounds.BoxExtent.Size() : 0.f;
 	return QueryShape == EMHGZHitzoneShape::Box
 		? (BoxHalfExtent * GetComponentScale()).Size() : GetScaledSphereRadius();
 }
@@ -131,6 +174,8 @@ void UMHGZMonsterHitzoneComponent::OnComponentDestroyed(const bool bDestroyingHi
 	KinsectMarkDebuffs.Reset();
 	if (IsValid(BoxQuery)) { BoxQuery->DestroyComponent(); }
 	BoxQuery = nullptr;
+	if (IsValid(MeshQuery)) { MeshQuery->DestroyComponent(); }
+	MeshQuery = nullptr;
 	Super::OnComponentDestroyed(bDestroyingHierarchy);
 }
 
@@ -142,5 +187,11 @@ void UMHGZMonsterHitzoneComponent::ForceRestoreAllChannels()
 		BoxQuery->SetCollisionProfileName(TEXT("MonsterHitzone"));
 		BoxQuery->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore);
 		BoxQuery->SetGenerateOverlapEvents(false);
+	}
+	if (MeshQuery)
+	{
+		MeshQuery->SetCollisionProfileName(TEXT("MonsterHitzone"));
+		MeshQuery->SetCollisionResponseToChannel(ECC_GameTraceChannel4, ECR_Ignore);
+		MeshQuery->SetGenerateOverlapEvents(false);
 	}
 }

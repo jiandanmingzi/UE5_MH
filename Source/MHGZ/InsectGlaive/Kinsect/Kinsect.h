@@ -8,6 +8,7 @@
 #include "GameplayTagContainer.h"
 #include "MHGZWeaponRuntimeTypes.h"
 #include "InsectGlaive/IGPowderTypes.h"
+#include "KinsectAimRayPath.h"
 #include "Kinsect.generated.h"
 
 class USkeletalMeshComponent;
@@ -40,7 +41,8 @@ UENUM(BlueprintType)
 enum class EKinsectTrajectoryMode : uint8
 {
 	AlongDirection UMETA(DisplayName = "沿方向直线飞行"),
-	ToPoint        UMETA(DisplayName = "飞向目标点")
+	ToPoint        UMETA(DisplayName = "飞向目标点"),
+	MergeToAimRay  UMETA(DisplayName = "平滑汇入准心射线")
 };
 
 /** 猎虫伤害模式。 */
@@ -108,6 +110,10 @@ struct FKinsectFlightRequest
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FVector AimOriginSnapshot = FVector::ZeroVector;
 
+	/** 汇入准心射线时的最大前进距离；近目标自动缩短，单位cm。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight", meta = (ClampMin = "1.0"))
+	float AimRayMergeDistance = 250.f;
+
 	/** ToPoint 模式下的目标点快照。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FVector TargetPointSnapshot = FVector::ZeroVector;
@@ -162,6 +168,10 @@ struct FKinsectFlightRequest
 	/** Piercing 模式下每个 Hitzone 组件独立的重复命中间隔（秒）。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight", meta = (ClampMin = "0.0"))
 	float RehitInterval = 0.f;
+
+	/** 贯通首次有效命中后，对同一怪物保底的成功伤害次数；0不启用。 */
+	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight", meta = (ClampMin = "0", ClampMax = "64"))
+	int32 MinimumPiercingHitsPerTarget = 0;
 
 	/** 本次 Flight 实例 ID；每次实际伤害另生成 HitInstanceID 供 Resolver 去重。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
@@ -354,6 +364,7 @@ private:
 
 	/** 距离 / ToPoint 到达判定。 */
 	void CheckFlightProgress();
+	void TickAimRayFlight(float DeltaTime);
 
 	/** 按 PostFlightPolicy 结束飞行（Hover 或 StartReturn）。 */
 	void EndFlight(EKinsectFlightEndReason Reason);
@@ -386,6 +397,8 @@ private:
 	// 飞行
 	FVector FlightStartLocation = FVector::ZeroVector;
 	FVector LastTickLocation = FVector::ZeroVector;
+	FKinsectAimRayPath AimRayPath;
+	double AimRayTravelled = 0.0;
 	FHitResult PendingWorldHit;
 	bool bHasDealtDamage = false;
 	FWeaponActionToken ActionAttachmentToken;

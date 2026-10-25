@@ -1,5 +1,7 @@
 # MHW MOD3 + LMT → FBX：本机前置与操作
 
+录制游戏内数据见[World录制器说明](Recorder.md)，脚本为同目录 `MHGZ_MHW_AerialTrajectoryRecorder.lua`。原始录制的游戏输出目录及已安装脚本不因仓库整理改变。
+
 ## 本次准备范围和状态
 
 本机 Blender 位于 `F:\games\Steam\steamapps\common\Blender\blender.exe`，实测版本为 **5.2.2 LTS**，Python 3.13.13。

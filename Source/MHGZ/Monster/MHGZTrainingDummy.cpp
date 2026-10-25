@@ -222,7 +222,7 @@ void AMHGZTrainingDummy::ApplyConfig(UMHGZDummyConfig* Config)
 			Hitzone->ConfigureQueryShape(EMHGZHitzoneShape::Box,
 				(Hitzone->BoxHalfExtent * DummySizeMultiplier).ComponentMax(MinimumExtent));
 		}
-		else
+		else if (Hitzone->QueryShape == EMHGZHitzoneShape::Sphere)
 		{
 			Hitzone->SetSphereRadius(Hitzone->Radius);
 		}

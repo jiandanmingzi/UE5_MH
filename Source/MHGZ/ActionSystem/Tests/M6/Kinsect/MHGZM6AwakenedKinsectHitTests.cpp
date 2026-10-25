@@ -8,6 +8,7 @@
 #include "InsectGlaive/IGPowderActor.h"
 #include "Monster/MHGZMonsterHitzoneComponent.h"
 #include "Monster/MHGZTrainingDummy.h"
+#include "HAL/IConsoleManager.h"
 #include "../../Shared/MHGZM3TestHarness.h"
 
 namespace
@@ -369,6 +370,168 @@ bool FMHGZM6AwakenedKinsectCargoReturn::RunTest(const FString& Parameters)
 		}
 		H.Kinsect->Tick(0.016f);
 		TestTrue(TEXT("later ticks have no cargo to redeliver"), H.Resource->GetUIState().KinsectPendingExtractColors.IsEmpty());
+		H.Teardown();
+	}
+	return true;
+}
+
+namespace
+{
+struct FScopedGuaranteedHitTelemetry
+{
+	IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(TEXT("mhgz.Telemetry.Enable"));
+	int32 Previous = Variable ? Variable->GetInt() : 0;
+	FScopedGuaranteedHitTelemetry() { if (Variable) Variable->Set(1,ECVF_SetByCode); }
+	~FScopedGuaranteedHitTelemetry() { if (Variable) Variable->Set(Previous,ECVF_SetByCode); }
+};
+
+int32 SuccessfulHitsFor(const FMHGZM3Harness& H, const FGuid& Attack, const AActor* Target = nullptr)
+{
+	uint64 Serial = 0;
+	TArray<FWeaponCombatTelemetryEvent> Events;
+	H.Host->GetCombatTelemetryEventsSince(Serial, Events);
+	int32 Count = 0;
+	for (const auto& Event : Events)
+	{
+		if (Event.EventName == FName(TEXT("KinsectDamageSubmitted")) && Event.SourceAttackID == Attack
+			&& (!Target || Event.TargetActor == Target->GetFName())) ++Count;
+	}
+	return Count;
+}
+
+AMHGZTrainingDummy* GuaranteedHitTarget(const FMHGZM3Harness& H, const FVector& Position)
+{
+	AMHGZTrainingDummy* Target = H.World->SpawnActor<AMHGZTrainingDummy>(Position,FRotator::ZeroRotator);
+	if (!Target) return nullptr;
+	Target->GetAbilitySystemComponent()->InitAbilityActorInfo(Target,Target);
+	Target->GetAttributeSet()->InitMaxHealth(1000.f);
+	Target->GetAttributeSet()->InitHealth(1000.f);
+	AddHitzone(*Target,Position,M3::Tag(TEXT("WeaponResource.IG.Extract.White")));
+	return Target;
+}
+
+void AdvanceGuaranteedHits(FMHGZM3Harness& H, const float Seconds)
+{
+	// UWorld clamps a single oversized delta. Advance real world time in bounded
+	// frames instead of expecting one 1.4s Tick to actually advance 1.4s.
+	float Remaining = Seconds;
+	while (Remaining > UE_SMALL_NUMBER)
+	{
+		const float Step = FMath::Min(Remaining,.25f);
+		H.World->Tick(LEVELTICK_TimeOnly,Step);
+		if (H.Resource && H.Resource->IsRegistered()) H.Resource->TickComponent(Step,LEVELTICK_All,nullptr);
+		Remaining -= Step;
+	}
+}
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZAwakenedSixHitsAfterReturn,
+	"MHGZ.M6.AwakenedKinsect.GuaranteedSix.AfterPassAndReturn",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZAwakenedSixHitsAfterReturn::RunTest(const FString&)
+{
+	FScopedGuaranteedHitTelemetry Capture;
+	FMHGZM3Harness H;
+	if (!H.Setup(false,ACharacter::StaticClass(),true)) { H.Teardown(); return false; }
+	H.CombatConfig->PowderActorClass = AIGPowderActor::StaticClass();
+	H.CombatConfig->PowderMotionValue = 50.f;
+	const FVector Start = H.Kinsect->GetActorLocation();
+	AMHGZTrainingDummy* Target = GuaranteedHitTarget(H,Start+FVector(190,0,0));
+	if (!TestNotNull(TEXT("real damage target exists"),Target)) { H.Teardown(); return false; }
+	AddHitzone(*Target,Start+FVector(235,0,0),M3::Tag(TEXT("WeaponResource.IG.Extract.Red")));
+	FKinsectFlightRequest Request = MakeAwakenedRequest(H);
+	Request.MinimumPiercingHitsPerTarget = 6;
+	Request.PowderSpawnPolicy = EIGPowderSpawnPolicy::AwakenedEachHit;
+	TestTrue(TEXT("guaranteed piercing deploys"),H.Resource->DeployKinsect(Request));
+	H.Kinsect->SetActorLocation(Start+FVector(320,0,0));
+	H.Kinsect->Tick(.016f);
+	const int32 InitialHits = SuccessfulHitsFor(H,Request.SourceAttackInstanceID,Target);
+	TestTrue(TEXT("real parts are hit before guarantee is created"),InitialHits>0 && InitialHits<6);
+	TestTrue(TEXT("first real hit carries extract"),H.Kinsect->HasPendingExtract());
+	TestTrue(TEXT("normal recall is still immediate"),H.Resource->RecallKinsect());
+	H.Kinsect->SetActorLocation(H.Character->GetMesh()->GetComponentLocation()+FVector(10,0,0));
+	H.Kinsect->Tick(.016f);
+	TestEqual(TEXT("return completes without waiting for extra damage"),H.Kinsect->GetState(),EKinsectState::Attached);
+	TestFalse(TEXT("cargo was delivered at return"),H.Kinsect->HasPendingExtract());
+	Target->AddActorWorldOffset(FVector(100,50,0),false);
+	for (int32 Tick=0;Tick<8;++Tick) AdvanceGuaranteedHits(H,.21f);
+	TestEqual(TEXT("two parts share one six-hit guarantee for their monster"),SuccessfulHitsFor(H,Request.SourceAttackInstanceID,Target),6);
+	TestEqual(TEXT("all six real successful hits produce their configured powder"),H.Resource->GetPowderSnapshots().Num(),6);
+	TestFalse(TEXT("scheduled repeats never refill delivered cargo"),H.Kinsect->HasPendingExtract());
+	AdvanceGuaranteedHits(H,2.f);
+	TestEqual(TEXT("completed guarantee does not keep damaging"),SuccessfulHitsFor(H,Request.SourceAttackInstanceID,Target),6);
+	H.Teardown(); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZAwakenedSixHitsPerMonster,
+	"MHGZ.M6.AwakenedKinsect.GuaranteedSix.PerMonsterAndNaturalContacts",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZAwakenedSixHitsPerMonster::RunTest(const FString&)
+{
+	FScopedGuaranteedHitTelemetry Capture;
+	FMHGZM3Harness H;
+	if (!H.Setup(false,ACharacter::StaticClass(),true)) { H.Teardown(); return false; }
+	const FVector Start = H.Kinsect->GetActorLocation();
+	AMHGZTrainingDummy* First = GuaranteedHitTarget(H,Start+FVector(190,0,0));
+	AMHGZTrainingDummy* Second = GuaranteedHitTarget(H,Start+FVector(500,0,0));
+	if (!First || !Second) { H.Teardown(); return false; }
+	FKinsectFlightRequest Request = MakeAwakenedRequest(H);
+	Request.MinimumPiercingHitsPerTarget = 6;
+	Request.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
+	Request.PowderSpawnPolicy = EIGPowderSpawnPolicy::None;
+	TestTrue(TEXT("multi-monster piercing deploys"),H.Resource->DeployKinsect(Request));
+	H.Kinsect->SetActorLocation(Start+FVector(700,0,0));
+	H.Kinsect->Tick(.016f);
+	TestEqual(TEXT("first target has a physical first hit"),SuccessfulHitsFor(H,Request.SourceAttackInstanceID,First),1);
+	TestEqual(TEXT("second target has its own physical first hit"),SuccessfulHitsFor(H,Request.SourceAttackInstanceID,Second),1);
+	AdvanceGuaranteedHits(H,1.4f); // coarse frame catches up owed intervals
+	TestEqual(TEXT("first monster independently reaches six"),SuccessfulHitsFor(H,Request.SourceAttackInstanceID,First),6);
+	TestEqual(TEXT("second monster independently reaches six"),SuccessfulHitsFor(H,Request.SourceAttackInstanceID,Second),6);
+	AdvanceGuaranteedHits(H,.25f);
+	H.Kinsect->SetActorLocation(Start);
+	H.Kinsect->Tick(.016f);
+	H.Kinsect->SetActorLocation(Start+FVector(700,0,0));
+	H.Kinsect->Tick(.016f);
+	TestEqual(TEXT("a natural seventh hit is still permitted"),SuccessfulHitsFor(H,Request.SourceAttackInstanceID,First),7);
+	H.Kinsect->Interrupt();
+	AdvanceGuaranteedHits(H,2.f);
+	TestEqual(TEXT("seventh contact never starts another six-hit group"),SuccessfulHitsFor(H,Request.SourceAttackInstanceID,First),7);
+	H.Teardown(); return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZAwakenedSixHitCleanup,
+	"MHGZ.M6.AwakenedKinsect.GuaranteedSix.InvalidTargetsAndRuntimeCleanup",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZAwakenedSixHitCleanup::RunTest(const FString&)
+{
+	FScopedGuaranteedHitTelemetry Capture;
+	for (int32 Case=0;Case<4;++Case)
+	{
+		FMHGZM3Harness H;
+		if (!H.Setup(false,ACharacter::StaticClass(),true)) { H.Teardown(); return false; }
+		const FVector Start = H.Kinsect->GetActorLocation();
+		AMHGZTrainingDummy* Target = GuaranteedHitTarget(H,Start+FVector(190,0,0));
+		if (!Target) { H.Teardown(); return false; }
+		FKinsectFlightRequest Request = MakeAwakenedRequest(H);
+		Request.MinimumPiercingHitsPerTarget = 6;
+		Request.PowderSpawnPolicy = EIGPowderSpawnPolicy::None;
+		if (Case==3) Target->GetAttributeSet()->InitHealth(0.f);
+		TestTrue(TEXT("cleanup case deploys"),H.Resource->DeployKinsect(Request));
+		H.Kinsect->SetActorLocation(Start+FVector(320,0,0));
+		H.Kinsect->Tick(.016f);
+		TestEqual(TEXT("only a successful first hit creates damage debt"),SuccessfulHitsFor(H,Request.SourceAttackInstanceID),Case==3?0:1);
+		uint64 Serial=0;
+		TArray<FWeaponCombatTelemetryEvent> Before;
+		H.Host->GetCombatTelemetryEventsSince(Serial,Before);
+		if (Case==0) Target->Destroy();
+		else if (Case==1) Target->GetAttributeSet()->InitHealth(0.f);
+		else if (Case==2) H.Host->ShutdownRuntime(EWeaponRuntimeEndReason::WeaponChanged);
+		else Target->GetAttributeSet()->InitHealth(1000.f);
+		AdvanceGuaranteedHits(H,2.f);
+		TArray<FWeaponCombatTelemetryEvent> After;
+		H.Host->GetCombatTelemetryEventsSince(Serial,After);
+		TestFalse(TEXT("invalid target, retired Runtime or rejected first hit cannot cause extra damage"),
+			After.ContainsByPredicate([&](const auto& Event) { return Event.SourceAttackID==Request.SourceAttackInstanceID && Event.EventName==FName(TEXT("KinsectDamageSubmitted")); }));
 		H.Teardown();
 	}
 	return true;

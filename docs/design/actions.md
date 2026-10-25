@@ -427,6 +427,8 @@ Ability 保存当前位移任务句柄和最近一次有效 `FinalVelocity`。�
 
 **当前实现：** `AMHGZCharacter::Landed()` 先调用 `UMHGZWeaponRuntimeHostComponent::HandleLanded()`，再通知活动的 Combo Coordinator。Host 按当前所有权释放空中姿态/许可并恢复 Grounded；若装备虫棍，则调用 `URes_InsectGlaive::ClearDanceStacks(Landed)`，同步清零舞踏层数、来源与镜像 Tag。Coordinator 随后把落地事件分发给拥有 Ability；动作专属的 AbilityOwned 落地仍由该动作合同处理。
 
+共享`AM_IG_AerialLanding`由Host持有`Combat.State.Aerial.Landing`直到该表现蒙太奇结束；此标签与Sheathing/Dodging一起参与通用玩家动作输入锁，拦截直接GA激活、Combo攻击及预输入消费，避免先恢复Grounded后立刻被地面攻击抢占。落地表现结束释放标签后按原规则重新接受动作；未改变动画时长、通知、移动或接管帧。急袭突刺/强化操虫穿刺等AbilityOwned地面攻击段仍使用各自已配置的Combo/DodgeAccept窗口，不因本条禁止其正常派生。
+
 着陆不是一条新增 GA，不产生攻击伤害；舞踏战斗清理只在真实落地和急袭突刺 Commit（先快照倍率、再清层）验收。收刀、空中受击和死亡不属于当前 Demo 的舞踏清层要求；卸装/RuntimeShutdown 清理只属于资源生命周期兜底，不得误写成额外战斗触发条件。
 
 ### GameplayTag 扩展

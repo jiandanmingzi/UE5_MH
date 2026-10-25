@@ -1,7 +1,8 @@
-"""Verify the Git-tracked Content scaffold required by the combat demo.
+"""Historical initial Content scaffold, retained for traceability.
 
 This script is filesystem-only and can run with the regular project Python.
-Unreal package references are verified separately by ``organize_assets.py``.
+Its .gitkeep/data paths describe the initial scaffold, not current acceptance.
+For live migration use ``organize_assets.py`` with an explicit manifest.
 """
 
 from __future__ import annotations

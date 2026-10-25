@@ -1,9 +1,9 @@
+#include "MHGZM2DescendingThrustLifecycleTestTypes.h"
 #include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
-#include "MHGZM2DescendingThrustLifecycleTestTypes.h"
 
 #include "ActionSystem/AbilityTask_MHGZPlayMontageAndWait.h"
 #include "Animation/AnimMontage.h"

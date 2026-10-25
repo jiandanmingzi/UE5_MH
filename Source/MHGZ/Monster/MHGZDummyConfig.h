@@ -61,6 +61,14 @@ struct FDummyHitzoneConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1.0"))
 	FVector BoxHalfExtent = FVector(51.0f, 51.0f, 38.5f);
 
+	/** 贴合外观的实体凸形查询网格；仅Mesh形状读取。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	TSoftObjectPtr<UStaticMesh> QueryMesh;
+
+	/** 查询网格缩放，不再乘训练木桩历史尺寸倍率；位置仍沿用RelativeLocation约定。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	FVector QueryMeshScale = FVector::OneVector;
+
 };
 
 /** Deterministic counter-test attack definition for the training dummy. */
@@ -276,7 +284,8 @@ public:
 				OutError = FString::Printf(TEXT("Hitzone[%d] has an invalid HitzoneTag."), Index);
 				return false;
 			}
-			if (HZ.Shape != EMHGZHitzoneShape::Sphere && HZ.Shape != EMHGZHitzoneShape::Box)
+			if (HZ.Shape != EMHGZHitzoneShape::Sphere && HZ.Shape != EMHGZHitzoneShape::Box
+				&& HZ.Shape != EMHGZHitzoneShape::Mesh)
 			{
 				OutError = FString::Printf(TEXT("Hitzone[%d] has an unsupported query shape."), Index);
 				return false;
@@ -284,6 +293,12 @@ public:
 			if (HZ.RelativeLocation.ContainsNaN())
 			{
 				OutError = FString::Printf(TEXT("Hitzone[%d] location must be finite."), Index);
+				return false;
+			}
+			if (HZ.Shape == EMHGZHitzoneShape::Mesh && (HZ.QueryMesh.IsNull()
+				|| HZ.QueryMeshScale.ContainsNaN() || HZ.QueryMeshScale.GetMin() <= 0.f))
+			{
+				OutError = FString::Printf(TEXT("Hitzone[%d] requires a query mesh and positive finite scale."), Index);
 				return false;
 			}
 			if (HZ.Shape == EMHGZHitzoneShape::Sphere && (HZ.Radius <= 0.f || !FMath::IsFinite(HZ.Radius)))

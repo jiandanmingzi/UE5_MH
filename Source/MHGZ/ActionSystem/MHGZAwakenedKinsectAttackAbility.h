@@ -43,6 +43,14 @@ class MHGZ_API UMHGZAwakenedKinsectAttackAbility : public UMHGZInsectGlaiveAbili
 	GENERATED_BODY()
 
 public:
+	/** 猎虫离开棍尾后平滑汇入松键准心射线的最大前进距离（cm）；近目标自动缩短。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎虫飞行", meta = (ClampMin = "1.0", ForceUnits = "cm"))
+	float AwakenedKinsectAimRayMergeDistance = 250.f;
+
+	/** 消耗白灯贯通时，每只真实命中的怪物至少结算本次数；整个招式统计，不按部位重复保底。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎虫伤害", meta = (ClampMin = "1", ClampMax = "64"))
+	int32 AwakenedKinsectMinimumHitsPerTarget = 6;
+
 	// 专属数值随本GA保存；Combat同名旧字段不再参与运行时。
 	/** 觉虫击未消耗红灯时，猎虫每次成功命中的动作值；白/黄灯不改变本档。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "招式参数|觉虫击|猎虫伤害", meta = (ClampMin = "0.0"))

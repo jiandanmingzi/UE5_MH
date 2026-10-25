@@ -227,6 +227,7 @@ UMHGZDescendingThrustAbility::UMHGZDescendingThrustAbility()
 	DefaultEntrySection = StartSectionName;
 	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
 	StaminaCost = FScalableFloat(20.0f);
+	StaminaActivationRequirement = 0.f;
 
 	ActivationRequiredTags.AddTag(UnsheathedTag());
 	ActivationBlockedTags.AddTag(GroundedTag());

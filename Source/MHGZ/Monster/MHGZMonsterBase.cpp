@@ -144,6 +144,8 @@ void AMHGZMonsterBase::GenerateHitzonesFromConfig(UMHGZDummyConfig* Config)
 		Hitzone->StaggerRate = HZConfig.StaggerRate;
 		Hitzone->QueryShape = HZConfig.Shape;
 		Hitzone->BoxHalfExtent = HZConfig.BoxHalfExtent;
+		Hitzone->QueryMesh = HZConfig.QueryMesh.LoadSynchronous();
+		Hitzone->QueryMeshScale = HZConfig.QueryMeshScale;
 
 		// 静态训练柱使用 None，直接挂到角色 Root；骨骼怪物仍跟随指定骨骼。
 		USceneComponent* AttachmentParent = HZConfig.BoneName.IsNone()

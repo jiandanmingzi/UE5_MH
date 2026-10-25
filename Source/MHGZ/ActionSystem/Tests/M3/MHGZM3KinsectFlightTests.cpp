@@ -396,4 +396,98 @@ bool FMHGZM3KinsectProjectileMovementAndRecall::RunTest(const FString& Parameter
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZKinsectAimRayGeometry,
+	"MHGZ.Maintenance.Kinsect.AimRayMergeGeometry",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZKinsectAimRayGeometry::RunTest(const FString&)
+{
+	for (const float Yaw : {0.f,90.f,179.f})
+	for (const float Pitch : {-60.f,0.f,60.f})
+	for (const float TargetDistance : {550.f,2000.f})
+	{
+		const FRotator View(Pitch,Yaw,0.f);
+		const FVector Direction = View.Vector();
+		const FVector Origin(17,31,200);
+		const FVector Start = Origin+Direction*500+View.RotateVector(FVector(0,80,40));
+		const FVector Target = Origin+Direction*TargetDistance;
+		FKinsectAimRayPath Path;
+		if (!TestTrue(TEXT("rotated close/far camera ray builds"),Path.Build(Start,Origin,Direction,Target,250.f))) continue;
+		FVector Position,Tangent;
+		Path.Sample(0,Position,Tangent);
+		TestTrue(TEXT("release keeps exact socket position"),Position.Equals(Start,.001));
+		const double Merge = Path.GetMergeLength();
+		Path.Sample(Merge,Position,Tangent);
+		TestTrue(TEXT("merge lands on camera ray before target"),
+			FVector::CrossProduct(Position-Origin,Direction).Size()<.001
+			&& FVector::DotProduct(Target-Position,Direction)>=-.001);
+		TestTrue(TEXT("join tangent matches subsequent straight flight"),Tangent.Equals(Direction,.0001));
+		Path.Sample(FMath::Max(0.0,Merge-.01),Position,Tangent);
+		TestTrue(TEXT("approach tangent is continuous"),FVector::DotProduct(Tangent,Direction)>.999);
+		Path.Sample(Merge+500,Position,Tangent);
+		TestTrue(TEXT("late flight remains exactly on the frozen ray"),FVector::CrossProduct(Position-Origin,Direction).Size()<.001);
+	}
+	FKinsectAimRayPath Close;
+	TestTrue(TEXT("floor target before the socket plane remains usable"),
+		Close.Build(FVector(500,80,30),FVector::ZeroVector,FVector::ForwardVector,FVector(450,0,0),250));
+	FKinsectAimRayPath Invalid;
+	TestFalse(TEXT("invalid direction is rejected"),Invalid.Build(FVector(500,0,0),FVector::ZeroVector,FVector::ZeroVector,FVector(1000,0,0),250));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZKinsectAimRayLifecycle,
+	"MHGZ.Maintenance.Kinsect.AimRayFlightLifecycle",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZKinsectAimRayLifecycle::RunTest(const FString&)
+{
+	FVector EndAt30;
+	for (const int32 FPS : {30,120})
+	{
+		FMHGZM3Harness H;
+		if (!H.Setup()) { H.Teardown(); return false; }
+		FKinsectFlightRequest Request = MakeValidAlongDirectionRequest(H);
+		Request.TrajectoryMode = EKinsectTrajectoryMode::MergeToAimRay;
+		Request.AimOriginSnapshot = FVector(-300,0,60);
+		Request.TargetPointSnapshot = FVector(2200,0,60);
+		Request.FlightSpeed = 1000.f;
+		Request.DamageMode = EKinsectDamageMode::None;
+		Request.ExtractMode = EKinsectExtractMode::None;
+		const FVector Start(200,80,60);
+		H.Kinsect->SetActorLocation(Start);
+		if (!TestTrue(TEXT("real resource accepts ray merge request"),H.Resource->DeployKinsect(Request)))
+		{
+			H.Teardown(); return false;
+		}
+		TestTrue(TEXT("committing flight never teleports the insect"),H.Kinsect->GetActorLocation().Equals(Start));
+		TestFalse(TEXT("projectile is not a second movement writer"),H.Kinsect->Movement->IsComponentTickEnabled());
+		for (int32 Frame=0;Frame<FPS-1;++Frame) H.Kinsect->Tick(1.f/FPS);
+		TestEqual(TEXT("flight remains active before its fixed deadline"),H.Kinsect->GetState(),EKinsectState::Flying);
+		H.Kinsect->Tick(1.f/FPS+.0001f);
+		TestEqual(TEXT("arc-distance cap preserves the one-second flight time"),H.Kinsect->GetState(),EKinsectState::Hovering);
+		const FVector End = H.Kinsect->GetActorLocation();
+		TestTrue(TEXT("terminal position is on center ray"),FMath::Abs(End.Y)<.001 && FMath::Abs(End.Z-60)<.001);
+		if (FPS==30) EndAt30=End;
+		else TestTrue(TEXT("endpoint is independent of frame rate"),End.Equals(EndAt30,.01));
+		TestTrue(TEXT("manual recall after curve restores normal movement"),H.Resource->RecallKinsect());
+		TestTrue(TEXT("recall re-enables projectile tick"),H.Kinsect->Movement->IsComponentTickEnabled());
+		H.Teardown();
+	}
+	// An actual curved, coarse-frame sweep must still capture extract, using the
+	// same ordinary single-hit/return semantics rather than a new damage path.
+	FMHGZM3Harness H;
+	if (!H.Setup()) { H.Teardown(); return false; }
+	FKinsectFlightRequest Request = MakeValidAlongDirectionRequest(H);
+	Request.TrajectoryMode = EKinsectTrajectoryMode::MergeToAimRay;
+	Request.AimOriginSnapshot = FVector(-300,0,60);
+	Request.TargetPointSnapshot = FVector(2200,0,60);
+	Request.FlightSpeed = 1000.f;
+	H.Kinsect->SetActorLocation(FVector(200,80,60));
+	SpawnTestHitzone(H.World,FVector(700,0,60),M3::Tag(TEXT("WeaponResource.IG.Extract.White")));
+	TestTrue(TEXT("damaging curve is accepted"),H.Resource->DeployKinsect(Request));
+	H.Kinsect->Tick(.8f);
+	TestTrue(TEXT("coarse frame touches target and captures extract"),H.Kinsect->HasPendingExtract());
+	TestEqual(TEXT("single-hit still stops on contact"),H.Kinsect->GetState(),EKinsectState::Hovering);
+	H.Teardown();
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR

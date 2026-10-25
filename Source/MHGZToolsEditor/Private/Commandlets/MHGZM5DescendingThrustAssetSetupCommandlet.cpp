@@ -1,7 +1,7 @@
+#include "Commandlets/MHGZM5DescendingThrustAssetSetupCommandlet.h"
 #include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
-#include "Commandlets/MHGZM5DescendingThrustAssetSetupCommandlet.h"
 
 #if WITH_EDITOR
 

@@ -1,9 +1,9 @@
+#include "MHGZM5KinsectSlashDamageTestTypes.h"
 #include "ActionSystem/Tests/Shared/MHGZIGActionFixtures.h"
 #include "InsectGlaive/InsectGlaiveCombatConfig.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
-#include "MHGZM5KinsectSlashDamageTestTypes.h"
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemGlobals.h"

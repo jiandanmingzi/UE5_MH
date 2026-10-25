@@ -75,8 +75,10 @@ for actor in actors:
             floor_bounds.append((origin, extent))
         except Exception:
             pass
+    is_dummy = isinstance(actor, unreal.MHGZTrainingDummy)
     if not (label.startswith("Arena_Wall_") or label == "Arena_AirCeiling"
-            or label == "Arena_DirectionalLight" or label == "Arena_SkyLight"):
+            or label == "Arena_DirectionalLight" or label == "Arena_SkyLight"
+            or is_dummy or isinstance(actor, unreal.PlayerStart)):
         continue
     try:
         origin, extent = actor.get_actor_bounds(False, False)
@@ -86,7 +88,7 @@ for actor in actors:
         components = actor.get_components_by_class(unreal.ActorComponent)
     except Exception:
         components = []
-    rows.append({
+    row = {
         "name": actor.get_name(),
         "label": label,
         "class": actor.get_class().get_path_name(),
@@ -98,7 +100,15 @@ for actor in actors:
         "components": [inspect_component(component) for component in components
                        if component.get_class().get_name() in
                        ("StaticMeshComponent", "DirectionalLightComponent", "SkyLightComponent")],
-    })
+    }
+    if is_dummy:
+        row["dummy_config"] = prop(actor, "dummy_config")
+        row["infinite_health"] = prop(actor, "infinite_health")
+        capsule = actor.get_component_by_class(unreal.CapsuleComponent)
+        row["capsule"] = {"radius": capsule.get_unscaled_capsule_radius(),
+                          "half_height": capsule.get_unscaled_capsule_half_height(),
+                          "collision_profile": str(capsule.get_collision_profile_name())}
+    rows.append(row)
 
 REPORT.parent.mkdir(parents=True, exist_ok=True)
 if floor_bounds:

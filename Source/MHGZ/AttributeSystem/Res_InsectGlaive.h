@@ -194,6 +194,8 @@ public:
 	bool ApplyKinsectDamageWithSnapshot(const FHitResult& Hit, float MotionValue,
 		float AttackPower, const FGuid& HitInstanceID, const FGuid& SourceAttackID);
 	float GetModifiedKinsectAttackPower() const;
+	/** 真实有效贯通命中可提交保底结算；结算与飞行/召回状态分别持有。 */
+	bool ApplyGuaranteedKinsectPiercingContact(const FKinsectFlightRequest& Request, const FHitResult& Hit);
 
 	// ── 唯一虫印 ───────────────────────────────────────────────
 	bool LaunchKinsectMark(const FWeaponAimSnapshot& AimSnapshot);
@@ -298,6 +300,26 @@ public:
 	const UInsectGlaiveCombatConfig* GetCombatConfig() const { return CombatConfig; }
 
 private:
+	struct FGuaranteedKinsectHitReceipt
+	{
+		FGuid ID, FlightID, SourceAttackID;
+		FWeaponRuntimeToken Runtime;
+		TWeakObjectPtr<AActor> Target;
+		FHitResult LastHit;
+		FVector LocalImpactPoint = FVector::ZeroVector, LocalLocation = FVector::ZeroVector;
+		FVector LocalNormal = FVector::UpVector;
+		TMap<TWeakObjectPtr<UMHGZMonsterHitzoneComponent>, double> HitTimes;
+		float MotionValue = 0.f, AttackPower = 0.f, Interval = 0.f;
+		int32 Minimum = 0, Successful = 0;
+		double NextDue = 0.0;
+		EIGPowderSpawnPolicy PowderPolicy = EIGPowderSpawnPolicy::None;
+		bool bApplying = false;
+	};
+	TArray<FGuaranteedKinsectHitReceipt> GuaranteedKinsectHitReceipts;
+	bool SubmitGuaranteedKinsectHit(FGuid ReceiptID, const FHitResult& Hit, double Now, bool bScheduled);
+	void TickGuaranteedKinsectHits();
+	void RetireGuaranteedKinsectHit(const FGuid& ReceiptID);
+
 	friend class AIGPowderActor;
 #if WITH_DEV_AUTOMATION_TESTS
 	friend class FMHGZCoAttackRuntimeTest;

@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/SphereComponent.h"
 #include "Components/BoxComponent.h"
+#include "Components/StaticMeshComponent.h"
 #include "GameplayTagContainer.h"
 #include "ActionSystem/MHGZDamageTypes.h"
 #include "MHGZMonsterHitzoneComponent.generated.h"
@@ -13,7 +14,8 @@ UENUM(BlueprintType)
 enum class EMHGZHitzoneShape : uint8
 {
 	Sphere,
-	Box
+	Box,
+	Mesh
 };
 
 class UMHGZMonsterHitzoneComponent;
@@ -21,6 +23,15 @@ class UMHGZMonsterHitzoneComponent;
 /** The box is only query geometry; part identity stays on its owning hitzone. */
 UCLASS(Transient)
 class UMHGZMonsterBoxHitzoneQueryComponent : public UBoxComponent
+{
+	GENERATED_BODY()
+public:
+	TWeakObjectPtr<UMHGZMonsterHitzoneComponent> HitzoneOwner;
+};
+
+/** 单一部位可拥有多块实体凸形碰撞，仍只提供一个受击部位身份。 */
+UCLASS(Transient)
+class UMHGZMonsterMeshHitzoneQueryComponent : public UStaticMeshComponent
 {
 	GENERATED_BODY()
 public:
@@ -80,12 +91,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone", meta = (ClampMin = "0.0"))
 	float Radius = 30.f;
 
-	/** Only one query primitive is active: the sphere or its box child, never both. */
+	/** 同一部位仅启用一个查询组件：球、盒或实体凸形网格。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	EMHGZHitzoneShape QueryShape = EMHGZHitzoneShape::Sphere;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone", meta = (ClampMin = "1.0"))
 	FVector BoxHalfExtent = FVector(30.0f);
+
+	/** 仅受击查询使用的实体简单凸形网格；不显示、不阻挡角色。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
+	TObjectPtr<UStaticMesh> QueryMesh;
+
+	/** 网格相对部位中心的缩放；与球/盒尺寸独立。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
+	FVector QueryMeshScale = FVector::OneVector;
 
 	void ConfigureQueryShape(EMHGZHitzoneShape Shape, const FVector& HalfExtent);
 	UPrimitiveComponent* GetQueryCollisionComponent() const;
@@ -119,4 +138,6 @@ private:
 
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZMonsterBoxHitzoneQueryComponent> BoxQuery;
+	UPROPERTY(Transient)
+	TObjectPtr<UMHGZMonsterMeshHitzoneQueryComponent> MeshQuery;
 };

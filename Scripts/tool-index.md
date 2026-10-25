@@ -82,8 +82,8 @@ Combat兼容清理回查：同一`migrate_powder_vortex_config.py`入口加`-MHG
 | [AssetOrganization/setup_montage_segment_blend.py](AssetOrganization/setup_montage_segment_blend.py) | UE Python | 默认审计Slot惯性混合；--configure-montages配置0.05s；--weapon-grip接入ABP并配置飞圆310→117持械约束；--remove-synthetic-bridges移除5个桥接；--remove-attack-holds移除10个攻击保持并更新4份GA入口；对应verify只读回查 | 默认只读；显式Apply才备份保存；检查点阻止重复；不删除序列、不动翻滚保持/蓄力 |
 | [AssetOrganization/apply_ground_attack_entries.py](AssetOrganization/apply_ground_attack_entries.py) | UE Python | 六组地面入口显式配方，原相位通知重定位及308副本；保留突进蓄力/未点名来源 | 已应用；默认/已应用时仅审计，勿删除检查点盲目重跑 |
 | [AssetOrganization/trigger_mhgz_livecoding_compile.py](AssetOrganization/trigger_mhgz_livecoding_compile.py) | UE Python | Ask the open MHGZ editor to compile and apply its Live Coding patch. | 按需；先核对参数/写入范围 |
-| [AssetOrganization/verify_demo_structure.py](AssetOrganization/verify_demo_structure.py) | 普通Python | Verify the Git-tracked Content scaffold required by the combat demo. | 按需；先核对参数/写入范围 |
-| [AssetOrganization/verify_project_assets.py](AssetOrganization/verify_project_assets.py) | UE Python | Verify the current finalized Demo asset layout and compile project Blueprints. | 按需；先核对参数/写入范围 |
+| [AssetOrganization/verify_demo_structure.py](AssetOrganization/verify_demo_structure.py) | 普通Python | 历史初始目录骨架及占位基线 | 保留追溯；不用旧Data路径/占位要求验收当前项目 |
+| [AssetOrganization/verify_project_assets.py](AssetOrganization/verify_project_assets.py) | UE Python | 历史443包数量与蓝图基线 | 保留追溯；当前迁移使用显式Manifest及定向引用审计 |
 
 ## AssetProbe
 
@@ -112,6 +112,7 @@ Combat兼容清理回查：同一`migrate_powder_vortex_config.py`入口加`-MHG
 | [AssetProbe/inspect_camera_defaults.py](AssetProbe/inspect_camera_defaults.py) | UE Python | Read the live Blueprint CDO camera values without editing assets. | 按需；先核对参数/写入范围 |
 | [AssetProbe/inspect_character_skeletons.py](AssetProbe/inspect_character_skeletons.py) | UE Python | Read-only Unreal Python probe for project and MHW review skeletons. | 按需；先核对参数/写入范围 |
 | [AssetProbe/inspect_demo_arena.py](AssetProbe/inspect_demo_arena.py) | UE Python | Read actor placement, bounds, collision, materials, and lights in L_DemoArena. | 按需；先核对参数/写入范围 |
+| [AssetProbe/configure_demo_training_targets.py](AssetProbe/configure_demo_training_targets.py) / [查询形状扩展](AssetProbe/training_target_query_meshes.py) | UE Python；Blender后台生成源模型 | 圆柱/半球三色目标；`--build-query-meshes`生成外扩实体凸体；当前默认回查新查询配置与场景实例 | 10-25迁移3份配置+4份查询网格，地图/外观/阻挡保持；真实碰撞检查替代旧AABB包含检查；历史Apply/Resume/Refine/ReplacePreservedCollision/Repair均禁止重放 |
 | [AssetProbe/inspect_ik_retarget_python_api.py](AssetProbe/inspect_ik_retarget_python_api.py) | UE Python | Print the exposed UE 5.6 Python API used to build a review retarget setup. | 按需；先核对参数/写入范围 |
 | [AssetProbe/inspect_kinsect_piercer_root_motion.py](AssetProbe/inspect_kinsect_piercer_root_motion.py) | UE Python | Read-only source-root and AnimBP audit, run with Unreal Python commandlet. | 按需；先核对参数/写入范围 |
 | [AssetProbe/inspect_mhw_aerial_dive_retarget_outputs.py](AssetProbe/inspect_mhw_aerial_dive_retarget_outputs.py) | UE Python | Inspect retargeted MHW dive assets and UE Python animation editing APIs. | 按需；先核对参数/写入范围 |
@@ -208,7 +209,10 @@ Combat兼容清理回查：同一`migrate_powder_vortex_config.py`入口加`-MHG
 
 | 工具 | 环境 | 用途简述 | 状态 |
 |---|---|---|---|
-| [MHGZ_MHW_AerialTrajectoryRecorder.lua](MHGZ_MHW_AerialTrajectoryRecorder.lua) | 游戏Lua宿主 | MHGZ Monster Hunter: World runtime recorder | 按需；先核对参数/写入范围 |
+| [MHGZ_MHW_AerialTrajectoryRecorder.lua](MHWorld/MHGZ_MHW_AerialTrajectoryRecorder.lua) | 游戏Lua宿主 | MHGZ Monster Hunter: World runtime recorder | 按需；先核对参数/写入范围 |
+| [MHWorld/Recorder.md](MHWorld/Recorder.md) | 说明文档 | World录制器安装、按键、数据与诊断说明 | 仓库归位，不重部署游戏安装件 |
+| [Setup/setup_unreal_mcp.ps1](Setup/setup_unreal_mcp.ps1) | PowerShell | 可选用户级Unreal MCP环境安装 | 修改用户配置；仅明确安装时执行，不是日常前置 |
+| [项目整理Manifest](AssetOrganization/Manifests/project-files-20261025.json) | organize_assets.py清单 | 18个旧合成序列归档及7个候选目录合并 | 已完成，默认只读回查25项 |
 | [ue_asset_utils.py](ue_asset_utils.py) | 普通Python | Small, UE-independent adapters for reflected values; errors stay explicit. | 公共模块；导入复用 |
 | [ue_remote.py](ue_remote.py) | 普通Python | Execute a Python file in the matching open UE editor using Epic's client. | 按需；先核对参数/写入范围 |
 

@@ -35,6 +35,8 @@ bool UMHGZGameplayAbility::HasPlayerActionInputLock(
 			TEXT("Combat.State.Sheathing")));
 		Tags.AddTag(FGameplayTag::RequestGameplayTag(
 			TEXT("Combat.State.Dodging")));
+		Tags.AddTag(FGameplayTag::RequestGameplayTag(
+			TEXT("Combat.State.Aerial.Landing")));
 		return Tags;
 	}();
 	return ASC->HasAnyMatchingGameplayTags(ActionInputLocks);
@@ -47,25 +49,26 @@ bool UMHGZGameplayAbility::CheckCost(
 	const FGameplayAbilityActorInfo* ActorInfo,
 	FGameplayTagContainer* OptionalRelevantTags) const
 {
-	if (StaminaCostPolicy != EAbilityStaminaCostPolicy::Instant)
-	{
-		return true; // PerSecond 由 Drain Task 按实际经过时间结算并在不足时自取消。
-	}
-
 	const UAbilitySystemComponent* ASC = ActorInfo ? ActorInfo->AbilitySystemComponent.Get() : nullptr;
 	if (!ASC)
 	{
 		return true;
 	}
 
-	const float Cost = GetInstantStaminaCost(Handle, ActorInfo);
-	if (Cost <= 0.f)
+	// Existing assets inherit -1. An explicit threshold changes admission only;
+	// ApplyCost still pays the authored amount through the clamped stamina GE.
+	const float Required = StaminaActivationRequirement >= 0.f
+		? StaminaActivationRequirement
+		: (StaminaCostPolicy == EAbilityStaminaCostPolicy::Instant
+			? GetInstantStaminaCost(Handle, ActorInfo) : 0.f);
+	if (!FMath::IsFinite(Required)) return false;
+	if (Required <= 0.f)
 	{
 		return true;
 	}
 
 	const UMHGZAttributeSet* AttrSet = ASC->GetSet<UMHGZAttributeSet>();
-	return !AttrSet || AttrSet->GetStamina() >= Cost;
+	return !AttrSet || AttrSet->GetStamina() >= Required;
 }
 
 void UMHGZGameplayAbility::ApplyCost(

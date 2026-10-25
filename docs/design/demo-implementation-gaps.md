@@ -32,7 +32,7 @@
 | Notify 归属 | RuntimeHost Montage Registry、`MHGZAnimNotifyActionResolver`、Attack/Combo/Dodge Notify | `(Mesh, MontageInstanceID)` 精确解析 ActionToken；玩家动作 Notify 不再扫描 Active Specs |
 | 闪避 | `MHGZDodgeAbility`、`AnimNotifyState_DodgeWindow` | 前向翻滚使用冻结姿态/方向选择与 AbilityTask；窗口由 Ledger 持有并逐通道恢复原碰撞响应；缺 Montage 零副作用测试通过。M4-A.3.1 仍需加入持刀左右后专用选择/强制 IdleExit，及收刀左右后拒绝且不耗耐 |
 
-构建、15 项 M1 测试与 5 项 M0 回归证据见 [M1 实施审计](m1-implementation-audit.md)。
+构建、15 项 M1 测试与 5 项 M0 回归证据见 [M1 实施审计](../archive/demo-2026-10-13/audits/m1-implementation-audit.md)。
 
 ### 已在 M2 解决
 
@@ -45,7 +45,7 @@
 | 木桩与部位 | `MHGZDummyConfig`、`MHGZMonsterBase`、`MHGZTrainingDummy` | C++ 可生成恰好 Red/White/Orange 三个互不重叠球形 Hitzone，并提供固定 HitResult/AttackInstanceID 的确定性提交入口；E5 仍需配置实际 DataAsset/蓝图位置 |
 | 旧运行时桥接 | `DefaultGame.ini`、`MHGZDataManager`、`MHGZEquipmentComponent`、`MHGZAttackAbility` | 旧 WeaponComboConfig/DataTable 查询与 Attack/Dodge/Combo 旧字段兼容读取均已归零；E3 删除旧包后，M4 已移除对应序列化壳与迁移代码 |
 
-构建、10 项 M2 测试及 M0～M2 共 30 项联合回归证据见 [M2 实施审计](m2-implementation-audit.md)。
+构建、10 项 M2 测试及 M0～M2 共 30 项联合回归证据见 [M2 实施审计](../archive/demo-2026-10-13/audits/m2-implementation-audit.md)。
 
 ### P0：不先改就无法可靠建立战斗基底
 

@@ -187,6 +187,11 @@ void AKinsect::Tick(float DeltaTime)
 	{
 	case EKinsectState::Flying:
 	{
+		if (ActiveRequest.TrajectoryMode == EKinsectTrajectoryMode::MergeToAimRay)
+		{
+			TickAimRayFlight(DeltaTime);
+			break;
+		}
 		if (ActiveRequest.TrajectoryMode == EKinsectTrajectoryMode::ToPoint
 			&& ActiveRequest.bFollowTargetComponent)
 		{
@@ -252,6 +257,10 @@ bool AKinsect::IsFlightRequestValid(const FKinsectFlightRequest& Request) const
 	{
 		return false;
 	}
+	if (Request.MinimumPiercingHitsPerTarget < 0 || Request.MinimumPiercingHitsPerTarget > 64
+		|| (Request.MinimumPiercingHitsPerTarget > 0
+			&& (Request.DamageMode != EKinsectDamageMode::Piercing || Request.RehitInterval <= 0.f
+				|| !Request.SourceAttackInstanceID.IsValid()))) return false;
 	if (!FMath::IsFinite(Request.MotionValue) || Request.MotionValue < 0.f)
 	{
 		return false;
@@ -286,7 +295,14 @@ bool AKinsect::IsFlightRequestValid(const FKinsectFlightRequest& Request) const
 	{
 		return false;
 	}
-	if (Request.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection)
+	if (Request.TrajectoryMode == EKinsectTrajectoryMode::MergeToAimRay)
+	{
+		FKinsectAimRayPath Path;
+		if (Request.bProjectAttachedLaunchToAimRay
+			|| !Path.Build(GetActorLocation(), Request.AimOriginSnapshot,
+				Request.DirectionSnapshot, Request.TargetPointSnapshot, Request.AimRayMergeDistance)) return false;
+	}
+	else if (Request.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection)
 	{
 		if (Request.DirectionSnapshot.ContainsNaN() ||
 			Request.DirectionSnapshot.GetSafeNormal().IsNearlyZero())
@@ -434,7 +450,15 @@ bool AKinsect::BeginFlightInternal(
 		}
 	}
 	FVector FlightDirection;
-	if (Request.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection)
+	FKinsectAimRayPath NewRayPath;
+	if (Request.TrajectoryMode == EKinsectTrajectoryMode::MergeToAimRay)
+	{
+		if (!NewRayPath.Build(LaunchOrigin, Request.AimOriginSnapshot, Request.DirectionSnapshot,
+			Request.TargetPointSnapshot, Request.AimRayMergeDistance)) return false;
+		FVector InitialPosition;
+		NewRayPath.Sample(0.0, InitialPosition, FlightDirection);
+	}
+	else if (Request.TrajectoryMode == EKinsectTrajectoryMode::AlongDirection)
 	{
 		FlightDirection = Request.DirectionSnapshot.GetSafeNormal();
 	}
@@ -478,6 +502,14 @@ bool AKinsect::BeginFlightInternal(
 	ActionAttachmentToken = FWeaponActionToken();
 	ResetSlashPreparation();
 	ActiveRequest = Request;
+	if (Request.TrajectoryMode == EKinsectTrajectoryMode::MergeToAimRay)
+	{
+		AimRayPath = MoveTemp(NewRayPath);
+		AimRayTravelled = 0.0;
+		// Actor Tick is the sole writer for this path. Recall/redeployment uses
+		// ArmMovement to restore ProjectileMovement's tick normally.
+		Movement->SetComponentTickEnabled(false);
+	}
 	ReturnRuntimeToken = FWeaponRuntimeToken();
 	ReturnCommandSerial = 0;
 	ReturnCommandSource = EKinsectCommandSource::None;
@@ -1193,6 +1225,12 @@ void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 		return;
 	}
 
+	if (ActiveRequest.MinimumPiercingHitsPerTarget > 0)
+	{
+		ResourceComponent->ApplyGuaranteedKinsectPiercingContact(ActiveRequest, Hit);
+		return;
+	}
+
 	// Piercing：首碰立即命中；之后按绝对世界时间对每个 Hitzone 独立限频。
 	// 不能只在重叠帧累计 DeltaTime，否则高速穿过部位时首击会被错误吞掉。
 	const float Now = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.f;
@@ -1237,6 +1275,35 @@ void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 			static_cast<int32>(ActiveRequest.PowderSpawnPolicy),
 			*ActiveRequest.SourceAttackInstanceID.ToString(), *HitInstanceID.ToString());
 	}
+}
+
+void AKinsect::TickAimRayFlight(const float DeltaTime)
+{
+	if (!FMath::IsFinite(DeltaTime) || DeltaTime <= 0.f) return;
+	const FGuid FlightID = ActiveRequest.FlightInstanceID;
+	const uint64 Serial = ActiveRequest.CommandSerial;
+	const double EndDistance = FMath::Min<double>(ActiveRequest.MaxDistance,
+		AimRayTravelled + static_cast<double>(ActiveRequest.FlightSpeed) * DeltaTime);
+	while (AimRayTravelled < EndDistance)
+	{
+		// Follow and sweep the curve itself, not the chord across a whole frame.
+		const double NextDistance = FMath::Min(EndDistance, AimRayTravelled + 20.0);
+		FVector Position, Tangent;
+		AimRayPath.Sample(NextDistance, Position, Tangent);
+		SetActorLocation(Position, false, nullptr, ETeleportType::TeleportPhysics);
+		Movement->Velocity = Tangent * ActiveRequest.FlightSpeed;
+		Movement->UpdateComponentVelocity();
+		if (Mesh)
+			Mesh->SetWorldRotation(Tangent.ToOrientationQuat() * FQuat(FVector::UpVector, -UE_HALF_PI));
+		const float StepSeconds = static_cast<float>((NextDistance - AimRayTravelled) / ActiveRequest.FlightSpeed);
+		AimRayTravelled = NextDistance;
+		SweepHitzones(StepSeconds);
+		if (State != EKinsectState::Flying || ActiveRequest.FlightInstanceID != FlightID
+			|| ActiveRequest.CommandSerial != Serial) return;
+	}
+	PendingWorldHit.Reset();
+	if (AimRayTravelled >= ActiveRequest.MaxDistance)
+		EndFlight(EKinsectFlightEndReason::MaxDistance);
 }
 
 void AKinsect::CheckFlightProgress()

@@ -234,6 +234,7 @@ void URes_InsectGlaive::RecordTripleCostTelemetryEvent(
 
 void URes_InsectGlaive::InitializeRuntime(const FWeaponRuntimeContext& Context)
 {
+	GuaranteedKinsectHitReceipts.Reset();
 	ClearOwnedPowders(EWeaponRuntimeEndReason::RuntimeShutdown);
 	Super::InitializeRuntime(Context);
 	bRuntimeShuttingDown = false;
@@ -280,6 +281,7 @@ void URes_InsectGlaive::ShutdownRuntime(EWeaponRuntimeEndReason Reason)
 		return;
 	}
 	bRuntimeShuttingDown = true;
+	GuaranteedKinsectHitReceipts.Reset();
 	SetComponentTickEnabled(false);
 	CancelAutomaticMarkBehavior(true);
 	KinsectPlayerCommandLeaseToken = FWeaponActionToken();
@@ -318,6 +320,7 @@ void URes_InsectGlaive::TickComponent(float DeltaTime, ELevelTick TickType,
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 	TickPowderMaintenance();
+	TickGuaranteedKinsectHits();
 	if (bRuntimeShuttingDown || !KinsectActor || !KinsectData)
 	{
 		BroadcastResourceUIState();

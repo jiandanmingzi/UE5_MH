@@ -104,6 +104,55 @@ bool FMHGZStaminaCostsTest::RunTest(const FString&)
 	H.Teardown(); return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZIndependentStaminaRequirementTest,
+	"MHGZ.M1.Stamina.IndependentActivationRequirement",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZIndependentStaminaRequirementTest::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup()) { H.Teardown(); return false; }
+	const FGameplayAbilitySpecHandle Handle = H.GiveAbility(UMHGZM1PlaceholderActionA::StaticClass());
+	if (!TestTrue(TEXT("isolated cost action activates"), H.TryActivateWithInput(Handle, M3::MakePosedInput(true,false))))
+	{
+		H.Teardown(); return false;
+	}
+	FGameplayAbilitySpec* Spec = H.ASC->FindAbilitySpecFromHandle(Handle);
+	UMHGZGameplayAbility* Action = Cast<UMHGZGameplayAbility>(Spec->GetAbilityInstances()[0]);
+	FGameplayAbilityActorInfo Info;
+	Info.InitFromActor(H.PlayerState,H.Character,H.ASC);
+	const UMHGZAttributeSet* Attributes = H.ASC->GetSet<UMHGZAttributeSet>();
+	auto SetStamina = [&](float Value) { H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetStaminaAttribute(),Value); };
+	Action->StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
+	Action->StaminaCost = FScalableFloat(20.f);
+	Action->bDeferInstantStaminaCost = false;
+	SetStamina(5.f);
+	TestFalse(TEXT("legacy sentinel still requires the full authored cost"), Action->CheckCost(Handle,&Info));
+	Action->StaminaActivationRequirement = 0.f;
+	TestTrue(TEXT("zero threshold allows less stamina than the cost"), Action->CheckCost(Handle,&Info));
+	Action->ApplyCost(Handle,&Info,FGameplayAbilityActivationInfo());
+	TestEqual(TEXT("actual instant GE spends remaining stamina and clamps at zero"), Attributes->GetStamina(),0.f);
+	TestTrue(TEXT("zero really permits zero stamina"), Action->CheckCost(Handle,&Info));
+	Action->StaminaActivationRequirement = 10.f;
+	SetStamina(9.f);
+	TestFalse(TEXT("independent positive threshold is enforced"), Action->CheckCost(Handle,&Info));
+	SetStamina(10.f);
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetStaminaDeductionRateAttribute(),2.f);
+	TestTrue(TEXT("deduction multiplier does not multiply explicit admission"), Action->CheckCost(Handle,&Info));
+	Action->ApplyCost(Handle,&Info,FGameplayAbilityActivationInfo());
+	TestEqual(TEXT("higher actual payment still clamps correctly"), Attributes->GetStamina(),0.f);
+	Action->StaminaActivationRequirement = -1.f;
+	SetStamina(39.f);
+	TestFalse(TEXT("legacy gate retains multiplied payment requirement"), Action->CheckCost(Handle,&Info));
+	SetStamina(40.f);
+	TestTrue(TEXT("legacy gate accepts exact multiplied payment"), Action->CheckCost(Handle,&Info));
+	UMHGZDescendingThrustAbility* Dive = NewObject<UMHGZDescendingThrustAbility>(H.PlayerState);
+	SetStamina(0.f);
+	TestTrue(TEXT("descending thrust has no implicit payment gate"), Dive->CheckCost(Handle,&Info));
+	TestEqual(TEXT("descending thrust still authors a 20 stamina payment"), Dive->StaminaCost.GetValue(),20.f);
+	H.ASC->CancelAbilityHandle(Handle);
+	H.Teardown(); return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZStaminaSprintTest, "MHGZ.M1.Stamina.SprintDrainAndExhaustion",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 bool FMHGZStaminaSprintTest::RunTest(const FString&)

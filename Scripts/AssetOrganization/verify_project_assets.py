@@ -1,4 +1,8 @@
-"""Verify the current finalized Demo asset layout and compile project Blueprints."""
+"""Historical early-Demo 443-asset baseline, retained for traceability.
+
+Not the current maintenance validator. Use organize_assets.py with an explicit
+manifest for live migrations; these fixed counts and retired paths are dated.
+"""
 
 from __future__ import annotations
 

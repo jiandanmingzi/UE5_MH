@@ -54,6 +54,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Cost")
 	FScalableFloat StaminaCost;
 
+	/** 发动所需最低耐力；-1沿用实际单次消耗，0无门槛。独立门槛不乘耗耐倍率；实际扣耐仍由StaminaCost决定，不足时扣到0。Combo边的门槛仍需同时满足。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Cost",
+		meta = (ClampMin = "-1.0", DisplayName = "发动所需最低耐力"))
+	float StaminaActivationRequirement = -1.f;
+
 	/** 持续耐力消耗速率（每秒；最终值 = 本值 × StaminaConsumptionRate × 实际经过时间） */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Cost")
 	FScalableFloat StaminaCostRate;
@@ -223,7 +228,7 @@ protected:
 	/** Infrastructure/forced-reaction abilities override this explicitly. */
 	virtual bool ShouldIgnorePlayerActionLocks() const { return false; }
 
-	/** True while an exact Sheathing or Dodging owner is present on the ASC. */
+	/** True while Sheathing, Dodging or the system-owned aerial landing is present on the ASC. */
 	static bool HasPlayerActionInputLock(const UAbilitySystemComponent* ASC);
 
 	/**

@@ -1,7 +1,7 @@
+#include "Commandlets/MHGZM636VisualAssetSetupCommandlet.h"
 #include "MHGZIGActionConfigAccess.h"
 // Copyright MHGZ Project. All Rights Reserved.
 
-#include "Commandlets/MHGZM636VisualAssetSetupCommandlet.h"
 
 #if WITH_EDITOR
 
