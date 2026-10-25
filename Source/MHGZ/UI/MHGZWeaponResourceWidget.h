@@ -26,6 +26,7 @@ public:
 	virtual void NativeDestruct() override;
 
 protected:
+	/** 当前绑定的武器资源组件，用于读取资源状态及订阅变化。 */
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|UI")
 	TObjectPtr<UMHGZWeaponResourceComponent> ResourceComponent;
 };

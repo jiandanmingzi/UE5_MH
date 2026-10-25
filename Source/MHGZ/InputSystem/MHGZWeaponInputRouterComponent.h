@@ -177,15 +177,19 @@ private:
 	void UnsubscribePoseTags();
 	void OnPoseTagChanged(const FGameplayTag Tag, int32 NewCount);
 
+	/** 当前武器注入的输入组合配置。 */
 	UPROPERTY()
 	TObjectPtr<UWeaponInputProfile> CurrentProfile;
 
+	/** 拥有该组件的玩家控制器缓存，重绑定时更新。 */
 	UPROPERTY()
 	TWeakObjectPtr<APlayerController> OwnerPC;
 
+	/** 输入快照使用的当前角色缓存，绑定变化时更新。 */
 	UPROPERTY()
 	TWeakObjectPtr<AMHGZCharacter> CachedCharacter;
 
+	/** 输入快照读取上下文标签时使用的能力系统组件缓存。 */
 	UPROPERTY()
 	TWeakObjectPtr<UMHGZAbilitySystemComponent> CachedASC;
 

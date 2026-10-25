@@ -68,7 +68,7 @@ public:
 	/** One-shot movement takeover from an exact directional IdleExit; not a mobile Exit/Loop handoff. */
 	bool RequestDirectionalDodgeLocomotionStart(const FWeaponActionToken& SourceAction);
 
-	/** Debug counter only: incremented once per requested slot group, never on every blend frame. */
+	/** 蒙太奇内部混合请求的诊断计数；每个实际请求的Slot组递增一次，不按混合帧递增。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Montage Segment Blend")
 	int64 MontageSegmentBlendRequestSerial = 0;
 
@@ -76,6 +76,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Weapon Grip")
 	float WeaponGripConstraintAlpha = 0.f;
 
+	/** 持械接缝约束的更新序号，供诊断辨认新的约束请求。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Weapon Grip")
 	int64 WeaponGripConstraintSerial = 0;
 
@@ -137,57 +138,53 @@ public:
 	UFUNCTION(BlueprintCallable, Category="Movement|MM|Action Exit", meta=(BlueprintThreadSafe))
 	void QueueMotionMatchingActionIdleContextConsumption(int64 ContextSerial);
 
-	/** Actual XY displacement of the actor, measured from Root Motion. Unit: cm/s. */
+	/** 根据角色实际根运动位移测得的水平速度，单位为厘米每秒。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	float MMActualSpeed2D = 0.0f;
 
-	/** Smoothed effective GAS movement multiplier, including the TripleUp replacement effect. */
+	/** 平滑后的持刀有效移速倍率，包含三灯替换效果。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Speed")
 	float MMUnsheathedMoveSpeedMultiplier = 1.0f;
 
-	/** Extra rate actually installed on normal unsheathed MM; action Exit/Idle remain 1. */
+	/** 真正应用到普通持刀MM的额外播放倍率；动作退出段和待机仍保持1。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Speed")
 	float MMUnsheathedAppliedSpeedMultiplier = 1.0f;
 
-	/** Speed expressed in the unchanged source-animation/database clock, not world cm/s. */
+	/** 按源动画及数据库原始时间尺度表示的查询速度，不是加速后的世界速度。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Speed")
 	float MMQuerySpeed2D = 0.0f;
 
+	/** 当前巡航挡位在移速倍率作用后的预期世界速度，单位为厘米每秒。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Speed")
 	float MMExpectedWorldCruiseSpeed = 0.0f;
 
-	/** Smooth buff gain/loss only; never buffers movement input or restarts a player. */
+	/** 仅平滑移速增益获得或消失时的倍率变化，不缓存移动输入或重新启动动画播放器。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Speed", meta=(ClampMin="0.0"))
 	float MMUnsheathedSpeedInterpSpeed = 20.0f;
 
 	float GetLocomotionPlaybackRateScale(bool bUnsheathed) const
 	{ return bUnsheathed ? MMUnsheathedAppliedSpeedMultiplier : 1.0f; }
 
-	/** Start=positive, cruise/idle=zero, stop=negative. */
+	/** 移动意图查询值：起步为正、巡航或待机为零、停步为负。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	float MMIntentQuery = 0.0f;
 
-	/** Negative remaining stop distance while stopping; zero otherwise. Unit: cm. */
+	/** 停步期间的负剩余距离，单位为厘米；非停步时为零。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	float MMDistanceToStopQuery = 0.0f;
 
-	/**
-	 * Sheathed Stop family query. Zero outside a Stop search; Walk/Run/Sprint
-	 * use distinct positive lanes while a generated Stop is selected.
-	 */
+	/** 收刀停步搜索的挡位特征；非停步时为零，Walk、Run、Sprint使用不同正值通道。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	float MMStopGaitQuery = 0.0f;
 
-	/**
-	 * Active locomotion family query. While movement input exists, Walk/Run/Sprint
-	 * use the same 1/3, 2/3 and 1 lanes as the indexed MM_MoveGait curve.
-	 */
+	/** 有效移动输入对应的挡位特征；Walk、Run、Sprint分别与索引曲线的1/3、2/3、1通道一致。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	float MMMoveGaitQuery = 0.0f;
 
-	/** Exact indexed phase query, from the persistent cycle clock or one-shot Exit feet matching. */
+	/** 持续循环时钟或退出段一次性脚相匹配给出的精确循环相位查询。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	FVector2D MMLoopPhaseQuery = FVector2D::ZeroVector;
+	/** 持刀循环节点使用的独立脚相查询值。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	FVector2D MMUnsheathedLoopPhaseQuery = FVector2D::ZeroVector;
 
@@ -196,160 +193,167 @@ public:
 	bool WantsLoopEntryMatch(bool bUnsheathed) const;
 	void PublishLoopPhaseQuery(bool bUnsheathed, const FVector2D& Phase, FName Source);
 
-	/**
-	 * True while an action Montage or movement lock owns Root Motion. The AnimGraph must use this
-	 * to bypass the regular Motion Matching nodes with the matching Idle pose before Pose History.
-	 */
+	/** 动作蒙太奇或移动锁拥有根运动时，普通MM旁路为对应待机姿势，再进入姿势历史。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	bool bMMForceIdle = false;
 
-	/** Current playable locomotion input after BlockMovement filtering. */
+	/** 经过禁止移动过滤后，当前是否仍有可执行的普通移动输入。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	bool bMMHasLocomotionInput = false;
 
-	/** Raw stick gate for insect-glaive Montage layering: true means locomotion continues below Spine_00. */
+	/** 操虫动作的原始摇杆分层开关；为真时Spine_00以下保持普通移动。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Insect Glaive")
 	bool bKinsectUpperBodyOnly = false;
 
-	/** Stance snapshot used by pre-search routing so only the relevant MM node consumes a Handoff. */
+	/** 普通移动当前是否持刀，用于让正确的MM节点消费交接。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	bool bMMUnsheathedLocomotion = false;
 
-	/** True only while an actual player release owns exactly one Stop request. */
+	/** 是否存在一次由玩家实际松开输入建立的有效停步请求。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	bool bMMStopRequestActive = false;
 
-	/** Exit tails may open normal Move candidates only for held input or that Stop request. */
+	/** 退出尾段是否允许正常移动候选；仅持续移动输入或有效停步请求可打开。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	bool bMMExitWantsMoveDatabase = false;
 
-	/**
-	 * One-shot candidate-routing event for an action that ended with no playable
-	 * locomotion input. It selects a dedicated Idle-only PSD; it is not an output
-	 * pose hold and therefore cannot create an input deadzone.
-	 */
+	/** 动作无有效移动输入结束时的一次性待机候选路由；只选待机数据库，不锁住输出姿势或制造输入死区。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Action Exit")
 	bool bMMActionIdleContextActive = false;
 
+	/** 本次动作结束待机路由属于持刀还是收刀状态。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Action Exit")
 	bool bMMActionIdleContextUnsheathed = false;
 
+	/** 动作结束待机上下文的发布序号，防止重复消费。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Action Exit")
 	int64 MMActionIdleContextSerial = 0;
 
-	/** Stance-specific one-frame route flags consumed directly by E4.2 callback branches. */
+	/** 收刀MM回调本帧是否进入动作结束后的待机专用搜索。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Action Exit")
 	bool bMMRouteSheathedActionIdle = false;
 
+	/** 持刀MM回调本帧是否进入动作结束后的待机专用搜索。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Action Exit")
 	bool bMMRouteUnsheathedActionIdle = false;
 
-	/** Current pre-search routing state for the two ordinary locomotion nodes. */
+	/** 收刀普通移动节点当前使用的动作退出搜索路由。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Action Exit")
 	EMHGZMMActionExitRoute MMSheathedActionExitRoute = EMHGZMMActionExitRoute::Move;
 
+	/** 持刀普通移动节点当前使用的动作退出搜索路由。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Action Exit")
 	EMHGZMMActionExitRoute MMUnsheathedActionExitRoute = EMHGZMMActionExitRoute::Move;
 
-	/** Handoff serial currently owned by each route; zero means no active Exit route. */
+	/** 收刀退出路由当前持有的交接序号；零表示没有退出路由。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Action Exit")
 	int64 MMSheathedActionExitSerial = 0;
 
+	/** 持刀退出路由当前持有的交接序号；零表示没有退出路由。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Action Exit")
 	int64 MMUnsheathedActionExitSerial = 0;
 
-	/** M4.4 Host-published exit routing state. E4.2's Chooser consumes this; it never picks an animation directly. */
+	/** 宿主是否发布了有效动作退出交接；路由只选择候选家族，不直接选择动画。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Handoff")
 	bool bMMHandoffActive = false;
 
+	/** 当前动作交给MM搜索的退出候选家族。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Handoff")
 	EMHGZMotionMatchingHandoffType MMHandoffType = EMHGZMotionMatchingHandoffType::None;
 
+	/** 当前MM交接序号，用于一次性消费与旧载荷隔离。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Handoff")
 	int64 MMHandoffSerial = 0;
 
+	/** 交接时锁定的原始物理摇杆轴值。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Handoff")
 	FVector2D MMHandoffRawMoveInput = FVector2D::ZeroVector;
 
+	/** 交接时是否存在有效物理移动输入。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Handoff")
 	bool bMMHandoffHasRawMoveInput = false;
 
+	/** 动作可移动尾段是否曾出现有效物理输入。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Handoff")
 	bool bMMHandoffHadRawMoveInputInMobilePhase = false;
 
+	/** 交接是否携带可移动尾段内真实松杆产生的待停步请求。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Handoff")
 	bool bMMPendingStopAtHandoff = false;
 
+	/** 交接前可移动尾段最后有效摇杆输入对应的巡航速度，单位为厘米每秒。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Handoff")
 	float MMHandoffLastActiveRawMoveCruiseSpeed = 0.0f;
 
-	/** Last non-zero animation-backed target cruise speed. Unit: cm/s. */
+	/** 上次非零且具有动画支撑的目标巡航速度，单位为厘米每秒。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	float MMLastNonZeroCruiseSpeed = 0.0f;
 
-	/** Current sample plus the 0.2/0.5/0.8/1.0 second forward-only predictions. */
+	/** 当前样本及向前0.2、0.5、0.8、1.0秒的移动预测轨迹。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Movement|MM|Query")
 	FTransformTrajectory MMPredictedTrajectory;
 
-	/** True while an exact action owns the visual pitch, including its read-only release fade. */
+	/** 当前是否存在由精确动作身份拥有的视觉俯仰，包含只读淡出阶段。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Action Pitch")
 	bool bActionVisualPitchActive = false;
 
-	/** Locked direction elevation for diagnostics; never connect directly to a local-bone pitch. */
+	/** 锁定方向的仰角诊断值，单位为度；不可直接接入局部骨骼俯仰。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Action Pitch")
 	float ActionVisualPitchDegrees = 0.0f;
 
-	/** Smoothed 0..1 action-pitch weight consumed by telemetry and AnimGraph. */
+	/** 动画图使用的平滑视觉俯仰权重，取值0到1。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Action Pitch")
 	float ActionVisualPitchWeight = 0.0f;
 
-	/** Weighted component-space additive rotation consumed by the final root-bone Modify Bone node. */
+	/** 最终根骨骼修改节点使用的带权组件空间附加旋转。 */
 	UPROPERTY(BlueprintReadOnly, Transient, Category="Animation|Action Pitch")
 	FRotator ActionVisualPitchComponentRotation = FRotator::ZeroRotator;
 
+	/** 收刀Walk起步查询使用的加速度，单位为厘米每平方秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query|Acceleration", meta=(ClampMin="1.0"))
 	float MMStartAccelerationWalk = 950.0f;
 
+	/** 收刀Run起步查询使用的加速度，单位为厘米每平方秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query|Acceleration", meta=(ClampMin="1.0"))
 	float MMStartAccelerationRun = 1000.0f;
 
+	/** 收刀Sprint起步查询使用的加速度，单位为厘米每平方秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query|Acceleration", meta=(ClampMin="1.0"))
 	float MMStartAccelerationSprint = 700.0f;
 
+	/** 持刀起步查询使用的加速度，单位为厘米每平方秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query|Acceleration", meta=(ClampMin="1.0"))
 	float MMStartAccelerationUnsheathed = 1750.0f;
 
+	/** Walk停步距离估计使用的减速度幅值，单位为厘米每平方秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query|Deceleration", meta=(ClampMin="1.0"))
 	float MMStopDecelerationWalk = 250.0f;
 
+	/** Run停步距离估计使用的减速度幅值，单位为厘米每平方秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query|Deceleration", meta=(ClampMin="1.0"))
 	float MMStopDecelerationRun = 1900.0f;
 
+	/** Sprint停步距离估计使用的减速度幅值，单位为厘米每平方秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query|Deceleration", meta=(ClampMin="1.0"))
 	float MMStopDecelerationSprint = 3000.0f;
 
+	/** 允许进入起步候选的速度阈值，单位为厘米每秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query", meta=(ClampMin="0.0"))
 	float MMStartEligibilitySpeed = 60.0f;
 
-	/**
-	 * Briefly holds the LocomotionBase at Idle after a deadzone-crossing input.
-	 * This lets an analogue stick reach its final Walk/Run/Sprint lane before a
-	 * Start candidate is first selected, preventing a one-frame Walk Start hop.
-	 */
+	/** 摇杆刚越过死区后的短暂挡位稳定等待，单位为秒；避免先选一帧Walk起步再改挡。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query", meta=(ClampMin="0.0"))
 	float MMStartInputSettleDuration = 1.0f / 30.0f;
 
+	/** 进入待机判断使用的水平速度阈值，单位为厘米每秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query", meta=(ClampMin="0.0"))
 	float MMIdleSpeedThreshold = 8.0f;
 
+	/** 超过该帧位移时按传送处理并重置移动历史，单位为厘米。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query", meta=(ClampMin="0.0"))
 	float MMTeleportResetDistance = 200.0f;
 
-	/**
-	 * Optional legacy comparison duration for the post-action MM Idle hold. The hold
-	 * is disabled by default through mhgz.MM.PostActionIdleHold; the duration is used
-	 * only when that console variable is enabled during PIE diagnosis.
-	 */
+	/** 旧版动作后待机保持的诊断时长，单位为秒；仅开启mhgz.MM.PostActionIdleHold时读取，默认不启用。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Query", meta=(ClampMin="0.0"))
 	float MMForceIdleReleaseHoldDuration = 0.05f;
 
@@ -519,31 +523,43 @@ private:
 	MHGZMotionMatching::EMHGZNormalMoveCandidateSet MMSheathedNormalMoveCandidateSet =
 		MHGZMotionMatching::EMHGZNormalMoveCandidateSet::FullMove;
 
-	/** Loaded once on the game thread; worker-thread callbacks only read these references. */
+	/** 收刀普通移动数据库；在游戏线程加载，工作线程回调只读。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMSheathedMoveDatabase;
+	/** 收刀Run专用循环候选数据库。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMSheathedRunLoopOnlyDatabase;
+	/** 收刀Sprint专用循环候选数据库。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMSheathedSprintLoopOnlyDatabase;
+	/** 收刀Walk专用循环候选数据库。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMSheathedWalkLoopOnlyDatabase;
+	/** 持刀巡航专用循环候选数据库。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMUnsheathedLoopOnlyDatabase;
+	/** 收刀Run脚相对齐使用的原循环序列引用。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimSequenceBase> MMSheathedRunLoopSequence;
+	/** 收刀Sprint脚相对齐使用的原循环序列引用。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimSequenceBase> MMSheathedSprintLoopSequence;
+	/** 持刀普通移动数据库的已加载引用。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMUnsheathedMoveDatabase;
+	/** 收刀动作结束后仅包含待机候选的数据库。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMSheathedActionIdleDatabase;
+	/** 持刀动作结束后仅包含待机候选的数据库。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMUnsheathedActionIdleDatabase;
+	/** 移动收刀退出段对应的收刀候选数据库。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMSheathedSheatheExitDatabase;
+	/** 收刀翻滚退出段对应的候选数据库。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMSheathedDodgeExitDatabase;
+	/** 持刀翻滚退出段对应的候选数据库。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMUnsheathedDodgeExitDatabase;
 
@@ -561,6 +577,7 @@ private:
 	float MMNodeUpdateDelta[2] = { 0.f, 0.f };
 	bool bMMBaseBlendCaptured[2] = { false, false };
 	TSharedPtr<FStructOnScope> MMBaseBlend[2];
+	/** 循环脚相查询需要保持加载的数据库引用集合。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UPoseSearchDatabase> MMLoopQueryDatabases[2];
 	bool bMMLoopEntryMatch[2] = { false, false };

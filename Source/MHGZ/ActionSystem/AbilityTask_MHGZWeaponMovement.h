@@ -32,6 +32,7 @@ class MHGZ_API UAbilityTask_MHGZWeaponMovement : public UAbilityTask
 public:
 	UAbilityTask_MHGZWeaponMovement(const FObjectInitializer& ObjectInitializer);
 
+	/** 本次位移任务结束时广播结束原因和交接结果。 */
 	UPROPERTY(BlueprintAssignable)
 	FMHGZWeaponMovementResultDelegate OnFinished;
 
@@ -98,7 +99,7 @@ private:
 	bool EnsureVaultFlightReleased(bool& bOutWasFlying);
 	void ApplyFinishVelocityPolicy();
 
-	/** Keep request-owned runtime curves alive throughout the movement lease. */
+	/** 任务持有的位移请求，保证请求中的运行时曲线在位移租约期间不被回收。 */
 	UPROPERTY(Transient)
 	FWeaponMovementRequest MovementRequest;
 	TWeakObjectPtr<UMHGZGameplayAbility> MovementAbility;

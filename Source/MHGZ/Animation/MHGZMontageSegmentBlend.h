@@ -27,9 +27,11 @@ public:
 	UPROPERTY(EditAnywhere, Category="持械约束", meta=(DisplayName="启用接缝持械约束"))
 	bool bEnableWeaponGripConstraint = false;
 
+	/** 启用持械接缝约束时使用的来源姿势序列。 */
 	UPROPERTY(EditAnywhere, Category="持械约束", meta=(EditCondition="bEnableWeaponGripConstraint", DisplayName="来源序列"))
 	TObjectPtr<UAnimSequenceBase> WeaponGripFromSequence;
 
+	/** 启用持械接缝约束时使用的目标姿势序列。 */
 	UPROPERTY(EditAnywhere, Category="持械约束", meta=(EditCondition="bEnableWeaponGripConstraint", DisplayName="目标序列"))
 	TObjectPtr<UAnimSequenceBase> WeaponGripToSequence;
 

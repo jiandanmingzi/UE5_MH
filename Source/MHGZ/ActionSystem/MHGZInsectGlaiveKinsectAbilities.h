@@ -41,6 +41,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Action")
 	TObjectPtr<UAnimMontage> ActionMontage;
 
+	/** 该动作蒙太奇的播放倍率；1表示按资产原速播放。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Action",
 		meta = (ClampMin = "0.01"))
 	float ActionMontagePlayRate = 1.0f;
@@ -62,9 +63,11 @@ private:
 	/** 保存 Confirm 后的完整请求；Commit 时绝不重读 Aim/相机/摇杆。 */
 	FKinsectFlightRequest PendingRequest;
 
+	/** 当前蒙太奇播放任务的运行时引用；随本次能力清理。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
 
+	/** 本次实际播放的动作蒙太奇引用，供结束与旧回调校验。 */
 	UPROPERTY()
 	TObjectPtr<UAnimMontage> ActiveActionMontage;
 
@@ -98,6 +101,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Action")
 	TObjectPtr<UAnimMontage> ActionMontage;
 
+	/** 该动作蒙太奇的播放倍率；1表示按资产原速播放。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Action",
 		meta = (ClampMin = "0.01"))
 	float ActionMontagePlayRate = 1.0f;
@@ -115,9 +119,11 @@ protected:
 	void OnActionMontageInterrupted();
 
 private:
+	/** 当前蒙太奇播放任务的运行时引用；随本次能力清理。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
 
+	/** 本次实际播放的动作蒙太奇引用，供结束与旧回调校验。 */
 	UPROPERTY()
 	TObjectPtr<UAnimMontage> ActiveActionMontage;
 
@@ -174,10 +180,11 @@ public:
 		bool bReplicateEndAbility,
 		bool bWasCancelled) override;
 
-	/** In-place UpperBody_IGAction montage, normally AM_IG_SendKinsect. */
+	/** 原地上半身操虫蒙太奇，通常使用操虫同款常驻资产。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Action")
 	TObjectPtr<UAnimMontage> ActionMontage;
 
+	/** 该动作蒙太奇的播放倍率；1表示按资产原速播放。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect|Action",
 		meta = (ClampMin = "0.01"))
 	float ActionMontagePlayRate = 1.0f;
@@ -198,9 +205,11 @@ protected:
 private:
 	FKinsectFlightRequest PendingRequest;
 
+	/** 当前蒙太奇播放任务的运行时引用；随本次能力清理。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
 
+	/** 本次实际播放的动作蒙太奇引用，供结束与旧回调校验。 */
 	UPROPERTY()
 	TObjectPtr<UAnimMontage> ActiveActionMontage;
 

@@ -194,9 +194,11 @@ private:
 	/** 两个条件都满足才收尾：运动结束，且（视觉播完 或 已经触地认领落地姿势）。 */
 	void TryFinishAirDodge();
 
+	/** 本次空中回避的动作位移任务。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> AirDodgeMovementTask;
 
+	/** 本次空中回避的动画表现任务。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> AirDodgeVisualTask;
 

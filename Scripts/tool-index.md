@@ -273,3 +273,4 @@ Combat兼容清理回查：同一`migrate_powder_vortex_config.py`入口加`-MHG
 | `MHGZPoseSearchTelemetryExport` | [声明与前置说明](../Source/MHGZToolsEditor/Public/Commandlets/MHGZPoseSearchTelemetryExportCommandlet.h) |
 | `MHGZStripPresentationRootMotion` | [声明与前置说明](../Source/MHGZToolsEditor/Public/Commandlets/MHGZStripPresentationRootMotionCommandlet.h)；历史写资产工具，不作为迁移验证命令 |
 | `MHGZWuTaMontageSetup` | [声明与前置说明](../Source/MHGZToolsEditor/Public/Commandlets/MHGZWuTaMontageSetupCommandlet.h) |
+| `MHGZFieldDocumentation` | [声明](../Source/MHGZToolsEditor/Public/Commandlets/MHGZFieldDocumentationCommandlet.h)：原生字段与蓝图成员/局部变量中文ToolTip检查；默认只读，`-RequireChinese`遇遗漏失败，`-Report=`指定JSON；仅明确`-Apply -BlueprintDocs=`时写变量说明，先备份目标包，不改图/类型/默认值、不重新编译蓝图 |

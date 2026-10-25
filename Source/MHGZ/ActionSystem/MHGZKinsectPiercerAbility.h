@@ -180,9 +180,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Piercer|Montage Sections")
 	FName StartSectionName = TEXT("Start200");
 
+	/** 强化操虫穿刺进入下冲阶段的Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Piercer|Montage Sections")
 	FName DiveSectionName = TEXT("Dive201");
 
+	/** 强化操虫穿刺未落地时循环播放的下冲Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Piercer|Montage Sections")
 	FName DiveLoopSectionName = TEXT("DiveLoop201");
 
@@ -192,6 +194,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Piercer|Montage")
 	TObjectPtr<UAnimMontage> LandingMontage;
 
+	/** 强化操虫穿刺地面阶段的入口Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Piercer|Montage Sections")
 	FName LandingSectionName = TEXT("Landing203");
 
@@ -306,12 +309,15 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> MainMontageTask;
 
+	/** 当前地面或落地表现的播放任务，随对应动作生命周期清理。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> LandingMontageTask;
 
+	/** 当前动作拥有的位移任务；任务结束或取消时释放。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> MovementTask;
 
+	/** 本次实际播放的主体蒙太奇引用，供任务回调及清理使用。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimMontage> ActiveMainMontage;
 

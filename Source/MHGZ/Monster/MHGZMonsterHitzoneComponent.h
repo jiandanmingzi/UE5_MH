@@ -67,7 +67,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	FGameplayTag HitzoneTag;
 
-	/** Extract color provided by this part (leaf Red/White/Orange). */
+	/** 该部位提供的精华颜色，末级标签为Red、White或Orange。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	FGameplayTag ExtractColorTag;
 
@@ -87,7 +87,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	float StaggerRate = 1.0f;
 
-	/** Sphere radius in cm; runtime generation uses this, not the old HalfExtent. */
+	/** 球形查询半径，单位为厘米；生成查询时使用此值，不读取旧半尺寸字段。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone", meta = (ClampMin = "0.0"))
 	float Radius = 30.f;
 
@@ -95,6 +95,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone")
 	EMHGZHitzoneShape QueryShape = EMHGZHitzoneShape::Sphere;
 
+	/** 盒形查询的三轴半尺寸，单位为厘米。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Hitzone", meta = (ClampMin = "1.0"))
 	FVector BoxHalfExtent = FVector(30.0f);
 
@@ -136,8 +137,10 @@ private:
 	};
 	TMap<TWeakObjectPtr<const UObject>, FKinsectMarkDebuff> KinsectMarkDebuffs;
 
+	/** 盒形模式真正启用的查询子组件；部位身份仍保留在逻辑组件上。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZMonsterBoxHitzoneQueryComponent> BoxQuery;
+	/** 网格模式真正启用的实体凸形查询子组件；多个凸体仍对应一个部位身份。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZMonsterMeshHitzoneQueryComponent> MeshQuery;
 };

@@ -61,41 +61,25 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault")
 	TSoftObjectPtr<UAnimSequenceBase> DanceVaultSequence;
 
-	/**
-	 * Authored dance-vault montage.  Preferred over the runtime-built fallback.
-	 *
-	 * The runtime path cannot retime the clip: UE 5.6's
-	 * UAnimMontage::CreateSlotAnimationAsDynamicMontage declares InPlayRate and
-	 * then never reads it, leaving FAnimSegment::AnimPlayRate at its 1.0 default
-	 * (AnimMontage.cpp:3093-3154).  So on that path the pose track is pinned to
-	 * the raw clip length no matter what DanceVaultAnimationPlayRate says, and a
-	 * re-measured DanceVaultDuration silently desyncs from it.  An authored asset
-	 * carries a real per-segment rate, plus BlendModeIn/BlendProfileIn, which the
-	 * dynamic montage also cannot express (AnimMontage.cpp:3267-3271).
-	 *
-	 * When this is set, DanceVaultAnimationPlayRate, DanceVaultBlendInTime and
-	 * DanceVaultBlendOutTime are NOT consulted -- the asset's own segment rate and
-	 * blend settings govern, exactly as the authored back-vault montage overrides
-	 * BuildBackVaultMontage's scalars.
-	 */
+	/** 优先使用的常驻舞踏蒙太奇；设置后以资产片段倍率及混入混出配置为准，不读取下方回退参数。动态回退在UE5.6中无法有效改变源段播放倍率，不能靠该路径精确对齐录制时长。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault")
 	TSoftObjectPtr<UAnimMontage> DanceVaultMontage;
 
+	/** 未指定常驻舞踏蒙太奇时，回退播放使用的Slot名。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault")
 	FName DanceVaultMontageSlot = FName(TEXT("DefaultSlot"));
 
-	/**
-	 * Fallback-path only.  See DanceVaultMontage: the dynamic montage ignores this
-	 * value outright, so tuning it has no effect while that path is in use.
-	 */
+	/** 仅为旧动态回退保留的播放倍率参数；UE5.6该构建路径实际忽略倍率，已指定常驻蒙太奇时同样不读取。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault",
 		meta = (ClampMin = "0.01"))
 	float DanceVaultAnimationPlayRate = 1.0f;
 
+	/** 仅旧舞踏回退路径使用的混入时长，单位为秒；常驻蒙太奇采用资产设置。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault",
 		meta = (ClampMin = "0.0"))
 	float DanceVaultBlendInTime = 0.0f;
 
+	/** 仅旧舞踏回退路径使用的混出时长，单位为秒；常驻蒙太奇采用资产设置。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Counter|Dance Vault",
 		meta = (ClampMin = "0.0"))
 	float DanceVaultBlendOutTime = 0.05f;
@@ -131,6 +115,7 @@ private:
 	void CloseAllAdvancingCounterWindows();
 
 	TMap<FName, FCounterWindowState> CounterWindows;
+	/** 突进反击成功后执行舞踏位移的当前任务。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> AdvancingCounterVaultTask;
 

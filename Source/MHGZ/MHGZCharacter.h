@@ -73,11 +73,11 @@ class AMHGZCharacter : public ACharacter, public IAbilitySystemInterface
 {
 	GENERATED_BODY()
 
-	/** Camera boom */
+	/** 跟随相机使用的弹簧臂组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	USpringArmComponent* CameraBoom;
 
-	/** Follow camera */
+	/** 角色当前跟随相机组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	UCameraComponent* FollowCamera;
 
@@ -104,32 +104,32 @@ class AMHGZCharacter : public ACharacter, public IAbilitySystemInterface
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	UMHGZEdgeVaultComponent* EdgeVaultComponent;
 
-	/** Target-side IncomingHit resolver: authoritative dedupe + counter tokens. */
+	/** 角色目标侧受击解析器，统一负责重复命中拦截及反击令牌。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UMHGZIncomingHitResolverComponent> IncomingHitResolver;
 
-	/** Settled-hit feedback router (parallel M2 domain). */
+	/** 已结算命中结果的表现反馈路由组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UMHGZHitFeedbackRouterComponent> HitFeedbackRouter;
 
-	/** Hit-stop request controller (parallel M2 domain). */
+	/** 管理命中停顿请求与释放的控制组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta=(AllowPrivateAccess="true"))
 	TObjectPtr<UMHGZHitStopControllerComponent> HitStopController;
 
 protected:
-	/** Move Input Action */
+	/** 提供移动摇杆或方向轴的增强输入动作。 */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* MoveAction;
 
-	/** Look Input Action */
+	/** 提供视角摇杆轴的增强输入动作。 */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* LookAction;
 
-	/** Mouse Look Input Action */
+	/** 提供鼠标视角输入的增强输入动作。 */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* MouseLookAction;
 
-	/** RB physical hold is retained through Sheathe; Sprint is effective only while sheathed. */
+	/** 冲刺肩键的物理按住状态输入；收刀过程中保留按住状态，但仅收刀状态实际启用冲刺。 */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Input")
 	UInputAction* SprintAction;
 
@@ -259,11 +259,11 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category="Movement|MM")
 	float TargetCruiseSpeed = 0.f;
 
-	/** True while a Run/Sprint -> lower non-zero gait request is being confirmed. */
+	/** Run或Sprint是否正在等待较低非零挡位输入稳定。 */
 	UPROPERTY(BlueprintReadOnly, Category="Movement|MM|Input")
 	bool bDownshiftConfirmActive = false;
 
-	/** Remaining confirmation time in seconds; zero whenever no downshift is pending. */
+	/** 当前降挡确认的剩余时间，单位为秒；无待确认降挡时为零。 */
 	UPROPERTY(BlueprintReadOnly, Category="Movement|MM|Input")
 	float DownshiftConfirmRemaining = 0.0f;
 
@@ -289,9 +289,11 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed")
 	float WalkCruise_Sheathed = 160.f;
 
+	/** 收刀Run挡位的巡航目标速度，单位为厘米每秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed")
 	float RunCruise_Sheathed = 460.f;
 
+	/** 收刀Sprint挡位的巡航目标速度，单位为厘米每秒。 */
 	UPROPERTY(EditDefaultsOnly, Category="Movement|MM|Sheathed")
 	float SprintCruise = 575.f;
 
@@ -306,19 +308,19 @@ private:
 	UPROPERTY(EditDefaultsOnly, Category="Movement|Deadzone")
 	float MoveDeadzone = 0.1f;
 
-	/** Minimum physical stick magnitude that begins a sheathed Walk request. */
+	/** 物理摇杆幅度达到此值后才开始请求收刀Walk。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement|MM|Input", meta=(AllowPrivateAccess="true", ClampMin="0.0", ClampMax="1.0"))
 	float SheathedWalkInputThreshold = 0.5f;
 
-	/** Minimum physical stick magnitude that promotes sheathed Walk to Run. */
+	/** 物理摇杆幅度达到此值后，收刀Walk提升为Run。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement|MM|Input", meta=(AllowPrivateAccess="true", ClampMin="0.0", ClampMax="1.0"))
 	float SheathedRunInputThreshold = 0.75f;
 
-	/** RB plus a stick magnitude above this value requests Sprint. */
+	/** 按住冲刺肩键且物理摇杆幅度达到此值后请求Sprint。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement|MM|Input", meta=(AllowPrivateAccess="true", ClampMin="0.0", ClampMax="1.0"))
 	float SprintInputThreshold = 0.9f;
 
-	/** Time a lower non-zero gait must remain requested before it replaces Run/Sprint. */
+	/** 较低非零挡位输入需要持续多久才替换Run或Sprint，单位为秒；用于过滤摇杆回收穿过低挡位的瞬间。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Movement|MM|Input", meta=(AllowPrivateAccess="true", ClampMin="0.0", ClampMax="0.25"))
 	float DownshiftConfirmDuration = 0.025f;
 

@@ -34,8 +34,10 @@ public:
 	/** 本机无技能Rise实测，单位为显示耐力点/秒；属性RegenRate仍是倍率。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Ability|Stamina", meta=(ClampMin="0"))
 	float GroundStaminaRecovery = 20.f;
+	/** 空中基础耐力回复速率，单位为每秒耐力点数。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Ability|Stamina", meta=(ClampMin="0"))
 	float AirStaminaRecovery = 10.f;
+	/** 冲刺持续耗耐的基础速率，单位为每秒耐力点数。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Ability|Stamina", meta=(ClampMin="0"))
 	float SprintStaminaDrain = 8.f;
 

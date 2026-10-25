@@ -40,6 +40,7 @@ public:
 	FGameplayAttributeData Health;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, Health)
 
+	/** 生命上限；当前生命受此上限约束。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Health", ReplicatedUsing = OnRep_MaxHealth)
 	FGameplayAttributeData MaxHealth;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, MaxHealth)
@@ -51,6 +52,7 @@ public:
 	FGameplayAttributeData Stamina;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, Stamina)
 
+	/** 耐力上限；当前耐力受此上限约束。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Stamina", ReplicatedUsing = OnRep_MaxStamina)
 	FGameplayAttributeData MaxStamina;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, MaxStamina)
@@ -82,10 +84,12 @@ public:
 	FGameplayAttributeData ElementPower;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, ElementPower)
 
+	/** 防御数值，参与对应的受伤结算。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat", ReplicatedUsing = OnRep_Defense)
 	FGameplayAttributeData Defense;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, Defense)
 
+	/** 会心率，供攻击快照与伤害结算读取。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Combat", ReplicatedUsing = OnRep_CriticalRate)
 	FGameplayAttributeData CriticalRate;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, CriticalRate)
@@ -102,10 +106,12 @@ public:
 	FGameplayAttributeData IncomingDamage;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, IncomingDamage)
 
+	/** 本次效果输入的临时硬直量，属性执行后交给受击链处理。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingStagger;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, IncomingStagger)
 
+	/** 本次伤害输入的会心标志，供结算后的反馈快照读取。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Attributes|Meta")
 	FGameplayAttributeData IncomingCriticalFlag;
 	ATTRIBUTE_ACCESSORS(UMHGZAttributeSet, IncomingCriticalFlag)

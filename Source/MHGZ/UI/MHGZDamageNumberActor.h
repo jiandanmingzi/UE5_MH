@@ -28,12 +28,15 @@ protected:
 	virtual void Tick(float DeltaSeconds) override;
 	void HandleLifetimeExpired();
 
+	/** 承载伤害数字界面的世界空间Widget组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Feedback")
 	TObjectPtr<UWidgetComponent> DamageWidgetComponent;
 
+	/** 该伤害数字角色创建的界面控件类。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Feedback")
 	TSubclassOf<UMHGZDamageNumberWidget> DamageWidgetClass;
 
+	/** 伤害数字从显示到自动回收的总时长，单位为秒。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Feedback",
 		meta = (ClampMin = "0.05"))
 	float DisplayLifetime = 1.0f;

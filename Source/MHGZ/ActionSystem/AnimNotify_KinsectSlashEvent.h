@@ -14,6 +14,7 @@ class MHGZ_API UAnimNotify_KinsectSlashEvent : public UAnimNotify
 	GENERATED_BODY()
 
 public:
+	/** 本通知向操虫斩能力发送的事件种类。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash")
 	EKinsectSlashMontageEvent Event = EKinsectSlashMontageEvent::AimLock;
 

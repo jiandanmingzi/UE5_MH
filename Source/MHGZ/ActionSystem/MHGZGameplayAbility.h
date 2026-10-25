@@ -98,12 +98,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="Ability|Audio")
 	bool bUseAuthoredSwingAudio = false;
 
-	/**
-	 * Explicitly authored exit families this Action may hand to Motion Matching.
-	 * An empty array is the safe default: a stray Notify never ends a GA or
-	 * changes Root Motion ownership.  E4.2 configures only the audited M4.1
-	 * actions; the enum routes a PSD/Chooser family, never an animation.
-	 */
+	/** 本动作明确允许交给MM的退出候选家族。空数组表示不允许，避免误放通知提前结束GA或改变根运动所有权；只路由数据库家族，不直接指定动画。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Motion Matching")
 	TArray<EMHGZMotionMatchingHandoffType> AllowedMotionMatchingHandoffTypes;
 
@@ -286,8 +281,10 @@ private:
 		USkeletalMeshComponent* Mesh, int32 MontageInstanceID,
 		const UAnimNotify_SwingSound& Recipe) const;
 
+	/** 本次动作已加载的挥击音源覆盖表，保持声音资源在播放期间有效。 */
 	UPROPERTY(Transient)
 	TMap<FGameplayTag, TObjectPtr<USoundBase>> LoadedSwingSoundOverrides;
+	/** 建立本次挥击音效快照所使用的武器定义。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZWeaponDefinition> PreparedSwingWeapon;
 	TSharedPtr<FStreamableHandle> SwingSoundLoadHandle;

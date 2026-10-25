@@ -19,6 +19,7 @@ public:
 		const FGameplayCueParameters& Parameters) const override;
 
 protected:
+	/** 成功命中反馈时生成的伤害数字角色类。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Feedback")
 	TSubclassOf<AMHGZDamageNumberActor> DamageNumberActorClass;
 };

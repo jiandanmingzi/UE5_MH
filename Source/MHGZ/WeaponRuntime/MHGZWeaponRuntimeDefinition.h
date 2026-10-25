@@ -31,9 +31,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Runtime")
 	TSubclassOf<UMHGZWeaponResourceComponent> ResourceComponentClass;
 
+	/** 本武器使用的输入配置，武器建立运行期时注入输入路由器。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Runtime")
 	TObjectPtr<UWeaponInputProfile> InputProfile;
 
+	/** 当前武器共用战斗配置；招式独占参数仍由对应GA管理。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Runtime")
 	TObjectPtr<UWeaponCombatConfigBase> CombatConfig;
 

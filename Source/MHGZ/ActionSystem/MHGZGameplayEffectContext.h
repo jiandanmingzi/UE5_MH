@@ -31,12 +31,15 @@ struct MHGZ_API FMHGZGameplayEffectContext : public FGameplayEffectContext
 {
 	GENERATED_BODY()
 
+	/** 本次攻击的唯一身份；目标侧按此身份限制重复结算。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FGuid AttackInstanceID;
 
+	/** 攻击来源的语义标签，随伤害上下文传递给结算与反馈链。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FGameplayTag SourceActionTag;
 
+	/** 命中部位的语义标签，用于查询肉质与反馈。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FGameplayTag HitzoneTag;
 
@@ -44,9 +47,11 @@ struct MHGZ_API FMHGZGameplayEffectContext : public FGameplayEffectContext
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	bool bUseHitzoneDefense = true;
 
+	/** 伤害来源种类，用于选择武器、猎虫或粉尘的结算规则。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	EMHGZDamageSourceType DamageSourceType = EMHGZDamageSourceType::Weapon;
 
+	/** 物理伤害种类，用于选择斩击、打击或弹类肉质。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	EMHGZPhysicalDamageType PhysicalDamageType = EMHGZPhysicalDamageType::Sever;
 
@@ -54,9 +59,11 @@ struct MHGZ_API FMHGZGameplayEffectContext : public FGameplayEffectContext
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FMHGZWeaponDamageProfile WeaponDamageProfile;
 
+	/** 成功结算物理命中后使用的反馈标签。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FGameplayTag HitCueTag;
 
+	/** 成功结算属性伤害后使用的反馈标签。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|Damage")
 	FGameplayTag ElementCueTag;
 

@@ -14,6 +14,8 @@
 
 ## 常用执行入口
 
+中文字段说明检查：原生Commandlet `-run=MHGZFieldDocumentation -RequireChinese -Report=<报告绝对路径>`读取项目自有C++反射字段和蓝图成员/局部变量的实际ToolTip；默认只读，不执行DataValidation、蓝图重建或PIE。一般给`UPROPERTY`前添加中文文档注释即可由UHT生成悬停说明；已有显式ToolTip优先，必须同样为中文。蓝图变量元数据不向Python暴露，工具通过原生变量描述和生成类核对；`-Apply -BlueprintDocs=<JSON>`仅用于明确授权的说明变更，JSON为“包路径→变量名→中文说明”，局部名为“函数名::变量名”。写入前备份相关包；工具同时检查变量GUID/类型/默认值及节点/引脚连接不变。当前1114原生字段与63蓝图变量已完成并独立回载，证据与备份见`Saved/Maintenance/ChineseFieldDocs20261025/`，日常只读复查，不重放本次Apply。
+
 Combat兼容清理（2026-10-24）已完成：现有入口加`-MHGZCombatCleanup`默认只读回查；首次`-MHGZCombatCleanupApply`已保存且禁止重放。66个旧/重复字段删除，只重存Combat；原包、共享值文本及37包保护hash见`Saved/Maintenance/CombatCleanup20261024/`。旧GA迁移只读审计严格允许这一次已验证的Combat hash链，不放宽GA及其它包保护；旧聚爆档位已由用户调为20/120/300，其更早10/50/100快照回查会拒绝，不能靠回退现有值绕过。旧迁移工具保留为依赖已有Saved事务的历史回查入口；新设备直接读取当前GA，不用它重建已删除的Schema。
 
 招式参数迁移入口（2026-10-24）：复用`AssetOrganization/migrate_powder_vortex_config.py`，加`-MHGZActionConfig`进入批量后端`migrate_ig_action_config.py`。10份GA/38项字段赋值已保存并独立回载，默认只读核对；`-MHGZActionConfigApply`只允许首次事务，已有`applied.json`拒绝重放。证据、原始精度数值及备份在`Saved/Maintenance/IGActionConfig20261024/ActionDefaults/`；28份保护包包括Combat/虫印弹/聚爆及相关引用。当前GA入口见[归属表](../docs/design/insect-glaive.md#当前配置归属2026-10-24覆盖下文历史combat招式参数说明)。历史初始化/动作值/曲线Apply工具仍写旧Combat字段，不能用于当前GA调参；不要重放。脚本的Commandlet开关通过`unreal.SystemLibrary.get_command_line()`识别；编辑器已打开仍遵守`ue_remote.py`入口，不另起写包进程。

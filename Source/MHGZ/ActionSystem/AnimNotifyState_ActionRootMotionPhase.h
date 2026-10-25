@@ -20,14 +20,11 @@ class MHGZ_API UAnimNotifyState_ActionRootMotionPhase : public UAnimNotifyState
 	GENERATED_BODY()
 
 public:
-	/** True only for the portion that actually contributes Montage Root Motion. */
+	/** 该通知窗口是否真正持有蒙太奇根运动；只在实际贡献根运动的片段开启。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Root Motion")
 	bool bOwnsMontageRootMotion = true;
 
-	/**
-	 * Record physical-stick history for a mobile action tail. This is separate
-	 * from BlockMovement and is what can arm PendingStopAtMMHandoff later.
-	 */
+	/** 是否记录可移动动作尾段的物理摇杆历史；与禁止移动标签分开，供后续建立待停步交接。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Matching")
 	bool bObserveRawMovementInput = false;
 

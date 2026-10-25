@@ -24,9 +24,11 @@ public:
 		UGameplayAbility* OwningAbility, URes_InsectGlaive* Resource,
 		const FIGPowderReservationToken& ReservationToken, float DurationSeconds);
 
+	/** 粉尘聚集流程成功完成时广播。 */
 	UPROPERTY(BlueprintAssignable)
 	FMHGZGatherPowderDelegate OnCompleted;
 
+	/** 粉尘聚集被拒绝或执行失败时广播。 */
 	UPROPERTY(BlueprintAssignable)
 	FMHGZGatherPowderDelegate OnFailed;
 

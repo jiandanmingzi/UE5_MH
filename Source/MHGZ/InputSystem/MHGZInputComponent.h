@@ -27,6 +27,7 @@ class UMHGZInputComponent : public UActorComponent
 public:
 	UMHGZInputComponent();
 
+	/** 默认启用的输入映射上下文及其优先级配置。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	TArray<UInputMappingContext*> DefaultIMCs;
 
@@ -59,13 +60,15 @@ private:
 	void UnbindAll();
 	void OnRouterProfileChanged();
 
+	/** 拥有该组件的玩家控制器缓存，重绑定时更新。 */
 	UPROPERTY()
 	TWeakObjectPtr<APlayerController> OwnerPC;
 
+	/** 负责组合键解析与输入快照的武器输入路由器。 */
 	UPROPERTY()
 	TWeakObjectPtr<UMHGZWeaponInputRouterComponent> Router;
 
-	/** The native EnhancedInputComponent the stored handles were bound on (weak: stale after re-init). */
+	/** 当前绑定句柄所属的原生增强输入组件弱引用；重初始化后旧绑定不再有效。 */
 	UPROPERTY()
 	TWeakObjectPtr<UEnhancedInputComponent> BoundInputComponent;
 

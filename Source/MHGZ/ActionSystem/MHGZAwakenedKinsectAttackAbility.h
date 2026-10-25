@@ -202,33 +202,40 @@ public:
 	}
 #endif
 
+	/** 觉虫击起手播放的Section名。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Awakened Kinsect|Montage")
 	FName StartupSection = TEXT("Startup193");
 
+	/** 觉虫击按键保持期间循环播放的Section名。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Awakened Kinsect|Montage")
 	FName HoldLoopSection = TEXT("Hold193Loop");
 
+	/** 松键后丢虫动作的Section名。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Awakened Kinsect|Montage")
 	FName SendSection = TEXT("Send195");
 
+	/** 丢虫后、猎人起飞前的Section名。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Awakened Kinsect|Montage")
 	FName PreFlightSection = TEXT("PreFlight196");
 
+	/** 猎人冲刺飞行阶段的Section名。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Awakened Kinsect|Montage")
 	FName HunterFlightSection = TEXT("HunterFlight199");
 
-	/** Shared persistent M5 189 montage; never generated at runtime. */
+	/** 命中舞踏复用的常驻189蒙太奇，不在运行时临时生成。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Awakened Kinsect|Dance")
 	TObjectPtr<UAnimMontage> DanceMontage;
 
+	/** 舞踏蒙太奇的入口段名，必须与常驻资产中的Section一致。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Awakened Kinsect|Dance")
 	FName DanceSectionName = TEXT("HitDance189");
 
+	/** 切入舞踏蒙太奇时使用的混入时长，单位为秒。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Awakened Kinsect|Dance",
 		meta = (ClampMin = "0.0", ForceUnits = "s"))
 	float DanceMontageBlendInTime = 0.1f;
 
-	/** Copied from M5 DanceFromDashTuning so both attacks share the same 189 arc. */
+	/** 由冲刺命中进入189时使用的舞踏轨迹参数，与操虫斩对应配置采用同一轨迹口径。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Awakened Kinsect|Dance")
 	FKinsectSlashDanceEntryTuning DanceFromDashTuning;
 
@@ -329,14 +336,19 @@ private:
 	int32 SuccessfulHitSourceMontageInstanceID = INDEX_NONE;
 	float SuccessfulHitSourcePosition = 0.0f;
 	FHitResult SuccessfulHunterHit;
+	/** 觉虫击猎人冲刺阶段的位移任务。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> HunterFlightMovementTask;
+	/** 命中后舞踏准备阶段的位移任务。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> DancePreparationMovementTask;
+	/** 当前舞踏飞行阶段的位移任务。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> DanceMovementTask;
+	/** 当前舞踏蒙太奇播放任务，供完成、取消和交接清理。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> DanceMontageTask;
+	/** 本次实际播放的舞踏蒙太奇实例资源引用。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimMontage> ActiveDanceMontage;
 	FTimerHandle QueuedDanceTransitionTimer;

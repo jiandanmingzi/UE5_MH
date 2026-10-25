@@ -285,15 +285,19 @@ public:
 		TEnumAsByte<EGameplayModOp::Type> Op) override;
 	virtual void ClearAllEntryModifiers() override;
 
+	/** 猎虫当前耐力或上限变化时广播。 */
 	UPROPERTY(BlueprintAssignable, Category = "IG|Delegate")
 	FOnKinsectStaminaChanged OnKinsectStaminaChanged;
 
+	/** 玩家精华剩余时间更新时广播，供界面刷新。 */
 	UPROPERTY(BlueprintAssignable, Category = "IG|Delegate")
 	FOnExtractTimeUpdated OnExtractTimeUpdated;
 
+	/** 三灯强化状态变化时广播。 */
 	UPROPERTY(BlueprintAssignable, Category = "IG|Delegate")
 	FOnTripleUpChanged OnTripleUpChanged;
 
+	/** 舞踏层数或来源状态变化时广播。 */
 	UPROPERTY(BlueprintAssignable, Category = "IG|Delegate")
 	FOnDanceStateChanged OnDanceStateChanged;
 
@@ -437,11 +441,14 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	void RecordTripleCostTelemetryEvent(uint32 ActivationSequenceID,
 		uint64 ReservationID, FName EventName, FName Reason) const;
 
+	/** 当前武器共用战斗配置；招式独占参数仍由对应GA管理。 */
 	UPROPERTY()
 	TObjectPtr<UInsectGlaiveCombatConfig> CombatConfig;
 
+	/** 当前武器运行期拥有的猎虫实例。 */
 	UPROPERTY()
 	TObjectPtr<AKinsect> KinsectActor;
+	/** 负责记录武器轨迹并执行猎虫延迟协同的组件。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UIGCoAttackComponent> CoAttackComponent;
 	struct FDescendingThrustKinsectSession
@@ -464,9 +471,11 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	friend class FMHGZDescendingThrustCoAttackTestAccess;
 #endif
 
+	/** 当前猎虫的品种数据，提供速度、耐力、攻击力及表现资源。 */
 	UPROPERTY()
 	TObjectPtr<UInsectGlaiveKinsectData> KinsectData;
 
+	/** 猎虫当前附着使用的目标组件引用。 */
 	UPROPERTY()
 	TWeakObjectPtr<USceneComponent> KinsectAttachComponent;
 
@@ -485,9 +494,11 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	float MaxKinsectStamina = 0.f;
 	bool bDepletionEdgeTriggered = false;
 
+	/** 玩家当前各单色精华对应的有效效果句柄。 */
 	UPROPERTY()
 	TMap<FGameplayTag, FActiveGameplayEffectHandle> ActiveExtractHandles;
 
+	/** 当前三灯替换强化效果的句柄。 */
 	UPROPERTY()
 	FActiveGameplayEffectHandle TripleUpHandle;
 
@@ -499,9 +510,11 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	FIGResourceUISnapshot LastPublishedUISnapshot;
 	bool bHasPublishedUISnapshot = false;
 
+	/** 当前唯一虫印实际附着并施加Debuff的受击部位。 */
 	UPROPERTY()
 	TWeakObjectPtr<UMHGZMonsterHitzoneComponent> ActiveMarkHitzone;
 
+	/** 当前仍由资源组件拥有的虫印弹实例。 */
 	UPROPERTY()
 	TWeakObjectPtr<AIGMarkProjectile> ActiveMarkProjectile;
 
@@ -511,6 +524,7 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	FName ActiveMarkBoneName = NAME_None;
 	FGuid ActiveMarkID;
 
+	/** 当前虫印粒子表现组件引用。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UParticleSystemComponent> ActiveMarkEffect;
 
@@ -541,6 +555,7 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	};
 	TMap<uint64, FTripleCostReservationEntry> TripleReservations;
 
+	/** 本运行期仍拥有的粉尘实例集合，负责预留、消耗和清理。 */
 	UPROPERTY(Transient)
 	TArray<TWeakObjectPtr<AIGPowderActor>> OwnedPowders;
 
@@ -555,6 +570,7 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	FIGPowderVortexSettings ActivePowderVortexSettings;
 	float ActivePowderVortexAttackPower = 0.f;
 	FTimerHandle PowderVortexCommitTimer;
+	/** 聚爆聚集阶段持有的声音组件，取消或结束时停止。 */
 	UPROPERTY(Transient)
 	TArray<TObjectPtr<UAudioComponent>> PowderVortexGatherAudio;
 	double LastMarkedContactPowderWorldTime = -1.0;

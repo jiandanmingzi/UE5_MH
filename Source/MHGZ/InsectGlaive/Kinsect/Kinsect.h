@@ -97,6 +97,7 @@ struct FKinsectFlightRequest
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FWeaponRuntimeToken RuntimeToken;
 
+	/** 猎虫本次飞行的轨迹模式，如定向、到点或汇入瞄准射线。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	EKinsectTrajectoryMode TrajectoryMode = EKinsectTrajectoryMode::AlongDirection;
 
@@ -104,9 +105,10 @@ struct FKinsectFlightRequest
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FVector DirectionSnapshot = FVector::ForwardVector;
 
-	/** Ordinary aimed send: align an Attached kinsect to the saved ray at the owner's vertical plane. */
+	/** 普通瞄准放虫且猎虫在臂上时，是否先对齐到拥有者竖直平面上的已锁定射线。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	bool bProjectAttachedLaunchToAimRay = false;
+	/** 本次飞行使用的瞄准射线世界起点快照。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FVector AimOriginSnapshot = FVector::ZeroVector;
 
@@ -118,23 +120,26 @@ struct FKinsectFlightRequest
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FVector TargetPointSnapshot = FVector::ZeroVector;
 
-	/** Aimed damaging send must physically touch a hitzone, not stop at a loose arrival radius. */
+	/** 伤害型瞄准放虫是否必须真实接触受击部位才算命中，不能仅凭到点容差停下。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	bool bRequireHitzoneContactForArrival = false;
-	/** Frozen blocking-surface normal, used only to keep the center-launch capsule outside the surface. */
+	/** 锁定目标表面的法线，用于让屏幕中心发射对齐后的猎虫胶囊位于表面之外。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FVector AimTargetSurfaceNormal = FVector::ZeroVector;
 
-	/** Optional ToPoint target that follows a component/bone from its local point. */
+	/** 到点飞行可选跟随的目标组件，配合骨骼与局部目标点使用。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	TWeakObjectPtr<UPrimitiveComponent> TargetComponent;
+	/** 目标局部点所属的可选骨骼名。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FName TargetBoneName = NAME_None;
+	/** 目标组件或骨骼空间中的目标点，单位为厘米。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FVector TargetLocalPoint = FVector::ZeroVector;
+	/** 是否根据目标组件或骨骼的最新变换更新目标点。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	bool bFollowTargetComponent = false;
-	/** Legacy compatibility only; terrain contacts no longer drive flight endings. */
+	/** 旧配置兼容字段；地形接触已不再驱动猎虫结束飞行。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	bool bAllowWorldHitAtTarget = false;
 	/** C++ action identity for the Resource-owned post-flight transaction. */
@@ -152,12 +157,15 @@ struct FKinsectFlightRequest
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight", meta = (ClampMin = "0.0"))
 	float ArrivalRadius = 0.f;
 
+	/** 本次飞行采用单击、贯通或无伤害等哪种命中结算方式。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	EKinsectDamageMode DamageMode = EKinsectDamageMode::None;
 
+	/** 本次飞行采用的精华采集规则。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	EKinsectExtractMode ExtractMode = EKinsectExtractMode::None;
 
+	/** 本次飞行自然结束后采用的悬停或返回等处理策略。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	EKinsectPostFlightPolicy PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
 
@@ -177,7 +185,7 @@ struct FKinsectFlightRequest
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FGuid FlightInstanceID;
 
-	/** Per-hit powder policy, evaluated only after the matching damage GE succeeds. */
+	/** 每次真实伤害效果成功后检查的粉尘生成规则。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	EIGPowderSpawnPolicy PowderSpawnPolicy = EIGPowderSpawnPolicy::None;
 
@@ -187,7 +195,7 @@ struct FKinsectFlightRequest
 	uint64 CommandSerial = 0;
 	uint64 MarkSerial = 0;
 
-	/** Powder attribution identity; distinct from each successful hit's HitInstanceID. */
+	/** 产生这次猎虫伤害或粉尘的攻击身份，与每下命中的独立身份分开。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|Flight")
 	FGuid SourceAttackInstanceID;
 };
@@ -211,9 +219,11 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kinsect|Components")
 	TObjectPtr<USkeletalMeshComponent> Mesh;
 
+	/** 猎虫的查询碰撞根组件，用于实际攻击扫掠及位置更新。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kinsect|Components")
 	TObjectPtr<UKinsectCollisionComponent> Collision;
 
+	/** 猎虫普通飞行使用的投射物移动组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Kinsect|Components")
 	TObjectPtr<UProjectileMovementComponent> Movement;
 
@@ -221,6 +231,7 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|State")
 	EKinsectState State = EKinsectState::Attached;
 
+	/** 当前猎虫的品种数据，提供速度、耐力、攻击力及表现资源。 */
 	UPROPERTY(BlueprintReadOnly, Category = "Kinsect|State")
 	TObjectPtr<UInsectGlaiveKinsectData> KinsectData;
 
@@ -324,6 +335,7 @@ public:
 	UPROPERTY()
 	TWeakObjectPtr<AActor> OwnerActor;
 
+	/** 当前绑定的武器资源组件，用于读取资源状态及订阅变化。 */
 	UPROPERTY()
 	TWeakObjectPtr<URes_InsectGlaive> ResourceComponent;
 
@@ -346,6 +358,7 @@ private:
 	USoundBase* ResolveFlightLoopSound() const;
 	void RefreshFlightAudio(bool bPlayLaunch = false);
 
+	/** 猎虫当前飞行声音组件，状态改变时由原生命周期停止或切换。 */
 	UPROPERTY(VisibleAnywhere, Category = "Kinsect|Audio")
 	TObjectPtr<UAudioComponent> FlightAudio;
 

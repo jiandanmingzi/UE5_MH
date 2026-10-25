@@ -18,19 +18,19 @@ struct FDummyHitzoneConfig
 {
 	GENERATED_BODY()
 
-	/** Bone to attach to. */
+	/** 部位查询绑定的骨骼名；None表示挂到角色根组件。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FName BoneName;
 
-	/** Part tag (Hitzone.Head / Hitzone.Torso / Hitzone.Leg ...). */
+	/** 受击部位的语义标签，如头部、躯干或腿部。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag HitzoneTag;
 
-	/** Extract color tag; the leaf segment must be Red / White / Orange. */
+	/** 猎虫命中该部位可采集的精华颜色，末级标签须为Red、White或Orange。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag ExtractColorTag;
 
-	/** Physical hitzone percent used when the typed physical table has no entry (100 = 100%). */
+	/** 物理肉质百分数；按伤害类型的肉质表缺项时使用，100表示100%吸收。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0", ClampMax = "100.0"))
 	float DefenseMultiplier = 100.0f;
 
@@ -42,22 +42,23 @@ struct FDummyHitzoneConfig
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TMap<EMHGZElementType, float> ElementHitzoneMultipliers;
 
-	/** Stagger absorption rate. */
+	/** 该部位吸收基础硬直量时使用的倍率。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float StaggerRate = 0.f;
 
-	/** Location relative to the attachment bone. */
+	/** 相对挂载骨骼或根组件的位置偏移，单位为厘米。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FVector RelativeLocation = FVector::ZeroVector;
 
-	/** Sphere radius in cm; must be > 0. */
+	/** 球形受击查询半径，单位为厘米；仅Sphere形状读取，必须大于零。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float Radius = 30.f;
 
+	/** 该部位的受击查询形状；可选球、盒或实体凸形网格。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	EMHGZHitzoneShape Shape = EMHGZHitzoneShape::Sphere;
 
-	/** Box half size in cm, before the training dummy's 1.5x scale. */
+	/** 盒形查询的三轴半尺寸，单位为厘米；训练木桩应用配置时仍乘历史1.5倍尺寸倍率。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "1.0"))
 	FVector BoxHalfExtent = FVector(51.0f, 51.0f, 38.5f);
 
@@ -77,43 +78,47 @@ struct FDummyCounterAttackConfig
 {
 	GENERATED_BODY()
 
-	/** Periodic auto-attack switch; M2 does not implement timers (use SubmitCounterTestAttack). */
+	/** 周期自动反击测试攻击的预留开关；当前没有自动攻击计时器，需显式调用SubmitCounterTestAttack。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bEnabled = false;
 
+	/** 周期自动攻击预留的首次等待时长，单位为秒；当前手动测试入口不读取。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float InitialDelay = 3.f;
 
+	/** 周期自动攻击预留的间隔，单位为秒；当前手动测试入口不读取。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float Interval = 8.f;
 
+	/** 自动攻击预留的预警时长，单位为秒；当前手动测试入口不读取。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float TelegraphDuration = 1.f;
 
+	/** 自动攻击预留的判定有效时长，单位为秒；当前手动测试入口不读取。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float ActiveDuration = 1.f;
 
-	/** Hit-point offset relative to the target capsule center. */
+	/** 相对被测目标胶囊中心的命中点偏移，单位为厘米。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FVector HitOffset = FVector::ZeroVector;
 
-	/** Damage settled on the player when the hit is not countered. */
+	/** 该次成功命中需要结算的伤害量。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float Damage = 20.f;
 
-	/** Whether the dummy attack can be consumed by a counter window. */
+	/** 是否允许反击窗口拦截本次命中；关闭时跳过反击消费。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	bool bCounterable = true;
 
-	/** Source attack tag carried into FIncomingHitContext. */
+	/** 写入玩家受击上下文的来源攻击标签。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag SourceActionTag;
 
-	/** Stagger tag applied when the hit is not countered (Combat.Stagger.*). */
+	/** 未被拦截时施加的受击等级标签；无效标签不触发对应硬直。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag StaggerTag;
 
-	/** Base break value for the attack (planned SetByCaller source; see resolver default). */
+	/** 预留基础硬直量；当前手动反击测试不读取，实际使用受击解析器的默认基础硬直。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float BaseStagger = 10.f;
 };
@@ -124,59 +129,59 @@ struct FDummyFireRingConfig
 {
 	GENERATED_BODY()
 
-	/** Enables the periodic ring. Blueprints may also toggle it at runtime on the dummy. */
+	/** 是否开启木桩周期火圈；蓝图也可在运行时独立开关。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring")
 	bool bEnabled = true;
 
-	/** Delay before the first emission after BeginPlay. */
+	/** 开始运行后到首次释放火圈的等待时间，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring", meta = (ClampMin = "0.0"))
 	float InitialDelay = 5.0f;
 
-	/** Time from one fire-ring emission to the next. */
+	/** 两次火圈释放之间的时间间隔，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring", meta = (ClampMin = "0.01"))
 	float EmissionInterval = 5.0f;
 
-	/** How long one emitted ring remains visible and can apply hits. */
+	/** 每次火圈可见并允许命中的持续时长，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring", meta = (ClampMin = "0.01"))
 	float ActiveDuration = 1.0f;
 
-	/** Time between two damage checks while one ring is active. */
+	/** 同一火圈持续期间两次伤害检查的时间间隔，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring", meta = (ClampMin = "0.01"))
 	float HitInterval = 0.25f;
 
-	/** Ring centre relative to the dummy root; default is exactly the White/Orange boundary. */
+	/** 火圈中心相对木桩根的位置，单位为厘米；默认位于白色与橙色区域交界。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring")
 	FVector RelativeLocation = FVector(0.f, 0.f, -37.5f);
 
-	/** Centre-line radius; 100 cm gives the requested 2 m diameter. */
+	/** 火圈中心线半径，单位为厘米；100厘米对应2米直径。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring", meta = (ClampMin = "1.0"))
 	float Radius = 100.0f;
 
-	/** Horizontal tolerance on each side of Radius for the annular damage band. */
+	/** 火圈中心线半径两侧的水平判定容差，单位为厘米。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring", meta = (ClampMin = "0.0"))
 	float RingHalfThickness = 18.0f;
 
-	/** Vertical half-height of the fire band measured from RelativeLocation. */
+	/** 相对火圈中心的竖直判定半高，单位为厘米。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring", meta = (ClampMin = "0.0"))
 	float VerticalHalfHeight = 75.0f;
 
-	/** Number of thin horizontal guide segments distributed around the particle fire ring. */
+	/** 环绕火圈分布的可视引导网格段数量。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring", meta = (ClampMin = "3", ClampMax = "64"))
 	int32 VisualSegmentCount = 24;
 
-	/** Damage applied by every successful HitInterval check. */
+	/** 每次成功命中检查施加的伤害量。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring", meta = (ClampMin = "0.0"))
 	float Damage = 10.0f;
 
-	/** Ground fire is normally not counterable; expose this only for explicit counter testing. */
+	/** 是否允许反击拦截火圈命中；普通地面火圈默认不可反击，仅用于显式测试。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring")
 	bool bCounterable = false;
 
-	/** Source identifier carried to the player's IncomingHitResolver. */
+	/** 传递给玩家受击解析器的火圈来源标签。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring")
 	FGameplayTag SourceActionTag;
 
-	/** Hitstun level carried to the player when this tick is not countered. */
+	/** 未被拦截时施加的受击等级标签；无效标签不触发对应硬直。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring")
 	FGameplayTag StaggerTag;
 };
@@ -192,19 +197,23 @@ class UMHGZDummyConfig : public UPrimaryDataAsset
 	GENERATED_BODY()
 
 public:
+	/** 木桩可选的显示骨骼网格资源。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TSoftObjectPtr<USkeletalMesh> DisplayMesh;
 
+	/** 木桩需要循环播放时使用的蒙太奇资源。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TSoftObjectPtr<UAnimMontage> LoopingMontage;
 
+	/** 木桩受击部位配置列表，包含几何、肉质和精华身份。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	TArray<FDummyHitzoneConfig> Hitzones;
 
+	/** 木桩用于验证反击窗口的攻击配置。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly)
 	FDummyCounterAttackConfig CounterTestAttack;
 
-	/** Periodic annular fire emitted at the White/Orange boundary of the cylinder dummy. */
+	/** 圆柱木桩在白橙区域交界释放的周期火圈配置。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Fire Ring")
 	FDummyFireRingConfig FireRing;
 

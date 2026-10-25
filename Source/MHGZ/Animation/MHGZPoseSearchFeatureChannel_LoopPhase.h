@@ -10,15 +10,16 @@ class MHGZ_API UMHGZPoseSearchFeatureChannel_LoopPhase : public UPoseSearchFeatu
 {
 	GENERATED_BODY()
 public:
+	/** 循环相位允许的最大误差；用于限制脚相搜索偏离目标周期的范围。 */
 	UPROPERTY(EditAnywhere, Category="Settings", meta=(ClampMin="0", ClampMax="0.5"))
 	float MaxCycleError = 0.001f;
-	/** The separate armed Loop bank reads the armed node's one-shot entry context. */
+	/** 是否读取持刀节点独立的一次性循环入口上下文。 */
 	UPROPERTY(EditAnywhere, Category="Settings")
 	bool bUnsheathed = false;
-	/** Seconds of relative foot velocity included in the one-shot entrance score. */
+	/** 一次性入口评分采样双脚相对速度的时间跨度，单位为秒。 */
 	UPROPERTY(EditAnywhere, Category="Settings", meta=(ClampMin="0", ClampMax="0.1"))
 	float EntryVelocityHorizon = 0.02f;
-	/** Root-space locomotion velocity is a separate entrance cost, never a persistent gait delay. */
+	/** 入口评分中根空间移动速度的独立采样跨度，单位为秒；不形成持续挡位延迟。 */
 	UPROPERTY(EditAnywhere, Category="Settings", meta=(ClampMin="0", ClampMax="0.1"))
 	float EntryRootVelocityHorizon = 0.05f;
 	virtual bool Finalize(UPoseSearchSchema* Schema) override;
@@ -35,12 +36,13 @@ public:
 	static float EntryMatchCost(TConstArrayView<float> A, TConstArrayView<float> B,
 		float FootVelocityHorizon, float RootVelocityHorizon);
 private:
-	// Deliberately differs from the CDO after Finalize: UE's DDC key omits
-	// transient cardinality and default-valued fields, so layout changes need a key.
+	/** 特征布局缓存版本；布局变化时参与DDC键，避免默认值或临时基数未进入缓存键导致旧索引复用。 */
 	UPROPERTY()
 	int32 FeatureLayoutVersion = 0;
+	/** 索引布局中左脚骨骼的缓存编号。 */
 	UPROPERTY()
 	int8 LeftFootIdx = -1;
+	/** 索引布局中右脚骨骼的缓存编号。 */
 	UPROPERTY()
 	int8 RightFootIdx = -1;
 };

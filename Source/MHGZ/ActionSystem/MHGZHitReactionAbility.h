@@ -63,26 +63,32 @@ public:
 		const FGameplayAbilityActivationInfo ActivationInfo,
 		bool bReplicateEndAbility, bool bWasCancelled) override;
 
-	/** Imported four-way held-weapon light-hit sequences.  No persistent Montage assets are needed. */
+	/** 持刀向前轻受击的导入动画序列，播放路径不要求另建常驻蒙太奇。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HitReaction|Light")
 	TSoftObjectPtr<UAnimSequenceBase> LightForwardSequence;
 
+	/** 持刀向后轻受击的导入动画序列。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HitReaction|Light")
 	TSoftObjectPtr<UAnimSequenceBase> LightBackSequence;
 
+	/** 持刀向左轻受击的导入动画序列。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HitReaction|Light")
 	TSoftObjectPtr<UAnimSequenceBase> LightLeftSequence;
 
+	/** 持刀向右轻受击的导入动画序列。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HitReaction|Light")
 	TSoftObjectPtr<UAnimSequenceBase> LightRightSequence;
 
+	/** 轻受击动画播放时使用的Slot名。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HitReaction|Playback")
 	FName MontageSlotName = FName(TEXT("DefaultSlot"));
 
+	/** 该表现的混入时长，单位为秒。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HitReaction|Playback",
 		meta = (ClampMin = "0.0"))
 	float BlendInTime = 0.05f;
 
+	/** 该表现的混出时长，单位为秒。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "HitReaction|Playback",
 		meta = (ClampMin = "0.0"))
 	float BlendOutTime = 0.08f;
@@ -103,9 +109,11 @@ private:
 	UFUNCTION()
 	void OnMontageCancelled();
 
+	/** 当前蒙太奇播放任务的运行时引用；随本次能力清理。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
 
+	/** 本次轻受击播放路径持有的动态蒙太奇引用。 */
 	UPROPERTY()
 	TObjectPtr<UAnimMontage> ActiveDynamicMontage;
 

@@ -35,47 +35,55 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MHGZ|Dummy")
 	TObjectPtr<UMHGZDummyConfig> DummyConfig;
 
+	/** 木桩有限生命模式的默认最大生命；无限生命模式仍保留正常命中反馈。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy", meta = (ClampMin = "1.0"))
 	float DummyMaxHealth = 1000.f;
 
-	/** Training target health remains full while hits still produce normal feedback. */
+	/** 是否保持训练木桩生命为满值；开启后命中仍结算并产生正常反馈。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Health")
 	bool bInfiniteHealth = true;
 
+	/** 生命变化事件，向已绑定的界面或表现通知最新生命值。 */
 	UPROPERTY(BlueprintAssignable, Category = "MHGZ|Dummy")
 	FOnDummyHealthChanged OnHealthChanged;
 
-	/** Fired for Blueprint-only telegraph/audio extensions when the ring appears/disappears. */
+	/** 火圈出现或消失时广播，供蓝图扩展预警、音效或表现。 */
 	UPROPERTY(BlueprintAssignable, Category = "MHGZ|Dummy|Fire Ring")
 	FOnDummyFireRingStateChanged OnFireRingStateChanged;
 
-	/** 1.5 m diameter / 3.375 m high white-orange-red target cylinder. */
+	/** 木桩白色精华区域的可见模型组件；实例可覆盖尺寸或形状。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Visual")
 	TObjectPtr<UStaticMeshComponent> WhiteSegmentVisual;
 
+	/** 木桩橙色精华区域的可见模型组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Visual")
 	TObjectPtr<UStaticMeshComponent> OrangeSegmentVisual;
 
+	/** 木桩红色精华区域的可见模型组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Visual")
 	TObjectPtr<UStaticMeshComponent> RedSegmentVisual;
 
+	/** 白色精华区域的辅助灯光组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Visual")
 	TObjectPtr<UPointLightComponent> WhiteExtractLight;
 
+	/** 橙色精华区域的辅助灯光组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Visual")
 	TObjectPtr<UPointLightComponent> OrangeExtractLight;
 
+	/** 红色精华区域的辅助灯光组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Visual")
 	TObjectPtr<UPointLightComponent> RedExtractLight;
 
-	/** Visible only during an active emission; component details remain editable in BP. */
+	/** 仅火圈有效期间显示的引导网格组件，细节可在蓝图配置。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Fire Ring")
 	TObjectPtr<UInstancedStaticMeshComponent> FireRingVisual;
 
-	/** Horizontal ring of fire particles. The effect is activated only while the ring is active. */
+	/** 仅火圈有效期间激活的水平环状火焰粒子组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Fire Ring")
 	TObjectPtr<UParticleSystemComponent> FireRingFX;
 
+	/** 火圈有效期间使用的辅助灯光组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Dummy|Fire Ring")
 	TObjectPtr<UPointLightComponent> FireRingLight;
 

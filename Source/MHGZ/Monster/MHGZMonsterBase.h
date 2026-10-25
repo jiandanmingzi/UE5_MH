@@ -69,13 +69,15 @@ protected:
 	/** Enables only the dedicated mark-surface query on visible mesh components. */
 	void InitializeHitEffectVisualSurfaceCollision();
 
+	/** 角色的能力系统组件，负责能力、属性与效果的统一管理。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UAbilitySystemComponent> AbilitySystemComponent;
 
+	/** 角色当前的属性集合，保存生命、耐力及战斗数值。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UMHGZAttributeSet> AttributeSet;
 
-	/** Settled-hit feedback router; lets the dummy route AttributeSet -> Router. */
+	/** 承接属性结算结果并统一分发命中反馈的路由组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UMHGZHitFeedbackRouterComponent> HitFeedbackRouter;
 };

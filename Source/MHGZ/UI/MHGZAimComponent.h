@@ -73,7 +73,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Aim|Config")
 	TEnumAsByte<ECollisionChannel> AimChannel = ECC_Visibility;
 
-	// ── Delegate ──
+	/** 瞄准模式或有效目标变化时广播，供准心和相关界面刷新。 */
 	UPROPERTY(BlueprintAssignable, Category = "MHGZ|Aim")
 	FOnAimTargetChanged OnAimTargetChanged;
 
@@ -86,12 +86,14 @@ private:
 
 	bool bIsAiming = false;
 
+	/** 当前已确定的瞄准目标信息快照。 */
 	UPROPERTY()
 	TWeakObjectPtr<AActor> CurrentAimTarget;
 
 	FGameplayTag CurrentAimHitzoneTag;
 	FGameplayTag CurrentAimExtractColor;
 
+	/** 当前关联角色的能力系统组件，用于读取标签、属性和执行效果。 */
 	UPROPERTY()
 	TObjectPtr<UAbilitySystemComponent> ASC;
 

@@ -32,30 +32,39 @@ protected:
 	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 protected:
+	/** 玩家主HUD根控件类。 */
 	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|HUD")
 	TSubclassOf<UMHGZMainHUDWidget> MainHUDClass;
 
+	/** 主HUD使用的生命条控件类。 */
 	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|HUD")
 	TSubclassOf<UMHGZAttributeBarWidget> HealthBarClass;
 
+	/** 主HUD使用的耐力条控件类。 */
 	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|HUD")
 	TSubclassOf<UMHGZAttributeBarWidget> StaminaBarClass;
 
+	/** 主HUD使用的瞄准准心控件类。 */
 	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|HUD")
 	TSubclassOf<UMHGZCrosshairWidget> CrosshairClass;
 
+	/** 当前玩家已创建的HUD根控件实例。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZMainHUDWidget> MainHUDWidget;
 
+	/** 当前HUD中的生命条实例。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZAttributeBarWidget> HealthBarWidget;
 
+	/** 当前HUD中的耐力条实例。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZAttributeBarWidget> StaminaBarWidget;
 
+	/** 当前HUD中的准心实例。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZCrosshairWidget> CrosshairWidget;
 
+	/** 当前武器对应的资源面板实例。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UMHGZWeaponResourceWidget> WeaponResourceWidget;
 

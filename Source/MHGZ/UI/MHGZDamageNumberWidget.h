@@ -24,14 +24,19 @@ public:
 	FText GetDisplayedText() const;
 
 protected:
+	/** 显示本次结算伤害数值的文字控件。 */
 	UPROPERTY(meta = (BindWidget))
 	TObjectPtr<UTextBlock> DamageText;
+	/** 非会心伤害数字使用的颜色。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Feedback")
 	FLinearColor NormalColor = FLinearColor(0.95f, 0.95f, 0.91f, 1.0f);
+	/** 会心伤害数字使用的颜色。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Feedback")
 	FLinearColor CriticalColor = FLinearColor(1.0f, 0.68f, 0.15f, 1.0f);
+	/** 非会心伤害数字的字体大小。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Feedback", meta = (ClampMin = "1"))
 	int32 NormalFontSize = 20;
+	/** 会心伤害数字的字体大小。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Feedback", meta = (ClampMin = "1"))
 	int32 CriticalFontSize = 24;
 	float DisplayedDamage = 0.0f;

@@ -47,9 +47,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Audio", meta=(ClampMin="1", EditCondition="Source == EMHGZAnimationSoundSource::GroundContact"))
 	float GroundTraceDistance = 150.f;
 
+	/** 在音源与其他混音设置基础上叠加的音量倍率。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Audio", meta=(ClampMin="0"))
 	float VolumeMultiplier = 1.f;
 
+	/** 声音播放音高倍率；同时影响该次音源的播放速度。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Audio", meta=(ClampMin="0.01"))
 	float PitchMultiplier = 1.f;
 

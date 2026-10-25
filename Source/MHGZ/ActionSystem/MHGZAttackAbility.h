@@ -254,7 +254,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Attack")
 	TObjectPtr<UAnimMontage> AttackMontage;
 
-	/** Whether this attack suppresses locomotion input while its action is active. */
+	/** 攻击动作有效期间是否禁止普通角色移动输入。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Movement")
 	bool bBlockCharacterMovementDuringAction = true;
 

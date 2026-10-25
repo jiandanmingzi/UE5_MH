@@ -44,31 +44,31 @@ struct FIncomingHitContext
 {
 	GENERATED_BODY()
 
-	/** Unique attack-instance ID; the same ID settles at most once on the target side. */
+	/** 本次攻击的唯一身份；目标侧按此身份限制重复结算。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|IncomingHit")
 	FGuid AttackInstanceID;
 
-	/** Real hit result (bBlockingHit and Actor must be valid). */
+	/** 真实命中结果；阻挡命中标志及目标角色必须有效。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|IncomingHit")
 	FHitResult Hit;
 
-	/** Attacking actor (dummy/monster). */
+	/** 提供本次攻击或命中的来源角色。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|IncomingHit")
 	TWeakObjectPtr<AActor> SourceActor;
 
-	/** Source attack tag (e.g. DummyAttack.Spin). */
+	/** 来源攻击的语义标签，如木桩测试攻击种类。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|IncomingHit")
 	FGameplayTag SourceAttackTag;
 
-	/** Whether counter tokens may consume this hit; false means interceptors are skipped. */
+	/** 是否允许反击窗口拦截本次命中；关闭时跳过反击消费。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|IncomingHit")
 	bool bCounterable = false;
 
-	/** Damage settled on the player when the hit is not consumed. */
+	/** 该次成功命中需要结算的伤害量。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|IncomingHit")
 	float Damage = 0.f;
 
-	/** Stagger tag when not consumed (Combat.Stagger.*); invalid means no stagger. */
+	/** 未被拦截时施加的受击等级标签；无效标签不触发对应硬直。 */
 	UPROPERTY(BlueprintReadWrite, Category = "MHGZ|IncomingHit")
 	FGameplayTag StaggerTag;
 
@@ -160,15 +160,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MHGZ|IncomingHit")
 	int32 GetProcessedAttackCount() const;
 
-	/** Dedupe cache TTL in seconds. */
+	/** 目标侧重复命中缓存的存活时间，单位为秒。 */
 	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|IncomingHit", meta = (ClampMin = "0.0"))
 	float DedupeTTLSeconds = 5.0f;
 
-	/** Dedupe cache capacity; when exceeded, expired entries are pruned first, then the oldest. */
+	/** 重复命中缓存容量；超出时先清过期条目，再淘汰最旧条目。 */
 	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|IncomingHit", meta = (ClampMin = "1"))
 	int32 MaxDedupeEntries = 128;
 
-	/** Default Damage.BaseStagger SetByCaller used on the Pass path. */
+	/** 未被反击消费的命中默认写入Damage.BaseStagger的基础硬直量。 */
 	UPROPERTY(EditDefaultsOnly, Category = "MHGZ|IncomingHit", meta = (ClampMin = "0.0"))
 	float DefaultBaseStagger = 10.f;
 

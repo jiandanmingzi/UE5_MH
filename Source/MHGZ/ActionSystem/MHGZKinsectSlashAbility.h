@@ -58,56 +58,67 @@ struct FKinsectSlashDanceEntryTuning
 {
 	GENERATED_BODY()
 
+	/** 是否按录制校准后的准备与飞行物理参数生成舞踏轨迹。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement")
 	bool bUseCapturedTrajectory = true;
 
+	/** 舞踏起跳前准备阶段的时长，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement",
 		meta = (ClampMin = "0.001", ForceUnits = "s"))
 	float PrepDuration = 0.35f;
 
+	/** 舞踏飞行阶段采用的时长，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement",
 		meta = (ClampMin = "0.001", ForceUnits = "s", EditCondition = "bUseCapturedTrajectory"))
 	float FlightDuration = 1.1833333f;
 
+	/** 舞踏起跳时的竖直向上速度，单位为厘米每秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement",
 		meta = (ClampMin = "0.001", EditCondition = "bUseCapturedTrajectory"))
 	float LaunchUpSpeed = 1080.0f;
 
+	/** 舞踏起跳时沿锁定朝向后方的水平速度，单位为厘米每秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement",
 		meta = (ClampMin = "0.001", EditCondition = "bUseCapturedTrajectory"))
 	float LaunchBackwardSpeed = 300.0f;
 
+	/** 舞踏飞行的重力正幅值，单位为厘米每平方秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement",
 		meta = (ClampMin = "0.001", EditCondition = "bUseCapturedTrajectory"))
 	float GravityMagnitude = 1800.0f;
 
+	/** 舞踏沿锁定朝向后方的水平加速度，单位为厘米每平方秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement",
 		meta = (ClampMin = "0.001", EditCondition = "bUseCapturedTrajectory"))
 	float BackwardAcceleration = 360.0f;
 
-	// Keep the original property names so serialized legacy tunings still load.
+	/** 旧抛体参数的解释模式；仅对应回退路径读取，保留字段名用于加载旧序列化配置。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement|Legacy",
 		meta = (DeprecatedProperty, DeprecationMessage = "Use the captured 189 trajectory.",
 			EditCondition = "!bUseCapturedTrajectory"))
 	EBallisticParameterMode ParameterMode = EBallisticParameterMode::ApexHeightAndDuration;
 
+	/** 旧抛体回退配置的最高点相对高度，单位为厘米。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement|Legacy",
 		meta = (ClampMin = "0.0", DeprecatedProperty,
 			DeprecationMessage = "Use LaunchUpSpeed and GravityMagnitude.",
 			EditCondition = "!bUseCapturedTrajectory"))
 	float ApexHeight = 0.0f;
 
+	/** 旧抛体回退配置的飞行时长，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement|Legacy",
 		meta = (ClampMin = "0.0", DeprecatedProperty, DeprecationMessage = "Use FlightDuration.",
 			EditCondition = "!bUseCapturedTrajectory"))
 	float Duration = 0.0f;
 
+	/** 旧抛体回退配置的水平移动距离，单位为厘米。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement|Legacy",
 		meta = (ClampMin = "0.0", DeprecatedProperty,
 			DeprecationMessage = "Use LaunchBackwardSpeed and BackwardAcceleration.",
 			EditCondition = "!bUseCapturedTrajectory"))
 	float HorizontalDistance = 0.0f;
 
+	/** 旧抛体回退模式显式给定的发射速度，单位为厘米每秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Movement|Legacy",
 		meta = (DeprecatedProperty, DeprecationMessage = "Use the captured 189 trajectory.",
 			EditCondition = "!bUseCapturedTrajectory"))
@@ -205,43 +216,55 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MHGZ|KinsectSlash")
 	FVector GetLockedLaunchDirection() const { return LaunchDirection; }
 
+	/** 操虫斩起手滞空阶段的Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Montage Sections")
 	FName HoverSectionName = TEXT("Hover186");
 
+	/** 操虫斩前冲阶段的Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Montage Sections")
 	FName DashSectionName = TEXT("Dash187");
 
+	/** 未命中后下坠表现的Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Montage Sections")
 	FName MissFallSectionName = TEXT("Miss188");
 
+	/** 操虫斩命中后播放的常驻舞踏蒙太奇。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Montage")
 	TObjectPtr<UAnimMontage> DanceMontage;
 
+	/** 舞踏蒙太奇的入口段名，必须与常驻资产中的Section一致。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Montage Sections")
 	FName DanceSectionName = TEXT("HitDance189");
 
+	/** 切入舞踏蒙太奇时使用的混入时长，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Montage",
 		meta = (ClampMin = "0.0", ForceUnits = "s"))
 	float DanceMontageBlendInTime = 0.1f;
 
+	/** 操虫斩视觉俯仰混入时长，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Visual Pitch",
 		meta = (ClampMin = "0.0", ForceUnits = "s"))
 	float VisualPitchBlendInTime = 0.1f;
 
+	/** 操虫斩视觉俯仰释放淡出时长，单位为秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Visual Pitch",
 		meta = (ClampMin = "0.0", ForceUnits = "s"))
 	float VisualPitchBlendOutTime = 0.1f;
 
+	/** 冲刺命中后直接进入舞踏时使用的准备及飞行轨迹参数。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Movement")
 	FKinsectSlashDanceEntryTuning DanceFromDashTuning;
 
+	/** 未命中下坠阶段转入舞踏时使用的准备及飞行轨迹参数。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Movement")
 	FKinsectSlashDanceEntryTuning DanceFromMissTuning;
 
+	/** 未命中后下坠阶段采用的重力正幅值，单位为厘米每平方秒。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Movement",
 		meta = (ClampMin = "0.001"))
 	float MissGravityMagnitude = 3096.0f;
 
+	/** 是否绘制操虫斩接触探测的调试图形；只影响诊断显示。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Kinsect Slash|Debug",
 		meta = (DeprecatedProperty, DeprecationMessage = "Use AttackSegments[].Collision.bDrawDebug."))
 	bool bDrawProbeDebug = false;
@@ -351,21 +374,27 @@ private:
 	FDelegateHandle RuntimeInvalidationDelegateHandle;
 	TMap<FGameplayTag, FDelegateHandle> DisqualifyingStateTagDelegateHandles;
 
+	/** 操虫斩主体蒙太奇的当前播放任务。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> SlashMontageTask;
 
+	/** 当前舞踏蒙太奇播放任务，供完成、取消和交接清理。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> DanceMontageTask;
 
+	/** 当前动作拥有的位移任务；任务结束或取消时释放。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> MovementTask;
 
+	/** 操虫斩起手滞空阶段的位移任务。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> HoverMovementTask;
 
+	/** 本次操虫斩接触检测任务引用，结束时随动作清理。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_MHGZKinsectSlashProbe> ProbeTask;
 
+	/** 本次实际播放的操虫斩主体蒙太奇引用。 */
 	UPROPERTY()
 	TObjectPtr<UAnimMontage> ActiveSlashMontage;
 

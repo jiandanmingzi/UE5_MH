@@ -20,7 +20,7 @@ class MHGZ_API UMHGZMarkSlashAbility : public UMHGZInsectGlaiveAbility
 public:
 	UMHGZMarkSlashAbility();
 
-	/** The zero-based AttackSegment that can establish a Kinsect mark. */
+	/** 能够施加虫印的攻击伤害段索引，从零开始。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mark", meta = (ClampMin = "0"))
 	int32 MarkSegmentIndex = 0;
 

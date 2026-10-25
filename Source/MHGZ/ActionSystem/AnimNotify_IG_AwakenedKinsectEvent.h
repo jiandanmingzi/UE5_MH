@@ -14,6 +14,7 @@ class MHGZ_API UAnimNotify_IG_AwakenedKinsectEvent : public UAnimNotify
 	GENERATED_BODY()
 
 public:
+	/** 本通知向觉虫击能力发送的事件种类。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Awakened Kinsect")
 	EAwakenedKinsectAttackEvent Event = EAwakenedKinsectAttackEvent::KinsectLaunch;
 

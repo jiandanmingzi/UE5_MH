@@ -20,12 +20,15 @@ struct FActiveModifier
 {
 	GENERATED_BODY()
 
+	/** 该资源修正影响的属性语义标签。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGameplayTag AttributeTag;
 
+	/** 该资源修正的数值，与运算类型共同解释。 */
 	UPROPERTY(BlueprintReadOnly)
 	float Value = 1.0f;
 
+	/** 该属性修正采用加法、乘法或覆盖等哪种运算。 */
 	UPROPERTY(BlueprintReadOnly)
 	TEnumAsByte<EGameplayModOp::Type> Op = EGameplayModOp::Multiplicitive;
 };

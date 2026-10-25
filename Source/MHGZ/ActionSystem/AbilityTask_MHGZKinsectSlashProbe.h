@@ -31,6 +31,7 @@ class MHGZ_API UAbilityTask_MHGZKinsectSlashProbe : public UAbilityTask
 public:
 	UAbilityTask_MHGZKinsectSlashProbe(const FObjectInitializer& ObjectInitializer);
 
+	/** 探测到符合条件的受击部位接触时广播，不替代实际伤害结算。 */
 	UPROPERTY(BlueprintAssignable)
 	FMHGZKinsectSlashProbeHitzoneContact OnHitzoneContact;
 
@@ -95,6 +96,7 @@ private:
 	TWeakObjectPtr<USkeletalMeshComponent> LiveKinsectMesh;
 	TWeakObjectPtr<USkeletalMeshComponent> VisualProxy;
 
+	/** 精确动作身份，关联运行期、能力实例和激活序号，用于隔离迟到回调。 */
 	UPROPERTY()
 	FWeaponActionToken ActionToken;
 

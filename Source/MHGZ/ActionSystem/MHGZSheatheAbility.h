@@ -23,22 +23,19 @@ class MHGZ_API UMHGZSheatheAbility : public UMHGZGameplayAbility
 public:
 	UMHGZSheatheAbility();
 
-	/** Montage containing the final Idle and Walk sheathe sections. */
+	/** 包含最终原地与移动收刀段的常驻蒙太奇。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sheathe")
 	TObjectPtr<UAnimMontage> SheatheMontage;
 
+	/** 原地收刀的入口Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sheathe")
 	FName IdleSectionName = FName(TEXT("Idle"));
 
+	/** 移动收刀的入口Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sheathe")
 	FName WalkSectionName = FName(TEXT("Walk"));
 
-	/**
-	 * E4.2 migration switch. When enabled, only the Walk Section relies on
-	 * AnimNotifyState_ActionRootMotionPhase for Montage root-motion ownership.
-	 * Keep false until that NotifyState has been placed and audited on the
-	 * configured Walk Section; Idle always keeps its legacy whole-action owner.
-	 */
+	/** 移动收刀是否通过根运动通知窗口取得所有权；仅在Walk段已放置并核对该窗口时开启，Idle仍按原整段所有权处理。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Sheathe|Motion Matching",
 		meta = (DisplayName = "Walk Uses Action Root Motion Phase"))
 	bool bWalkUsesActionRootMotionPhase = false;
@@ -91,9 +88,11 @@ protected:
 	void OnMontageInterrupted();
 
 private:
+	/** 当前蒙太奇播放任务的运行时引用；随本次能力清理。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
 
+	/** 本次实际播放的收刀蒙太奇引用。 */
 	UPROPERTY()
 	TObjectPtr<UAnimMontage> ActiveSheatheMontage;
 

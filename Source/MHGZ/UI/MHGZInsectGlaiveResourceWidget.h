@@ -40,45 +40,59 @@ public:
 		int32 ExtractIndex, const FLinearColor& BaseColor);
 
 protected:
+	/** 猎虫当前耐力比例对应的进度条控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> KinsectStaminaBar;
 
+	/** 猎虫耐力数值的可选文字控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> KinsectStaminaText;
 
+	/** 猎虫附着、飞行或悬停状态的可选文字控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> KinsectStateText;
 
+	/** 玩家红灯剩余时长比例的进度控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> RedExtractBar;
 
+	/** 玩家白灯剩余时长比例的进度控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> WhiteExtractBar;
 
+	/** 玩家橙灯剩余时长比例的进度控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> OrangeExtractBar;
 
+	/** 红灯图标或标识使用的文字控件，按剩余时间变淡提示。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> RedExtractText;
 
+	/** 白灯图标或标识使用的文字控件，按剩余时间变淡提示。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> WhiteExtractText;
 
+	/** 橙灯图标或标识使用的文字控件，按剩余时间变淡提示。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> OrangeExtractText;
 
+	/** 三灯强化状态及时间的可选文字控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> TripleUpText;
 
+	/** 猎虫已携带、尚未回手交付精华的可选文字显示。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> KinsectPendingExtractText;
 
+	/** 以竖立椭圆显示猎虫携带精华颜色的图标控件，可按多色快照分区。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UBorder> KinsectPendingExtractIcon;
 
+	/** 当前舞踏层数的文字控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> DanceStacksText;
 
+	/** 当前可用及预留粉尘数量的文字控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> PowderCountText;
 

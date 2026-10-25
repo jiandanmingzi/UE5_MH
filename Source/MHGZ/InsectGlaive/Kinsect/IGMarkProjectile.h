@@ -59,17 +59,21 @@ private:
 	/** 每帧 Previous→Current Sphere Sweep Hitzone Object，按 Time 取最早命中。 */
 	void SweepHitzones();
 
+	/** 虫印弹用于移动和接触查询的球形根组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "IGMark|Components",
 		meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<USphereComponent> Sphere;
 
+	/** 虫印弹的投射物移动组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "IGMark|Components",
 		meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UProjectileMovementComponent> Movement;
 
+	/** 拥有该虫印弹并负责施加虫印的虫棍资源组件。 */
 	UPROPERTY()
 	TWeakObjectPtr<URes_InsectGlaive> Resource;
 
+	/** 当前武器运行期的身份令牌；代际变化后旧回调和旧请求失效。 */
 	UPROPERTY()
 	FWeaponRuntimeToken RuntimeToken;
 

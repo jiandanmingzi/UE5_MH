@@ -41,6 +41,7 @@ protected:
 #endif
 
 private:
+	/** 本次聚爆提交时锁定的参数快照，后续流程不回读可变GA配置。 */
 	UPROPERTY(Transient)
 	FIGPowderVortexSettings CommittedPowderVortex;
 	bool bGatherNotifyHandled = false;

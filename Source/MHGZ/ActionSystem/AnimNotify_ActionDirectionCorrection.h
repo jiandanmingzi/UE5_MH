@@ -14,7 +14,7 @@ class MHGZ_API UAnimNotify_ActionDirectionCorrection : public UAnimNotify
 	GENERATED_BODY()
 
 public:
-	/** -1 uses the attack GA's MaxCorrectionAngle; 0 intentionally disables this notify. */
+	/** -1 使用攻击 GA 的 MaxCorrectionAngle；0 禁用。 */
 	UPROPERTY(EditAnywhere, Category = "Direction Correction",
 		meta = (ClampMin = "-1.0", ClampMax = "180.0", UIMin = "-1.0", UIMax = "180.0",
 		ToolTip = "-1 使用攻击 GA 的 MaxCorrectionAngle；0 禁用。"))

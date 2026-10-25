@@ -18,7 +18,7 @@ class MHGZ_API UAnimNotify_MotionMatchingHandoff : public UAnimNotify
 	GENERATED_BODY()
 
 public:
-	/** Candidate family to pass to the E4.2 Exit PSD/Chooser; never an animation name. */
+	/** 交给退出数据库路由的候选家族，不是动画名称。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Motion Matching")
 	EMHGZMotionMatchingHandoffType HandoffType = EMHGZMotionMatchingHandoffType::None;
 

@@ -14,6 +14,7 @@ class MHGZ_API UAnimNotify_DescendingThrustEvent : public UAnimNotify
 	GENERATED_BODY()
 
 public:
+	/** 本通知向急袭突刺能力发送的事件种类。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Descending Thrust")
 	EDescendingThrustMontageEvent Event = EDescendingThrustMontageEvent::EnterFallingLoop;
 

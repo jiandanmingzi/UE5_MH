@@ -76,6 +76,7 @@ private:
 	UFUNCTION()
 	void HandleMovementFinished(const FWeaponMovementResult& Result);
 
+	/** 当前动作拥有的位移任务；任务结束或取消时释放。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> MovementTask;
 

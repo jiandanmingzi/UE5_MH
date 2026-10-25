@@ -26,15 +26,19 @@ struct FEquippedWeaponSnapshot
 {
 	GENERATED_BODY()
 
+	/** 建立快照时当前装备的具体物品实例。 */
 	UPROPERTY(BlueprintReadOnly)
 	TWeakObjectPtr<UMHGZEquipmentInstance> EquipmentInstance;
 
+	/** 建立快照时使用的武器定义资源。 */
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<UMHGZWeaponDefinition> WeaponDefinition;
 
+	/** 该武器注入动作和资源系统的运行配置。 */
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<UWeaponRuntimeDefinition> RuntimeDefinition;
 
+	/** 装备武器快照的修订号，换装或更新后递增以隔离旧状态。 */
 	UPROPERTY(BlueprintReadOnly)
 	int64 WeaponRevision = 0;
 };

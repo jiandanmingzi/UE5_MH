@@ -22,16 +22,11 @@ struct FVaultTrajectoryKey
 {
 	GENERATED_BODY()
 
-	/** Normalized movement time, in the inclusive [0, 1] range. */
+	/** 撑杆跳轨迹关键帧的归一化时间，范围为0到1。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Back Vault")
 	float Time = 0.0f;
 
-	/**
-	 * X = travel progress, Y = lateral offset divided by total travel distance,
-	 * Z = height divided by measured apex height.  The full recording ends at
-	 * ground level; the ability samples only its action-owned prefix, then CMC
-	 * continues from that non-zero-height handoff.
-	 */
+	/** 归一化位置：X为前进进度、Y为横移除以总距离、Z为高度除以实测最高点。完整录制末端落地，GA只取其拥有的前段，交接后由CMC继续运动。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Back Vault")
 	FVector NormalizedPosition = FVector::ZeroVector;
 };
@@ -95,9 +90,11 @@ struct FVaultProfile
 {
 	GENERATED_BODY()
 
+	/** 该配置或输入快照所属的离散方向。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault")
 	EDirectionalInput Direction = EDirectionalInput::None;
 
+	/** 此撑杆跳配置是否属于白灯强化版本。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault")
 	bool bWhite = false;
 
@@ -314,7 +311,7 @@ public:
 		const TArray<FVaultClipDriftKey>& DriftKeys, float CurveTime,
 		float& OutFraction);
 
-	/** Authored White Extract counterpart of AttackMontage. */
+	/** 白灯版本撑杆跳起手使用的常驻蒙太奇。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Animation")
 	TObjectPtr<UAnimMontage> WhiteAttackMontage;
 
@@ -336,7 +333,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Animation")
 	TObjectPtr<UAnimMontage> ArcMontage;
 
-	/** Authored White Extract counterpart of ArcMontage. */
+	/** 白灯版本撑杆跳弧段使用的常驻蒙太奇。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Animation")
 	TObjectPtr<UAnimMontage> WhiteArcMontage;
 
@@ -442,47 +439,39 @@ public:
 	// `BackJumpOverDuration` 对应的量在运行时另有算法：JumpOver 段 = 移动窗口
 	// （配置的 `VaultDuration`）− `FVaultProfile::JumpDuration`。两者不是一回事。
 
-	/** The normal (no-white-extract) visual chain used by the fallback montage builder. */
+	/** 未指定常驻后跳蒙太奇时，旧回退构建使用的普通起跳源序列。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Fallback Montage")
 	TSoftObjectPtr<UAnimSequenceBase> BackJumpSequence;
 
+	/** 旧后跳回退构建使用的普通空中后续源序列。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Fallback Montage")
 	TSoftObjectPtr<UAnimSequenceBase> BackJumpOverSequence;
 
-	/** White-extract visual chain; its air phase is longer and higher. */
+	/** 旧后跳回退构建使用的白灯起跳序列；白灯弧段更高、更长。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Fallback Montage")
 	TSoftObjectPtr<UAnimSequenceBase> WhiteBackJumpSequence;
 
+	/** 旧后跳回退构建使用的白灯空中后续源序列。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Fallback Montage")
 	TSoftObjectPtr<UAnimSequenceBase> WhiteBackJumpOverSequence;
 
+	/** 旧后跳回退构建路径使用的Slot名。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Fallback Montage")
 	FName BackVaultMontageSlot = FName(TEXT("DefaultSlot"));
 
-	/** Natural effective durations of the ordinary Jmp and Jump_Over source sequences. */
+	/** 旧后跳回退路径中普通起跳源序列的有效播放时长，单位为秒。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Fallback Montage", meta = (ForceUnits = "s"))
 	float BackJumpDuration = 0.650f;
 
+	/** 旧后跳回退路径中普通空中后续序列的有效播放时长，单位为秒。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Fallback Montage", meta = (ForceUnits = "s"))
 	float BackJumpOverDuration = 1.092f;
 
-	/**
-	 * Natural effective durations of the White Extract Jmp and Jump_Over source
-	 * sequences, consumed only by BuildBackVaultMontage().
-	 *
-	 * That builder is the FALLBACK: PrepareAttackMontage prefers an assigned
-	 * montage asset, and AM_IG_HouChengGanTiao_W is assigned, so these two values
-	 * do not affect what actually plays.  They are kept consistent with
-	 * WhiteBackVaultDuration anyway so both paths describe the same motion.
-	 *
-	 * The Jump_Over value is deliberately the **flight time** of that leg
-	 * (MHR id 159, ~1.487 s), not the clip's own length (1.5833 s).  The pose is
-	 * meant to outlive the flight and be cut by the landing, exactly as in Rise
-	 * -- see WhiteBackVaultDuration for the measurement behind that choice.
-	 */
+	/** 仅旧后跳回退构建使用的白灯起跳时长，单位为秒；已指定常驻白灯后跳蒙太奇时不影响实际播放。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Fallback Montage", meta = (ForceUnits = "s"))
 	float WhiteBackJumpDuration = 0.650f;
 
+	/** 仅旧后跳回退构建使用的白灯弧段飞行时长，单位为秒；不是源片段完整长度，允许姿势随实际落地截断。常驻蒙太奇路径不读取。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Vault|Fallback Montage", meta = (ForceUnits = "s"))
 	float WhiteBackJumpOverDuration = 1.487f;
 
@@ -576,6 +565,7 @@ private:
 	UFUNCTION()
 	void HandleBackVaultMovementFinished(const FWeaponMovementResult& MovementResult);
 
+	/** 本次后撑杆跳的动画表现任务。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> BackVaultVisualTask;
 
@@ -583,14 +573,15 @@ private:
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> BackVaultArcVisualTask;
 
-	/** Keeps the section-boundary delay inside the ability lifecycle. */
+	/** 由能力生命周期持有的Section边界延迟交接任务。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_WaitDelay> JumpOverHandoffTask;
 
+	/** 本次后撑杆跳的轨迹位移任务。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> BackVaultMovementTask;
 
-	/** Keeps the runtime curve alive for the exact lifetime of the movement task. */
+	/** 保持当前位移任务使用的运行时轨迹曲线有效，任务结束时释放。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UCurveVector> ActiveTrajectoryCurve;
 

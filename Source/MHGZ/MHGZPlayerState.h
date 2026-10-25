@@ -54,15 +54,19 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UMHGZAbilitySystemComponent> AbilitySystemComponent;
 
+	/** 角色当前的属性集合，保存生命、耐力及战斗数值。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UMHGZAttributeSet> AttributeSet;
 
+	/** 玩家持有的装备管理组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UMHGZEquipmentComponent> EquipmentComponent;
 
+	/** 玩家持有的背包组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UMHGZBackpackComponent> BackpackComponent;
 
+	/** 玩家持有的仓库组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MHGZ|Components")
 	TObjectPtr<UMHGZWarehouseComponent> WarehouseComponent;
 };

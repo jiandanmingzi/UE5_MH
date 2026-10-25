@@ -33,6 +33,7 @@ public:
 	virtual void NativeDestruct() override;
 
 protected:
+	/** 当前界面绑定的能力系统组件弱引用，解绑时移除相应订阅。 */
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|UI")
 	TObjectPtr<UAbilitySystemComponent> BoundASC;
 };

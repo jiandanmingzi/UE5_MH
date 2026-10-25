@@ -263,46 +263,52 @@ private:
 	UFUNCTION()
 	void HandleMovementFinished(const FWeaponMovementResult& Result);
 
+	/** 急袭突刺空中主体动作的蒙太奇播放任务。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> MainMontageTask;
 
+	/** 当前地面或落地表现的播放任务，随对应动作生命周期清理。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZPlayMontageAndWait> LandingMontageTask;
 
+	/** 当前动作拥有的位移任务；任务结束或取消时释放。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAbilityTask_MHGZWeaponMovement> MovementTask;
 
+	/** 本次实际播放的主体蒙太奇引用，供任务回调及清理使用。 */
 	UPROPERTY(Transient)
 	TObjectPtr<UAnimMontage> ActiveMainMontage;
 
-	/** Air montage must contain Start -> FallingLoop and FallingLoop -> itself. */
+	/** 空中蒙太奇的起手段名；必须连接到FallingLoop，循环段须正确自循环。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly,
 		Category = "DescendingThrust|Montage Sections",
 		meta = (AllowPrivateAccess = "true"))
 	FName StartSectionName = TEXT("Start");
 
+	/** 未落地时保持下坠表现的循环Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly,
 		Category = "DescendingThrust|Montage Sections",
 		meta = (AllowPrivateAccess = "true"))
 	FName FallingLoopSectionName = TEXT("FallingLoop");
 
-	/** Resident ground presentation; runtime montage construction is forbidden. */
+	/** 急袭突刺地面攻击使用的常驻蒙太奇，不允许运行时临时构建。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly,
 		Category = "DescendingThrust|Montage",
 		meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAnimMontage> LandingMontage;
 
+	/** 地面攻击蒙太奇的入口Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly,
 		Category = "DescendingThrust|Montage Sections",
 		meta = (AllowPrivateAccess = "true"))
 	FName LandingSectionName = TEXT("Over");
 
-	/** Montage-over ground hit segment that establishes the unique Kinsect mark. Audited index: 2. */
+	/** 地面攻击中施加虫印的零起始伤害段索引；以实际蒙太奇攻击窗口与GA段配置为准。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly,
 		Category = "DescendingThrust|Kinsect Mark",
 		meta = (ClampMin = "0", ClampMax = "3", AllowPrivateAccess = "true"))
 	int32 MarkSegmentIndex = 2;
-	/** Optional kinsect dive; never adds an activation stamina requirement. */
+	/** 急袭协同俯冲的猎虫动作值；协同是否参与仍按统一猎虫耐力资格判断，不增加猎人发动门槛。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "DescendingThrust|Kinsect",
 		meta = (ClampMin = "0.0", AllowPrivateAccess = "true"))
 	float KinsectDiveMotionValue = 10.f;

@@ -22,10 +22,11 @@ class AMHGZPlayerController : public APlayerController
 	GENERATED_BODY()
 
 protected:
-	/** Mobile controls widget class */
+	/** 触屏设备使用的移动控制界面类。 */
 	UPROPERTY(EditAnywhere, Category="Input|Touch Controls")
 	TSubclassOf<UUserWidget> MobileControlsWidgetClass;
 
+	/** 当前已创建的触屏控制界面实例。 */
 	UPROPERTY()
 	TObjectPtr<UUserWidget> MobileControlsWidget;
 
@@ -33,9 +34,11 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="MHGZ|Components")
 	TObjectPtr<UMHGZInputComponent> InputComponent_MHGZ;
 
+	/** 负责玩家快捷栏使用输入与当前选择的组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="MHGZ|Components")
 	TObjectPtr<UMHGZQuickBarComponent> QuickBarComponent;
 
+	/** 当前玩家的武器组合键输入路由组件。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="MHGZ|Components")
 	TObjectPtr<UMHGZWeaponInputRouterComponent> WeaponInputRouterComponent;
 

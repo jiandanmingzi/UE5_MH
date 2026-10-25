@@ -28,12 +28,15 @@ class MHGZ_API UMHGZAttributeBarWidget : public UMHGZUserWidget
 public:
 	virtual void NativeConstruct() override;
 
+	/** 该属性条显示生命、耐力或其他属性的种类。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|UI|Attribute")
 	EMHGZAttributeBarKind BarKind = EMHGZAttributeBarKind::Health;
 
+	/** 属性条当前值绑定的GAS属性。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|UI|Attribute")
 	FGameplayAttribute CurrentAttribute;
 
+	/** 属性条上限绑定的GAS属性。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|UI|Attribute")
 	FGameplayAttribute MaxAttribute;
 
@@ -53,9 +56,11 @@ public:
 		int32 LayerId, const FWidgetStyle& Style, bool bParentEnabled) const override;
 
 protected:
+	/** 蓝图中绑定的数值进度条控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UProgressBar> ValueBar;
 
+	/** 蓝图中绑定的数值文字控件。 */
 	UPROPERTY(meta = (BindWidgetOptional))
 	TObjectPtr<UTextBlock> ValueText;
 

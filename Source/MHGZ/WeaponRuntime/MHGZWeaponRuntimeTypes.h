@@ -216,9 +216,11 @@ struct FWeaponRuntimeToken
 {
 	GENERATED_BODY()
 
+	/** 持有武器运行期的宿主，用于验证当前代际与动作身份。 */
 	UPROPERTY()
 	TWeakObjectPtr<UMHGZWeaponRuntimeHostComponent> Host;
 
+	/** 宿主当前的运行期代际；换武器或重建时旧代际失效。 */
 	UPROPERTY()
 	uint64 Generation = 0;
 
@@ -249,18 +251,23 @@ struct FWeaponRuntimeContext
 {
 	GENERATED_BODY()
 
+	/** 当前武器运行期的身份令牌；代际变化后旧回调和旧请求失效。 */
 	UPROPERTY()
 	FWeaponRuntimeToken RuntimeToken;
 
+	/** 当前运行期关联的角色实例。 */
 	UPROPERTY()
 	TWeakObjectPtr<ACharacter> Character;
 
+	/** 当前运行期关联的玩家控制器。 */
 	UPROPERTY()
 	TWeakObjectPtr<APlayerController> Controller;
 
+	/** 当前关联角色的能力系统组件，用于读取标签、属性和执行效果。 */
 	UPROPERTY()
 	TWeakObjectPtr<UMHGZAbilitySystemComponent> ASC;
 
+	/** 提供当前已装备武器及其不可变快照的装备组件。 */
 	UPROPERTY()
 	TWeakObjectPtr<UMHGZEquipmentComponent> Equipment;
 
@@ -279,15 +286,19 @@ struct FWeaponActionToken
 {
 	GENERATED_BODY()
 
+	/** 当前武器运行期的身份令牌；代际变化后旧回调和旧请求失效。 */
 	UPROPERTY()
 	FWeaponRuntimeToken RuntimeToken;
 
+	/** 所属能力在ASC中的授予句柄；与激活序号共同确定动作身份。 */
 	UPROPERTY()
 	FGameplayAbilitySpecHandle AbilityHandle;
 
+	/** 本次能力激活的单调序号，用于区分同一能力的连续执行。 */
 	UPROPERTY()
 	uint32 ActivationSequenceID = 0;
 
+	/** 此次激活的能力实例引用；不是共享的能力类默认对象。 */
 	UPROPERTY()
 	TWeakObjectPtr<UGameplayAbility> AbilityInstance;
 
@@ -317,12 +328,15 @@ struct FWeaponMontageRegistration
 {
 	GENERATED_BODY()
 
+	/** 精确动作身份，关联运行期、能力实例和激活序号，用于隔离迟到回调。 */
 	UPROPERTY()
 	FWeaponActionToken ActionToken;
 
+	/** 真正播放此蒙太奇的骨骼网格组件，用于区分不同网格上的同名动作。 */
 	UPROPERTY()
 	TWeakObjectPtr<USkeletalMeshComponent> Mesh;
 
+	/** 本次播放对应的蒙太奇实例编号；重播后旧编号不得接管新动作。 */
 	UPROPERTY()
 	int32 MontageInstanceID = INDEX_NONE;
 };
@@ -333,30 +347,39 @@ struct FWeaponActionVisualPitchState
 {
 	GENERATED_BODY()
 
+	/** 持有该请求或表现的动作身份；仅所属动作可更新或释放。 */
 	UPROPERTY()
 	FWeaponActionToken OwnerAction;
 
+	/** 建立视觉俯仰表现的蒙太奇实例编号。 */
 	UPROPERTY()
 	int32 SourceMontageInstanceID = INDEX_NONE;
 
+	/** 本次视觉俯仰锁定的世界方向，不随后续相机输入重新瞄准。 */
 	UPROPERTY()
 	FVector LockedDirection = FVector::ForwardVector;
 
+	/** 视觉俯仰的目标权重，取值0到1。 */
 	UPROPERTY()
 	float TargetWeight = 0.0f;
 
+	/** 视觉俯仰从当前权重切入目标权重的时长，单位为秒。 */
 	UPROPERTY()
 	float BlendInSeconds = 0.1f;
 
+	/** 释放视觉俯仰时淡回零权重的时长，单位为秒。 */
 	UPROPERTY()
 	float BlendOutSeconds = 0.1f;
 
+	/** 视觉俯仰状态的修订序号，用于识别新的设置或释放请求。 */
 	UPROPERTY()
 	uint64 StateRevision = 0;
 
+	/** 当前是否持有有效的动作视觉俯仰状态。 */
 	UPROPERTY()
 	bool bValid = false;
 
+	/** 是否处于只读的视觉俯仰淡出阶段。 */
 	UPROPERTY()
 	bool bReleasing = false;
 };
@@ -422,36 +445,43 @@ struct FWeaponMotionMatchingHandoff
 {
 	GENERATED_BODY()
 
+	/** 本次交接允许搜索的退出候选家族，不直接指定动画序列。 */
 	UPROPERTY(BlueprintReadOnly)
 	EMHGZMotionMatchingHandoffType Type = EMHGZMotionMatchingHandoffType::None;
 
+	/** 交接发布序号；动画节点按序号仅消费一次。 */
 	UPROPERTY(BlueprintReadOnly)
 	int64 Serial = 0;
 
+	/** 本次能力激活的单调序号，用于区分同一能力的连续执行。 */
 	UPROPERTY(BlueprintReadOnly)
 	int32 ActivationSequenceID = 0;
 
+	/** 交接瞬间的物理摇杆轴快照，不读取上次非零输入缓存。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector2D RawMoveInput = FVector2D::ZeroVector;
 
+	/** 交接瞬间是否仍有超过中立阈值的物理移动输入。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bHasRawMoveInputAtHandoff = false;
 
+	/** 动作可移动尾段内是否曾记录到有效物理移动输入。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bHadRawMoveInputInMobilePhase = false;
 
+	/** 动作可移动尾段内是否观察到物理移动输入被收回。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bReleasedRawMoveInputInMobilePhase = false;
 
-	/** True only for a mobile Exit that observed input and its later release. */
+	/** 仅在可移动退出段观察到有效输入及其后续释放时，携带待停步请求。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bPendingStopAtHandoff = false;
 
-	/** The configured locomotion lane of the last non-neutral physical input sampled in the mobile phase. */
+	/** 可移动尾段最后一次非中立输入所对应的配置巡航挡位速度，单位为厘米每秒。 */
 	UPROPERTY(BlueprintReadOnly)
 	float LastActiveRawMoveCruiseSpeedInMobilePhase = 0.0f;
 
-	/** Internal identity used only by RuntimeHost to invalidate stale payloads. */
+	/** 宿主用于作废陈旧交接载荷的内部动作身份。 */
 	UPROPERTY()
 	FWeaponActionToken ActionToken;
 
@@ -467,15 +497,19 @@ struct FWeaponTagOwnerID
 {
 	GENERATED_BODY()
 
+	/** 当前武器运行期的身份令牌；代际变化后旧回调和旧请求失效。 */
 	UPROPERTY()
 	FWeaponRuntimeToken RuntimeToken;
 
+	/** 该批标签的所有者类别，区分动作、运行期及其他授权来源。 */
 	UPROPERTY()
 	EWeaponTagOwnerKind Kind = EWeaponTagOwnerKind::Input;
 
+	/** 所属能力在ASC中的授予句柄；与激活序号共同确定动作身份。 */
 	UPROPERTY()
 	FGameplayAbilitySpecHandle AbilityHandle;
 
+	/** 本次能力激活的单调序号，用于区分同一能力的连续执行。 */
 	UPROPERTY()
 	uint32 ActivationSequenceID = 0;
 
@@ -498,9 +532,11 @@ struct FWeaponOwnedTagToken
 {
 	GENERATED_BODY()
 
+	/** 当前武器运行期的身份令牌；代际变化后旧回调和旧请求失效。 */
 	UPROPERTY()
 	FWeaponRuntimeToken RuntimeToken;
 
+	/** 该批已持有标签的唯一令牌，释放时只撤销本令牌的贡献。 */
 	UPROPERTY()
 	uint64 TokenID = 0;
 
@@ -543,9 +579,11 @@ struct FWeaponResourceCostSpec
 {
 	GENERATED_BODY()
 
+	/** 要消耗的武器专属资源种类，由资源提供方解释。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag CostType;
 
+	/** 本次需要预留并在提交成功后消耗的资源数量。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FScalableFloat Amount;
 };
@@ -556,12 +594,15 @@ struct FWeaponResourceCostReservation
 {
 	GENERATED_BODY()
 
+	/** 当前武器运行期的身份令牌；代际变化后旧回调和旧请求失效。 */
 	UPROPERTY()
 	FWeaponRuntimeToken RuntimeToken;
 
+	/** 本次能力激活的单调序号，用于区分同一能力的连续执行。 */
 	UPROPERTY()
 	uint32 ActivationSequenceID = 0;
 
+	/** 本次资源预留事务的唯一标识，防止重复提交或退回。 */
 	UPROPERTY()
 	uint64 ReservationID = 0;
 
@@ -577,28 +618,35 @@ struct FWeaponAimSnapshot
 {
 	GENERATED_BODY()
 
+	/** 取得快照时的瞄准上下文，区分当前瞄准用途。 */
 	UPROPERTY(BlueprintReadOnly)
 	EWeaponAimSnapshotContext Context = EWeaponAimSnapshotContext::None;
 
+	/** 瞄准射线的世界空间起点，单位为厘米。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector Origin = FVector::ZeroVector;
 
+	/** 瞄准射线的归一化世界方向。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector Direction = FVector::ForwardVector;
 
+	/** 射线确定的世界目标点，单位为厘米。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector TargetPoint = FVector::ZeroVector;
 
+	/** 是否保存了可作为目标的受击部位命中结果。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bHasHitResult = false;
 
+	/** 目标受击部位的真实射线命中信息。 */
 	UPROPERTY(BlueprintReadOnly)
 	FHitResult HitResult;
 
-	/** First blocking ray result, even when it is scenery rather than a Hitzone. */
+	/** 是否命中第一个阻挡表面；地形也可阻挡射线，不要求是受击部位。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bHasBlockingHit = false;
 
+	/** 瞄准射线第一个阻挡表面的命中信息。 */
 	UPROPERTY(BlueprintReadOnly)
 	FHitResult BlockingHit;
 };
@@ -609,26 +657,31 @@ struct FWeaponAimLockSample
 {
 	GENERATED_BODY()
 
+	/** 锁定瞄准时使用的相机世界位置。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector CameraOrigin = FVector::ZeroVector;
 
+	/** 锁定瞄准时使用的相机归一化世界方向。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector CameraDirection = FVector::ForwardVector;
 
+	/** 锁定射线确定的世界目标点。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector TargetPoint = FVector::ZeroVector;
 
+	/** 结合实际发射位置得到的归一化发射方向。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector LaunchDirection = FVector::ForwardVector;
 
-	/** Any first blocking hit, including a wall; aim direction is never traced through it. */
+	/** 射线是否存在首个阻挡命中，包含墙面；不会穿过该阻挡继续瞄准。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bHasBlockingHit = false;
 
+	/** 锁定瞄准时的首个阻挡命中结果。 */
 	UPROPERTY(BlueprintReadOnly)
 	FHitResult BlockingHit;
 
-	/** True when no usable local PlayerController viewpoint was available. */
+	/** 没有可用本地玩家视点时，是否回退使用角色正前方。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bUsedActorForwardFallback = false;
 };
@@ -639,12 +692,15 @@ struct FWeaponInputSnapshot
 {
 	GENERATED_BODY()
 
+	/** 路由解析完成后的逻辑输入标签。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGameplayTag ResolvedInputTag;
 
+	/** 产生该输入的原始物理控制标签，用于对应按下与释放。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGameplayTag SourceControlTag;
 
+	/** 取得快照时仍按住的修饰键标签集合。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGameplayTagContainer HeldModifierTags;
 
@@ -652,14 +708,11 @@ struct FWeaponInputSnapshot
 	UPROPERTY(BlueprintReadOnly)
 	FGameplayTagContainer ContextTags;
 
+	/** 取得快照时的物理移动轴值；保持中立值，不借用历史输入。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector2D RawMoveInput = FVector2D::ZeroVector;
 
-	/**
-	 * Current camera-relative world direction at snapshot time. Zero when the
-	 * sampled raw axes are neutral/below the profile direction threshold or no
-	 * controller yaw is available; never a last-nonzero movement cache.
-	 */
+	/** 快照当时按相机水平朝向计算的世界方向；轴中立、低于方向阈值或控制器朝向不可用时为零，不使用最后非零方向缓存。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector WorldDirection = FVector::ZeroVector;
 
@@ -667,29 +720,35 @@ struct FWeaponInputSnapshot
 	UPROPERTY(BlueprintReadOnly)
 	FVector ActorForward = FVector::ForwardVector;
 
+	/** 该配置或输入快照所属的离散方向。 */
 	UPROPERTY(BlueprintReadOnly)
 	EDirectionalInput Direction = EDirectionalInput::None;
 
+	/** 取得快照时一并锁定的瞄准信息。 */
 	UPROPERTY(BlueprintReadOnly)
 	FWeaponAimSnapshot Aim;
 
+	/** 该输入处于开始、持续或完成等哪个阶段。 */
 	UPROPERTY(BlueprintReadOnly)
 	EWeaponInputPhase Phase = EWeaponInputPhase::Started;
 
+	/** 输入快照的路由器世界时间戳，单位为秒。 */
 	UPROPERTY(BlueprintReadOnly)
 	double Timestamp = 0.0;
 
-	/** Physical press start in router world seconds, when SourceControlTag has a tracked hold. */
+	/** 原始控制键本次物理按下的起始世界时间，单位为秒。 */
 	UPROPERTY(BlueprintReadOnly)
 	double PhysicalPressStartedAtSeconds = 0.0;
 
-	/** Actual Started -> release duration; valid on Completed and release-fallback snapshots. */
+	/** 实际按下到释放的持续时长，单位为秒；仅在完成或释放回退快照有效。 */
 	UPROPERTY(BlueprintReadOnly)
 	float PhysicalPressDurationSeconds = 0.0f;
 
+	/** 快照是否包含有效的物理按键持续时长。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bHasPhysicalPressDuration = false;
 
+	/** 逻辑输入快照的唯一序号，用于去重及匹配消费。 */
 	UPROPERTY()
 	uint32 SequenceID = 0;
 };
@@ -700,29 +759,35 @@ struct FWeaponAbilityActivationContext
 {
 	GENERATED_BODY()
 
+	/** 当前武器运行期的身份令牌；代际变化后旧回调和旧请求失效。 */
 	UPROPERTY(BlueprintReadOnly)
 	FWeaponRuntimeToken RuntimeToken;
 
+	/** 本次能力激活的单调序号，用于区分同一能力的连续执行。 */
 	UPROPERTY()
 	uint32 ActivationSequenceID = 0;
 
+	/** 连招边的稳定标识，用于匹配转移记录和诊断来源。 */
 	UPROPERTY(BlueprintReadOnly)
 	FName TransitionID;
 
+	/** 这次连招转移出发时的源状态。 */
 	UPROPERTY(BlueprintReadOnly)
 	FName SourceState;
 
+	/** 这次连招转移完成后进入的目标状态。 */
 	UPROPERTY(BlueprintReadOnly)
 	FName TargetState;
 
-	/** Per-transition Montage Blend In override; negative means target asset default. */
+	/** 该连招边覆盖蒙太奇混入时长的值，单位为秒；负数沿用目标资产默认值。 */
 	UPROPERTY(BlueprintReadOnly)
 	float MontageBlendInTime = -1.0f;
 
-	/** Per-transition activation yaw correction cap; negative inherits the target GA default. */
+	/** 该连招边覆盖起手水平修正上限的值，单位为度；负数沿用目标GA默认值。 */
 	UPROPERTY(BlueprintReadOnly)
 	float MaxCorrectionAngle = -1.0f;
 
+	/** 驱动这次能力激活的不可变输入快照。 */
 	UPROPERTY(BlueprintReadOnly)
 	FWeaponInputSnapshot Input;
 };
@@ -732,21 +797,27 @@ struct FActiveComboTransition
 {
 	GENERATED_BODY()
 
+	/** 连招边的稳定标识，用于匹配转移记录和诊断来源。 */
 	UPROPERTY(BlueprintReadOnly)
 	FName TransitionID;
 
+	/** 精确动作身份，关联运行期、能力实例和激活序号，用于隔离迟到回调。 */
 	UPROPERTY(BlueprintReadOnly)
 	FWeaponActionToken ActionToken;
 
+	/** 这次连招转移出发时的源状态。 */
 	UPROPERTY(BlueprintReadOnly)
 	FName SourceState;
 
+	/** 这次连招转移完成后进入的目标状态。 */
 	UPROPERTY(BlueprintReadOnly)
 	FName TargetState;
 
+	/** 当前已确认转移持有的标签，退出时只释放这些标签的所有权。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGameplayTagContainer OwnedTags;
 
+	/** 当前转移是否已收到首次成功命中，用于一次性命中授权。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bFirstHitReceived = false;
 };
@@ -757,26 +828,27 @@ struct FPendingComboTransition
 {
 	GENERATED_BODY()
 
+	/** 连招边的稳定标识，用于匹配转移记录和诊断来源。 */
 	UPROPERTY()
 	FName TransitionID;
 
+	/** 所属能力在ASC中的授予句柄；与激活序号共同确定动作身份。 */
 	UPROPERTY()
 	FGameplayAbilitySpecHandle AbilityHandle;
 
+	/** 本次能力激活的单调序号，用于区分同一能力的连续执行。 */
 	UPROPERTY()
 	uint32 ActivationSequenceID = 0;
 
+	/** 等待激活确认的连招上下文，提交前不替代当前转移。 */
 	UPROPERTY()
 	FWeaponAbilityActivationContext ActivationContext;
 
+	/** 连招状态机中被本次转移接替的上一动作身份。 */
 	UPROPERTY()
 	FWeaponActionToken PreviousActionToken;
 
-	/**
-	 * Explicit action whose authored aerial handoff unlocked this transition.
-	 * Unlike PreviousActionToken (the combo FSM predecessor), this token may be
-	 * a direct/core action such as AirDodge that is not represented in ActiveTransition.
-	 */
+	/** 真正通过空中交接放行本次转移的动作身份；可来自未记录在当前连招边中的空回，与状态机前驱身份分开。 */
 	UPROPERTY()
 	FWeaponActionToken AerialHandoffSourceActionToken;
 };
@@ -787,118 +859,105 @@ struct FWeaponMovementRequest
 {
 	GENERATED_BODY()
 
+	/** 持有该请求或表现的动作身份；仅所属动作可更新或释放。 */
 	UPROPERTY(BlueprintReadOnly)
 	FWeaponActionToken OwnerAction;
 
+	/** 本次位移采用的运动模式，决定实际读取哪些轨迹参数。 */
 	UPROPERTY(BlueprintReadOnly)
 	EWeaponMovementMode Mode = EWeaponMovementMode::BoundedDirectional;
 
+	/** 本次位移锁定的世界方向，不在运动中读取过期输入快照。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector DirectionSnapshot = FVector::ForwardVector;
 
+	/** 当前运动模式使用的最大移动距离，单位为厘米。 */
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float MaxDistance = 0.f;
 
+	/** 本段动作拥有位移的时长，单位为游戏秒。 */
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float Duration = 0.f;
 
-	/** SegmentedDirectional only; world gravity is independent of launch pitch. */
+	/** 仅分段定向运动读取的轨迹配置；世界重力与发射俯仰独立。 */
 	UPROPERTY(BlueprintReadOnly)
 	FSegmentedDirectionalMovementProfile SegmentedProfile;
 
-	/**
-	 * RecordedLocalTrajectory only. `DirectionSnapshot` is the frozen horizontal
-	 * aim direction D; the curve's local X/Y/Z resolve against D, `WorldUp × D`
-	 * and world up respectively (see MHGZRecordedLocalTrajectory.h).
-	 */
+	/** 仅录制局部轨迹模式读取。局部X沿锁定水平前向，Y沿世界上向叉乘前向，Z沿世界上向。 */
 	UPROPERTY(BlueprintReadOnly)
 	FRecordedLocalTrajectoryProfile RecordedTrajectory;
 
-	/**
-	 * Component-wise scale applied to the authored RecordedTrajectory result.
-	 * Unit scale preserves all existing movement requests. Descending Thrust uses
-	 * X as the locked planar speed while the source curve's X remains seconds.
-	 */
+	/** 对录制轨迹逐轴缩放；单位缩放保持原轨迹。急袭突刺用X轴缩放锁定水平速度，而源曲线X轴仍表示时间积分。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector RecordedTrajectoryScale = FVector::OneVector;
 
-	/** RecordedLocalTrajectory only: how this phase treats the floor. */
+	/** 录制局部轨迹模式遇到地面时采用的处理策略。 */
 	UPROPERTY(BlueprintReadOnly)
 	ERecordedTrajectoryGroundPolicy TrajectoryGroundPolicy
 		= ERecordedTrajectoryGroundPolicy::ProtectedFlight;
 
-	/** RecordedLocalTrajectory only: what happens past the recorded range. */
+	/** 录制轨迹超出有效时间范围后采用的尾段策略。 */
 	UPROPERTY(BlueprintReadOnly)
 	ERecordedTrajectoryTailPolicy TrajectoryTailPolicy
 		= ERecordedTrajectoryTailPolicy::HoldLastKey;
 
-	/** Normalized [0,1] progress for CurvedDirectional; unused by existing modes. */
+	/** 曲线定向模式使用的0到1归一化前进进度；其他模式不读取。 */
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<UCurveFloat> DistanceCurve;
 
-	/**
-	 * CurvedVault's local path offset, evaluated over [0, 1]. X follows
-	 * DirectionSnapshot, Y is lateral, and Z is vertical. The curve must start
-	 * and end at zero offset because MaxDistance defines the two endpoints.
-	 */
+	/** 曲线撑杆跳的归一化路径偏移：X沿锁定前向、Y横向、Z竖直；首尾偏移必须为零，端点由最大距离确定。 */
 	UPROPERTY(BlueprintReadOnly)
 	TObjectPtr<UCurveVector> PathOffsetCurve;
 
-	/** CurvedVault endpoint height in cm; zero preserves every existing vault. */
+	/** 曲线撑杆跳的终点相对高度，单位为厘米；零表示保持原等高端点。 */
 	UPROPERTY(BlueprintReadOnly)
 	float CurvedVaultEndHeight = 0.0f;
 
-	/**
-	 * CurvedVault only: the analytic tangent of the authored path at the exact
-	 * hand-off point, expressed in the path's own facing frame (X forward,
-	 * Y right, Z up) and already divided by Duration, i.e. in cm/s.
-	 *
-	 * The task rotates this by the same yaw-only facing rotation the engine's
-	 * FRootMotionSource_MoveToForce::GetPathOffsetInWorldSpace applies, so the
-	 * value does not depend on the character's rotation when the task activates.
-	 *
-	 * It exists because the free-fall hand-off must not be read back from
-	 * CMC->Velocity.  MoveToForce targets a moving point and the CMC removes it
-	 * on its own movement update, so by the time the task observes completion the
-	 * velocity has already collapsed to the source's last partial-frame
-	 * remainder.  Sampling the tangent from the same recorded keys that built the
-	 * curve is frame-order independent.
-	 */
+	/** 撑杆跳精确交接点的解析切线速度，单位为厘米每秒；局部X前、Y右、Z上，已除以本段时长。任务按路径水平朝向旋转到世界空间，不从CMC末帧残余速度回读。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector CurvedVaultHandoffVelocityLocal = FVector::ZeroVector;
 
+	/** 进入本段时需要继承的世界空间速度，单位为厘米每秒。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector InheritedVelocity = FVector::ZeroVector;
 
+	/** 进入本段时继承已有速度的比例。 */
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float InheritedVelocityRatio = 0.f;
 
+	/** 抛体参数采用的解释模式，决定按高度、时长或显式速度求解。 */
 	UPROPERTY(BlueprintReadOnly)
 	EBallisticParameterMode BallisticMode = EBallisticParameterMode::ApexHeightAndDuration;
 
+	/** 抛体模式的目标最高点相对高度，单位为厘米。 */
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float ApexHeight = 0.f;
 
+	/** 显式发射世界速度，单位为厘米每秒。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector LaunchVelocity = FVector::ZeroVector;
 
-	/** AuthoredAerialPhysics only: constant planar acceleration used by the active aerial profile. */
+	/** 仅自定义空中物理模式读取的恒定水平加速度，单位为厘米每平方秒。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector PlanarAcceleration = FVector::ZeroVector;
 
-	/** AuthoredAerialPhysics only: positive gravity magnitude already installed in CMC/Host. */
+	/** 已安装到CMC/宿主的重力正幅值，单位为厘米每平方秒；仅自定义空中物理模式读取。 */
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0"))
 	float GravityMagnitude = 0.0f;
 
+	/** 该段空中运动允许的输入操控比例。 */
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float AirControlScale = 0.f;
 
+	/** 本段运动的朝向控制策略。 */
 	UPROPERTY(BlueprintReadOnly)
 	EActionRotationPolicy RotationPolicy = EActionRotationPolicy::Locked;
 
+	/** 允许的最大转向角速度，单位为度每秒。 */
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0", ClampMax = "360.0"))
 	float MaxTurnRateDegrees = 0.f;
 
+	/** 允许偏离锁定方向的转向锥半角，单位为度。 */
 	UPROPERTY(BlueprintReadOnly, meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float SteeringConeHalfAngle = 0.f;
 
@@ -906,6 +965,7 @@ struct FWeaponMovementRequest
 	UPROPERTY(BlueprintReadOnly)
 	FName WarpTargetName;
 
+	/** 运动被取消时如何处理剩余速度的策略。 */
 	UPROPERTY(BlueprintReadOnly)
 	EMovementCancelVelocityPolicy CancelVelocityPolicy = EMovementCancelVelocityPolicy::PreserveVelocity;
 
@@ -1013,19 +1073,23 @@ struct FWeaponMovementResult
 {
 	GENERATED_BODY()
 
+	/** 位移任务结束的原因，区分完成、取消、阻挡及其他终止。 */
 	UPROPERTY(BlueprintReadOnly)
 	EWeaponMovementEndReason EndReason = EWeaponMovementEndReason::Completed;
 
+	/** 该段已发生的水平移动距离，单位为厘米。 */
 	UPROPERTY(BlueprintReadOnly)
 	float TravelledDistance = 0.f;
 
-	/** Full 3D displacement; TravelledDistance retains its established planar meaning. */
+	/** 该段完整三维移动距离，单位为厘米；与只统计水平距离的字段分开。 */
 	UPROPERTY(BlueprintReadOnly)
 	float TravelledDistance3D = 0.f;
 
+	/** 位移任务结束时用于交接的世界速度，单位为厘米每秒。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector FinalVelocity = FVector::ZeroVector;
 
+	/** 运动结束时关联的真实阻挡命中信息。 */
 	UPROPERTY(BlueprintReadOnly)
 	FHitResult BlockingHit;
 };

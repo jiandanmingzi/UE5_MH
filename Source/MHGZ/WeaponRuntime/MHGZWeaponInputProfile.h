@@ -123,6 +123,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
 	TMap<TObjectPtr<UInputAction>, FGameplayTag> RawActionToPhysicalInputTag;
 
+	/** 本武器的组合键及单键定义；由输入路由器统一解析。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input|Chords")
 	TArray<FWeaponChordDefinition> Chords;
 

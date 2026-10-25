@@ -27,16 +27,19 @@ public:
 		EMHGZDamageSourceType ExpectedSource, FVector& OutLocation);
 
 protected:
-	/** Existing weapon assets keep Weapon. A kinsect Cue accepts only Kinsect contexts. */
+	/** 该Cue接受的伤害来源；武器保持Weapon，猎虫Cue只接受Kinsect上下文。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Audio")
 	EMHGZDamageSourceType ContactSource = EMHGZDamageSourceType::Weapon;
 
+	/** 该命中Cue使用的接触声音资源。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Audio")
 	TObjectPtr<USoundBase> HitSound;
 
+	/** 在音源与其他混音设置基础上叠加的音量倍率。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Audio", meta = (ClampMin = "0"))
 	float VolumeMultiplier = 1.f;
 
+	/** 声音播放音高倍率；同时影响该次音源的播放速度。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "MHGZ|Audio", meta = (ClampMin = "0.01"))
 	float PitchMultiplier = 1.f;
 };

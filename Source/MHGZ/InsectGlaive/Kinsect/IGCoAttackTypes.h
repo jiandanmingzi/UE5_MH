@@ -9,12 +9,16 @@ USTRUCT(BlueprintType)
 struct FIGCoAttackSource
 {
 	GENERATED_BODY()
+	/** 该武器伤害段是否启用对应的猎虫协同攻击机会。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CoAttack", meta = (DisplayName = "启用地面协同"))
 	bool bEnabled = false;
+	/** 记录协同轨迹时查找的武器网格组件标签。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CoAttack")
 	FName MeshTag = TEXT("WeaponTrace");
+	/** 协同轨迹采样使用的武器插槽名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CoAttack")
 	FName Socket = TEXT("IG_FrontTip");
+	/** 相对采样插槽的局部位置偏移，单位为厘米。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CoAttack", meta = (Units = "cm"))
 	FVector LocalOffset = FVector::ZeroVector;
 	/** 源武器段索引→猎虫动作值。空表只演示轨迹，不复制武器动作值。 */

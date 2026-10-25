@@ -31,6 +31,7 @@ struct MHGZ_API FMHGZHitFeedbackResult
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|Feedback")
 	float ActualStagger = 0.f;
 
+	/** 本次已结算命中是否为会心，供伤害数字和反馈选择表现。 */
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|Feedback")
 	bool bCritical = false;
 
@@ -54,6 +55,7 @@ struct MHGZ_API FMHGZHitFeedbackResult
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|Feedback")
 	FGuid AttackInstanceID;
 
+	/** 提供本次攻击或命中的来源角色。 */
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|Feedback")
 	TWeakObjectPtr<AActor> SourceActor;
 

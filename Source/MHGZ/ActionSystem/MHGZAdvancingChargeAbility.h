@@ -38,12 +38,15 @@ public:
 	/** 由 Charge Section 起点的精确 AnimNotify 调用。 */
 	void BeginAdvancingCharge();
 
+	/** 进入保持阶段前使用的起手Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Charge")
 	FName ChargeEntrySection = FName(TEXT("Entry"));
 
+	/** 按键仍保持时循环播放的Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Charge")
 	FName ChargeSection = FName(TEXT("Charge"));
 
+	/** 保持结束后进入攻击的Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Charge")
 	FName AttackSection = FName(TEXT("Core"));
 

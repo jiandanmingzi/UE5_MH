@@ -21,6 +21,7 @@ class UGA_WeaponComboCoordinator : public UMHGZGameplayAbility
 public:
 	UGA_WeaponComboCoordinator();
 
+	/** 连招协调器当前已确认的状态，不包含尚未提交的转移。 */
 	UPROPERTY(BlueprintReadOnly, Category = "MHGZ|Combo")
 	FName CurrentState = FName(TEXT("Idle"));
 
@@ -130,6 +131,7 @@ private:
 		bool bDodgeSourceCompletedNormally = false;
 	};
 
+	/** 当前武器注入的连招边与预输入配置。 */
 	UPROPERTY()
 	TObjectPtr<UMHGZWeaponComboData> ComboData;
 

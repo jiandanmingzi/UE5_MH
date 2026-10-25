@@ -164,9 +164,11 @@ struct FWeaponComboConfigRow : public FTableRowBase
 {
 	GENERATED_BODY()
 
+	/** 武器种类标签，用于匹配该武器的连招或资源配置。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag WeaponTypeTag;
 
+	/** 该行武器类型对应的连招数据资源。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	TSoftObjectPtr<class UMHGZWeaponComboData> ComboDataAsset;
 };
@@ -179,6 +181,7 @@ struct FWeaponResourceConfigRow : public FTableRowBase
 {
 	GENERATED_BODY()
 
+	/** 武器种类标签，用于匹配该武器的连招或资源配置。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	FGameplayTag WeaponTypeTag;
 

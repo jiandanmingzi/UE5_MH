@@ -131,39 +131,51 @@ struct FIGPowderRuntimeSnapshot
 {
 	GENERATED_BODY()
 
+	/** 该团粉尘的唯一标识，用于预留、聚集、消耗及去重。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGuid PowderID;
 
+	/** 产生这次猎虫伤害或粉尘的攻击身份，与每下命中的独立身份分开。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGuid SourceAttackInstanceID;
 
+	/** 产生该团粉尘的成功命中身份，用于追溯与去重。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGuid SourceHitInstanceID;
 
+	/** 对象当前的世界空间位置，单位为厘米。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector Location = FVector::ZeroVector;
 
+	/** 剩余存在时间，单位为游戏秒。 */
 	UPROPERTY(BlueprintReadOnly)
 	float RemainingLifetime = 0.0f;
 
+	/** 该团粉尘独立爆炸时的伤害贡献，聚爆第二段按实际消耗粉尘求和。 */
 	UPROPERTY(BlueprintReadOnly)
 	float DamageContribution = 0.0f;
 
+	/** 生成或提交该次行为时锁定的猎虫攻击力，后续结算沿用此快照。 */
 	UPROPERTY(BlueprintReadOnly)
 	float KinsectAttackPowerSnapshot = 0.0f;
 
+	/** 该次行为锁定的动作值，伤害公式中按动作值除以100计算。 */
 	UPROPERTY(BlueprintReadOnly)
 	float MotionValueSnapshot = 0.0f;
 
+	/** 当前对象的运行时状态快照；状态流转由所属系统管理。 */
 	UPROPERTY(BlueprintReadOnly)
 	EIGPowderState State = EIGPowderState::Available;
 
+	/** 对象进入终止状态的原因，用于区分爆炸、消耗、超距或清理。 */
 	UPROPERTY(BlueprintReadOnly)
 	EIGPowderTerminalReason TerminalReason = EIGPowderTerminalReason::None;
 
+	/** 粉尘寿命刷新修订号，用于识别聚集刷新后的新截止时间。 */
 	UPROPERTY(BlueprintReadOnly)
 	int32 LifetimeRevision = 0;
 
+	/** 本次粉尘生成采用的规则，决定是否检查普通产粉冷却。 */
 	UPROPERTY(BlueprintReadOnly)
 	EIGPowderSpawnPolicy SpawnPolicy = EIGPowderSpawnPolicy::None;
 };
@@ -174,39 +186,50 @@ struct FIGPowderExplosionSnapshot
 {
 	GENERATED_BODY()
 
+	/** 本次粉尘爆炸事务的唯一身份。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGuid ExplosionID;
 
+	/** 聚爆第一段数量档伤害的独立攻击身份。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGuid Stage1AttackID;
 
+	/** 聚爆第二段粉尘贡献求和伤害的独立攻击身份。 */
 	UPROPERTY(BlueprintReadOnly)
 	FGuid Stage2AttackID;
 
+	/** 本次爆炸判定的世界空间中心，单位为厘米。 */
 	UPROPERTY(BlueprintReadOnly)
 	FVector Center = FVector::ZeroVector;
 
+	/** 本次实际提交并消耗的粉尘数量，不包含无效或被取消的预留。 */
 	UPROPERTY(BlueprintReadOnly)
 	int32 ConsumedCount = 0;
 
+	/** 本次爆炸快照中两段伤害的总和。 */
 	UPROPERTY(BlueprintReadOnly)
 	float TotalDamage = 0.0f;
 
+	/** 按实际粉尘数量档及猎虫攻击力计算的聚爆第一段伤害。 */
 	UPROPERTY(BlueprintReadOnly)
 	float Stage1Damage = 0.0f;
 
 	/** 第一段保留原始攻击力快照与动作值，由统一粉尘公式实际结算。 */
 	UPROPERTY(BlueprintReadOnly)
 	float Stage1AttackPower = 0.0f;
+	/** 聚爆第一段数量档使用的动作值，公式中除以100。 */
 	UPROPERTY(BlueprintReadOnly)
 	float Stage1MotionValue = 0.0f;
 
+	/** 实际消耗的各团粉尘独立伤害贡献之和。 */
 	UPROPERTY(BlueprintReadOnly)
 	float Stage2Damage = 0.0f;
 
+	/** 本次爆炸的球形伤害半径，单位为厘米。 */
 	UPROPERTY(BlueprintReadOnly)
 	float Radius = 0.0f;
 
+	/** 本次命中的基础硬直量，由后续结算按部位与抗性处理。 */
 	UPROPERTY(BlueprintReadOnly)
 	float BaseStagger = 0.0f;
 };

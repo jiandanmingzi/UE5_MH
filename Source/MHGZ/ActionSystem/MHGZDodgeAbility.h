@@ -49,32 +49,35 @@ public:
 		meta = (DisplayName = "后翻滚需要攻击状态"))
 	bool bBackDodgeRequiresAttacking = true;
 
-	/** Final forward-roll montage for the sheathed pose. */
+	/** 收刀状态使用的最终前向翻滚蒙太奇。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Sheathed")
 	TSoftObjectPtr<UAnimMontage> SheathedDodgeMontage;
 
-	/** Final forward-roll montage for the unsheathed pose. */
+	/** 持刀状态使用的最终前向翻滚蒙太奇。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Unsheathed")
 	TSoftObjectPtr<UAnimMontage> UnsheathedDodgeMontage;
 
-	/** Final left-roll montage. Only valid from the unsheathed pose. */
+	/** 持刀状态使用的最终左向翻滚蒙太奇。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Unsheathed")
 	TSoftObjectPtr<UAnimMontage> UnsheathedLeftDodgeMontage;
 
-	/** Final right-roll montage. Only valid from the unsheathed pose. */
+	/** 持刀状态使用的最终右向翻滚蒙太奇。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Unsheathed")
 	TSoftObjectPtr<UAnimMontage> UnsheathedRightDodgeMontage;
 
-	/** Final back-roll montage. Only valid from the unsheathed pose. */
+	/** 持刀状态使用的最终后向翻滚蒙太奇。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Unsheathed")
 	TSoftObjectPtr<UAnimMontage> UnsheathedBackDodgeMontage;
 
+	/** 翻滚核心动作Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Sections")
 	FName DodgeCoreSectionName = FName(TEXT("DodgeCore"));
 
+	/** 翻滚结束后按无移动输入退出的Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Sections")
 	FName IdleExitSectionName = FName(TEXT("IdleExit"));
 
+	/** 翻滚结束后按持续移动输入退出的Section名。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Sections")
 	FName MoveExitSectionName = FName(TEXT("MoveExit"));
 
@@ -82,13 +85,7 @@ public:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Dodge|Recovery", meta=(ClampMin="0.0", ForceUnits="s"))
 	float DirectionalIdleExitBlendTime = 0.1f;
 
-	/**
-	 * E4.2 migration switch. When enabled, every Dodge variant acquires Montage
-	 * root-motion ownership solely through AnimNotifyState_ActionRootMotionPhase.
-	 * The serialized member name is retained so existing GA_Dodge assets preserve
-	 * their configured value; its editor label intentionally describes the
-	 * broadened all-direction contract.
-	 */
+	/** 所有方向翻滚是否通过动作根运动通知窗口取得根运动所有权；成员名保留兼容旧资产，但当前开关作用于全部方向。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Dodge|Motion Matching",
 		meta = (DisplayName = "Dodge Uses Action Root Motion Phase"))
 	bool bForwardDodgeUsesActionRootMotionPhase = false;
@@ -182,9 +179,11 @@ protected:
 	void OnMontageEndFailsafeExpired();
 
 private:
+	/** 当前蒙太奇播放任务的运行时引用；随本次能力清理。 */
 	UPROPERTY()
 	TObjectPtr<UAbilityTask_PlayMontageAndWait> MontageTask;
 
+	/** 本次实际播放的翻滚蒙太奇引用。 */
 	UPROPERTY()
 	TObjectPtr<UAnimMontage> ActiveDodgeMontage;
 

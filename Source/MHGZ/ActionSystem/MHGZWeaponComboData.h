@@ -58,6 +58,7 @@ struct FComboTransition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match", meta = (ToolTip = "这条边允许从哪个当前连招状态出发。若启用“匹配任意源状态”，此字段不参与匹配。"))
 	FName SourceState;
 
+	/** 启用后，这条边可从任意源状态匹配；仍会检查输入、标签、窗口等其他条件。可用“排除的源状态”列出例外。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match", meta = (ToolTip = "启用后，这条边可从任意源状态匹配；仍会检查输入、标签、窗口等其他条件。可用“排除的源状态”列出例外。"))
 	bool bMatchAnyState = false;
 
@@ -69,45 +70,45 @@ struct FComboTransition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match", meta = (ToolTip = "触发这条输入边的逻辑 Gameplay Tag。普通输入边必须设置有效标签；自动转移边必须留空。"))
 	FGameplayTag InputTag;
 
+	/** 输入方向筛选。None 表示不限制方向，并不表示要求摇杆回中；其他值要求方向输入符合对应方向。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match", meta = (ToolTip = "输入方向筛选。None 表示不限制方向，并不表示要求摇杆回中；其他值要求方向输入符合对应方向。"))
 	EDirectionalInput Direction = EDirectionalInput::None;
 
+	/** 执行方式：ActivateAbility 会激活下方指定的能力；StateOnly 只执行状态转移，不激活能力，仅适用于自动状态边。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Execution", meta = (ToolTip = "执行方式：ActivateAbility 会激活下方指定的能力；StateOnly 只执行状态转移，不激活能力，仅适用于自动状态边。"))
 	EComboExecutionPolicy ExecutionPolicy = EComboExecutionPolicy::ActivateAbility;
 
+	/** 这条边要激活的 Gameplay Ability 类。ActivateAbility 必须指定有效的 MHGZ 能力类；StateOnly 必须留空。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Execution", meta = (ToolTip = "这条边要激活的 Gameplay Ability 类。ActivateAbility 必须指定有效的 MHGZ 能力类；StateOnly 必须留空。"))
 	TSubclassOf<UGameplayAbility> AbilityClass;
 
-	/**
-	 * Per-transition Montage Blend In override in seconds. Negative inherits the
-	 * target Montage asset's default; zero is an intentional hard cut.
-	 */
+	/** 该边覆盖目标 Montage 的混入时长（秒）。-1 表示沿用 Montage 资产默认值；0 表示硬切；正值指定本边的混入时长。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Execution",
 		meta = (ClampMin = "-1.0", ForceUnits = "s", ToolTip = "该边覆盖目标 Montage 的混入时长（秒）。-1 表示沿用 Montage 资产默认值；0 表示硬切；正值指定本边的混入时长。"))
 	float MontageBlendInTime = -1.0f;
 
-	/**
-	 * Per-transition activation yaw-correction cap in degrees. Negative inherits
-	 * the target attack GA's MaxCorrectionAngle; zero intentionally disables the
-	 * activation-time correction for this edge. A target within 90 degrees beyond
-	 * the cap is accepted and corrected by the cap amount.
-	 */
+	/** 激活时单次朝向修正的最大转角。-1 沿用目标攻击 GA 的 MaxCorrectionAngle；0 禁用本边修正。目标偏差超过此值但不超过 90 度余量时，仍按此最大转角修正；超过余量则不修正。有效范围为 0 到 180 度。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Execution",
 		meta = (ClampMin = "-1.0", ClampMax = "180.0", ForceUnits = "deg", ToolTip = "激活时单次朝向修正的最大转角。-1 沿用目标攻击 GA 的 MaxCorrectionAngle；0 禁用本边修正。目标偏差超过此值但不超过 90 度余量时，仍按此最大转角修正；超过余量则不修正。有效范围为 0 到 180 度。"))
 	float MaxCorrectionAngle = -1.0f;
 
+	/** Replace 状态策略完成后切换到的目标连招状态。使用 Replace 时必须填写；Preserve 会保留当前状态并忽略此字段。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "State", meta = (ToolTip = "Replace 状态策略完成后切换到的目标连招状态。使用 Replace 时必须填写；Preserve 会保留当前状态并忽略此字段。"))
 	FName TargetState;
 
+	/** Replace：将连招状态替换为目标状态；Preserve：保留当前状态。Preserve 边不能配置 GrantedTags。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "State", meta = (ToolTip = "Replace：将连招状态替换为目标状态；Preserve：保留当前状态。Preserve 边不能配置 GrantedTags。"))
 	EComboStatePolicy StatePolicy = EComboStatePolicy::Replace;
 
+	/** 空中能力落地时的处理方式。ResetToIdle 由协调器重置到 Idle；AbilityOwned 将落地交给当前空中能力处理，仅用于明确配置的空中状态。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "State", meta = (ToolTip = "空中能力落地时的处理方式。ResetToIdle 由协调器重置到 Idle；AbilityOwned 将落地交给当前空中能力处理，仅用于明确配置的空中状态。"))
 	EComboLandingPolicy LandingPolicy = EComboLandingPolicy::ResetToIdle;
 
+	/** 边可匹配所必须具备的 Gameplay Tags；容器中的所有标签都必须满足。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Requirements", meta = (ToolTip = "边可匹配所必须具备的 Gameplay Tags；容器中的所有标签都必须满足。"))
 	FGameplayTagContainer RequiredTags;
 
+	/** 边匹配时禁止存在的 Gameplay Tags；只要命中其中任意一个标签，这条边就不可用。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Requirements", meta = (ToolTip = "边匹配时禁止存在的 Gameplay Tags；只要命中其中任意一个标签，这条边就不可用。"))
 	FGameplayTagContainer BlockedTags;
 
@@ -115,26 +116,27 @@ struct FComboTransition
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Requirements", meta = (ClampMin = "0.0", ToolTip = "匹配这条边所需的最低耐力值。这里只做可用性检查，不会扣除耐力。"))
 	float StaminaRequired = 0.f;
 
+	/** 启用后，只有当前动作对应的 Combo Window 已开启时才能匹配；窗口关闭时输入可按系统预输入配置暂存。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Requirements", meta = (ToolTip = "启用后，只有当前动作对应的 Combo Window 已开启时才能匹配；窗口关闭时输入可按系统预输入配置暂存。"))
 	bool bRequiresComboWindow = false;
 
-	/**
-	 * Requires the exact active attack ActionToken to own an open
-	 * AnimNotifyState_DodgeAcceptWindow. This is intentionally stricter than
-	 * testing the aggregate DodgeAcceptOpen gameplay tag.
-	 */
+	/** 启用后，要求当前活动攻击的精确 ActionToken 持有已开启的 DodgeAcceptWindow；仅有聚合的 DodgeAcceptOpen 标签不够。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Requirements", meta = (ToolTip = "启用后，要求当前活动攻击的精确 ActionToken 持有已开启的 DodgeAcceptWindow；仅有聚合的 DodgeAcceptOpen 标签不够。"))
 	bool bRequiresDodgeAcceptWindow = false;
 
+	/** 决定 GrantedTags 的授予时机：OnActivation 在能力激活时授予；OnFirstHit 在本动作首次有效命中时授予。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tags", meta = (ToolTip = "决定 GrantedTags 的授予时机：OnActivation 在能力激活时授予；OnFirstHit 在本动作首次有效命中时授予。"))
 	ETransitionGrantTiming GrantTiming = ETransitionGrantTiming::OnActivation;
 
+	/** 由这条边授予并在转移生命周期内管理的 Gameplay Tags。Preserve 状态策略不允许配置此字段。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Tags", meta = (ToolTip = "由这条边授予并在转移生命周期内管理的 Gameplay Tags。Preserve 状态策略不允许配置此字段。"))
 	FGameplayTagContainer GrantedTags;
 
+	/** 标记为自动转移边。自动边不由 InputTag 触发，必须留空 InputTag，并遵守自动状态转移的配置约束。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Execution", meta = (ToolTip = "标记为自动转移边。自动边不由 InputTag 触发，必须留空 InputTag，并遵守自动状态转移的配置约束。"))
 	bool bAutoTransition = false;
 
+	/** 多条边同时满足匹配条件时的优先级；数值越大越优先。条件和优先级仍完全相同的边应避免并存。 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Match", meta = (ToolTip = "多条边同时满足匹配条件时的优先级；数值越大越优先。条件和优先级仍完全相同的边应避免并存。"))
 	int32 Priority = 0;
 
@@ -147,9 +149,11 @@ class UMHGZWeaponComboData : public UPrimaryDataAsset
 	GENERATED_BODY()
 
 public:
+	/** 武器种类标签，用于匹配该武器的连招或资源配置。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Identity")
 	FGameplayTag WeaponTypeTag;
 
+	/** 本武器所有合法输入或自动连招转移边。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Combo")
 	TArray<FComboTransition> Transitions;
 
