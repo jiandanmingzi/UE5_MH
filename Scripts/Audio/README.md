@@ -8,6 +8,12 @@
 
 ## 当前工具和证据
 
+**最新覆盖：统一1.0（2026-10-26）：** 用户取消按档位设置倍率，53个SoundCue、75个SoundWave均已为1.0；实际保存26个Cue，519个声音通知、2个命中处理器及猎虫飞行组件的播放倍率也核对为1.0。其余171份保护包、原音源/音高、图/引用、衰减、并发与通知保持，空提示和177个静音通知未补声。续接入口为既有`setup_current_weapon_audio.py --unity-volume`／`-MHGZAudioUnityVolume`，默认只读；首次Apply已完成且禁止重放。证据与备份在`Saved/Audio/RiseIG/UnityVolume20261026/`。首次26项保存后的最终检查发现旧空Cue时长缓存被引擎Serialize重算为0，随后仅放行无FirstNode/无声音节点的空Cue这一派生缓存，并只读新进程核对通过，没有重放写入。旧`--loudness-plan`已被用户新指示覆盖并拒绝使用，不能为通过旧哈希恢复分档值；旧报告保留历史。未PIE耳听。
+
+**音量细调（2026-10-26）：** 当前冻结方案为`Saved/Audio/RiseIG/LoudnessPlan20261026/gain-plan.json`，对应[音效计划1.40/1.41](../../docs/archive/maintenance-2026-10-26/崛起虫棍攻击与命中音效实施计划.md)。复用既有`setup_current_weapon_audio.py --loudness-plan`／Commandlet `-MHGZAudioLoudnessPlan`，由`audio_loudness_maintenance.py`执行。默认只读；只有首次显式`--apply`／`-MHGZCurrentWeaponAudioApply`允许写入21项Cue的`volume_multiplier`，15项保持不重存；不改Wave、图、衰减、并发、通知、GA或Combat。所有前置核对与21份备份先完成，再写意图与逐包保存记录；已有`Saved/Audio/RiseIG/LoudnessApply20261026/state.json`禁止重放Apply。保存后必须用新进程/新编辑器会话运行默认入口完成独立回载，核对完整原生导出除根音量字段外不变及其余175包哈希。报告/备份均位于该事务目录；手动调音或后续合法修改导致旧事务回查失败时，先形成新快照，不为通过旧哈希回滚当前用户改动。原有`--dust-volume`等历史Apply禁止用来覆盖新混音。
+
+本次21项已保存并在新进程默认审计回载通过，175份其它保护包与46份原WAV保持，完整结果见事务的`audit.json`、`applied-values.json`与`report.md`；未PIE耳听。今后该入口只做只读核对，不能重放首次Apply，也不要求为小幅后续调音重开历史全量音频审计。
+
 **最新轨道维护（2026-10-23）：** `setup_current_weapon_audio.py --cloth-tracks`／`-MHGZAudioClothTracks`只读回查`ClothTracks20261023/StableLanes/`，6包11点已保存/独立回载，原时间/音源/其它通知不变。UE加载时不允许同轨同帧；使用`ClothAudio_2`等专用副轨保留原时机，纯规则16项通过。Epic的`get_animation_notify_track_names`会AddUnique，不能把返回下标当真实TrackIndex；现从原生`AnimNotifyTracks`导出读取完整有序数组。初次单轨方案不可重放，日志/备份保留；当前默认空间/空中装备检查也续接稳定方案。纯资产整理，无需编译或PIE。
 
 **最新1.37（2026-10-23）：** 最新两录制`003538_01/003831_02`已解析；空中11 Montage补77个`ClothAudio/ClothSound`空通知，沿用地面装备静音占位规则，原声音/玩法保持。用户已试听确认`615339279`普通爆炸、`647565313`聚爆附加、`18325887/1714085883`聚集两层，已创建6 Wave/4 Cue/独立并发并填入DA三个音频字段。按实际爆炸/到点聚集/提交/取消/Runtime结束播放或停止，非Montage计时；零粉尘不爆音，非目标配置原样。
@@ -34,7 +40,7 @@
 
 **最新单字段调音：** `setup_current_weapon_audio.py --dust-volume`（Commandlet `-MHGZAudioDustVolume`）复用既有导出/保存/备份，只调整扬尘Cue音量2.0→1.0，已保存及独立回载；声音图与其它配置不变。证据`Saved/Audio/RiseIG/DustVolume20261021/`，默认只读，不重复Apply；旧MixRecall音量4→2为历史，不重放。GroundEvents审计只认这一个明确后继的哈希链，不能据旧音量哈希要求恢复。
 
-**2026-10-21定向补充：** `mhrise_20261021_000522_01` 仅补二连/飞远/横扫收招棍花和突进回旋接触；其余仍沿用已选主录制。`prepare_ground_audio.py`复用原条件/对象归属和逐片段帧标定，`setup_current_weapon_audio.py --ground-events`调度`setup_ground_audio.py`，不另造银行解析器/解码器。已保存并独立回载32 Montage：48扬尘点改为 `AnimNotify_GroundDust` 事件＋11缺声点，新建2 Wave/1 Cue，400其它包不变。扬尘的 `Host.OnGroundDust` 可供未来粒子订阅，音源为空不阻断事件；现不生成VFX，旧 `DustAudio` 轨位不改。详见[计划1.30](../../docs/using/崛起虫棍攻击与命中音效实施计划.md)。
+**2026-10-21定向补充：** `mhrise_20261021_000522_01` 仅补二连/飞远/横扫收招棍花和突进回旋接触；其余仍沿用已选主录制。`prepare_ground_audio.py`复用原条件/对象归属和逐片段帧标定，`setup_current_weapon_audio.py --ground-events`调度`setup_ground_audio.py`，不另造银行解析器/解码器。已保存并独立回载32 Montage：48扬尘点改为 `AnimNotify_GroundDust` 事件＋11缺声点，新建2 Wave/1 Cue，400其它包不变。扬尘的 `Host.OnGroundDust` 可供未来粒子订阅，音源为空不阻断事件；现不生成VFX，旧 `DustAudio` 轨位不改。详见[计划1.30](../../docs/archive/maintenance-2026-10-26/崛起虫棍攻击与命中音效实施计划.md)。
 
 事务证据 `Saved/Audio/RiseIG/GroundEvents20261021/` 已完成；日常仅用 `--ground-events` / `-MHGZAudioGroundEvents`默认审计。不重跑prepare、Apply或`-MHGZAudioGroundResume`：Resume只用于首次未保存任何Montage、全部原包/新源哈希一致时的特定校验故障续接，现状态禁止重放。资产操作和实际音频测试使用 `-AllowCommandletAudio`，不能加 `-nosound`。32离线＋5原生检查通过，未PIE耳听。旧分类/轨道历史事务不因本次新类而重新Apply。
 
@@ -334,7 +340,7 @@ M2后原候选表中的TuCi/GA包哈希已过时，这是预期的声音接线�
 
 独立回载曾发现两类原生缓存变化，未重写资产：飞身/后撤绝对链接`SegmentLength 1.783334→1.783333`，后撤两个同一绝对末帧EndLink被引擎清空片段缓存。依据本机`FAnimLinkableElement::GetTime/RefreshSegmentOnLoad`，只允许<=1.1us缓存刷新及单片段同一绝对末帧/精确无效标记，LinkValue/Duration/GUID/轨道/顺序仍严格比较，Relative/Proportional（含CachedLinkMethod）不豁免。最终audit保留14项缓存变化；历史failure仅代表之前的严格缓存误报，不是当前失败状态。相关回归断言包含实际时间变动即失败，不能笼统忽略EndLink。
 
-本轮40项离线、5项原生音频测试通过，后者挥击harness有4条既有警告；最终回载Commandlet为0错误/0警告。无C++编译或全量验证。当前仍需局部PIE耳听；缺少观测的动作/分支不猜填，命中声仍用通用候选。只读命中条件接口核查及下一项采集合同见[计划1.7](../../docs/using/崛起虫棍攻击与命中音效实施计划.md)，未部署新Lua/DLL，不要求现在重录。
+本轮40项离线、5项原生音频测试通过，后者挥击harness有4条既有警告；最终回载Commandlet为0错误/0警告。无C++编译或全量验证。当前仍需局部PIE耳听；缺少观测的动作/分支不猜填，命中声仍用通用候选。只读命中条件接口核查及下一项采集合同见[计划1.7](../../docs/archive/maintenance-2026-10-26/崛起虫棍攻击与命中音效实施计划.md)，未部署新Lua/DLL，不要求现在重录。
 
 ## 历史资源工具限制
 

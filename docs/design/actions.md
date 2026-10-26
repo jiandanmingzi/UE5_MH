@@ -768,16 +768,16 @@ struct FAttackSegmentConfig
 | 3 | `ResolveSwingSound` | 重验提交态、注册动作、Mesh和实例；覆盖优先级：事件键→AudioIdentityTag→Notify.Sound→显式旧段SwingSound；只Get已加载资源 |
 | 4 | `HandleSwingSound` | 按通知配方取真实武器/角色挂点或瞬时地表位置；缺武器挂点跳过，不回退原点。不做整招去重，跳过Section不补播，不改变伤害或动作 |
 
-> 本Notify链只接一次性武器/动作附加声，循环音源仍明确拒绝。当前43 Montage有333个有音源点＋100个空音源衣服点，已独立回载。扬尘使用`AnimNotify_GroundDust`事件：精确动作/Host落地实例与地表校验后，向Host的`OnGroundDust`广播Mesh、位置和法线，再播放可选声音；音源为空不阻断事件，未来粒子可独立订阅，本阶段不生成VFX。48个旧扬尘点已保留身份/时机/轨道/配方迁移。落地现使用`AnimNotify_LandingEvent`广播Host的`OnLanding`并播放可选声音，可通过`bTriggerGroundDust`同帧触发扬尘；迁移的10点默认关闭，保留独立扬尘时机。衣服仍是声音通知，`Sound=None`暂不播放。普通前后跳/空回推进、二连/飞远/横扫棍花及突进回旋接触漏声已补，详见[音效计划1.32](../using/崛起虫棍攻击与命中音效实施计划.md)，不代表PIE听感通过。短尾音自然结束，不增加联网复制。猎虫飞行循环走AKinsect自有AudioComponent的状态/Runtime生命周期；精华提示在真实回手交付按命令去重，以手臂挂点播放3D短音。猎虫真实命中基础声走已有`GameplayCue.Hit.Kinsect`→`GCN_Hit_Kinsect`，复用共用命中声音叶但严格筛选Kinsect来源，不混入旧武器主声；不是蒙太奇音频点。
+> 本Notify链只接一次性武器/动作附加声，循环音源仍明确拒绝。当前43 Montage有333个有音源点＋100个空音源衣服点，已独立回载。扬尘使用`AnimNotify_GroundDust`事件：精确动作/Host落地实例与地表校验后，向Host的`OnGroundDust`广播Mesh、位置和法线，再播放可选声音；音源为空不阻断事件，未来粒子可独立订阅，本阶段不生成VFX。48个旧扬尘点已保留身份/时机/轨道/配方迁移。落地现使用`AnimNotify_LandingEvent`广播Host的`OnLanding`并播放可选声音，可通过`bTriggerGroundDust`同帧触发扬尘；迁移的10点默认关闭，保留独立扬尘时机。衣服仍是声音通知，`Sound=None`暂不播放。普通前后跳/空回推进、二连/飞远/横扫棍花及突进回旋接触漏声已补，详见[音效计划1.32](../archive/maintenance-2026-10-26/崛起虫棍攻击与命中音效实施计划.md)，不代表PIE听感通过。短尾音自然结束，不增加联网复制。猎虫飞行循环走AKinsect自有AudioComponent的状态/Runtime生命周期；精华提示在真实回手交付按命令去重，以手臂挂点播放3D短音。猎虫真实命中基础声走已有`GameplayCue.Hit.Kinsect`→`GCN_Hit_Kinsect`，复用共用命中声音叶但严格筛选Kinsect来源，不混入旧武器主声；不是蒙太奇音频点。
 
 
 ### 砸地表现事件
 
 `AnimNotify_GroundImpact`（“砸地事件”）沿用精确Mesh/当前Montage实例和真实地表校验，广播 `Host.OnGroundImpact(Mesh, Location, SurfaceNormal)`，再播放可选声音；无音源仍可供未来特效订阅。本轮不生成特效。与角色 `OnLanding`、独立 `OnGroundDust` 和真实伤害命中Cue分开，不重复既有扬尘，不触发伤害或CMC状态改变。当前使用 `GroundContact + Root` 地表投影，可调声音/倍率/地面搜索距离。
 
-四连印斩已在 `ImpactAudio` 轨2.292968s补该事件，按最新161录制请求位置映射，复用已入库接触Cue1762027986，原15声音点、6玩法窗口和动画保持。相对上段1.32统计增加1个有音源点；详见[音效计划1.33](../using/崛起虫棍攻击与命中音效实施计划.md)。未PIE耳听，不宣称完整原作音频或最终Media真值。
+四连印斩已在 `ImpactAudio` 轨2.292968s补该事件，按最新161录制请求位置映射，复用已入库接触Cue1762027986，原15声音点、6玩法窗口和动画保持。相对上段1.32统计增加1个有音源点；详见[音效计划1.33](../archive/maintenance-2026-10-26/崛起虫棍攻击与命中音效实施计划.md)。未PIE耳听，不宣称完整原作音频或最终Media真值。
 
-急袭突刺380/381现按[音效计划1.34](../using/崛起虫棍攻击与命中音效实施计划.md)复用崛起声音：Main在下潜加速起点0.616667s播推进，Over入口砸地及后续5空挥/棍花、2扬尘均由可编辑点通知触发。GA已开启蒙太奇空挥播放，原8条玩法通知和运动不改；不是世界原音真值，未PIE耳听。
+急袭突刺380/381现按[音效计划1.34](../archive/maintenance-2026-10-26/崛起虫棍攻击与命中音效实施计划.md)复用崛起声音：Main在下潜加速起点0.616667s播推进，Over入口砸地及后续5空挥/棍花、2扬尘均由可编辑点通知触发。GA已开启蒙太奇空挥播放，原8条玩法通知和运动不改；不是世界原音真值，未PIE耳听。
 
 ## 武器 Ability 基类分化（规划；当前仅有虫棍基类）
 

@@ -4,8 +4,43 @@
 #include "MHGZCoAttackTestFixture.h"
 #include "Components/BoxComponent.h"
 #include "GameFramework/ProjectileMovementComponent.h"
+#include "ActionSystem/AnimNotify_KinsectRecallCommit.h"
+#include "Animation/ActiveMontageInstanceScope.h"
 
 using MHGZCoAttackTest::FCoAttackFixture;
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZCoAttackAuthoredRecallTest,
+	"MHGZ.Maintenance.KinsectCoAttack.Recovery.AuthoredRecallUsesExactAction",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZCoAttackAuthoredRecallTest::RunTest(const FString&)
+{
+	FCoAttackFixture F;
+	if (!TestTrue(TEXT("fixture"), F.Build())) return false;
+	F.WarmUp();
+	const FWeaponActionToken Action = F.Ability->GetActionToken();
+	USkeletalMeshComponent* Mesh = F.H.Character->GetMesh();
+	if (!TestTrue(TEXT("exact source montage registered"), F.H.Host->RegisterMontage(Action, Mesh, 901))) return false;
+	UAnimNotify_KinsectRecallCommit* Notify = NewObject<UAnimNotify_KinsectRecallCommit>();
+	FAnimNotifyEvent Event;
+	Event.Notify = Notify;
+	FAnimNotifyEventReference Wrong(&Event, F.Ability->AttackMontage);
+	Wrong.AddContextData<UE::Anim::FAnimNotifyMontageInstanceContext>(902);
+	Notify->Notify(Mesh, F.Ability->AttackMontage, Wrong);
+	TestTrue(TEXT("unregistered instance cannot recall this session"), F.Sampler->IsRunning());
+	FAnimNotifyEventReference Exact(&Event, F.Ability->AttackMontage);
+	Exact.AddContextData<UE::Anim::FAnimNotifyMontageInstanceContext>(901);
+	F.Ability->CoAttack.bEnabled = false;
+	Notify->Notify(Mesh, F.Ability->AttackMontage, Exact);
+	TestTrue(TEXT("non-cooperative action keeps existing behavior"), F.Sampler->IsRunning());
+	F.Ability->CoAttack.bEnabled = true;
+	Notify->Notify(Mesh, F.Ability->AttackMontage, Exact);
+	TestFalse(TEXT("authored point ends cooperative replay immediately"), F.Sampler->IsRunning());
+	TestEqual(TEXT("insect starts its normal live-arm return"), F.H.Kinsect->State, EKinsectState::Returning);
+	TestTrue(TEXT("recall does not close the hunter action or combo"), F.Ability->IsActive());
+	Notify->Notify(Mesh, F.Ability->AttackMontage, Exact);
+	TestEqual(TEXT("duplicate point does not interrupt the return"), F.H.Kinsect->State, EKinsectState::Returning);
+	return true;
+}
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZCoAttackDodgeAcceptPoseTest,
 	"MHGZ.Maintenance.KinsectCoAttack.Recovery.DodgeAcceptOpeningFreezesPreviousPose",

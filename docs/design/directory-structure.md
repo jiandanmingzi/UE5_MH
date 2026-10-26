@@ -14,7 +14,7 @@ docs/
 └── archive/            按日期保留的阶段审计、计划和维护流水
 ```
 
-`docs` 根目录只放导航。日常任务先看 `using/README.md` 与 `using/current-status.md`；再按需读设计或编辑器文档。已完成审计归档，不删除未实现的未来设计。音效和协同计划仍有待确认边界，继续保留在 using。
+`docs` 根目录只放导航。日常任务先看 `using/README.md` 与 `using/current-status.md`，再按需读设计或编辑器文档。2026-10-26用户签收当前维护阶段，音效/协同计划与完整旧状态流水移入[当日归档](../archive/maintenance-2026-10-26/README.md)；using仅保留规范、精简状态与已知问题。未实现的未来设计保留在原计划或design中，不因归档删除，也不冒称已经完成。
 
 ## Scripts、Tools与本机产物
 

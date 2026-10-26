@@ -16,6 +16,8 @@ Combat兼容清理回查：同一`migrate_powder_vortex_config.py`入口加`-MHG
 
 | 最新分支入口 | 环境 | 用途 | 状态 |
 |---|---|---|---|
+| 同音量后端的`--unity-volume`／`-MHGZAudioUnityVolume` | 既有`setup_current_weapon_audio.py`，UE远程或Commandlet | 用户覆盖旧分档：虫棍全目录Cue/Wave音量统一1.0，核对通知/命中/飞行播放倍率 | 已保存26 Cue并新进程回载；53 Cue/75 Wave与519通知均1.0，171其它包保持；`UnityVolume20261026/`，默认只读且禁止重放Apply，旧分档入口已停用 |
+| [Audio/audio_loudness_maintenance.py](Audio/audio_loudness_maintenance.py) | 既有`setup_current_weapon_audio --loudness-plan`／`-MHGZAudioLoudnessPlan`，UE远程或Commandlet | 应用已冻结的21项Cue音量方案；备份、只排除根VolumeMultiplier的原生导出保护、独立回载 | 已保存/新进程回载；默认只读，首次Apply已完成，禁止重放；21 Cue仅改音量，15项保持、175其它保护包及46原WAV不变；证据`LoudnessApply20261026/`，未PIE耳听 |
 | [Audio/audio_notify_tracks.py](Audio/audio_notify_tracks.py)的cloth-only模式 | 现有`setup_current_weapon_audio --cloth-tracks`／`-MHGZAudioClothTracks` | 同帧衣服声分配独立ClothAudio副轨；从完整原生轨道数组读取索引，避免API去重/加载自动错轨 | 6包11点已保存回载，16项规则检查；不改时间/声音/Gameplay，不重放Apply；证据`ClothTracks20261023/StableLanes/` |
 | [Audio/rise_audio_cloth_comparison.py](Audio/rise_audio_cloth_comparison.py)、[Audio/setup_powder_audio.py](Audio/setup_powder_audio.py) | 前者由`map_swing_positions --aerial-powder`/`prepare_current_weapon_audio --powder-reviewed`调用；后者UE | 1.37复用四类装备证据补空中空点、四项粉尘/聚爆试听与6变体；既有工厂生成常驻源/配置 | 已保存回载：11 Montage/77空点；6 Wave/4 Cue/独立并发/3 DA音频字段。只读续接`setup_current_weapon_audio --aerial-cloth-placeholders`或`--powder-audio`，不重放Apply；未PIE耳听 |
 | [Audio/audio_section_maintenance.py](Audio/audio_section_maintenance.py)、[规则](Audio/section_audio_rules.py) | 由既有`setup_current_weapon_audio.py --section-maintenance --source-time-repair`调用；规则为普通Python | 1.36按Native Present与Lua动画关联后重算源帧→源片段位置；复用受GUID/旧时间保护的作者桥接 | 已独立回载：6 Montage改时12点/移除1点；旧1.35的5补点已撤回，禁止重放旧Apply；证据`SourceTime20261022/`，未PIE耳听 |
@@ -61,7 +63,7 @@ Combat兼容清理回查：同一`migrate_powder_vortex_config.py`入口加`-MHG
 
 | 最新入口 | 环境 | 用途 | 状态/边界 |
 |---|---|---|---|
-| [AssetOrganization/setup_kinsect_coattack_pilot.py](AssetOrganization/setup_kinsect_coattack_pilot.py) | UE Python；远程或关闭编辑器时Commandlet | 默认突刺；`--ground-five`/`--ground-second-five`分别回查两批普通地面协同；`--descending-thrust`（`-MHGZCoAttackDescendingThrust`）只读核对急袭特殊协同原生默认值/实际地面末窗/共享间隔 | 地面三批已保存/独立回载，已有intent禁止重放Apply；急袭模式拒绝Apply、不改通知或保存Content，证据`E1DescendingThrust/`；保留各批保护hash链，新增范围未PIE签收 |
+| [AssetOrganization/setup_kinsect_coattack_pilot.py](AssetOrganization/setup_kinsect_coattack_pilot.py) | UE Python；远程或关闭编辑器时Commandlet | 默认突刺；`--ground-five`/`--ground-second-five`分别回查两批普通地面协同；`--descending-thrust`（`-MHGZCoAttackDescendingThrust`）只读核对急袭特殊协同原生默认值/实际地面末窗/共享间隔 | 地面三批已保存/独立回载，已有intent禁止重放Apply；急袭模式拒绝Apply；当前范围2026-10-26用户已签收；后撤新增第59帧收虫点证据`HouCheCoAttackRecall20261026/`，原窗口/用户改动保持；旧冻结哈希不覆盖后续合法通知调整 |
 
 | 工具 | 环境 | 用途简述 | 状态 |
 |---|---|---|---|
