@@ -5,13 +5,19 @@
 #include "Misc/AutomationTest.h"
 
 #include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "EnhancedPlayerInput.h"
+#include "Engine/LocalPlayer.h"
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "InputAction.h"
+#include "InputMappingContext.h"
 #include "InputSystem/MHGZInputComponent.h"
 #include "InputSystem/MHGZWeaponInputRouterComponent.h"
 #include "MHGZCharacter.h"
 #include "WeaponRuntime/MHGZWeaponInputProfile.h"
+#include "ActionSystem/Tests/Shared/MHGZM3TestHarness.h"
+#include "UObject/UnrealType.h"
 
 #include <limits>
 
@@ -621,6 +627,58 @@ bool FMHGZM1InputOwnershipRebindTest::RunTest(const FString& Parameters)
 
 	World->DestroyWorld(false);
 	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZM1InputMappingOwnershipTest,
+	"MHGZ.M1.Input.MappingContextOwnership",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZM1InputMappingOwnershipTest::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup(false, ACharacter::StaticClass(), true)) { H.Teardown(); return false; }
+	APlayerController* PC = H.World->SpawnActor<APlayerController>();
+	ULocalPlayer* LP = NewObject<ULocalPlayer>(GEngine, GEngine->LocalPlayerClass);
+	if (!PC || !LP) { H.Teardown(); return false; }
+	H.TestGameInstance->AddLocalPlayer(LP, FPlatformUserId::CreateFromInternalId(0));
+	PC->SetPlayer(LP);
+	PC->PlayerInput = NewObject<UEnhancedPlayerInput>(PC);
+	UEnhancedInputLocalPlayerSubsystem* Subsystem =
+		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(LP);
+	FEnumProperty* TrackingProperty = FindFProperty<FEnumProperty>(
+		UInputMappingContext::StaticClass(), TEXT("RegistrationTrackingMode"));
+	if (!TestNotNull(TEXT("real Enhanced Input subsystem"), Subsystem)
+		|| !TestNotNull(TEXT("mapping registration configuration"), TrackingProperty))
+	{
+		H.Teardown(); return false;
+	}
+	UMHGZInputComponent* Owner = NewObject<UMHGZInputComponent>(PC);
+	PC->AddInstanceComponent(Owner);
+	Owner->RegisterComponent();
+	for (const auto Mode : { EMappingContextRegistrationTrackingMode::Untracked,
+		EMappingContextRegistrationTrackingMode::CountRegistrations })
+	{
+		UInputMappingContext* Context = NewObject<UInputMappingContext>(Owner);
+		TrackingProperty->GetUnderlyingProperty()->SetIntPropertyValue(
+			TrackingProperty->ContainerPtrToValuePtr<void>(Context), static_cast<int64>(Mode));
+		Owner->DefaultIMCs = { Context };
+		Owner->InitializeInput(PC, nullptr);
+		Owner->PushIMC(Context, 7);
+		Owner->PopIMC(Context);
+		TestTrue(TEXT("overlay Pop retains the default mapping in either registration mode"),
+			Subsystem->HasMappingContext(Context));
+		Owner->PopIMC(Context);
+		TestFalse(TEXT("last owned reference removes the mapping"), Subsystem->HasMappingContext(Context));
+		Owner->PushIMC(Context, 7);
+		Owner->PushIMC(Context, 7);
+		Owner->ShutdownInput();
+		TestFalse(TEXT("shutdown balances all outstanding registrations"), Subsystem->HasMappingContext(Context));
+		Subsystem->AddMappingContext(Context, 3);
+		Owner->PopIMC(Context);
+		TestTrue(TEXT("unowned Pop does not remove an externally registered context"),
+			Subsystem->HasMappingContext(Context));
+		Subsystem->RemoveMappingContext(Context);
+	}
+	H.Teardown(); return true;
 }
 
 #endif

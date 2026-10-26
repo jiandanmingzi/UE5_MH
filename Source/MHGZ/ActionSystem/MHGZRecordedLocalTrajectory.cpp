@@ -1,6 +1,7 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "ActionSystem/MHGZRecordedLocalTrajectory.h"
+#include "MHGZMath.h"
 
 #include "Curves/CurveVector.h"
 #include "Curves/RichCurve.h"
@@ -18,12 +19,6 @@ constexpr float KeyValueTolerance = 0.001f;
  * 更宽的差距意味着「实测域」那句话在骗人，而曲线在末键之后本来就会被夹住不再变化。
  */
 constexpr float AuthoredKeyGridSeconds = 1.0f / 120.0f;
-
-bool IsFiniteVector(const FVector& Value)
-{
-	return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y)
-		&& FMath::IsFinite(Value.Z);
-}
 
 /** 覆盖内的位移直接问曲线；RichCurve 在键域之外自会夹到首末键值。 */
 FVector EvaluateCurve(const UCurveVector& Curve, const float Seconds)
@@ -148,8 +143,8 @@ FVector IntegrateTailVelocity(const FRecordedLocalTrajectoryProfile& Profile,
 bool FRecordedLocalTrajectoryProfile::IsValid() const
 {
 	if (!Curve || !FMath::IsFinite(CoveredSeconds) || CoveredSeconds <= 0.0f
-		|| !IsFiniteVector(TerminalVelocityLocal)
-		|| !IsFiniteVector(TerminalAccelerationLocal))
+		|| !MHGZMath::IsFiniteVector(TerminalVelocityLocal)
+		|| !MHGZMath::IsFiniteVector(TerminalAccelerationLocal))
 	{
 		return false;
 	}
@@ -245,7 +240,7 @@ FVector MHGZRecordedLocalTrajectory::ResolveRightVector(
 	const FVector& LockedYawDirection)
 {
 	const FVector Forward = FVector(LockedYawDirection.X, LockedYawDirection.Y, 0.0f);
-	if (!IsFiniteVector(Forward) || Forward.IsNearlyZero())
+	if (!MHGZMath::IsFiniteVector(Forward) || Forward.IsNearlyZero())
 	{
 		return FVector::ZeroVector;
 	}

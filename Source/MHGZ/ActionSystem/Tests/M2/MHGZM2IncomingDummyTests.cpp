@@ -283,6 +283,9 @@ bool FMHGZM2ResolverGASApplyAndNonCounterable::RunTest(const FString& Parameters
 	Character->AddInstanceComponent(PlayerASC);
 	PlayerASC->RegisterComponent();
 	UMHGZAttributeSet* PlayerAttrs = NewObject<UMHGZAttributeSet>(Character);
+	// 两项伤害检查使用固定100血夹具，不依赖角色出生默认值。
+	PlayerAttrs->InitMaxHealth(100.f);
+	PlayerAttrs->InitHealth(100.f);
 	PlayerASC->AddAttributeSetSubobject(PlayerAttrs);
 	PlayerASC->InitAbilityActorInfo(Character, Character);
 
@@ -437,6 +440,9 @@ bool FMHGZM2DummyCounterTestAttack::RunTest(const FString& Parameters)
 	Character->AddInstanceComponent(PlayerASC);
 	PlayerASC->RegisterComponent();
 	UMHGZAttributeSet* PlayerAttrs = NewObject<UMHGZAttributeSet>(Character);
+	// 两项伤害检查使用固定100血夹具，不依赖角色出生默认值。
+	PlayerAttrs->InitMaxHealth(100.f);
+	PlayerAttrs->InitHealth(100.f);
 	PlayerASC->AddAttributeSetSubobject(PlayerAttrs);
 	PlayerASC->InitAbilityActorInfo(Character, Character);
 

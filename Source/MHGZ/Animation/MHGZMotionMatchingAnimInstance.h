@@ -636,6 +636,8 @@ private:
 	void StopRuntimeTelemetry();
 	void FlushRuntimeTelemetry();
 	void CaptureParsedInputEvents(const AMHGZCharacter* Character, float WorldTimeSeconds);
+	/** 仅记录已消费结果的CSV行；不出队、不改变移动查询或选择缓存。 */
+	void AppendMMSelectionTelemetry(const FMotionMatchingSelectionEvent& Event);
 	void DrainMMSelectionEvents();
 	void DiscardMMSelectionEvents();
 	void ClearMMRuntimeSelections();

@@ -31,6 +31,8 @@ public:
 
 	// ── Clamp & 事件 ──
 	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;
+	/** 上限降低时收敛当前值；上限提高不自动回血或补充耐力。 */
+	virtual void PostAttributeChange(const FGameplayAttribute& Attribute, float OldValue, float NewValue) override;
 	virtual void PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data) override;
 
 	// ═══════════════════════════════════════════

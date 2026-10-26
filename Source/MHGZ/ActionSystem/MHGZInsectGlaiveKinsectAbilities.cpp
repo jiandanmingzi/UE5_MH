@@ -1,6 +1,7 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZInsectGlaiveKinsectAbilities.h"
+#include "MHGZGameplayTags.h"
 
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
@@ -17,27 +18,9 @@
 
 namespace
 {
-const FGameplayTag& GroundedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Grounded"));
-	return Tag;
-}
-
-const FGameplayTag& SheathedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Sheathed"));
-	return Tag;
-}
-
-const FGameplayTag& UnsheathedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Unsheathed"));
-	return Tag;
-}
-
 bool HasFrozenPose(const FWeaponInputSnapshot& Input, const FGameplayTag& WeaponPose)
 {
-	return Input.ContextTags.HasTagExact(GroundedTag())
+	return Input.ContextTags.HasTagExact(MHGZGameplayTags::Grounded())
 		&& Input.ContextTags.HasTagExact(WeaponPose);
 }
 
@@ -45,11 +28,11 @@ bool IsLiveDrawStateValid(const UMHGZAbilitySystemComponent* ASC,
 	const UMHGZWeaponRuntimeHostComponent* Host)
 {
 	return ASC && Host && Host->IsGrounded() && Host->IsSheathed()
-		&& ASC->HasMatchingGameplayTag(GroundedTag())
-		&& ASC->HasMatchingGameplayTag(SheathedTag())
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Grounded())
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Sheathed())
 		&& !ASC->HasMatchingGameplayTag(
 			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Aerial")))
-		&& !ASC->HasMatchingGameplayTag(UnsheathedTag())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Unsheathed())
 		&& !ASC->HasMatchingGameplayTag(
 			FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Attacking")))
 		&& !ASC->HasMatchingGameplayTag(
@@ -107,7 +90,7 @@ bool UMHGZSendKinsectAbility::BuildRequest(FKinsectFlightRequest& OutRequest) co
 	const FWeaponAbilityActivationContext& Activation = GetWeaponActivationContext();
 	const FWeaponInputSnapshot& Input = Activation.Input;
 	if (!Resource || !Data || !Config || !Kinsect
-		|| !HasFrozenPose(Input, UnsheathedTag())
+		|| !HasFrozenPose(Input, MHGZGameplayTags::Unsheathed())
 		|| Input.Aim.Context != EWeaponAimSnapshotContext::Kinsect)
 	{
 		return false;
@@ -297,7 +280,7 @@ bool UMHGZRecallKinsectAbility::ValidateActionDependencies() const
 	AKinsect* Kinsect = Resource ? Resource->GetKinsectActor() : nullptr;
 	const FWeaponInputSnapshot& Input = GetWeaponActivationContext().Input;
 	return ValidateActionMontageDependencies()
-		&& Resource && Kinsect && HasFrozenPose(Input, UnsheathedTag())
+		&& Resource && Kinsect && HasFrozenPose(Input, MHGZGameplayTags::Unsheathed())
 		&& Kinsect->GetState() != EKinsectState::Attached;
 }
 
@@ -467,7 +450,7 @@ bool UMHGZDrawAndSendKinsectAbility::BuildRequest(FKinsectFlightRequest& OutRequ
 	const UInsectGlaiveCombatConfig* Config = Resource ? Resource->GetCombatConfig() : nullptr;
 	const FWeaponAbilityActivationContext& Activation = GetWeaponActivationContext();
 	const FWeaponInputSnapshot& Input = Activation.Input;
-	if (!Resource || !Data || !Config || !HasFrozenPose(Input, SheathedTag()))
+	if (!Resource || !Data || !Config || !HasFrozenPose(Input, MHGZGameplayTags::Sheathed()))
 	{
 		return false;
 	}
@@ -494,7 +477,7 @@ bool UMHGZDrawAndSendKinsectAbility::ValidateActionDependencies() const
 	return ValidateActionMontageDependencies()
 		&& IsLiveDrawStateValid(ASC, ASC ? ASC->GetRuntimeHost() : nullptr)
 		&& !HasPlayerActionInputLock(ASC)
-		&& HasFrozenPose(Input, SheathedTag())
+		&& HasFrozenPose(Input, MHGZGameplayTags::Sheathed())
 		&& BuildRequest(Request);
 }
 
@@ -693,7 +676,7 @@ bool UMHGZMarkKinsectTargetAbility::ValidateActionDependencies() const
 	const FWeaponInputSnapshot& Input = GetWeaponActivationContext().Input;
 	const URes_InsectGlaive* Resource = GetIGResource();
 	const UInsectGlaiveCombatConfig* Config = Resource ? Resource->GetCombatConfig() : nullptr;
-	return Resource && Config && HasFrozenPose(Input, UnsheathedTag())
+	return Resource && Config && HasFrozenPose(Input, MHGZGameplayTags::Unsheathed())
 		&& Input.Aim.Context == EWeaponAimSnapshotContext::Kinsect
 		&& !Input.Aim.Direction.ContainsNaN()
 		&& !Input.Aim.Direction.GetSafeNormal().IsNearlyZero()

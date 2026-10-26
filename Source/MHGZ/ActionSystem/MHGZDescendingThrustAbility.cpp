@@ -1,6 +1,9 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "ActionSystem/MHGZDescendingThrustAbility.h"
+#include "ActionSystem/MHGZAerialActionCleanup.h"
+#include "MHGZGameplayTags.h"
+#include "MHGZMath.h"
 
 #include "AbilitySystemComponent.h"
 #include "ActionSystem/AbilityTask_MHGZPlayMontageAndWait.h"
@@ -41,13 +44,6 @@ const FGameplayTag& PhysicalRTTag()
 	return Tag;
 }
 
-const FGameplayTag& AerialFallingTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Falling"));
-	return Tag;
-}
-
 bool HasEarlyDescendingThrustPermission(const UAbilitySystemComponent* ASC)
 {
 	const UMHGZAbilitySystemComponent* MHGZASC =
@@ -57,97 +53,6 @@ bool HasEarlyDescendingThrustPermission(const UAbilitySystemComponent* ASC)
 	return Coordinator && Coordinator->IsEarlyDescendingThrustWindowOpen();
 }
 
-const FGameplayTag& UnsheathedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Unsheathed"));
-	return Tag;
-}
-
-const FGameplayTag& GroundedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Grounded"));
-	return Tag;
-}
-
-const FGameplayTag& AerialCantAttackTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.CantAttack"));
-	return Tag;
-}
-
-const FGameplayTag& DeadTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Dead"));
-	return Tag;
-}
-
-const FGameplayTag& HitstunTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Hitstun"));
-	return Tag;
-}
-
-const FGameplayTag& KnockdownTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Knockdown"));
-	return Tag;
-}
-
-const FGameplayTag& AirDodgeSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_AirDodge"));
-	return Tag;
-}
-
-const FGameplayTag& BackVaultSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_BackVault"));
-	return Tag;
-}
-
-const FGameplayTag& AdvancingCounterSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_AdvancingCounter"));
-	return Tag;
-}
-
-const FGameplayTag& KinsectPiercerSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_KinsectPiercer"));
-	return Tag;
-}
-
-const FGameplayTag& KinsectSlashSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_KinsectSlash"));
-	return Tag;
-}
-
-const FGameplayTag& KinsectSlashHitSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_KinsectSlash.Hit"));
-	return Tag;
-}
-
-const FGameplayTag& KinsectSlashMissSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_KinsectSlash.Miss"));
-	return Tag;
-}
-
 const FGameplayTag& DescendingThrustSourceTag()
 {
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
@@ -155,33 +60,20 @@ const FGameplayTag& DescendingThrustSourceTag()
 	return Tag;
 }
 
-const FGameplayTag& MotionValueTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Damage.MotionValue"));
-	return Tag;
-}
-
-bool IsFiniteVector(const FVector& Value)
-{
-	return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y)
-		&& FMath::IsFinite(Value.Z);
-}
-
 bool ResolvePriorAerialSpeed(const FGameplayTag& SourceTag, float& OutSpeed)
 {
-	if (SourceTag == AirDodgeSourceTag())
+	if (SourceTag == MHGZGameplayTags::IGAirDodgeSource())
 	{
 		OutSpeed = 900.0f;
 		return true;
 	}
 
-	if (SourceTag == BackVaultSourceTag()
-		|| SourceTag == AdvancingCounterSourceTag()
-		|| SourceTag == KinsectPiercerSourceTag()
-		|| SourceTag == KinsectSlashSourceTag()
-		|| SourceTag == KinsectSlashHitSourceTag()
-		|| SourceTag == KinsectSlashMissSourceTag())
+	if (SourceTag == MHGZGameplayTags::IGBackVaultSource()
+		|| SourceTag == MHGZGameplayTags::IGAdvancingCounterSource()
+		|| SourceTag == MHGZGameplayTags::IGKinsectPiercerSource()
+		|| SourceTag == MHGZGameplayTags::IGKinsectSlashSource()
+		|| SourceTag == MHGZGameplayTags::IGKinsectSlashHitSource()
+		|| SourceTag == MHGZGameplayTags::IGKinsectSlashMissSource())
 	{
 		OutSpeed = 400.0f;
 		return true;
@@ -229,12 +121,12 @@ UMHGZDescendingThrustAbility::UMHGZDescendingThrustAbility()
 	StaminaCost = FScalableFloat(20.0f);
 	StaminaActivationRequirement = 0.f;
 
-	ActivationRequiredTags.AddTag(UnsheathedTag());
-	ActivationBlockedTags.AddTag(GroundedTag());
-	ActivationBlockedTags.AddTag(AerialCantAttackTag());
-	ActivationBlockedTags.AddTag(DeadTag());
-	ActivationBlockedTags.AddTag(HitstunTag());
-	ActivationBlockedTags.AddTag(KnockdownTag());
+	ActivationRequiredTags.AddTag(MHGZGameplayTags::Unsheathed());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Grounded());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::AerialCantAttack());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Dead());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Hitstun());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Knockdown());
 }
 
 bool UMHGZDescendingThrustAbility::IsDirectionalBoostInputAboveThreshold(
@@ -267,7 +159,7 @@ bool UMHGZDescendingThrustAbility::CanActivateAbility(
 	float PriorSpeed = 0.0f;
 	return Host && ResolveResourceFromASC(ASC)
 		&& !Host->IsGrounded()
-		&& (ASC->HasMatchingGameplayTag(AerialFallingTag())
+		&& (ASC->HasMatchingGameplayTag(MHGZGameplayTags::AerialFalling())
 			|| HasEarlyDescendingThrustPermission(ASC))
 		&& ResolvePriorAerialSpeed(Host->GetAerialMovementSource(), PriorSpeed);
 }
@@ -433,14 +325,14 @@ bool UMHGZDescendingThrustAbility::IsLiveAerialEntry() const
 	const UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 	float PriorSpeed = 0.0f;
 	return ASC && Host && !Host->IsGrounded()
-		&& ASC->HasMatchingGameplayTag(UnsheathedTag())
-		&& (ASC->HasMatchingGameplayTag(AerialFallingTag())
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Unsheathed())
+		&& (ASC->HasMatchingGameplayTag(MHGZGameplayTags::AerialFalling())
 			|| HasEarlyDescendingThrustPermission(ASC))
-		&& !ASC->HasMatchingGameplayTag(GroundedTag())
-		&& !ASC->HasMatchingGameplayTag(AerialCantAttackTag())
-		&& !ASC->HasMatchingGameplayTag(DeadTag())
-		&& !ASC->HasMatchingGameplayTag(HitstunTag())
-		&& !ASC->HasMatchingGameplayTag(KnockdownTag())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Grounded())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::AerialCantAttack())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Dead())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Hitstun())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Knockdown())
 		&& ResolvePriorAerialSpeed(Host->GetAerialMovementSource(), PriorSpeed);
 }
 
@@ -469,7 +361,7 @@ bool UMHGZDescendingThrustAbility::IsUsableMoveSnapshot(
 		&& Snapshot.bHasMoveInput
 		&& FMath::IsFinite(Snapshot.RawMoveInput.X)
 		&& FMath::IsFinite(Snapshot.RawMoveInput.Y)
-		&& IsFiniteVector(Snapshot.WorldDirection)
+		&& MHGZMath::IsFiniteVector(Snapshot.WorldDirection)
 		&& !Snapshot.WorldDirection.IsNearlyZero();
 }
 
@@ -567,7 +459,7 @@ bool UMHGZDescendingThrustAbility::CaptureFirstSnapshotAndLockVelocity()
 	{
 		BaseDirection = Character->GetActorForwardVector().GetSafeNormal2D();
 	}
-	if (!IsFiniteVector(BaseDirection) || BaseDirection.IsNearlyZero())
+	if (!MHGZMath::IsFiniteVector(BaseDirection) || BaseDirection.IsNearlyZero())
 	{
 		return false;
 	}
@@ -575,12 +467,12 @@ bool UMHGZDescendingThrustAbility::CaptureFirstSnapshotAndLockVelocity()
 	LockedPlanarVelocity = BaseDirection * PriorSpeed;
 	if (bSnapshotValid
 		&& IsDirectionalBoostInputAboveThreshold(CorrectionRawMoveInputs[0])
-		&& IsFiniteVector(CorrectionTargets[0])
+		&& MHGZMath::IsFiniteVector(CorrectionTargets[0])
 		&& !CorrectionTargets[0].IsNearlyZero())
 	{
 		LockedPlanarVelocity += CorrectionTargets[0].GetSafeNormal2D() * 300.0f;
 	}
-	return IsFiniteVector(LockedPlanarVelocity)
+	return MHGZMath::IsFiniteVector(LockedPlanarVelocity)
 		&& !LockedPlanarVelocity.IsNearlyZero();
 }
 
@@ -1413,7 +1305,7 @@ FGameplayEffectSpecHandle UMHGZDescendingThrustAbility::MakeDamageSpec(
 	{
 		return FGameplayEffectSpecHandle();
 	}
-	Spec.Data->SetSetByCallerMagnitude(MotionValueTag(), MotionValue);
+	Spec.Data->SetSetByCallerMagnitude(MHGZGameplayTags::DamageMotionValue(), MotionValue);
 	return Spec;
 }
 
@@ -1459,7 +1351,7 @@ void UMHGZDescendingThrustAbility::BindLifecycleGuards()
 
 	RuntimeInvalidationDelegateHandle = Host->OnWeaponRuntimeInvalidated.AddUObject(
 		this, &UMHGZDescendingThrustAbility::HandleRuntimeInvalidated);
-	const FGameplayTag DisqualifyingTags[] = { DeadTag(), HitstunTag(), KnockdownTag() };
+	const FGameplayTag DisqualifyingTags[] = { MHGZGameplayTags::Dead(), MHGZGameplayTags::Hitstun(), MHGZGameplayTags::Knockdown() };
 	for (const FGameplayTag& Tag : DisqualifyingTags)
 	{
 		const FDelegateHandle DelegateHandle = ASC->RegisterGameplayTagEvent(
@@ -1477,36 +1369,20 @@ void UMHGZDescendingThrustAbility::BindLifecycleGuards()
 
 void UMHGZDescendingThrustAbility::UnbindLifecycleGuards()
 {
-	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
-	{
-		if (RuntimeInvalidationDelegateHandle.IsValid())
-		{
-			Host->OnWeaponRuntimeInvalidated.Remove(
-				RuntimeInvalidationDelegateHandle);
-		}
-	}
-	RuntimeInvalidationDelegateHandle.Reset();
-
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		for (const TPair<FGameplayTag, FDelegateHandle>& Pair :
-			DisqualifyingStateTagDelegateHandles)
-		{
-			ASC->RegisterGameplayTagEvent(Pair.Key,
-				EGameplayTagEventType::NewOrRemoved).Remove(Pair.Value);
-		}
-	}
-	DisqualifyingStateTagDelegateHandles.Reset();
+	MHGZAerialActionCleanup::UnbindRuntimeInvalidation(GetRuntimeHost(),
+		RuntimeInvalidationDelegateHandle);
+	MHGZAerialActionCleanup::UnbindStateTagDelegates(GetAbilitySystemComponentFromActorInfo(),
+		DisqualifyingStateTagDelegateHandles);
 }
 
 bool UMHGZDescendingThrustAbility::IsLiveContinuationStateValid() const
 {
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	return ASC && GetRuntimeHost()
-		&& ASC->HasMatchingGameplayTag(UnsheathedTag())
-		&& !ASC->HasMatchingGameplayTag(DeadTag())
-		&& !ASC->HasMatchingGameplayTag(HitstunTag())
-		&& !ASC->HasMatchingGameplayTag(KnockdownTag());
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Unsheathed())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Dead())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Hitstun())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Knockdown());
 }
 
 void UMHGZDescendingThrustAbility::HandleRuntimeInvalidated(
@@ -1524,9 +1400,9 @@ void UMHGZDescendingThrustAbility::HandleDisqualifyingStateTagChanged(
 	const FGameplayTag Tag, const int32 NewCount)
 {
 	if (NewCount > 0 && IsActive()
-		&& (Tag == DeadTag() || Tag == HitstunTag() || Tag == KnockdownTag()))
+		&& (Tag == MHGZGameplayTags::Dead() || Tag == MHGZGameplayTags::Hitstun() || Tag == MHGZGameplayTags::Knockdown()))
 	{
-		CancelDescendingThrust(Tag == DeadTag()
+		CancelDescendingThrust(Tag == MHGZGameplayTags::Dead()
 			? EWeaponActionEndReason::Death
 			: EWeaponActionEndReason::Interrupted,
 			TEXT("A disqualifying combat-state tag was added during the action."));
@@ -1731,11 +1607,7 @@ void UMHGZDescendingThrustAbility::EndAbility(
 		&& !Host->HasRegisteredAction() && CMC
 		&& CMC->MovementMode == MOVE_Flying && Character)
 	{
-		FFindFloorResult Floor;
-		CMC->FindFloor(Character->GetActorLocation(), Floor, false);
-		const bool bOnFloor = Floor.IsWalkableFloor()
-			&& Floor.FloorDist <= UCharacterMovementComponent::MAX_FLOOR_DIST;
-		CMC->SetMovementMode(bOnFloor ? MOVE_Walking : MOVE_Falling);
+		MHGZAerialActionCleanup::RestoreMovementModeFromFloor(*Character, *CMC);
 	}
 }
 

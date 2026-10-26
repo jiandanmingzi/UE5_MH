@@ -1,6 +1,7 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "ActionSystem/MHGZIncomingHitResolverComponent.h"
+#include "MHGZGameplayTags.h"
 #include "MHGZ.h"
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
@@ -15,12 +16,6 @@ namespace
 const FGameplayTag& GetAttackPowerSetByCallerTag()
 {
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Damage.AttackPower"));
-	return Tag;
-}
-
-const FGameplayTag& GetMotionValueSetByCallerTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("Damage.MotionValue"));
 	return Tag;
 }
 
@@ -330,7 +325,7 @@ bool UMHGZIncomingHitResolverComponent::ApplyDamageToPlayer(const FIncomingHitCo
 
 	FGameplayEffectSpec Spec(GetDefault<UMHGZDamageGameplayEffect>(), ContextHandle, 1.f);
 	Spec.SetSetByCallerMagnitude(GetAttackPowerSetByCallerTag(), Context.Damage);
-	Spec.SetSetByCallerMagnitude(GetMotionValueSetByCallerTag(), 1.f);
+	Spec.SetSetByCallerMagnitude(MHGZGameplayTags::DamageMotionValue(), 1.f);
 	Spec.SetSetByCallerMagnitude(GetBaseStaggerSetByCallerTag(), FMath::Max(0.f, DefaultBaseStagger));
 
 	const FActiveGameplayEffectHandle Handle = SourceASC

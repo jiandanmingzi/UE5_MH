@@ -1,6 +1,9 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZAwakenedKinsectAttackAbility.h"
+#include "ActionSystem/MHGZAerialActionCleanup.h"
+#include "MHGZGameplayTags.h"
+#include "MHGZMath.h"
 
 #include "ActionSystem/AbilityTask_MHGZWeaponMovement.h"
 #include "ActionSystem/AbilityTask_MHGZPlayMontageAndWait.h"
@@ -45,42 +48,10 @@ const FGameplayTag& AwakenedKinsectInputTag()
 	return Tag;
 }
 
-const FGameplayTag& TripleUpCostTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Cost.IG.TripleUp"));
-	return Tag;
-}
-
-const FGameplayTag& AwakenedRedExtractTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Red"));
-	return Tag;
-}
-
-const FGameplayTag& AwakenedWhiteExtractTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"));
-	return Tag;
-}
-
-const FGameplayTag& AwakenedOrangeExtractTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.Orange"));
-	return Tag;
-}
-
 const FGameplayTag& YControlTag()
 {
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
 		TEXT("Input.Weapon.Y"));
-	return Tag;
-}
-
-const FGameplayTag& BControlTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Input.Weapon.B"));
 	return Tag;
 }
 
@@ -96,12 +67,6 @@ const FGameplayTag& AwakenedKinsectHitSourceTag()
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Aerial.Source.IG_AwakenedKinsectAttack.Hit"));
 	return Tag;
-}
-
-bool IsFiniteVector(const FVector& Value)
-{
-	return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y)
-		&& FMath::IsFinite(Value.Z);
 }
 
 bool HasRealGroundTarget(const ACharacter& Hunter, UCharacterMovementComponent& CMC,
@@ -289,7 +254,7 @@ bool UMHGZAwakenedKinsectAttackAbility::ValidateActionDependencies() const
 		|| !InputTag.MatchesTagExact(AwakenedKinsectInputTag())
 		|| !GetIGResourceComponent()
 		|| Input.Aim.Context != EWeaponAimSnapshotContext::Action
-		|| !IsFiniteVector(Input.Aim.TargetPoint)
+		|| !MHGZMath::IsFiniteVector(Input.Aim.TargetPoint)
 		|| !ResolveLockedAimDirection(Input.ActorForward, Input.Aim.Direction,
 			AwakenedAimHorizontalCorrectionAngle,
 			AwakenedAimCorrectionAngle,
@@ -362,7 +327,7 @@ bool UMHGZAwakenedKinsectAttackAbility::ValidateActionDependencies() const
 		|| AwakenedGroundTargetVerticalLaunchSpeed <= 0.f
 		|| !FMath::IsFinite(AwakenedHunterFallGravityMagnitude)
 		|| AwakenedHunterFallGravityMagnitude <= 0.f
-		|| !IsFiniteVector(AwakenedHunterFallHandoffVelocity)
+		|| !MHGZMath::IsFiniteVector(AwakenedHunterFallHandoffVelocity)
 		|| AwakenedHunterFallHandoffVelocity.Z <= 0.f
 		|| !AwakenedHunterFallMontage
 		|| !FMath::IsFinite(Config->AwakenedPierceHitInterval)
@@ -384,7 +349,7 @@ bool UMHGZAwakenedKinsectAttackAbility::ValidateActionDependencies() const
 		return false;
 	}
 	if (!HoldReleaseControls.Contains(YControlTag())
-		|| !HoldReleaseControls.Contains(BControlTag()))
+		|| !HoldReleaseControls.Contains(MHGZGameplayTags::WeaponBInput()))
 	{
 		return false;
 	}
@@ -412,7 +377,7 @@ bool UMHGZAwakenedKinsectAttackAbility::PrepareActivationWeaponResourceCosts(
 	}
 
 	bEmpoweredKinsectBranch = Resource->IsTripleUpActive();
-	for (const FGameplayTag& Color : { AwakenedRedExtractTag(), AwakenedWhiteExtractTag(), AwakenedOrangeExtractTag() })
+	for (const FGameplayTag& Color : { MHGZGameplayTags::IGExtractRed(), MHGZGameplayTags::IGExtractWhite(), MHGZGameplayTags::IGExtractOrange() })
 	{
 		if (bEmpoweredKinsectBranch || Resource->HasExtract(Color))
 		{
@@ -426,7 +391,7 @@ bool UMHGZAwakenedKinsectAttackAbility::PrepareActivationWeaponResourceCosts(
 		return BuildPendingKinsectRequest(GetWeaponActivationContext().Input);
 	}
 
-	const FGameplayTag CostTag = TripleUpCostTag();
+	const FGameplayTag CostTag = MHGZGameplayTags::IGTripleUpCost();
 	if (!CostTag.IsValid())
 	{
 		return false;
@@ -486,7 +451,7 @@ bool UMHGZAwakenedKinsectAttackAbility::BuildPendingKinsectRequest(
 	FVector InitialAimDirection;
 	if (!Resource || !Config || !Resource->GetKinsectData() || !Host
 		|| Input.Aim.Context != EWeaponAimSnapshotContext::Action
-		|| !IsFiniteVector(Input.Aim.TargetPoint)
+		|| !MHGZMath::IsFiniteVector(Input.Aim.TargetPoint)
 		|| !ResolveLockedAimDirection(Input.ActorForward, Input.Aim.Direction,
 			AwakenedAimHorizontalCorrectionAngle,
 			AwakenedAimCorrectionAngle, InitialAimDirection))
@@ -529,9 +494,9 @@ bool UMHGZAwakenedKinsectAttackAbility::BuildPendingKinsectRequest(
 void UMHGZAwakenedKinsectAttackAbility::ApplyConsumedExtractEffects(
 	const UInsectGlaiveCombatConfig& Config)
 {
-	const bool bRed = ConsumedExtractSnapshot.HasTagExact(AwakenedRedExtractTag());
-	const bool bWhite = ConsumedExtractSnapshot.HasTagExact(AwakenedWhiteExtractTag());
-	const bool bOrange = ConsumedExtractSnapshot.HasTagExact(AwakenedOrangeExtractTag());
+	const bool bRed = ConsumedExtractSnapshot.HasTagExact(MHGZGameplayTags::IGExtractRed());
+	const bool bWhite = ConsumedExtractSnapshot.HasTagExact(MHGZGameplayTags::IGExtractWhite());
+	const bool bOrange = ConsumedExtractSnapshot.HasTagExact(MHGZGameplayTags::IGExtractOrange());
 	PendingKinsectRequest.MotionValue = bEmpoweredKinsectBranch
 		? AwakenedTripleKinsectMotionValue
 		: (bRed ? AwakenedRedKinsectMotionValue : AwakenedKinsectMotionValue);
@@ -554,7 +519,7 @@ bool UMHGZAwakenedKinsectAttackAbility::ResolveLockedAimDirection(
 	FVector& OutLockedDirection)
 {
 	OutLockedDirection = FVector::ZeroVector;
-	if (!IsFiniteVector(ActorForward) || !IsFiniteVector(AimDirection)
+	if (!MHGZMath::IsFiniteVector(ActorForward) || !MHGZMath::IsFiniteVector(AimDirection)
 		|| !FMath::IsFinite(MaxYawAngleDegrees)
 		|| MaxYawAngleDegrees < 0.f || MaxYawAngleDegrees > 180.f
 		|| !FMath::IsFinite(MaxPitchAngleDegrees)
@@ -590,7 +555,7 @@ bool UMHGZAwakenedKinsectAttackAbility::ResolveLockedAimDirection(
 	OutLockedDirection = (ClampedHorizontal * FMath::Cos(
 		FMath::DegreesToRadians(ClampedPitch))
 		+ Up * FMath::Sin(FMath::DegreesToRadians(ClampedPitch))).GetSafeNormal();
-	return !OutLockedDirection.IsNearlyZero() && IsFiniteVector(OutLockedDirection);
+	return !OutLockedDirection.IsNearlyZero() && MHGZMath::IsFiniteVector(OutLockedDirection);
 }
 
 bool UMHGZAwakenedKinsectAttackAbility::ResolveLockedTargetDirection(
@@ -598,7 +563,7 @@ bool UMHGZAwakenedKinsectAttackAbility::ResolveLockedTargetDirection(
 	const FVector& FallbackAimDirection, const float MaxYawAngleDegrees,
 	const float MaxPitchAngleDegrees, FVector& OutLockedDirection)
 {
-	if (!IsFiniteVector(TargetPoint) || !IsFiniteVector(LaunchOrigin))
+	if (!MHGZMath::IsFiniteVector(TargetPoint) || !MHGZMath::IsFiniteVector(LaunchOrigin))
 	{
 		OutLockedDirection = FVector::ZeroVector;
 		return false;
@@ -674,8 +639,8 @@ bool UMHGZAwakenedKinsectAttackAbility::BuildGroundTargetHunterFlightMovementReq
 {
 	OutRequest = FWeaponMovementRequest();
 	const FVector Forward = CorrectedForward.GetSafeNormal2D();
-	if (!IsFiniteVector(CorrectedForward) || Forward.IsNearlyZero()
-		|| !IsFiniteVector(LaunchOrigin) || !IsFiniteVector(GroundTarget)
+	if (!MHGZMath::IsFiniteVector(CorrectedForward) || Forward.IsNearlyZero()
+		|| !MHGZMath::IsFiniteVector(LaunchOrigin) || !MHGZMath::IsFiniteVector(GroundTarget)
 		|| !FMath::IsFinite(Speed) || Speed <= 0.0f
 		|| !FMath::IsFinite(Duration) || Duration <= 0.0f
 		|| !FMath::IsFinite(MinimumDistance) || MinimumDistance <= 0.0f
@@ -701,7 +666,7 @@ bool UMHGZAwakenedKinsectAttackAbility::BuildHunterFlightMovementRequest(
 	const float GravityMagnitude, FWeaponMovementRequest& OutRequest)
 {
 	OutRequest = FWeaponMovementRequest();
-	if (!IsFiniteVector(LockedDirection) || LockedDirection.IsNearlyZero()
+	if (!MHGZMath::IsFiniteVector(LockedDirection) || LockedDirection.IsNearlyZero()
 		|| !FMath::IsFinite(Speed) || Speed <= 0.0f
 		|| !FMath::IsFinite(Duration) || Duration <= 0.0f
 		|| !FMath::IsFinite(GravityMagnitude) || GravityMagnitude <= 0.0f)
@@ -790,7 +755,7 @@ void UMHGZAwakenedKinsectAttackAbility::ApplyActivationDirectionCorrection()
 	// activation-time Action Aim snapshot and this GA's 90-degree cap.
 	const FWeaponAbilityActivationContext& Context = GetWeaponActivationContext();
 	if (Context.Input.Aim.Context != EWeaponAimSnapshotContext::Action
-		|| !IsFiniteVector(Context.Input.Aim.Direction)
+		|| !MHGZMath::IsFiniteVector(Context.Input.Aim.Direction)
 		|| Context.Input.Aim.Direction.IsNearlyZero())
 	{
 		return;
@@ -1523,21 +1488,9 @@ void UMHGZAwakenedKinsectAttackAbility::CleanupDanceTasks()
 			}
 		}
 	}
-	if (DancePreparationMovementTask)
-	{
-		DancePreparationMovementTask->EndTask();
-		DancePreparationMovementTask = nullptr;
-	}
-	if (DanceMovementTask)
-	{
-		DanceMovementTask->EndTask();
-		DanceMovementTask = nullptr;
-	}
-	if (DanceMontageTask)
-	{
-		DanceMontageTask->EndTask();
-		DanceMontageTask = nullptr;
-	}
+	MHGZAerialActionCleanup::EndTaskAndReset(DancePreparationMovementTask);
+	MHGZAerialActionCleanup::EndTaskAndReset(DanceMovementTask);
+	MHGZAerialActionCleanup::EndTaskAndReset(DanceMontageTask);
 	DanceMontageInstanceID = INDEX_NONE;
 	ActiveDanceMontage = nullptr;
 }
@@ -1766,9 +1719,9 @@ bool UMHGZAwakenedKinsectAttackAbility::CaptureReleaseAimSnapshot()
 		EWeaponAimSnapshotContext::Action);
 	const FVector ActorForward = Character->GetActorForwardVector();
 	if (Snapshot.Context != EWeaponAimSnapshotContext::Action
-		|| !IsFiniteVector(Snapshot.Direction) || Snapshot.Direction.IsNearlyZero()
-		|| !IsFiniteVector(Snapshot.TargetPoint)
-		|| !IsFiniteVector(ActorForward) || ActorForward.IsNearlyZero())
+		|| !MHGZMath::IsFiniteVector(Snapshot.Direction) || Snapshot.Direction.IsNearlyZero()
+		|| !MHGZMath::IsFiniteVector(Snapshot.TargetPoint)
+		|| !MHGZMath::IsFiniteVector(ActorForward) || ActorForward.IsNearlyZero())
 	{
 		return false;
 	}

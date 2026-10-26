@@ -1,6 +1,8 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "ActionSystem/MHGZPoleVaultAbility.h"
+#include "ActionSystem/MHGZAerialActionCleanup.h"
+#include "MHGZGameplayTags.h"
 
 #include "ActionSystem/AbilityTask_MHGZPlayMontageAndWait.h"
 #include "ActionSystem/AbilityTask_MHGZWeaponMovement.h"
@@ -22,20 +24,6 @@
 
 namespace
 {
-const FGameplayTag& WhiteExtractTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("WeaponResource.IG.Extract.White"));
-	return Tag;
-}
-
-const FGameplayTag& BackVaultMovementSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_BackVault"));
-	return Tag;
-}
-
 float RequiredSegmentPlayRate(const UAnimSequenceBase& Sequence,
 	const float DesiredDuration)
 {
@@ -312,7 +300,7 @@ void UMHGZPoleVaultAbility::ActivateAbility(const FGameplayAbilitySpecHandle Han
 	const FGameplayAbilityActivationInfo ActivationInfo,
 	const FGameplayEventData* TriggerEventData)
 {
-	bUseWhiteBackVault = CheckExtractRequirement(WhiteExtractTag());
+	bUseWhiteBackVault = CheckExtractRequirement(MHGZGameplayTags::IGExtractWhite());
 	bBackVaultVisualRootMotionDisabled = false;
 	bVisualFinished = false;
 	bMovementFinished = false;
@@ -359,11 +347,7 @@ void UMHGZPoleVaultAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 	bIsEndingBackVault = true;
 	// Combat.State.Aerial.Actionable 不在这里释放：基类 EndAbility 的
 	// CloseAerialHandoff() 负责（本函数末尾会走 Super::EndAbility）。
-	if (JumpOverHandoffTask)
-	{
-		JumpOverHandoffTask->EndTask();
-		JumpOverHandoffTask = nullptr;
-	}
+	MHGZAerialActionCleanup::EndTaskAndReset(JumpOverHandoffTask);
 	// Forward uses its recorded curve from frame zero while the takeoff montage is
 	// pose-only; other directions retain montage root motion until CurvedVault takes
 	// over at the JumpOver boundary.  If interrupted, stop this exact visual first
@@ -399,16 +383,8 @@ void UMHGZPoleVaultAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 		}
 		AnimInstance->Montage_Stop(0.05f, AttackMontage);
 	}
-	if (BackVaultArcVisualTask)
-	{
-		BackVaultArcVisualTask->EndTask();
-		BackVaultArcVisualTask = nullptr;
-	}
-	if (BackVaultVisualTask)
-	{
-		BackVaultVisualTask->EndTask();
-		BackVaultVisualTask = nullptr;
-	}
+	MHGZAerialActionCleanup::EndTaskAndReset(BackVaultArcVisualTask);
+	MHGZAerialActionCleanup::EndTaskAndReset(BackVaultVisualTask);
 	BackVaultMovementTask = nullptr;
 	ActiveTrajectoryCurve = nullptr;
 	ACharacter* EndingCharacter = ActorInfo && ActorInfo->AvatarActor.IsValid()
@@ -471,7 +447,7 @@ bool UMHGZPoleVaultAbility::ValidateActionDependencies() const
 		return false;
 	}
 
-	const bool bWhite = CheckExtractRequirement(WhiteExtractTag());
+	const bool bWhite = CheckExtractRequirement(MHGZGameplayTags::IGExtractWhite());
 	const EDirectionalInput Direction = GetVaultDirection();
 	if (Direction == EDirectionalInput::None)
 	{
@@ -1036,7 +1012,7 @@ bool UMHGZPoleVaultAbility::StartForwardVaultTrajectoryMovement()
 		BackVaultMovementTask = nullptr;
 		return false;
 	}
-	if (!Host->SetAerialMovementSource(GetActionToken(), BackVaultMovementSourceTag()))
+	if (!Host->SetAerialMovementSource(GetActionToken(), MHGZGameplayTags::IGBackVaultSource()))
 	{
 		UE_LOG(LogMHGZ, Warning,
 			TEXT("[PoleVault] RuntimeHost could not publish the forward aerial source tag; aborting movement."));
@@ -1233,7 +1209,7 @@ bool UMHGZPoleVaultAbility::StartBackVaultMovement()
 		BackVaultMovementTask = nullptr;
 		return false;
 	}
-	if (!Host->SetAerialMovementSource(GetActionToken(), BackVaultMovementSourceTag()))
+	if (!Host->SetAerialMovementSource(GetActionToken(), MHGZGameplayTags::IGBackVaultSource()))
 	{
 		UE_LOG(LogMHGZ, Warning,
 			TEXT("[PoleVault] RuntimeHost could not publish the aerial source tag; aborting movement."));

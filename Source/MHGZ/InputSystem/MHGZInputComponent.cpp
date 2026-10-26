@@ -168,7 +168,8 @@ void UMHGZInputComponent::PushIMC(UInputMappingContext* IMC, int32 Priority)
 
 void UMHGZInputComponent::PopIMC(UInputMappingContext* IMC)
 {
-	if (!IMC)
+	int32* Count = IMC ? AddedContextCounts.Find(IMC) : nullptr;
+	if (!Count || *Count <= 0)
 	{
 		return;
 	}
@@ -182,13 +183,17 @@ void UMHGZInputComponent::PopIMC(UInputMappingContext* IMC)
 	if (UEnhancedInputLocalPlayerSubsystem* Subsystem =
 		ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PC->GetLocalPlayer()))
 	{
-		Subsystem->RemoveMappingContext(IMC);
-		if (int32* Count = AddedContextCounts.Find(IMC))
+		// 默认模式没有引擎引用计数，最后一个本地持有者才可移除；
+		// CountRegistrations模式则与Push时的逐次注册一一对应。
+		const bool bLastOwner = --(*Count) == 0;
+		if (bLastOwner)
 		{
-			if (--(*Count) <= 0)
-			{
-				AddedContextCounts.Remove(IMC);
-			}
+			AddedContextCounts.Remove(IMC);
+		}
+		if (bLastOwner || IMC->GetRegistrationTrackingMode()
+			== EMappingContextRegistrationTrackingMode::CountRegistrations)
+		{
+			Subsystem->RemoveMappingContext(IMC);
 		}
 	}
 }
@@ -250,7 +255,9 @@ void UMHGZInputComponent::RemoveAllContexts()
 		{
 			if (UInputMappingContext* IMC = Pair.Key.Get())
 			{
-				for (int32 Count = 0; Count < Pair.Value; ++Count)
+				const int32 RemovalCount = IMC->GetRegistrationTrackingMode()
+					== EMappingContextRegistrationTrackingMode::CountRegistrations ? Pair.Value : 1;
+				for (int32 Count = 0; Count < RemovalCount; ++Count)
 				{
 					Subsystem->RemoveMappingContext(IMC);
 				}

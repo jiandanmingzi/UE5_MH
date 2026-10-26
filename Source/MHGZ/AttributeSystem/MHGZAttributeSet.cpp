@@ -109,6 +109,21 @@ void UMHGZAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, 
 	ClampAttribute(Attribute, NewValue);
 }
 
+void UMHGZAttributeSet::PostAttributeChange(
+	const FGameplayAttribute& Attribute, const float OldValue, const float NewValue)
+{
+	Super::PostAttributeChange(Attribute, OldValue, NewValue);
+	// GE到期、装备变化和直接修改基础上限都经过此处；不依赖下一次受伤或恢复。
+	if (Attribute == GetMaxHealthAttribute() && GetHealth() > NewValue)
+	{
+		SetHealth(NewValue);
+	}
+	else if (Attribute == GetMaxStaminaAttribute() && GetStamina() > NewValue)
+	{
+		SetStamina(NewValue);
+	}
+}
+
 void UMHGZAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCallbackData& Data)
 {
 	Super::PostGameplayEffectExecute(Data);

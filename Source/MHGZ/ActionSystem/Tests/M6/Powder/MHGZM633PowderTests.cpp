@@ -389,6 +389,9 @@ bool FMHGZM633PowderCapCountsReserved::RunTest(const FString& Parameters)
 		ReservedCount += Snapshot.State == EIGPowderState::Reserved ? 1 : 0;
 	}
 	TestEqual(TEXT("test inventory contains one reserved member"), ReservedCount, 1);
+	const FIGResourceUISnapshot FullUI = H.Resource->GetUIState();
+	TestEqual(TEXT("UI reports available members without constructing full powder snapshots"), FullUI.AvailablePowderCount, 99);
+	TestEqual(TEXT("UI reports the reserved member separately"), FullUI.ReservedPowderCount, 1);
 
 	const FGuid RejectedHitID = FGuid::NewGuid();
 	TestTrue(TEXT("marked kinsect damage still succeeds while powder inventory is full"),
@@ -404,6 +407,9 @@ bool FMHGZM633PowderCapCountsReserved::RunTest(const FString& Parameters)
 	{
 		H.World->DestroyActor(FreedPowder);
 	}
+	const FIGResourceUISnapshot AfterDestroyUI = H.Resource->GetUIState();
+	TestEqual(TEXT("UI excludes destroyed powder immediately"),
+		AfterDestroyUI.AvailablePowderCount + AfterDestroyUI.ReservedPowderCount, 99);
 	const FGuid RetriedHitID = FGuid::NewGuid();
 	TestTrue(TEXT("a later marked hit applies after capacity reopens"),
 		H.Resource->ApplyKinsectDamage(MarkHit, 0.20f, RetriedHitID));
@@ -413,6 +419,10 @@ bool FMHGZM633PowderCapCountsReserved::RunTest(const FString& Parameters)
 			EIGPowderSpawnPolicy::MarkedContact));
 	TestEqual(TEXT("successful retry restores inventory to the 100-powder cap"),
 		H.Resource->GetPowderSnapshots().Num(), 100);
+	H.Resource->ReleasePowderReservation(Reservation);
+	TestEqual(TEXT("releasing reservation makes all live powders available to UI"),
+		H.Resource->GetUIState().AvailablePowderCount, 100);
+	TestEqual(TEXT("UI has no stale reserved count"), H.Resource->GetUIState().ReservedPowderCount, 0);
 	H.Teardown();
 	return true;
 }
@@ -547,6 +557,10 @@ bool FMHGZM633PowderNaturalExpiryTest::RunTest(const FString& Parameters)
 		&& FMath::IsNearlyEqual(Inside.Attributes->GetHealth(), 100.0f));
 
 	Powder->ExpireWorldTime = H.World->GetTimeSeconds();
+	TestEqual(TEXT("UI excludes expired powder before the expiry callback runs"),
+		H.Resource->GetUIState().AvailablePowderCount, 0);
+	TestTrue(TEXT("full snapshots also exclude the pending-expiry actor"),
+		H.Resource->GetPowderSnapshots().IsEmpty());
 	H.Resource->HandlePowderLifetimeExpired(Powder, Powder->LifetimeRevision);
 	TestTrue(TEXT("one powder deals exactly its fixed 7 damage, ignoring hitzone defense and crit"),
 		FMath::IsNearlyEqual(Inside.Attributes->GetHealth(), 93.0f));

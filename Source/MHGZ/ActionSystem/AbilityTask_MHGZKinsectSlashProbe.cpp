@@ -1,6 +1,7 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "ActionSystem/AbilityTask_MHGZKinsectSlashProbe.h"
+#include "MHGZMath.h"
 
 #include "ActionSystem/MHGZGameplayAbility.h"
 #include "AttributeSystem/Res_InsectGlaive.h"
@@ -20,13 +21,6 @@ namespace
 {
 const FQuat KinsectFlightVisualLocalRotation(FVector::UpVector, -UE_HALF_PI);
 
-bool IsFiniteVector(const FVector& Value)
-{
-	return FMath::IsFinite(Value.X)
-		&& FMath::IsFinite(Value.Y)
-		&& FMath::IsFinite(Value.Z);
-}
-
 bool IsValidProbeStartup(UMHGZGameplayAbility* Ability,
 	URes_InsectGlaive* Resource, const FWeaponActionToken& Token,
 	const FVector& Direction, const float ForwardOffset, const float Radius,
@@ -36,7 +30,7 @@ bool IsValidProbeStartup(UMHGZGameplayAbility* Ability,
 		|| !Ability->IsActive() || !Ability->IsActionActivationCommitted()
 		|| Ability->GetActionToken() != Token
 		|| Token.AbilityInstance.Get() != Ability
-		|| !IsFiniteVector(Direction) || Direction.IsNearlyZero()
+		|| !MHGZMath::IsFiniteVector(Direction) || Direction.IsNearlyZero()
 		|| !FMath::IsFinite(ForwardOffset)
 		|| !FMath::IsFinite(Radius) || Radius <= 0.0f
 		|| !FMath::IsFinite(MaxSampleStep) || MaxSampleStep <= UE_SMALL_NUMBER
@@ -245,7 +239,7 @@ bool UAbilityTask_MHGZKinsectSlashProbe::NotifyDashMovementFinished(
 		return true;
 	}
 
-	if (!IsFiniteVector(AnalyticTerminalVelocity)
+	if (!MHGZMath::IsFiniteVector(AnalyticTerminalVelocity)
 		|| AnalyticTerminalVelocity.IsNearlyZero())
 	{
 		DisableSweepPermanently();

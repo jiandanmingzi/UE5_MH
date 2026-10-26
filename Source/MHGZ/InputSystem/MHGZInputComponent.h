@@ -45,7 +45,7 @@ public:
 	/** Idempotent teardown: removes every stored binding handle and added IMC. */
 	void ShutdownInput();
 
-	/** Compatible wrappers: Push/Pop a runtime overlay IMC, tracked for teardown. */
+	/** 持有/释放运行时输入映射；重复持有计数，无持有权的释放不影响其它映射。 */
 	void PushIMC(UInputMappingContext* IMC, int32 Priority);
 	void PopIMC(UInputMappingContext* IMC);
 
@@ -78,7 +78,7 @@ private:
 	/** Binding handles appended by AMHGZCharacter::BindCharacterInput (Move/Look/Sprint). */
 	TArray<uint32> CharacterBindingHandles;
 
-	/** Per-IMC add count; Shutdown removes each context that many times (net zero). */
+	/** 本组件对各输入映射的持有次数；按引擎注册模式配对释放，关停时清空。 */
 	TMap<TWeakObjectPtr<UInputMappingContext>, int32> AddedContextCounts;
 
 	FDelegateHandle OnRouterProfileChangedHandle;

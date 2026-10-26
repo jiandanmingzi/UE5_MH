@@ -1,6 +1,7 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "ActionSystem/MHGZSegmentedDirectionalMovement.h"
+#include "MHGZMath.h"
 
 namespace
 {
@@ -16,23 +17,16 @@ namespace
 		return Value > 0.0 && Value <= FloatMax;
 	}
 
-	bool IsFiniteVector(const FVector& Value)
-	{
-		return FMath::IsFinite(Value.X)
-			&& FMath::IsFinite(Value.Y)
-			&& FMath::IsFinite(Value.Z);
-	}
-
 	bool TryGetNormalizedDirection(const FVector& Input, FVector& OutDirection)
 	{
 		OutDirection = FVector::ZeroVector;
-		if (!IsFiniteVector(Input))
+		if (!MHGZMath::IsFiniteVector(Input))
 		{
 			return false;
 		}
 
 		OutDirection = Input.GetSafeNormal();
-		return IsFiniteVector(OutDirection) && !OutDirection.IsNearlyZero();
+		return MHGZMath::IsFiniteVector(OutDirection) && !OutDirection.IsNearlyZero();
 	}
 
 	float ClampElapsedSeconds(const FSegmentedDirectionalMovementProfile& Profile, float Seconds)
@@ -152,7 +146,7 @@ FVector FSegmentedDirectionalMovementProfile::GetOffset(
 	if (ElapsedSeconds < StraightEndSeconds)
 	{
 		const FVector Offset = Direction * (StraightSpeed * (ElapsedSeconds - InitialHoldSeconds));
-		return IsFiniteVector(Offset) ? Offset : FVector::ZeroVector;
+		return MHGZMath::IsFiniteVector(Offset) ? Offset : FVector::ZeroVector;
 	}
 
 	const float GlideElapsedSeconds = FMath::Clamp(
@@ -161,7 +155,7 @@ FVector FSegmentedDirectionalMovementProfile::GetOffset(
 	const FVector Offset = Direction * (StraightSpeed * StraightSeconds)
 		+ Direction * (GlideInitialSpeed * GlideElapsedSeconds)
 		+ (Acceleration * GlideElapsedSeconds) * (0.5f * GlideElapsedSeconds);
-	return IsFiniteVector(Offset) ? Offset : FVector::ZeroVector;
+	return MHGZMath::IsFiniteVector(Offset) ? Offset : FVector::ZeroVector;
 }
 
 FVector FSegmentedDirectionalMovementProfile::GetVelocity(
@@ -190,14 +184,14 @@ FVector FSegmentedDirectionalMovementProfile::GetVelocity(
 	if (ElapsedSeconds < StraightEndSeconds)
 	{
 		const FVector Velocity = Direction * StraightSpeed;
-		return IsFiniteVector(Velocity) ? Velocity : FVector::ZeroVector;
+		return MHGZMath::IsFiniteVector(Velocity) ? Velocity : FVector::ZeroVector;
 	}
 
 	const float GlideElapsedSeconds = FMath::Clamp(
 		ElapsedSeconds - StraightEndSeconds, 0.0f, GlideSeconds);
 	const FVector Velocity = Direction * GlideInitialSpeed
 		+ GetGlideAcceleration(*this, Direction) * GlideElapsedSeconds;
-	return IsFiniteVector(Velocity) ? Velocity : FVector::ZeroVector;
+	return MHGZMath::IsFiniteVector(Velocity) ? Velocity : FVector::ZeroVector;
 }
 
 float FSegmentedDirectionalMovementProfile::GetNextBoundarySeconds(const float Seconds) const

@@ -2,13 +2,32 @@
 
 #include "MHGZDamageNumberCue.h"
 
+#include "Engine/Level.h"
 #include "Engine/World.h"
-#include "EngineUtils.h"
 #include "GameplayEffectTypes.h"
 #include "MHGZCharacter.h"
 #include "MHGZPlayerController.h"
 #include "UI/MHGZDamageNumberActor.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
+
+namespace
+{
+// 保留原TActorIterator的OnlyActiveLevels筛选；只改变候选来源，不改变可见层级语义。
+bool IsDamageNumberLevelActive(const AMHGZDamageNumberActor& Number, const UWorld& World)
+{
+	const ULevel* Level = Number.GetLevel();
+	if (!Level || Level->GetWorld() != &World)
+	{
+		return false;
+	}
+	const bool bVisibleOrAssociating = (Level->bIsVisible && !Level->bIsBeingRemoved)
+		|| Level->bIsAssociatingLevel || Level->bIsDisassociatingLevel;
+	const FLevelCollection* Collection = Level->GetCachedLevelCollection();
+	const FLevelCollection* ActiveCollection = World.GetActiveLevelCollection();
+	return bVisibleOrAssociating && (!ActiveCollection || Collection == ActiveCollection
+		|| !Collection || Collection->GetType() == ELevelCollectionType::StaticLevels);
+}
+}
 
 bool UMHGZDamageNumberCue::OnExecute_Implementation(AActor* MyTarget,
 	const FGameplayCueParameters& Parameters) const
@@ -30,12 +49,20 @@ bool UMHGZDamageNumberCue::OnExecute_Implementation(AActor* MyTarget,
 		? MyTarget->GetActorLocation() : FVector(Parameters.Location);
 	// Simultaneous powder stages remain separate readable numbers, not overlaid text.
 	int32 NearbyRecentNumbers = 0;
-	for (TActorIterator<AMHGZDamageNumberActor> It(World); It; ++It)
+	// Spawn/SetOwner/Destroy由引擎维护Children，不再为每次命中构建全世界数字列表。
+	for (AActor* OwnedActor : MyTarget->Children)
 	{
-		if (It->GetOwner() == MyTarget && It->GetGameTimeSinceCreation() < 0.15f
-			&& FVector::DistSquared(It->GetActorLocation(), SpawnLocation) < FMath::Square(100.0f))
+		const AMHGZDamageNumberActor* ExistingNumber = Cast<AMHGZDamageNumberActor>(OwnedActor);
+		if (IsValid(ExistingNumber) && ExistingNumber->GetOwner() == MyTarget
+			&& IsDamageNumberLevelActive(*ExistingNumber, *World)
+			&& ExistingNumber->GetGameTimeSinceCreation() < 0.15f
+			&& FVector::DistSquared(ExistingNumber->GetActorLocation(), SpawnLocation) < FMath::Square(100.0f))
 		{
 			++NearbyRecentNumbers;
+			if (NearbyRecentNumbers == 4)
+			{
+				break;
+			}
 		}
 	}
 	SpawnLocation.Z += FMath::Min(NearbyRecentNumbers, 4) * 24.0f;

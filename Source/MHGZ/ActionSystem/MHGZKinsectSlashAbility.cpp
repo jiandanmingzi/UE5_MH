@@ -1,6 +1,9 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "ActionSystem/MHGZKinsectSlashAbility.h"
+#include "ActionSystem/MHGZAerialActionCleanup.h"
+#include "MHGZGameplayTags.h"
+#include "MHGZMath.h"
 
 #include "ActionSystem/AbilityTask_MHGZKinsectSlashProbe.h"
 #include "ActionSystem/AbilityTask_MHGZPlayMontageAndWait.h"
@@ -27,80 +30,10 @@
 
 namespace
 {
-const FGameplayTag& AerialFallingTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Falling"));
-	return Tag;
-}
-
-const FGameplayTag& AerialCantAttackTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.CantAttack"));
-	return Tag;
-}
-
 const FGameplayTag& AerialCantDodgeTag()
 {
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Aerial.CantDodge"));
-	return Tag;
-}
-
-const FGameplayTag& KinsectSlashMovementSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_KinsectSlash"));
-	return Tag;
-}
-
-const FGameplayTag& KinsectSlashHitSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_KinsectSlash.Hit"));
-	return Tag;
-}
-
-const FGameplayTag& KinsectSlashMissSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_KinsectSlash.Miss"));
-	return Tag;
-}
-
-const FGameplayTag& UnsheathedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Unsheathed"));
-	return Tag;
-}
-
-const FGameplayTag& DeadTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Dead"));
-	return Tag;
-}
-
-const FGameplayTag& HitstunTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Hitstun"));
-	return Tag;
-}
-
-const FGameplayTag& KnockdownTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Knockdown"));
-	return Tag;
-}
-
-const FGameplayTag& WeaponBTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Input.Weapon.B"));
 	return Tag;
 }
 
@@ -109,12 +42,6 @@ const FGameplayTag& WeaponRTBTag()
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
 		TEXT("Input.Weapon.RTB"));
 	return Tag;
-}
-
-bool IsFiniteVector(const FVector& Value)
-{
-	return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y)
-		&& FMath::IsFinite(Value.Z);
 }
 
 }
@@ -154,12 +81,12 @@ bool FKinsectSlashDanceEntryTuning::IsValid() const
 		return FMath::IsFinite(ApexHeight) && ApexHeight > 0.0f
 			&& FMath::IsFinite(Duration) && Duration > 0.0f
 			&& FMath::IsFinite(HorizontalDistance) && HorizontalDistance > 0.0f
-			&& IsFiniteVector(ExplicitLaunchVelocity)
+			&& MHGZMath::IsFiniteVector(ExplicitLaunchVelocity)
 			&& ExplicitLaunchVelocity.IsNearlyZero();
 	}
 
 	return ParameterMode == EBallisticParameterMode::ExplicitLaunchVelocity
-		&& IsFiniteVector(ExplicitLaunchVelocity)
+		&& MHGZMath::IsFiniteVector(ExplicitLaunchVelocity)
 		&& ExplicitLaunchVelocity.Z > KINDA_SMALL_NUMBER
 		&& FMath::IsFinite(ExplicitLaunchVelocity.X)
 		&& FMath::IsFinite(ExplicitLaunchVelocity.Y);
@@ -179,7 +106,7 @@ FWeaponMovementRequest FKinsectSlashDanceEntryTuning::MakeRequest(
 		.GetSafeNormal();
 	Request.RotationPolicy = EActionRotationPolicy::Locked;
 	Request.CancelVelocityPolicy = EMovementCancelVelocityPolicy::PreserveVelocity;
-	if (!IsValid() || !IsFiniteVector(InLaunchDirection)
+	if (!IsValid() || !MHGZMath::IsFiniteVector(InLaunchDirection)
 		|| Request.DirectionSnapshot.IsNearlyZero())
 	{
 		return Request;
@@ -221,15 +148,15 @@ UMHGZKinsectSlashAbility::UMHGZKinsectSlashAbility()
 	StaminaCostPolicy = EAbilityStaminaCostPolicy::Instant;
 	StaminaCost = FScalableFloat(50.f);
 	bDeferInstantStaminaCost = true;
-	InputTag = WeaponBTag();
+	InputTag = MHGZGameplayTags::WeaponBInput();
 	DefaultEntrySection = HoverSectionName;
 
-	ActivationRequiredTags.AddTag(AerialFallingTag());
-	ActivationRequiredTags.AddTag(UnsheathedTag());
-	ActivationBlockedTags.AddTag(AerialCantAttackTag());
-	ActivationBlockedTags.AddTag(DeadTag());
-	ActivationBlockedTags.AddTag(HitstunTag());
-	ActivationBlockedTags.AddTag(KnockdownTag());
+	ActivationRequiredTags.AddTag(MHGZGameplayTags::AerialFalling());
+	ActivationRequiredTags.AddTag(MHGZGameplayTags::Unsheathed());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::AerialCantAttack());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Dead());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Hitstun());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Knockdown());
 }
 
 float UMHGZKinsectSlashAbility::GetInstantStaminaCost(const FGameplayAbilitySpecHandle Handle,
@@ -275,12 +202,12 @@ bool UMHGZKinsectSlashAbility::IsLiveAerialSlashStateValid(
 	const UAbilitySystemComponent* ASC,
 	const UMHGZWeaponRuntimeHostComponent* Host) const
 {
-	return ASC && Host && !Host->IsGrounded() && ASC->HasMatchingGameplayTag(AerialFallingTag())
-		&& ASC->HasMatchingGameplayTag(UnsheathedTag())
-		&& !ASC->HasMatchingGameplayTag(AerialCantAttackTag())
-		&& !ASC->HasMatchingGameplayTag(DeadTag())
-		&& !ASC->HasMatchingGameplayTag(HitstunTag())
-		&& !ASC->HasMatchingGameplayTag(KnockdownTag());
+	return ASC && Host && !Host->IsGrounded() && ASC->HasMatchingGameplayTag(MHGZGameplayTags::AerialFalling())
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Unsheathed())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::AerialCantAttack())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Dead())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Hitstun())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Knockdown());
 }
 
 bool UMHGZKinsectSlashAbility::ValidateActionDependencies() const
@@ -291,7 +218,7 @@ bool UMHGZKinsectSlashAbility::ValidateActionDependencies() const
 	}
 
 	const FWeaponInputSnapshot& Input = GetWeaponActivationContext().Input;
-	if (!Input.ResolvedInputTag.MatchesTagExact(WeaponBTag())
+	if (!Input.ResolvedInputTag.MatchesTagExact(MHGZGameplayTags::WeaponBInput())
 		&& !Input.ResolvedInputTag.MatchesTagExact(WeaponRTBTag()))
 	{
 		return false;
@@ -679,7 +606,7 @@ void UMHGZKinsectSlashAbility::ActivateAbility(
 		FrozenDanceDamageMultiplier = MHGZ::IGActionConfig::DanceDamageMultiplier(KinsectSlashDanceDamageMultipliers, Resource->GetDanceStacks(), Resource->GetCombatConfig()->MaxDanceStacks);
 	}
 	const FGameplayTag ResolvedInput = GetWeaponActivationContext().Input.ResolvedInputTag;
-	AimSource = ResolvedInput.MatchesTagExact(WeaponBTag())
+	AimSource = ResolvedInput.MatchesTagExact(MHGZGameplayTags::WeaponBInput())
 		? EKinsectSlashAimSource::WeaponB : EKinsectSlashAimSource::KinsectAim;
 	Phase = EKinsectSlashPhase::Hover;
 	BindLifecycleGuards();
@@ -750,7 +677,7 @@ bool UMHGZKinsectSlashAbility::StartHoverMovement()
 	}
 	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 		!Host || !Host->SetAerialMovementSource(GetActionToken(),
-			KinsectSlashMovementSourceTag()))
+			MHGZGameplayTags::IGKinsectSlashSource()))
 	{
 		UE_LOG(LogMHGZ, Warning,
 			TEXT("[KinsectSlash] RuntimeHost could not publish the aerial source tag; aborting movement."));
@@ -828,7 +755,7 @@ void UMHGZKinsectSlashAbility::BindLifecycleGuards()
 			this, &UMHGZKinsectSlashAbility::HandleRuntimeInvalidated);
 	}
 
-	const FGameplayTag DisqualifyingTags[] = { DeadTag(), HitstunTag(), KnockdownTag() };
+	const FGameplayTag DisqualifyingTags[] = { MHGZGameplayTags::Dead(), MHGZGameplayTags::Hitstun(), MHGZGameplayTags::Knockdown() };
 	for (const FGameplayTag& Tag : DisqualifyingTags)
 	{
 		if (!DisqualifyingStateTagDelegateHandles.Contains(Tag))
@@ -849,25 +776,10 @@ void UMHGZKinsectSlashAbility::BindLifecycleGuards()
 
 void UMHGZKinsectSlashAbility::UnbindLifecycleGuards()
 {
-	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
-	{
-		if (RuntimeInvalidationDelegateHandle.IsValid())
-		{
-			Host->OnWeaponRuntimeInvalidated.Remove(RuntimeInvalidationDelegateHandle);
-		}
-	}
-	RuntimeInvalidationDelegateHandle.Reset();
-
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		for (const TPair<FGameplayTag, FDelegateHandle>& Pair :
-			DisqualifyingStateTagDelegateHandles)
-		{
-			ASC->RegisterGameplayTagEvent(Pair.Key,
-				EGameplayTagEventType::NewOrRemoved).Remove(Pair.Value);
-		}
-	}
-	DisqualifyingStateTagDelegateHandles.Reset();
+	MHGZAerialActionCleanup::UnbindRuntimeInvalidation(GetRuntimeHost(),
+		RuntimeInvalidationDelegateHandle);
+	MHGZAerialActionCleanup::UnbindStateTagDelegates(GetAbilitySystemComponentFromActorInfo(),
+		DisqualifyingStateTagDelegateHandles);
 }
 
 void UMHGZKinsectSlashAbility::HandleRuntimeInvalidated(
@@ -885,9 +797,9 @@ void UMHGZKinsectSlashAbility::HandleDisqualifyingStateTagChanged(
 	const FGameplayTag Tag, const int32 NewCount)
 {
 	if (NewCount > 0 && IsActive()
-		&& (Tag == DeadTag() || Tag == HitstunTag() || Tag == KnockdownTag()))
+		&& (Tag == MHGZGameplayTags::Dead() || Tag == MHGZGameplayTags::Hitstun() || Tag == MHGZGameplayTags::Knockdown()))
 	{
-		CancelSlashAction(Tag == DeadTag() ? EWeaponActionEndReason::Death
+		CancelSlashAction(Tag == MHGZGameplayTags::Dead() ? EWeaponActionEndReason::Death
 			: EWeaponActionEndReason::Interrupted,
 			TEXT("A disqualifying combat-state tag was added during the action."));
 	}
@@ -902,10 +814,10 @@ bool UMHGZKinsectSlashAbility::IsLiveContinuationStateValid() const
 	// IG_AerialHandoff notify. Consequently continuation checks must not require
 	// Falling before the notify that creates that tag.
 	return ASC && Host && !Host->IsGrounded()
-		&& ASC->HasMatchingGameplayTag(UnsheathedTag())
-		&& !ASC->HasMatchingGameplayTag(DeadTag())
-		&& !ASC->HasMatchingGameplayTag(HitstunTag())
-		&& !ASC->HasMatchingGameplayTag(KnockdownTag());
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Unsheathed())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Dead())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Hitstun())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Knockdown());
 }
 
 bool UMHGZKinsectSlashAbility::HandleMontageEvent(
@@ -1024,7 +936,7 @@ bool UMHGZKinsectSlashAbility::EnterMissFallPhase()
 
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 	if (!Host || !Host->SetAerialMovementSource(SlashActionToken,
-		KinsectSlashMissSourceTag()))
+		MHGZGameplayTags::IGKinsectSlashMissSource()))
 	{
 		CancelSlashAction(EWeaponActionEndReason::Interrupted,
 			TEXT("Miss188 was entered but its source tag could not be recorded."));
@@ -1059,7 +971,7 @@ bool UMHGZKinsectSlashAbility::LockAimAndDirection()
 	if (AimSource == EKinsectSlashAimSource::None)
 	{
 		const FGameplayTag ResolvedInput = GetWeaponActivationContext().Input.ResolvedInputTag;
-		AimSource = ResolvedInput.MatchesTagExact(WeaponBTag())
+		AimSource = ResolvedInput.MatchesTagExact(MHGZGameplayTags::WeaponBInput())
 			? EKinsectSlashAimSource::WeaponB
 			: EKinsectSlashAimSource::KinsectAim;
 	}
@@ -1075,7 +987,7 @@ bool UMHGZKinsectSlashAbility::LockAimAndDirection()
 		UMHGZAimComponent* AimComponent = Character->GetAimComponent();
 		const bool bCaptured = AimComponent
 			&& AimComponent->CaptureAimLockSample(Character->GetActorLocation(), Sample);
-		if (bCaptured && IsFiniteVector(Sample.LaunchDirection)
+		if (bCaptured && MHGZMath::IsFiniteVector(Sample.LaunchDirection)
 			&& !Sample.LaunchDirection.IsNearlyZero())
 		{
 			LaunchDirection = Sample.LaunchDirection.GetSafeNormal();
@@ -1094,7 +1006,7 @@ bool UMHGZKinsectSlashAbility::LockAimAndDirection()
 		}
 	}
 
-	if (!IsFiniteVector(LaunchDirection) || LaunchDirection.IsNearlyZero())
+	if (!MHGZMath::IsFiniteVector(LaunchDirection) || LaunchDirection.IsNearlyZero())
 	{
 		return false;
 	}
@@ -1271,7 +1183,7 @@ bool UMHGZKinsectSlashAbility::StartDashMovement()
 	}
 
 	DashTerminalVelocity = ResolveDashTerminalVelocity();
-	if (!IsFiniteVector(DashTerminalVelocity) || DashTerminalVelocity.IsNearlyZero())
+	if (!MHGZMath::IsFiniteVector(DashTerminalVelocity) || DashTerminalVelocity.IsNearlyZero())
 	{
 		return false;
 	}
@@ -1599,7 +1511,7 @@ void UMHGZKinsectSlashAbility::HandleSuccessfulAttackDamage(
 	bPendingDanceTransition = true;
 	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 		!Host || !Host->SetAerialMovementSource(SlashActionToken,
-			KinsectSlashHitSourceTag()))
+			MHGZGameplayTags::IGKinsectSlashHitSource()))
 	{
 		UE_LOG(LogMHGZ, Warning,
 			TEXT("[KinsectSlash] Damage GE succeeded, but RuntimeHost could not publish the hit source tag; aborting action."));
@@ -1863,7 +1775,7 @@ void UMHGZKinsectSlashAbility::HandleMovementFinished(
 		UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 		ACharacter* Character = Cast<ACharacter>(GetAvatarActorFromActorInfo());
 		UCharacterMovementComponent* CMC = Character ? Character->GetCharacterMovement() : nullptr;
-		if (!Host || !CMC || !IsFiniteVector(Result.FinalVelocity)
+		if (!Host || !CMC || !MHGZMath::IsFiniteVector(Result.FinalVelocity)
 			|| !Host->ApplyAerialFallingPhysicsOverride(CallbackToken, MissGravityMagnitude, 0.0f))
 		{
 			CancelSlashAction(EWeaponActionEndReason::Interrupted,
@@ -2084,21 +1996,9 @@ void UMHGZKinsectSlashAbility::EndAbility(
 
 	// Safe retirement of a task left by a hot-reloaded pre-migration instance;
 	// the current production path never creates this legacy task.
-	if (ProbeTask)
-	{
-		ProbeTask->EndTask();
-		ProbeTask = nullptr;
-	}
-	if (MovementTask)
-	{
-		MovementTask->EndTask();
-		MovementTask = nullptr;
-	}
-	if (HoverMovementTask)
-	{
-		HoverMovementTask->EndTask();
-		HoverMovementTask = nullptr;
-	}
+	MHGZAerialActionCleanup::EndTaskAndReset(ProbeTask);
+	MHGZAerialActionCleanup::EndTaskAndReset(MovementTask);
+	MHGZAerialActionCleanup::EndTaskAndReset(HoverMovementTask);
 
 	AMHGZCharacter* Character = Cast<AMHGZCharacter>(GetAvatarActorFromActorInfo());
 	UAnimInstance* AnimInstance = Character && Character->GetMesh()
@@ -2113,16 +2013,8 @@ void UMHGZKinsectSlashAbility::EndAbility(
 			AnimInstance->Montage_Stop(0.05f, ActiveSlashMontage);
 		}
 	}
-	if (SlashMontageTask)
-	{
-		SlashMontageTask->EndTask();
-		SlashMontageTask = nullptr;
-	}
-	if (DanceMontageTask)
-	{
-		DanceMontageTask->EndTask();
-		DanceMontageTask = nullptr;
-	}
+	MHGZAerialActionCleanup::EndTaskAndReset(SlashMontageTask);
+	MHGZAerialActionCleanup::EndTaskAndReset(DanceMontageTask);
 	ActiveSlashMontage = nullptr;
 	ActiveAttackMontage = nullptr;
 	VisualPitchSourceMontageInstanceID = INDEX_NONE;
@@ -2140,11 +2032,7 @@ void UMHGZKinsectSlashAbility::EndAbility(
 		&& !Host->IsGrounded() && !Host->HasRegisteredAction() && CMC
 		&& CMC->MovementMode == MOVE_Flying)
 	{
-		FFindFloorResult Floor;
-		CMC->FindFloor(Character->GetActorLocation(), Floor, false);
-		const bool bOnFloor = Floor.IsWalkableFloor()
-			&& Floor.FloorDist <= UCharacterMovementComponent::MAX_FLOOR_DIST;
-		CMC->SetMovementMode(bOnFloor ? MOVE_Walking : MOVE_Falling);
+		MHGZAerialActionCleanup::RestoreMovementModeFromFloor(*Character, *CMC);
 	}
 	// Natural 189 completion keeps its 1800/-360 profile for 157. Only an
 	// unsuperseded cancellation back to unowned free-fall selects the normal one.

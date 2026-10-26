@@ -1,6 +1,8 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZPowderVortexAbility.h"
+#include "MHGZGameplayTags.h"
+#include "MHGZMath.h"
 
 #include "ActionSystem/AnimNotify_IG_PowderGatherBegin.h"
 #include "AttributeSystem/Res_InsectGlaive.h"
@@ -19,25 +21,7 @@ const FGameplayTag& PowderVortexInputTag()
 	return Tag;
 }
 
-const FGameplayTag& GroundedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Grounded"));
-	return Tag;
-}
 
-const FGameplayTag& UnsheathedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Unsheathed"));
-	return Tag;
-}
-
-bool IsFiniteVector(const FVector& Value)
-{
-	return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y)
-		&& FMath::IsFinite(Value.Z);
-}
 }
 
 UMHGZPowderVortexAbility::UMHGZPowderVortexAbility()
@@ -80,13 +64,13 @@ bool UMHGZPowderVortexAbility::ValidatePowderVortexRuntimeDependencies() const
 		? Resource->GetCombatConfig() : nullptr;
 	const AKinsect* Kinsect = Resource ? Resource->GetKinsectActor() : nullptr;
 	const FWeaponAimSnapshot& Aim = GetWeaponActivationContext().Input.Aim;
-	return ASC && ASC->HasMatchingGameplayTag(GroundedTag())
-		&& ASC->HasMatchingGameplayTag(UnsheathedTag())
+	return ASC && ASC->HasMatchingGameplayTag(MHGZGameplayTags::Grounded())
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Unsheathed())
 		&& Resource && Config && Kinsect
 		&& Kinsect->GetState() != EKinsectState::ActionAttached
 		&& !Kinsect->IsSlashActionControlled()
 		&& Aim.Context == EWeaponAimSnapshotContext::Kinsect
-		&& IsFiniteVector(Aim.TargetPoint)
+		&& MHGZMath::IsFiniteVector(Aim.TargetPoint)
 		&& PowderVortex.IsValid();
 }
 

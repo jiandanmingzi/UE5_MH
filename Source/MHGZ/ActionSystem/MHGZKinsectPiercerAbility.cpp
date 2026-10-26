@@ -1,6 +1,9 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "ActionSystem/MHGZKinsectPiercerAbility.h"
+#include "ActionSystem/MHGZAerialActionCleanup.h"
+#include "MHGZGameplayTags.h"
+#include "MHGZMath.h"
 
 #include "ActionSystem/AbilityTask_MHGZPlayMontageAndWait.h"
 #include "ActionSystem/AbilityTask_MHGZWeaponMovement.h"
@@ -21,66 +24,10 @@
 
 namespace
 {
-const FGameplayTag& AerialFallingTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Falling"));
-	return Tag;
-}
-
-const FGameplayTag& KinsectPiercerMovementSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_KinsectPiercer"));
-	return Tag;
-}
-
-const FGameplayTag& AerialCantAttackTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.CantAttack"));
-	return Tag;
-}
-
 const FGameplayTag& KinsectSlashDanceSourceTag()
 {
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
 		TEXT("Combat.State.Aerial.Dance.Source.KinsectSlash"));
-	return Tag;
-}
-
-const FGameplayTag& UnsheathedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Unsheathed"));
-	return Tag;
-}
-
-const FGameplayTag& GroundedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Grounded"));
-	return Tag;
-}
-
-const FGameplayTag& DeadTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Dead"));
-	return Tag;
-}
-
-const FGameplayTag& HitstunTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Hitstun"));
-	return Tag;
-}
-
-const FGameplayTag& KnockdownTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Knockdown"));
 	return Tag;
 }
 
@@ -106,19 +53,13 @@ bool IsLiveAerialPiercerEntry(const UAbilitySystemComponent* ASC,
 {
 	return ASC && Host && Resource && !Host->IsGrounded()
 		&& Resource->GetDanceSource() == EIGDanceSource::KinsectSlash
-		&& ASC->HasMatchingGameplayTag(AerialFallingTag())
-		&& ASC->HasMatchingGameplayTag(UnsheathedTag())
-		&& !ASC->HasMatchingGameplayTag(GroundedTag())
-		&& !ASC->HasMatchingGameplayTag(AerialCantAttackTag())
-		&& !ASC->HasMatchingGameplayTag(DeadTag())
-		&& !ASC->HasMatchingGameplayTag(HitstunTag())
-		&& !ASC->HasMatchingGameplayTag(KnockdownTag());
-}
-
-bool IsFiniteVector(const FVector& Value)
-{
-	return FMath::IsFinite(Value.X) && FMath::IsFinite(Value.Y)
-		&& FMath::IsFinite(Value.Z);
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::AerialFalling())
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Unsheathed())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Grounded())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::AerialCantAttack())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Dead())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Hitstun())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Knockdown());
 }
 
 /**
@@ -146,13 +87,13 @@ UMHGZKinsectPiercerAbility::UMHGZKinsectPiercerAbility()
 	InputTag = WeaponRTYTag();
 	DefaultEntrySection = StartSectionName;
 
-	ActivationRequiredTags.AddTag(AerialFallingTag());
-	ActivationRequiredTags.AddTag(UnsheathedTag());
-	ActivationBlockedTags.AddTag(GroundedTag());
-	ActivationBlockedTags.AddTag(AerialCantAttackTag());
-	ActivationBlockedTags.AddTag(DeadTag());
-	ActivationBlockedTags.AddTag(HitstunTag());
-	ActivationBlockedTags.AddTag(KnockdownTag());
+	ActivationRequiredTags.AddTag(MHGZGameplayTags::AerialFalling());
+	ActivationRequiredTags.AddTag(MHGZGameplayTags::Unsheathed());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Grounded());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::AerialCantAttack());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Dead());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Hitstun());
+	ActivationBlockedTags.AddTag(MHGZGameplayTags::Knockdown());
 }
 
 bool UMHGZKinsectPiercerAbility::CanActivateAbility(
@@ -307,7 +248,7 @@ FVector UMHGZKinsectPiercerAbility::ResolveLockedYawDirection() const
 bool UMHGZKinsectPiercerAbility::ApplyLockedYaw()
 {
 	const FVector Direction = ResolveLockedYawDirection();
-	if (!IsFiniteVector(Direction) || Direction.IsNearlyZero())
+	if (!MHGZMath::IsFiniteVector(Direction) || Direction.IsNearlyZero())
 	{
 		return false;
 	}
@@ -581,7 +522,7 @@ bool UMHGZKinsectPiercerAbility::StartPhaseMovement(const EKinsectPiercerPhase I
 	{
 		UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 		if (!Host || !Host->SetAerialMovementSource(GetActionToken(),
-			KinsectPiercerMovementSourceTag()))
+			MHGZGameplayTags::IGKinsectPiercerSource()))
 		{
 			UE_LOG(LogMHGZ, Warning,
 				TEXT("[KinsectPiercer] RuntimeHost could not publish the aerial source tag; aborting movement."));
@@ -1241,7 +1182,7 @@ void UMHGZKinsectPiercerAbility::BindLifecycleGuards()
 			this, &UMHGZKinsectPiercerAbility::HandleRuntimeInvalidated);
 	}
 
-	const FGameplayTag DisqualifyingTags[] = { DeadTag(), HitstunTag(), KnockdownTag() };
+	const FGameplayTag DisqualifyingTags[] = { MHGZGameplayTags::Dead(), MHGZGameplayTags::Hitstun(), MHGZGameplayTags::Knockdown() };
 	for (const FGameplayTag& Tag : DisqualifyingTags)
 	{
 		if (!DisqualifyingStateTagDelegateHandles.Contains(Tag))
@@ -1262,25 +1203,10 @@ void UMHGZKinsectPiercerAbility::BindLifecycleGuards()
 
 void UMHGZKinsectPiercerAbility::UnbindLifecycleGuards()
 {
-	if (UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost())
-	{
-		if (RuntimeInvalidationDelegateHandle.IsValid())
-		{
-			Host->OnWeaponRuntimeInvalidated.Remove(RuntimeInvalidationDelegateHandle);
-		}
-	}
-	RuntimeInvalidationDelegateHandle.Reset();
-
-	if (UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo())
-	{
-		for (const TPair<FGameplayTag, FDelegateHandle>& Pair :
-			DisqualifyingStateTagDelegateHandles)
-		{
-			ASC->RegisterGameplayTagEvent(Pair.Key,
-				EGameplayTagEventType::NewOrRemoved).Remove(Pair.Value);
-		}
-	}
-	DisqualifyingStateTagDelegateHandles.Reset();
+	MHGZAerialActionCleanup::UnbindRuntimeInvalidation(GetRuntimeHost(),
+		RuntimeInvalidationDelegateHandle);
+	MHGZAerialActionCleanup::UnbindStateTagDelegates(GetAbilitySystemComponentFromActorInfo(),
+		DisqualifyingStateTagDelegateHandles);
 }
 
 bool UMHGZKinsectPiercerAbility::IsLiveContinuationStateValid() const
@@ -1289,10 +1215,10 @@ bool UMHGZKinsectPiercerAbility::IsLiveContinuationStateValid() const
 	const UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 	// 续行判据里**没有** Aerial.Falling：本招全程持有它，但取消/受击时不该靠它判断，
 	// 而 203 已经在接地之后 —— 那时 Falling 本来就该被放掉。
-	return ASC && Host && ASC->HasMatchingGameplayTag(UnsheathedTag())
-		&& !ASC->HasMatchingGameplayTag(DeadTag())
-		&& !ASC->HasMatchingGameplayTag(HitstunTag())
-		&& !ASC->HasMatchingGameplayTag(KnockdownTag());
+	return ASC && Host && ASC->HasMatchingGameplayTag(MHGZGameplayTags::Unsheathed())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Dead())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Hitstun())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Knockdown());
 }
 
 void UMHGZKinsectPiercerAbility::HandleRuntimeInvalidated(
@@ -1310,9 +1236,9 @@ void UMHGZKinsectPiercerAbility::HandleDisqualifyingStateTagChanged(
 	const FGameplayTag Tag, const int32 NewCount)
 {
 	if (NewCount > 0 && IsActive()
-		&& (Tag == DeadTag() || Tag == HitstunTag() || Tag == KnockdownTag()))
+		&& (Tag == MHGZGameplayTags::Dead() || Tag == MHGZGameplayTags::Hitstun() || Tag == MHGZGameplayTags::Knockdown()))
 	{
-		CancelPiercerAction(Tag == DeadTag() ? EWeaponActionEndReason::Death
+		CancelPiercerAction(Tag == MHGZGameplayTags::Dead() ? EWeaponActionEndReason::Death
 			: EWeaponActionEndReason::Interrupted,
 			TEXT("A disqualifying combat-state tag was added during the action."));
 	}
@@ -1329,11 +1255,7 @@ void UMHGZKinsectPiercerAbility::EndAbility(const FGameplayAbilitySpecHandle Han
 	Phase = EKinsectPiercerPhase::Ended;
 	UnbindLifecycleGuards();
 
-	if (MovementTask)
-	{
-		MovementTask->EndTask();
-		MovementTask = nullptr;
-	}
+	MHGZAerialActionCleanup::EndTaskAndReset(MovementTask);
 	if (MainMontageTask)
 	{
 		MainMontageTask->OnCompleted.RemoveAll(this);
@@ -1400,11 +1322,7 @@ void UMHGZKinsectPiercerAbility::EndAbility(const FGameplayAbilitySpecHandle Han
 		&& !Host->IsGrounded() && !Host->HasRegisteredAction() && CMC
 		&& CMC->MovementMode == MOVE_Flying)
 	{
-		FFindFloorResult Floor;
-		CMC->FindFloor(Character->GetActorLocation(), Floor, false);
-		const bool bOnFloor = Floor.IsWalkableFloor()
-			&& Floor.FloorDist <= UCharacterMovementComponent::MAX_FLOOR_DIST;
-		CMC->SetMovementMode(bOnFloor ? MOVE_Walking : MOVE_Falling);
+		MHGZAerialActionCleanup::RestoreMovementModeFromFloor(*Character, *CMC);
 	}
 }
 

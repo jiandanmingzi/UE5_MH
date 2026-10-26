@@ -258,4 +258,51 @@ bool FMHGZPlayerInitialAttributesTest::RunTest(const FString&)
 	TestEqual(TEXT("removing buff preserves current stamina"), A->GetStamina(), 60.f);
 	H.Teardown(); return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZMaximumPoolClampTest,
+	"MHGZ.M1.Stamina.MaximumChangesClampCurrentPools",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZMaximumPoolClampTest::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup()) { H.Teardown(); return false; }
+	const UMHGZAttributeSet* A = H.ASC->GetSet<UMHGZAttributeSet>();
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetMaxHealthAttribute(), 100.f);
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetMaxStaminaAttribute(), 80.f);
+	TestEqual(TEXT("lower health maximum clamps immediately without taking a hit"), A->GetHealth(), 100.f);
+	TestEqual(TEXT("lower stamina maximum clamps without waiting for Tick"), A->GetStamina(), 80.f);
+	TestEqual(TEXT("health base does not retain hidden excess"),
+		H.ASC->GetNumericAttributeBase(UMHGZAttributeSet::GetHealthAttribute()), 100.f);
+	TestEqual(TEXT("stamina base does not retain hidden excess"),
+		H.ASC->GetNumericAttributeBase(UMHGZAttributeSet::GetStaminaAttribute()), 80.f);
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetMaxHealthAttribute(), 200.f);
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetMaxStaminaAttribute(), 200.f);
+	TestEqual(TEXT("increasing maximum does not heal"), A->GetHealth(), 100.f);
+	TestEqual(TEXT("increasing maximum does not refill stamina"), A->GetStamina(), 80.f);
+
+	UGameplayEffect* Buff = NewObject<UGameplayEffect>(GetTransientPackage());
+	Buff->DurationPolicy = EGameplayEffectDurationType::Infinite;
+	for (const FGameplayAttribute& Attribute : {
+		UMHGZAttributeSet::GetMaxHealthAttribute(), UMHGZAttributeSet::GetMaxStaminaAttribute() })
+	{
+		FGameplayModifierInfo& Modifier = Buff->Modifiers.AddDefaulted_GetRef();
+		Modifier.Attribute = Attribute;
+		Modifier.ModifierOp = EGameplayModOp::Additive;
+		Modifier.ModifierMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(50.f));
+	}
+	const FActiveGameplayEffectHandle Handle = H.ASC->ApplyGameplayEffectSpecToSelf(
+		FGameplayEffectSpec(Buff, H.ASC->MakeEffectContext(), 1.f));
+	TestTrue(TEXT("temporary pool maximum buff applies"), Handle.IsValid());
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetHealthAttribute(), 240.f);
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetStaminaAttribute(), 230.f);
+	H.ASC->RemoveActiveGameplayEffect(Handle);
+	TestEqual(TEXT("GE removal clamps health to restored maximum"), A->GetHealth(), 200.f);
+	TestEqual(TEXT("GE removal clamps stamina to restored maximum"), A->GetStamina(), 200.f);
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetHealthAttribute(), 75.f);
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetStaminaAttribute(), 60.f);
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetMaxHealthAttribute(), 150.f);
+	H.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetMaxStaminaAttribute(), 150.f);
+	TestEqual(TEXT("lowering maximum above current health does not heal or scale"), A->GetHealth(), 75.f);
+	TestEqual(TEXT("lowering maximum above current stamina does not refill or scale"), A->GetStamina(), 60.f);
+	H.Teardown(); return true;
+}
 #endif

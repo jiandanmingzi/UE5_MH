@@ -1,34 +1,11 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZInsectGlaiveGroundAbilities.h"
+#include "MHGZGameplayTags.h"
 
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "MHGZAbilitySystemComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
-
-namespace
-{
-const FGameplayTag& GroundedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Grounded"));
-	return Tag;
-}
-
-const FGameplayTag& UnsheathedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Unsheathed"));
-	return Tag;
-}
-
-const FGameplayTag& AerialTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial"));
-	return Tag;
-}
-}
 
 UMHGZMarkSlashAbility::UMHGZMarkSlashAbility()
 {
@@ -59,13 +36,13 @@ bool UMHGZMarkSlashAbility::ValidateActionDependencies() const
 	const FWeaponInputSnapshot& Input = GetWeaponActivationContext().Input;
 	return GetIGResourceComponent() && ASC && Host
 		&& Host->IsGrounded() && !Host->IsSheathed()
-		&& ASC->HasMatchingGameplayTag(GroundedTag())
-		&& ASC->HasMatchingGameplayTag(UnsheathedTag())
-		&& !ASC->HasMatchingGameplayTag(AerialTag())
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Grounded())
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Unsheathed())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Aerial())
 		&& !HasPlayerActionInputLock(ASC)
-		&& Input.ContextTags.HasTagExact(GroundedTag())
-		&& Input.ContextTags.HasTagExact(UnsheathedTag())
-		&& !Input.ContextTags.HasTagExact(AerialTag());
+		&& Input.ContextTags.HasTagExact(MHGZGameplayTags::Grounded())
+		&& Input.ContextTags.HasTagExact(MHGZGameplayTags::Unsheathed())
+		&& !Input.ContextTags.HasTagExact(MHGZGameplayTags::Aerial());
 }
 
 #if WITH_EDITOR

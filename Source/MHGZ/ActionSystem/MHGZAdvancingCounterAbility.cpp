@@ -1,6 +1,7 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZAdvancingCounterAbility.h"
+#include "MHGZGameplayTags.h"
 
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "ActionSystem/AbilityTask_MHGZWeaponMovement.h"
@@ -23,12 +24,7 @@ const FGameplayTag& AdvancingCounterOpenTag()
 	return Tag;
 }
 
-const FGameplayTag& AdvancingCounterMovementSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_AdvancingCounter"));
-	return Tag;
-}
+
 }
 
 UMHGZAdvancingCounterAbility::UMHGZAdvancingCounterAbility()
@@ -317,7 +313,7 @@ bool UMHGZAdvancingCounterAbility::StartAdvancingCounterVault()
 		return false;
 	}
 	if (!Host->SetAerialMovementSource(GetActionToken(),
-		AdvancingCounterMovementSourceTag()))
+		MHGZGameplayTags::IGAdvancingCounterSource()))
 	{
 		UE_LOG(LogMHGZ, Warning,
 			TEXT("[AdvancingCounter] RuntimeHost could not publish the aerial source tag; aborting movement."));

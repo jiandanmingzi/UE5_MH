@@ -1,6 +1,7 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "MHGZSheatheAbility.h"
+#include "MHGZGameplayTags.h"
 
 #include "Abilities/Tasks/AbilityTask_PlayMontageAndWait.h"
 #include "AbilitySystemComponent.h"
@@ -20,55 +21,6 @@ const FGameplayTag& AttackingTag()
 	return Tag;
 }
 
-const FGameplayTag& HitstunTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Hitstun"));
-	return Tag;
-}
-
-const FGameplayTag& KnockdownTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Knockdown"));
-	return Tag;
-}
-
-const FGameplayTag& UnsheathedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Unsheathed"));
-	return Tag;
-}
-
-const FGameplayTag& SheathedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Sheathed"));
-	return Tag;
-}
-
-const FGameplayTag& GroundedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Grounded"));
-	return Tag;
-}
-
-const FGameplayTag& AerialTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial"));
-	return Tag;
-}
-
-const FGameplayTag& DeadTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Dead"));
-	return Tag;
-}
-
 const FGameplayTag& SheathingTag()
 {
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
@@ -80,12 +32,12 @@ bool IsLiveSheatheStateValid(const UMHGZAbilitySystemComponent* ASC,
 	const UMHGZWeaponRuntimeHostComponent* Host)
 {
 	return ASC && Host && Host->IsGrounded() && !Host->IsSheathed()
-		&& ASC->HasMatchingGameplayTag(GroundedTag())
-		&& !ASC->HasMatchingGameplayTag(AerialTag())
-		&& !ASC->HasMatchingGameplayTag(DeadTag())
+		&& ASC->HasMatchingGameplayTag(MHGZGameplayTags::Grounded())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Aerial())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Dead())
 		&& !ASC->HasMatchingGameplayTag(AttackingTag())
-		&& !ASC->HasMatchingGameplayTag(HitstunTag())
-		&& !ASC->HasMatchingGameplayTag(KnockdownTag());
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Hitstun())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Knockdown());
 }
 }
 
@@ -131,10 +83,10 @@ bool UMHGZSheatheAbility::ValidateActionDependencies() const
 	const FWeaponInputSnapshot& Input = GetWeaponActivationContext().Input;
 	return IsLiveSheatheStateValid(ASC, Host)
 		&& !HasPlayerActionInputLock(ASC)
-		&& Input.ContextTags.HasTagExact(GroundedTag())
-		&& Input.ContextTags.HasTagExact(UnsheathedTag())
-		&& !Input.ContextTags.HasTagExact(AerialTag())
-		&& !Input.ContextTags.HasTagExact(SheathedTag())
+		&& Input.ContextTags.HasTagExact(MHGZGameplayTags::Grounded())
+		&& Input.ContextTags.HasTagExact(MHGZGameplayTags::Unsheathed())
+		&& !Input.ContextTags.HasTagExact(MHGZGameplayTags::Aerial())
+		&& !Input.ContextTags.HasTagExact(MHGZGameplayTags::Sheathed())
 		&& ValidateSheatheMontageDependencies();
 }
 

@@ -1,6 +1,8 @@
 // Copyright MHGZ Project. All Rights Reserved.
 
 #include "ActionSystem/MHGZAirDodgeAbility.h"
+#include "ActionSystem/MHGZAerialActionCleanup.h"
+#include "MHGZGameplayTags.h"
 
 #include "ActionSystem/AbilityTask_MHGZPlayMontageAndWait.h"
 #include "ActionSystem/AbilityTask_MHGZWeaponMovement.h"
@@ -29,20 +31,6 @@ void RecordAirDodgeMovementPhase(ACharacter* Character, const FName Phase)
 	}
 }
 
-const FGameplayTag& AerialTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial"));
-	return Tag;
-}
-
-const FGameplayTag& GroundedTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Grounded"));
-	return Tag;
-}
-
 const FGameplayTag& AirDodgeFallingTag()
 {
 	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
@@ -50,33 +38,7 @@ const FGameplayTag& AirDodgeFallingTag()
 	return Tag;
 }
 
-const FGameplayTag& AirDodgeMovementSourceTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Aerial.Source.IG_AirDodge"));
-	return Tag;
-}
 
-const FGameplayTag& DeadTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Dead"));
-	return Tag;
-}
-
-const FGameplayTag& HitstunTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Hitstun"));
-	return Tag;
-}
-
-const FGameplayTag& KnockdownTag()
-{
-	static const FGameplayTag Tag = FGameplayTag::RequestGameplayTag(
-		TEXT("Combat.State.Knockdown"));
-	return Tag;
-}
 }
 
 UMHGZAirDodgeAbility::UMHGZAirDodgeAbility()
@@ -183,9 +145,9 @@ bool UMHGZAirDodgeAbility::CanActivateAbility(
 	// DetectAerialHandoffNotify 放掉，handoff / 中止滞空 / 离地再领回。
 	// `Input.AirDodge` 自身**没有预输入**：锁定期按下直接作废，到可操作帧再按才出。
 	// 其它 `Input.Weapon.*` 空中动作使用 Coordinator 的共享预输入槽，不由本 GA 缓存。
-	return !ASC->HasMatchingGameplayTag(DeadTag())
-		&& !ASC->HasMatchingGameplayTag(HitstunTag())
-		&& !ASC->HasMatchingGameplayTag(KnockdownTag());
+	return !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Dead())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Hitstun())
+		&& !ASC->HasMatchingGameplayTag(MHGZGameplayTags::Knockdown());
 }
 
 bool UMHGZAirDodgeAbility::ValidateActionDependencies() const
@@ -219,13 +181,13 @@ bool UMHGZAirDodgeAbility::ValidateActionDependencies() const
 	// 舞踏（53 次）与 `143 起跳下坠`（25 次）—— 最后这一类是在**系统托管下落**期间按下的，
 	// 而那个 tag 在下落态已经被上一个动作释放掉了。要求它会把这一类整体挡掉。
 	const FWeaponInputSnapshot& Input = GetWeaponActivationContext().Input;
-	if (Input.ContextTags.HasTagExact(GroundedTag())
-		|| !Input.ContextTags.HasTagExact(AerialTag()))
+	if (Input.ContextTags.HasTagExact(MHGZGameplayTags::Grounded())
+		|| !Input.ContextTags.HasTagExact(MHGZGameplayTags::Aerial()))
 	{
 		UE_LOG(LogMHGZ, Warning,
 			TEXT("[AirDodge] 拒绝：上下文不是空中态（Grounded=%d Aerial=%d）。"),
-			Input.ContextTags.HasTagExact(GroundedTag()) ? 1 : 0,
-			Input.ContextTags.HasTagExact(AerialTag()) ? 1 : 0);
+			Input.ContextTags.HasTagExact(MHGZGameplayTags::Grounded()) ? 1 : 0,
+			Input.ContextTags.HasTagExact(MHGZGameplayTags::Aerial()) ? 1 : 0);
 		return false;
 	}
 
@@ -459,7 +421,7 @@ bool UMHGZAirDodgeAbility::StartAirDodgeMovement()
 		AirDodgeMovementTask = nullptr;
 		return false;
 	}
-	if (!Host->SetAerialMovementSource(GetActionToken(), AirDodgeMovementSourceTag()))
+	if (!Host->SetAerialMovementSource(GetActionToken(), MHGZGameplayTags::IGAirDodgeSource()))
 	{
 		UE_LOG(LogMHGZ, Warning,
 			TEXT("[AirDodge] RuntimeHost could not publish the aerial source tag; aborting movement."));
@@ -680,11 +642,7 @@ void UMHGZAirDodgeAbility::EndAbility(const FGameplayAbilitySpecHandle Handle,
 		}
 	}
 
-	if (AirDodgeVisualTask)
-	{
-		AirDodgeVisualTask->EndTask();
-		AirDodgeVisualTask = nullptr;
-	}
+	MHGZAerialActionCleanup::EndTaskAndReset(AirDodgeVisualTask);
 
 	// Combat.State.Aerial.Actionable 由基类 EndAbility 的 CloseAerialHandoff() 释放。
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
