@@ -29,6 +29,16 @@ void URes_InsectGlaive::CloseKinsectCoAttackWindow(const FWeaponActionToken& Act
 	if (CoAttackComponent) CoAttackComponent->CloseWindow(Action, Occurrence);
 }
 
+bool URes_InsectGlaive::HasKinsectCoAttackMarkInRange() const
+{
+	const ACharacter* Character = RuntimeContext.Character.Get();
+	FVector MarkLocation;
+	const float Radius = CombatConfig ? CombatConfig->CoAttackTuning.MarkSearchRadius : 0.f;
+	return !bRuntimeShuttingDown && Character && FMath::IsFinite(Radius) && Radius > 0.f
+		&& GetKinsectMarkWorldLocation(MarkLocation) && !MarkLocation.ContainsNaN()
+		&& FVector::DistSquared(Character->GetActorLocation(), MarkLocation) <= FMath::Square(double(Radius));
+}
+
 bool URes_InsectGlaive::BeginKinsectCoAttack(const FWeaponActionToken& ActionToken,
 	USkeletalMeshComponent* WeaponMesh, const FIGCoAttackSource& Source)
 {
@@ -46,6 +56,8 @@ bool URes_InsectGlaive::BeginKinsectCoAttack(const FWeaponActionToken& ActionTok
 		|| KinsectPlayerCommandLeaseToken.IsValid() || KinsectActionAttachmentToken.IsValid()) return false;
 	const bool bSameAction = CoAttackComponent && CoAttackComponent->IsRunning()
 		&& CoAttackComponent->GetActionToken() == ActionToken;
+	// 虫印只控制新动作是否能触发；已经启动的本招继续回放原攻击窗口。
+	if (!bSameAction && !HasKinsectCoAttackMarkInRange()) return false;
 	const bool bApprovedPending = DescendingThrustKinsect.IsSet()
 		&& DescendingThrustKinsect->PendingAction == ActionToken && !DescendingThrustKinsect->bPendingExpired;
 	if (!bSameAction && !bApprovedPending && !HasKinsectCoAttackEntryStamina()) return false;

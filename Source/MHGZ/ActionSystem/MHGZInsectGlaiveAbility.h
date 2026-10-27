@@ -176,8 +176,8 @@ protected:
 	void CloseAerialHandoff();
 
 private:
-	bool bCoAttackEntryStaminaChecked = false;
-	bool bCoAttackEntryStaminaAllowed = false;
+	bool bCoAttackEntryChecked = false;
+	bool bCoAttackEntryAllowed = false;
 	/** 最早可操作帧那一帧拿到的 tag，随本次激活存续。 */
 	FWeaponOwnedTagToken AerialHandoffTag;
 	/** 锁存：越过最早可操作帧后只增不减，供 exit 判据与调试读。 */

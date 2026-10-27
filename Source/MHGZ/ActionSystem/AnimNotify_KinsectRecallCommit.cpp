@@ -27,13 +27,17 @@ void UAnimNotify_KinsectRecallCommit::Notify(USkeletalMeshComponent* MeshComp,
 		}
 		else if (const UMHGZInsectGlaiveAbility* Attack =
 			Cast<UMHGZInsectGlaiveAbility>(Action.AbilityInstance.Get());
-			Attack && Attack->CoAttack.bEnabled && Attack->IsActionActivationCommitted())
+			Attack && (bRecallFromAnyState || Attack->CoAttack.bEnabled) && Attack->IsActionActivationCommitted())
 		{
-			// 仅结束该通知精确所属动作的协同；不抢占自由猎虫或后继动作。
+			// 仍须属于当前精确动作；任意状态召回只在该点显式启用。
 			if (URes_InsectGlaive* Resource =
 				Cast<URes_InsectGlaive>(Action.RuntimeToken.Host->GetResourceProvider()))
 			{
-				Resource->EndKinsectCoAttack(Action);
+				if (bRecallFromAnyState)
+					// 复用玩家收虫规则；Action清理会让操虫斩回槽/原地待机态留在原处。
+					Resource->RecallKinsect(EKinsectCommandSource::Player);
+				else
+					Resource->EndKinsectCoAttack(Action);
 			}
 		}
 	}

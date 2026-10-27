@@ -43,10 +43,6 @@ struct FCoAttackFixture
 		H.KinsectData->ReturnSpeed = ReturnSpeed;
 		// Exercise exact integer damage boundaries through the real GE pipeline.
 		H.KinsectData->KinsectAttackPower = 100.f;
-		Handle = H.GiveAbility(UMHGZCoAttackTestAbility::StaticClass());
-		Ability = Activate(Handle);
-		Sampler = H.Character->FindComponentByClass<UIGCoAttackComponent>();
-		if (!Ability || !Ability->IsActive() || !Sampler || !Sampler->IsRunning()) return false;
 		Target = H.World->SpawnActor<AMHGZTrainingDummy>();
 		if (!Target) return false;
 		Target->bInfiniteHealth = false;
@@ -59,6 +55,12 @@ struct FCoAttackFixture
 		Part->SetSphereRadius(8.f);
 		Part->RegisterComponent();
 		SetTarget(Origin + FVector(20, 0, 0));
+		// 地面协同的新准入要求；测试在动作激活前建立真实有效虫印。
+		if (!H.Resource->SetKinsectMark(Part, Part->GetComponentLocation(), nullptr)) return false;
+		Handle = H.GiveAbility(UMHGZCoAttackTestAbility::StaticClass());
+		Ability = Activate(Handle);
+		Sampler = H.Character->FindComponentByClass<UIGCoAttackComponent>();
+		if (!Ability || !Ability->IsActive() || !Sampler || !Sampler->IsRunning()) return false;
 		Target->GetAbilitySystemComponent()->OnGameplayEffectAppliedDelegateToSelf.AddLambda(
 			[this](UAbilitySystemComponent*, const FGameplayEffectSpec& S, FActiveGameplayEffectHandle)
 			{

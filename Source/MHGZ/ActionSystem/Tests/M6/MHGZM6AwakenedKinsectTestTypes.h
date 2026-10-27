@@ -82,4 +82,5 @@ public:
 	}
 protected:
 	virtual bool ValidateActionDependencies() const override { return true; }
+	virtual bool StartAttackMontage(ACharacter&, UAnimMontage*, FName) override { return true; }
 };

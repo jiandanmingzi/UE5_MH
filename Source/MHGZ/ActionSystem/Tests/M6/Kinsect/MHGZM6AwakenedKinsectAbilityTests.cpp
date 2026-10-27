@@ -86,6 +86,69 @@ USkeletalMeshComponent* AddKinsectWeaponSocketForTest(ACharacter& Character)
 }
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZAwakenedRefillStaminaTest,
+	"MHGZ.M6.AwakenedKinsect.ActivationRefillsKinsectStamina",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZAwakenedRefillStaminaTest::RunTest(const FString&)
+{
+	// 0~7覆盖所有灯组合；8验证预检有红灯、实际准备前已失去红灯。
+	for (int32 Mask = 0; Mask <= 8; ++Mask)
+	{
+		FMHGZM3Harness H;
+		if (!TestTrue(TEXT("runtime"), H.Setup(false, AMHGZM6AwakenedKinsectTestCharacter::StaticClass()))) return false;
+		if (!TestNotNull(TEXT("weapon socket"), AddKinsectWeaponSocketForTest(*H.Character))) { H.Teardown(); return false; }
+		const int32 InitialMask = Mask == 8 ? 1 : Mask;
+		const FGameplayTag Colors[] = {M3::Tag(TEXT("WeaponResource.IG.Extract.Red")),
+			M3::Tag(TEXT("WeaponResource.IG.Extract.White")), M3::Tag(TEXT("WeaponResource.IG.Extract.Orange"))};
+		for (int32 I = 0; I < 3; ++I)
+			if (InitialMask & (1 << I)) TestTrue(TEXT("initial extract"), H.Resource->ApplyExtract(Colors[I]));
+		FKinsectFlightRequest Drain;
+		Drain.RuntimeToken = H.Host->GetCurrentToken(); Drain.FlightInstanceID = FGuid::NewGuid();
+		Drain.FlightSpeed = 1000; Drain.MaxDistance = 2000; Drain.ArrivalRadius = 10;
+		TestTrue(TEXT("drain flight"), H.Resource->DeployKinsect(Drain));
+		H.Resource->TickComponent(100.f, LEVELTICK_All, nullptr);
+		H.Kinsect->SetActorLocation(H.Character->GetMesh()->GetComponentLocation()); H.Kinsect->Tick(.016f);
+		TestEqual(TEXT("kinsect starts empty"), H.Resource->GetKinsectStamina(), 0.f);
+		TestFalse(TEXT("normal deploy still requires stamina"), H.Resource->CanDeployKinsect(Drain));
+		const auto Handle = H.GiveAbility(UMHGZM6AwakenedKinsectAbilityTestDouble::StaticClass());
+		auto Input = MakeAwakenedInput(1);
+		auto Invalid = Input; Invalid.Aim.Context = EWeaponAimSnapshotContext::Kinsect;
+		// GAS的TryActivate返回值只表示已进入Activate；最终预检结果看Commit/注册。
+		H.TryActivateWithInput(Handle, Invalid);
+		auto* Rejected = FindAwakenedInstance(*H.ASC, Handle);
+		TestFalse(TEXT("invalid input never commits an action"), Rejected && Rejected->IsActionActivationCommitted());
+		TestFalse(TEXT("failed preflight has no registered action"), H.Host->HasRegisteredAction());
+		TestEqual(TEXT("failed preflight cannot refill"), H.Resource->GetKinsectStamina(), 0.f);
+		if (Mask == 0)
+		{
+			H.TryActivateWithInput(Handle, Input);
+			auto* Empty = FindAwakenedInstance(*H.ASC, Handle);
+			TestFalse(TEXT("no extracts cannot preview a nonexistent zero-stamina refill"), Empty && Empty->IsActionActivationCommitted());
+			TestEqual(TEXT("empty no-extract preflight leaves stamina unchanged"), H.Resource->GetKinsectStamina(), 0.f);
+			// 无灯但有少量耐力仍可正常发动，并保持该耐力而非补满。
+			H.Resource->TickComponent(1.f, LEVELTICK_All, nullptr);
+		}
+		const float Before = H.Resource->GetKinsectStamina();
+		if (!TestTrue(TEXT("valid awakened activation accepted"), H.TryActivateWithInput(Handle, Input)))
+		{ H.Teardown(); return false; }
+		auto* Ability = FindAwakenedInstance(*H.ASC, Handle);
+		if (!TestNotNull(TEXT("active awakened action"), Ability)) { H.Teardown(); return false; }
+		// 替身仅执行真实Commit；显式调用生产起手准备，证明预检未提前回耐。
+		TestEqual(TEXT("read-only preflight does not refill"), H.Resource->GetKinsectStamina(), Before);
+		if (Mask == 8) TestTrue(TEXT("preview extract is lost before actual consumption"), H.Resource->ConsumeExtract(Colors[0]));
+		auto Wrong = Ability->GetActionToken(); ++Wrong.ActivationSequenceID;
+		TestFalse(TEXT("unregistered action cannot refill"), H.Resource->RestoreKinsectStaminaForAction(Wrong));
+		TestTrue(TEXT("successful startup preparation"), Ability->PrepareKinsectAttachmentForTest());
+		const float Expected = Mask >= 1 && Mask <= 7 ? H.Resource->GetMaxKinsectStamina() : Before;
+		TestEqual(FString::Printf(TEXT("mask %d refills only after actual extract consumption"), Mask), H.Resource->GetKinsectStamina(), Expected);
+		TestEqual(TEXT("UI sees the same conditional stamina result"), H.Resource->GetUIState().KinsectStamina, Expected);
+		TestEqual(TEXT("refill does not prematurely launch"), H.Kinsect->State, EKinsectState::ActionAttached);
+		Ability->RequestEndAction(EWeaponActionEndReason::Normal);
+		H.Teardown();
+	}
+	return true;
+}
+
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMHGZM6AwakenedKinsectConditionalTripleBranch,
 	"MHGZ.M6.AwakenedKinsect.ConditionalTripleBranchTransaction",

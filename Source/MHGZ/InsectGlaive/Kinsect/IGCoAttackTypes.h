@@ -33,6 +33,9 @@ struct FIGCoAttackTuning
 	/** 协同轨迹和攻击判定相对武器的统一延迟（游戏秒），不是固定帧数。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CoAttack", meta = (ClampMin = "0.001", ClampMax = "1.0", Units = "s"))
 	float TrajectoryDelaySeconds = .2f;
+	/** 地面协同起手时，猎人到自身有效虫印的最大直线距离；初值取Demo训练场边长60米，仅决定能否触发，不限制攻击目标。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CoAttack", meta = (ClampMin = "0.01", Units = "cm", DisplayName = "协同虫印触发半径"))
+	float MarkSearchRadius = 6000.f;
 	/** 允许的最大采样间隔（秒）；超限终止旧轨迹，避免跨缺帧直接连成大范围攻击线。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "CoAttack", meta = (ClampMin = "0.01", ClampMax = "1.0", Units = "s"))
 	float MaxSampleGapSeconds = .25f;
@@ -52,6 +55,7 @@ struct FIGCoAttackTuning
 	bool IsValid() const
 	{
 		return FMath::IsFinite(TrajectoryDelaySeconds) && TrajectoryDelaySeconds > 0.f
+			&& FMath::IsFinite(MarkSearchRadius) && MarkSearchRadius > 0.f
 			&& TrajectoryDelaySeconds <= 1.f && FMath::IsFinite(MaxSampleGapSeconds)
 			&& MaxSampleGapSeconds >= .01f && MaxSampleGapSeconds <= 1.f
 			&& MaxSamples >= 8 && MaxSamples <= 2048

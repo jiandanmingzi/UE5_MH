@@ -4,6 +4,7 @@
 #include "ActionSystem/MHGZDamageGameplayEffect.h"
 
 #include "ActionSystem/MHGZGameplayAbility.h"
+#include "Animation/AnimMontage.h"
 
 void UMHGZM6AwakenedKinsectAbilityTestDouble::ActivateAbility(
 	const FGameplayAbilitySpecHandle Handle,
@@ -30,5 +31,6 @@ void UMHGZM6FourHitMarkTestAbility::ActivateAbility(const FGameplayAbilitySpecHa
 		Segment.Damage.MotionValue = 10.0f;
 		Segment.Damage.bRequiresHitToContinue = false;
 	}
-	UMHGZGameplayAbility::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
+	AttackMontage = NewObject<UAnimMontage>(this);
+	UMHGZMarkSlashAbility::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 }

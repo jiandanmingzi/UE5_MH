@@ -24,6 +24,10 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mark", meta = (ClampMin = "0"))
 	int32 MarkSegmentIndex = 0;
 
+	/** 指定虫印段成功命中后，自动命令猎虫单次攻击该部位并萃取；猎虫实际命中产一份粉尘，不检查或占用普通产粉冷却。仅虫印斩启用。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Mark", meta = (DisplayName = "虫印命中后放虫攻击"))
+	bool bSendKinsectOnMarkHit = false;
+
 	virtual void ActivateAbility(const FGameplayAbilitySpecHandle Handle,
 		const FGameplayAbilityActorInfo* ActorInfo,
 		const FGameplayAbilityActivationInfo ActivationInfo,

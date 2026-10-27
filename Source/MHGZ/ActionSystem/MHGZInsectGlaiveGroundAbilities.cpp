@@ -6,6 +6,9 @@
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "MHGZAbilitySystemComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
+#include "Components/PrimitiveComponent.h"
+#include "InsectGlaive/Kinsect/InsectGlaiveKinsectData.h"
+#include "InsectGlaive/Kinsect/Kinsect.h"
 
 UMHGZMarkSlashAbility::UMHGZMarkSlashAbility()
 {
@@ -74,5 +77,35 @@ void UMHGZMarkSlashAbility::HandleSuccessfulAttackDamage(const FHitResult& Hit,
 		Resource && Resource->SetKinsectMarkFromMeleeHit(Hit))
 	{
 		bEstablishedMarkThisActivation = true;
+		const UInsectGlaiveKinsectData* Data = Resource->GetKinsectData();
+		const UInsectGlaiveCombatConfig* Config = Resource->GetCombatConfig();
+		UPrimitiveComponent* Part = Hit.GetComponent();
+		const UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
+		if (!bSendKinsectOnMarkHit || !Data || !Config || !IsValid(Part)
+			|| !IsActive() || !IsActionActivationCommitted()
+			|| !Host || !Host->IsActionRegistered(GetActionToken())) return;
+
+		FKinsectFlightRequest Request;
+		Request.RuntimeToken = GetActionToken().RuntimeToken;
+		Request.TrajectoryMode = EKinsectTrajectoryMode::ToPoint;
+		Request.TargetPointSnapshot = Hit.ImpactPoint;
+		Request.TargetComponent = Part;
+		Request.TargetBoneName = Hit.BoneName;
+		Request.TargetLocalPoint = Part->GetSocketTransform(Hit.BoneName).InverseTransformPosition(Hit.ImpactPoint);
+		Request.bFollowTargetComponent = true;
+		Request.bRequireHitzoneContactForArrival = true;
+		Request.MaxDistance = Data->MaxFlightRange;
+		Request.FlightSpeed = Data->FlightSpeed;
+		Request.ArrivalRadius = Config->KinsectArrivalRadius;
+		Request.MotionValue = Config->SendKinsectMotionValue;
+		Request.DamageMode = EKinsectDamageMode::SingleHit;
+		Request.ExtractMode = EKinsectExtractMode::FirstHitOnly;
+		Request.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
+		Request.FlightInstanceID = FGuid::NewGuid();
+		Request.SourceAttackInstanceID = GetActivationAttackInstanceID();
+		Request.ActionActivationSequenceID = GetActionToken().ActivationSequenceID;
+		// 共用自动寻印的真实命中产粉策略；单发只结算一次，绕过且不占用普通CD。
+		Request.PowderSpawnPolicy = EIGPowderSpawnPolicy::AutoMarkContact;
+		Resource->DeployKinsect(Request); // 猎虫不可出动时，不撤销已成功的武器伤害和虫印。
 	}
 }

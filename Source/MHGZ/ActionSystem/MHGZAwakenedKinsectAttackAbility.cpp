@@ -439,7 +439,9 @@ bool UMHGZAwakenedKinsectAttackAbility::PrepareAttackMontage()
 		ConsumedExtractSnapshot = ConsumedSingles;
 	}
 	ApplyConsumedExtractEffects(*Config);
-	return true;
+	// 以实际消耗快照为准：未消耗精华时，不触发起手回耐。
+	return ConsumedExtractSnapshot.IsEmpty()
+		|| Resource->RestoreKinsectStaminaForAction(GetActionToken());
 }
 
 bool UMHGZAwakenedKinsectAttackAbility::BuildPendingKinsectRequest(
@@ -488,7 +490,8 @@ bool UMHGZAwakenedKinsectAttackAbility::BuildPendingKinsectRequest(
 
 	ApplyConsumedExtractEffects(*Config);
 
-	return Resource->CanDeployKinsect(PendingKinsectRequest);
+	// 只有预计消耗精华时才预览回满后的资格；无灯仍按实际耐力预检。
+	return Resource->CanDeployKinsect(PendingKinsectRequest, !ConsumedExtractSnapshot.IsEmpty());
 }
 
 void UMHGZAwakenedKinsectAttackAbility::ApplyConsumedExtractEffects(

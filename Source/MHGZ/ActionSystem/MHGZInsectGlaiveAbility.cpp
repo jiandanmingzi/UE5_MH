@@ -103,8 +103,8 @@ void UMHGZInsectGlaiveAbility::ActivateAbility(
 	const FGameplayEventData* TriggerEventData)
 {
 	// 父类（UMHGZAttackAbility）：扣耐力、方向修正、播 Montage
-	bCoAttackEntryStaminaChecked = false;
-	bCoAttackEntryStaminaAllowed = false;
+	bCoAttackEntryChecked = false;
+	bCoAttackEntryAllowed = false;
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 	if (!IsActionActivationCommitted()) return;
 
@@ -135,12 +135,13 @@ bool UMHGZInsectGlaiveAbility::TryStartKinsectCoAttack()
 	Trace.TraceRegions.AddDefaulted_GetRef().EndSocketName = CoAttack.Socket;
 	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
 	{
-		if (!bCoAttackEntryStaminaChecked)
+		if (!bCoAttackEntryChecked)
 		{
-			bCoAttackEntryStaminaChecked = true;
-			bCoAttackEntryStaminaAllowed = Resource->HasKinsectCoAttackEntryStamina();
+			bCoAttackEntryChecked = true;
+			bCoAttackEntryAllowed = Resource->HasKinsectCoAttackEntryStamina()
+				&& Resource->HasKinsectCoAttackMarkInRange();
 		}
-		if (!bCoAttackEntryStaminaAllowed) return false;
+		if (!bCoAttackEntryAllowed) return false;
 		return Resource->BeginKinsectCoAttack(GetActionToken(), FindTraceMeshComponent(Trace), CoAttack);
 	}
 	return false;

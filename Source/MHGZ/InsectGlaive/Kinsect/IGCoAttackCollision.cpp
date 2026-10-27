@@ -129,7 +129,7 @@ bool UIGCoAttackComponent::SweepWindow(const uint64 Occurrence, const FVector& F
 	if (!IsSessionCurrent(Serial)) return false;
 	URes_InsectGlaive* RC = Resource.Get();
 	AKinsect* Insect = RC->GetKinsectActor();
-	// Sphere encloses the existing capsule and current visible mesh, never smaller than visuals.
+	// 以原胶囊和可见网格的包围球确定覆盖尺寸。
 	const float VisibleRadius = Insect->Mesh && Insect->Mesh->GetSkeletalMeshAsset()
 		? float(Insect->Mesh->Bounds.SphereRadius
 			+ FVector::Distance(Insect->Mesh->Bounds.Origin, Insect->GetActorLocation())) : 0.f;
@@ -137,20 +137,28 @@ bool UIGCoAttackComponent::SweepWindow(const uint64 Occurrence, const FVector& F
 		Insect->Collision ? Insect->Collision->GetScaledCapsuleHalfHeight() : 0.f,
 		VisibleRadius);
 	if (!FMath::IsFinite(Radius) || Radius <= 0.f) return false;
+	const FVector Facing = Forward.GetSafeNormal();
+	if (Facing.IsNearlyZero() || Facing.ContainsNaN()) return false;
+	// 真正查询朝前的体积，而非用球形接触法线猜测正反面。贴身时
+	// 初始重叠的分离法线只表示如何脱离目标，沿曲面上捞会被误判为背面。
+	// 此盒体覆盖包围球的整个前半球，后边界恰在猎虫中心；不缩小正面覆盖。
+	const FVector HalfExtent(Radius * .5f, Radius, Radius);
+	const FVector CenterOffset = Facing * HalfExtent.X;
+	const FQuat Orientation = Facing.ToOrientationQuat();
 	FCollisionObjectQueryParams Objects;
 	Objects.AddObjectTypesToQuery(ECC_GameTraceChannel3);
 	FCollisionQueryParams Params(SCENE_QUERY_STAT(KinsectCoAttack), false, GetOwner());
 	Params.AddIgnoredActor(Insect);
 	TArray<FHitResult> Hits;
-	GetWorld()->SweepMultiByObjectType(Hits, From, To, FQuat::Identity, Objects,
-		FCollisionShape::MakeSphere(Radius), Params);
+	GetWorld()->SweepMultiByObjectType(Hits, From + CenterOffset, To + CenterOffset,
+		Orientation, Objects, FCollisionShape::MakeBox(HalfExtent), Params);
 	Hits.Sort([](const FHitResult& A, const FHitResult& B) { return A.Time < B.Time; });
 	TSet<TWeakObjectPtr<AActor>> Seen;
 	for (const FHitResult& Hit : Hits)
 	{
 		AActor* Target = Hit.GetActor();
-		if (!IsValid(Target) || Seen.Contains(Target) || !UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent())
-			|| !AKinsect::IsContactInFront(Hit, Forward)) continue;
+		if (!IsValid(Target) || Seen.Contains(Target)
+			|| !UMHGZMonsterHitzoneComponent::Resolve(Hit.GetComponent())) continue;
 		UAbilitySystemComponent* ASC = UAbilitySystemGlobals::GetAbilitySystemComponentFromActor(Target);
 		if (!ASC || ASC->HasMatchingGameplayTag(FGameplayTag::RequestGameplayTag(TEXT("Combat.State.Dead")))
 			|| (ASC->HasAttributeSetForAttribute(UMHGZAttributeSet::GetHealthAttribute())
@@ -181,6 +189,7 @@ bool UIGCoAttackComponent::SweepWindow(const uint64 Occurrence, const FVector& F
 	if (Tuning.bDrawDebug)
 	{
 		DrawDebugLine(GetWorld(), From, To, FColor::Red);
+		DrawDebugBox(GetWorld(), To + CenterOffset, HalfExtent, Orientation, FColor::Red);
 		if (const auto* W = Windows.FindByPredicate([Occurrence](const FWindow& Item) { return Item.ReceiptID == Occurrence; }))
 		{
 			int32 SubmittedHits = 0;

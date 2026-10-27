@@ -84,7 +84,8 @@ public:
 	bool OnWeaponEquipped(UInsectGlaiveKinsectData* Data, USceneComponent* AttachComponent,
 		FName AttachSocket);
 	void OnWeaponUnequipped();
-	bool CanDeployKinsect(const FKinsectFlightRequest& Request) const;
+	/** 只读放虫预检；觉虫击可预览回满耐力后的资格，实际Deploy仍必须已有耐力。 */
+	bool CanDeployKinsect(const FKinsectFlightRequest& Request, bool bAfterStaminaRefill = false) const;
 	bool DeployKinsect(const FKinsectFlightRequest& Request);
 	/** Send/Recall在动作播放期持有的玩家命令租约；仅在动作已通过预检后获取。 */
 	bool BeginKinsectPlayerCommandLease(const FWeaponActionToken& ActionToken);
@@ -115,6 +116,8 @@ public:
 		return FMath::IsFinite(MaxKinsectStamina) && MaxKinsectStamina > 0.f
 			&& FMath::IsFinite(KinsectStamina) && KinsectStamina >= MaxKinsectStamina * .1f;
 	}
+	/** 猎人周围配置半径内是否存在自身有效虫印；仅用于地面协同的新动作准入。 */
+	bool HasKinsectCoAttackMarkInRange() const;
 	/** 招式临时占用真实猎虫；租约由精确 ActionToken 所有。 */
 	bool BeginKinsectActionAttachment(const FWeaponActionToken& ActionToken,
 		USkeletalMeshComponent* WeaponMesh, FName SocketName);
@@ -142,6 +145,8 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "MHGZ|IG")
 	float GetMaxKinsectStamina() const { return MaxKinsectStamina; }
+	/** 已提交并注册的当前动作将猎虫耐力补满，同时更新耐力/UI；预检或过期动作不可调用成功。 */
+	bool RestoreKinsectStaminaForAction(const FWeaponActionToken& Action);
 
 	/** 当前有效精华决定的耗耐倍率；三灯覆盖红灯，回耐不乘此值。 */
 	UFUNCTION(BlueprintPure, Category = "MHGZ|IG|Kinsect")

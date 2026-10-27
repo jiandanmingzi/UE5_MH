@@ -6,6 +6,7 @@
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "ActionSystem/AnimNotify_KinsectRecallCommit.h"
 #include "Animation/ActiveMontageInstanceScope.h"
+#include "StaticMeshCompiler.h"
 
 using MHGZCoAttackTest::FCoAttackFixture;
 
@@ -39,6 +40,64 @@ bool FMHGZCoAttackAuthoredRecallTest::RunTest(const FString&)
 	TestTrue(TEXT("recall does not close the hunter action or combo"), F.Ability->IsActive());
 	Notify->Notify(Mesh, F.Ability->AttackMontage, Exact);
 	TestEqual(TEXT("duplicate point does not interrupt the return"), F.H.Kinsect->State, EKinsectState::Returning);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZKinsectAnyStateRecallTest,
+	"MHGZ.Maintenance.KinsectCoAttack.Recovery.AuthoredAnyStateRecall",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZKinsectAnyStateRecallTest::RunTest(const FString&)
+{
+	for (const EKinsectState State : {EKinsectState::Attached, EKinsectState::Flying,
+		EKinsectState::Hovering, EKinsectState::Returning, EKinsectState::ActionAttached,
+		EKinsectState::ActionReturning, EKinsectState::ActionWaiting, EKinsectState::CoAttack})
+	{
+		FCoAttackFixture F;
+		if (!TestTrue(TEXT("fixture"), F.Build())) return false;
+		const FWeaponActionToken Action = F.Ability->GetActionToken();
+		USkeletalMeshComponent* Mesh = F.H.Character->GetMesh();
+		if (!TestTrue(TEXT("exact source montage registered"), F.H.Host->RegisterMontage(Action, Mesh, 901))) return false;
+		if (State != EKinsectState::CoAttack)
+		{
+			F.H.Resource->RecallKinsect();
+			F.H.Kinsect->SetActorLocation(Mesh->GetComponentLocation());
+			F.H.Kinsect->Tick(.016f);
+			if (!TestEqual(TEXT("setup returned to arm"), F.H.Kinsect->State, EKinsectState::Attached)) return false;
+			if (State == EKinsectState::ActionAttached)
+				TestTrue(TEXT("setup action socket"), F.H.Resource->BeginKinsectActionAttachment(Action, F.Weapon, TEXT("IG_FrontTip")));
+			else if (State != EKinsectState::Attached)
+			{
+				FKinsectFlightRequest Request;
+				Request.RuntimeToken = Action.RuntimeToken; Request.FlightInstanceID = FGuid::NewGuid();
+				Request.FlightSpeed = 1000; Request.MaxDistance = 2000; Request.ArrivalRadius = 10;
+				TestTrue(TEXT("setup player flight"), F.H.Resource->DeployKinsect(Request));
+				F.H.Kinsect->SetActorLocation(F.Origin + FVector(100, 0, 0));
+				if (State == EKinsectState::Hovering) F.H.Kinsect->Interrupt();
+				else if (State == EKinsectState::Returning) F.H.Resource->RecallKinsect();
+				else if (State == EKinsectState::ActionReturning || State == EKinsectState::ActionWaiting)
+					TestTrue(TEXT("setup slash preparation"), F.H.Resource->BeginKinsectSlashPreparation(
+						Action, F.Weapon, TEXT("IG_FrontTip"), State == EKinsectState::ActionReturning ? 1.f : 0.f));
+			}
+		}
+		if (!TestEqual(TEXT("actual source state"), F.H.Kinsect->State, State)) return false;
+		F.Ability->CoAttack.bEnabled = false; // the authored option must not depend on cooperation
+		auto* Notify = NewObject<UAnimNotify_KinsectRecallCommit>();
+		Notify->bRecallFromAnyState = true;
+		FAnimNotifyEvent Event; Event.Notify = Notify;
+		FAnimNotifyEventReference Wrong(&Event, F.Ability->AttackMontage);
+		Wrong.AddContextData<UE::Anim::FAnimNotifyMontageInstanceContext>(902);
+		Notify->Notify(Mesh, F.Ability->AttackMontage, Wrong);
+		TestEqual(TEXT("wrong instance cannot issue a recall"), F.H.Kinsect->State, State);
+		FAnimNotifyEventReference Exact(&Event, F.Ability->AttackMontage);
+		Exact.AddContextData<UE::Anim::FAnimNotifyMontageInstanceContext>(901);
+		Notify->Notify(Mesh, F.Ability->AttackMontage, Exact);
+		const EKinsectState Expected = State == EKinsectState::Attached ? State : EKinsectState::Returning;
+		TestEqual(FString::Printf(TEXT("state %d responds to authored recall"), int32(State)), F.H.Kinsect->State, Expected);
+		TestFalse(TEXT("cooperative sampler retired"), F.Sampler->IsRunning());
+		TestTrue(TEXT("hunter action stays active"), F.Ability->IsActive());
+		Notify->Notify(Mesh, F.Ability->AttackMontage, Exact);
+		TestEqual(TEXT("repeated recall is harmless"), F.H.Kinsect->State, Expected);
+	}
 	return true;
 }
 
@@ -190,6 +249,118 @@ bool FMHGZCoAttackTerrainTest::RunTest(const FString&)
 	TestTrue(TEXT("sending again from terrain remains possible"), F.H.Resource->DeployKinsect(R));
 	F.H.Kinsect->Movement->TickComponent(.1f, LEVELTICK_All, nullptr);
 	TestTrue(TEXT("new command has nonzero movement"), !F.H.Kinsect->Movement->Velocity.IsNearlyZero());
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZCoAttackMarkAdmissionTest,
+	"MHGZ.Maintenance.KinsectCoAttack.Admission.MarkRangeAndActivationLatch",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZCoAttackMarkAdmissionTest::RunTest(const FString&)
+{
+	for (int32 Case = 0; Case < 5; ++Case)
+	{
+		FCoAttackFixture F;
+		if (!TestTrue(TEXT("fixture with initial mark"), F.Build())) return false;
+		F.H.ASC->CancelAbilityHandle(F.Handle);
+		F.H.Kinsect->AttachToPlayer(F.H.Character->GetMesh());
+		F.H.CombatConfig->CoAttackTuning.MarkSearchRadius = 200;
+		FVector Point;
+		if (!TestTrue(TEXT("actual surface anchor"), F.H.Resource->GetKinsectMarkWorldLocation(Point))) return false;
+		F.H.Character->SetActorLocation(Point + FVector(Case == 2 ? 200 : Case == 3 ? 201 : 199, 0, 0));
+		if (Case == 0) F.H.Resource->ClearKinsectMark(EIGMarkClearReason::Replaced);
+		if (Case == 4) F.H.World->TimeSeconds = F.H.Resource->GetKinsectMarkExpireTime() + .01;
+		const bool Allowed = Case == 1 || Case == 2;
+		TestEqual(TEXT("range and validity helper"), F.H.Resource->HasKinsectCoAttackMarkInRange(), Allowed);
+		F.Ability = F.Activate(F.Handle);
+		if (!TestNotNull(TEXT("mark admission never blocks the hunter action"), F.Ability)) return false;
+		TestEqual(FString::Printf(TEXT("case %d only admits a valid in-range mark"), Case), F.Sampler->IsRunning(), Allowed);
+		if (!Allowed)
+		{
+			// 在同一招中补印/靠近不应迟到启动；下一招重新检查。
+			F.H.Resource->SetKinsectMark(F.Part, F.Part->GetComponentLocation(), nullptr);
+			F.H.Character->SetActorLocation(F.Part->GetComponentLocation());
+			F.Ability->EnableCollision(0);
+			TestFalse(TEXT("source window cannot retroactively admit the same action"), F.Sampler->IsRunning());
+			F.H.ASC->CancelAbilityHandle(F.Handle);
+			F.H.Kinsect->AttachToPlayer(F.H.Character->GetMesh());
+			F.Ability = F.Activate(F.Handle);
+			TestTrue(TEXT("next action rechecks the now-valid mark"), F.Ability && F.Sampler->IsRunning());
+		}
+		else
+		{
+			F.H.Resource->ClearKinsectMark(EIGMarkClearReason::Replaced);
+			F.Ability->EnableCollision(0);
+			TestTrue(TEXT("mark removal does not abort an admitted attack"), F.Sampler->IsRunning());
+			const auto Next = F.H.GiveAbility(UMHGZCoAttackTestAbility::StaticClass());
+			TestNotNull(TEXT("successor without mark is still a hunter action"), F.Activate(Next));
+			TestFalse(TEXT("successor cannot join without its own admission"), F.Sampler->IsRunning());
+		}
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZCoAttackCurvedContactTest,
+	"MHGZ.Maintenance.KinsectCoAttack.Recovery.FrontVolumeAtCloseSurface",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZCoAttackCurvedContactTest::RunTest(const FString&)
+{
+	for (int32 Case = 0; Case < 4; ++Case)
+	{
+		const EMHGZHitzoneShape Shape = Case == 0 ? EMHGZHitzoneShape::Sphere
+			: Case == 1 ? EMHGZHitzoneShape::Box : EMHGZHitzoneShape::Mesh;
+		FCoAttackFixture F;
+		if (!TestTrue(TEXT("fixture"), F.Build())) return false;
+		F.Part->SetSphereRadius(400.f);
+		if (Shape == EMHGZHitzoneShape::Mesh)
+		{
+			const TCHAR* Path = Case == 2
+				? TEXT("/Game/Monster/TrainingDummy/Meshes/SM_TD_Query_Cylinder.SM_TD_Query_Cylinder")
+				: TEXT("/Game/Monster/TrainingDummy/Meshes/SM_TD_Query_Hemisphere_White.SM_TD_Query_Hemisphere_White");
+			F.Part->QueryMesh = LoadObject<UStaticMesh>(nullptr, Path);
+			if (!TestNotNull(TEXT("actual round dummy query mesh"), F.Part->QueryMesh.Get())) return false;
+			// A freshly loaded async mesh has no physics state yet. Complete only
+			// this test's mesh before registering, just as it is ready during PIE.
+			TArray<UStaticMesh*> Meshes{F.Part->QueryMesh.Get()};
+			FStaticMeshCompilingManager::Get().FinishCompilation(Meshes);
+			F.Part->QueryMeshScale = Case == 2 ? FVector(400, 400, 1000) : FVector::OneVector;
+		}
+		F.Part->ConfigureQueryShape(Shape, FVector(400, 400, 1000));
+		F.SetTarget(F.Origin + FVector(395, 0, 0));
+		if (Shape == EMHGZHitzoneShape::Mesh)
+		{
+			UPrimitiveComponent* Query = F.Part->GetQueryCollisionComponent();
+			if (!TestTrue(TEXT("real curved query physics is ready"), Query->IsPhysicsStateCreated())) return false;
+			FCollisionObjectQueryParams Objects;
+			Objects.AddObjectTypesToQuery(ECC_GameTraceChannel3);
+			TArray<FHitResult> Contacts;
+			F.H.World->SweepMultiByObjectType(Contacts, F.Origin, F.Origin + FVector(0, 0, 20),
+				FQuat::Identity, Objects, FCollisionShape::MakeSphere(30));
+			const FHitResult* Contact = Contacts.FindByPredicate([Query](const FHitResult& H) {
+				return H.GetComponent() == Query; });
+			if (!TestNotNull(TEXT("legacy sphere really overlaps the curved target"), Contact)) return false;
+			TestFalse(TEXT("old normal filter incorrectly rejects this upward front-volume contact"),
+				AKinsect::IsContactInFront(*Contact, FVector::UpVector));
+		}
+		F.WarmUp();
+		F.At(.3, F.Origin); F.Ability->EnableCollision(0);
+		F.At(.35, F.Origin + FVector(0, 0, 20)); F.Ability->DisableCollision(0);
+		F.At(.49, F.Origin + FVector(0, 0, 20));
+		TestEqual(TEXT("no contact before the existing 0.2s delay"), F.KinsectHits, 0);
+		F.At(.61, F.Origin + FVector(0, 0, 20));
+		TestEqual(FString::Printf(TEXT("front volume inside/tangent to case %d still hits"), Case),
+			F.KinsectHits, 1);
+		F.At(.7, F.Origin + FVector(0, 0, 20));
+		TestEqual(TEXT("one hit budget is preserved"), F.KinsectHits, 1);
+	}
+	// Upward movement must not turn a wholly rear contact into a hit.
+	FCoAttackFixture Rear;
+	if (!TestTrue(TEXT("rear fixture"), Rear.Build())) return false;
+	Rear.WarmUp();
+	Rear.SetTarget(Rear.Origin - FVector(0, 0, 20));
+	Rear.At(.3, Rear.Origin); Rear.Ability->EnableCollision(0);
+	Rear.At(.35, Rear.Origin + FVector(0, 0, 20)); Rear.Ability->DisableCollision(0);
+	Rear.At(.61, Rear.Origin + FVector(0, 0, 20));
+	TestEqual(TEXT("target wholly behind the attack plane is not damaged"), Rear.KinsectHits, 0);
 	return true;
 }
 #endif

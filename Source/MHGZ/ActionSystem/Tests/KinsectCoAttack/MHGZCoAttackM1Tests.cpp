@@ -7,6 +7,7 @@
 #include "GameFramework/ProjectileMovementComponent.h"
 #include "Engine/SkeletalMesh.h"
 #include "InsectGlaive/Kinsect/IGCoAttackComponent.h"
+#include "Monster/MHGZMonsterHitzoneComponent.h"
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZCoAttackHistoryTest,
 	"MHGZ.Maintenance.KinsectCoAttack.M1.TimestampInterpolation",
@@ -91,6 +92,12 @@ bool FMHGZCoAttackRuntimeTest::RunTest(const FString&)
 	{
 		FMHGZM3Harness H;
 		if (!TestTrue(TEXT("equipped real resource"), H.Setup())) { H.Teardown(); return false; }
+		AActor* MarkOwner = H.World->SpawnActor<AActor>();
+		auto* MarkPart = NewObject<UMHGZMonsterHitzoneComponent>(MarkOwner);
+		MarkOwner->SetRootComponent(MarkPart); MarkPart->RegisterComponent();
+		MarkPart->SetWorldLocation(FVector(1000, 0, 100));
+		TestTrue(TEXT("mark exists before direct admission"), H.Resource->SetKinsectMark(MarkPart,
+			MarkPart->GetComponentLocation(), nullptr));
 		const FWeaponActionToken Token = H.MakeActionToken(UMHGZSendKinsectAbility::StaticClass());
 		TestTrue(TEXT("register precise source action"), H.Host->RegisterAction(Token));
 		USkeletalMeshComponent* Weapon = NewObject<USkeletalMeshComponent>(H.Character);

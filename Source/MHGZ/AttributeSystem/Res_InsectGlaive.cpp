@@ -315,13 +315,29 @@ void URes_InsectGlaive::OnWeaponUnequipped()
 	bDepletionEdgeTriggered = false;
 }
 
-bool URes_InsectGlaive::CanDeployKinsect(const FKinsectFlightRequest& Request) const
+bool URes_InsectGlaive::CanDeployKinsect(const FKinsectFlightRequest& Request, const bool bAfterStaminaRefill) const
 {
 	return !bRuntimeShuttingDown && KinsectActor && KinsectData
 		&& KinsectActor->GetState() != EKinsectState::ActionAttached
 		&& !KinsectActionAttachmentToken.IsValid()
-		&& KinsectStamina > 0.f && IsRuntimeRequestCurrent(Request.RuntimeToken)
+		&& (KinsectStamina > 0.f || (bAfterStaminaRefill && FMath::IsFinite(MaxKinsectStamina) && MaxKinsectStamina > 0.f))
+		&& IsRuntimeRequestCurrent(Request.RuntimeToken)
 		&& KinsectActor->CanBeginFlight(Request);
+}
+
+bool URes_InsectGlaive::RestoreKinsectStaminaForAction(const FWeaponActionToken& Action)
+{
+	const UMHGZWeaponRuntimeHostComponent* Host = Action.RuntimeToken.Host.Get();
+	if (!Action.IsValid() || !IsRuntimeRequestCurrent(Action.RuntimeToken)
+		|| !Host || !Host->IsActionRegistered(Action) || !IsValid(KinsectActor)
+		|| !FMath::IsFinite(MaxKinsectStamina) || MaxKinsectStamina <= 0.f) return false;
+	const float Previous = KinsectStamina;
+	KinsectStamina = MaxKinsectStamina;
+	bDepletionEdgeTriggered = false;
+	if (!FMath::IsNearlyEqual(Previous, KinsectStamina))
+		OnKinsectStaminaChanged.Broadcast(KinsectStamina, MaxKinsectStamina);
+	if (IsRuntimeRequestCurrent(Action.RuntimeToken)) BroadcastResourceUIState(true);
+	return true;
 }
 
 bool URes_InsectGlaive::DeployKinsect(const FKinsectFlightRequest& Request)
