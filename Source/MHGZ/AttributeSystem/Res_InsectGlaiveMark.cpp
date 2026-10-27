@@ -608,6 +608,7 @@ bool URes_InsectGlaive::SetKinsectMarkInternal(
 	MarkEvent.ExpireAt = ExpireAt;
 	RecordCombatTelemetryEvent(MoveTemp(MarkEvent));
 	SpawnKinsectMarkEffect();
+	RefreshMarkUIHint();
 	return true;
 }
 
@@ -679,6 +680,11 @@ void URes_InsectGlaive::ClearKinsectMark(EIGMarkClearReason Reason)
 	ActiveMarkExpireTime = 0.0;
 	bActiveMarkUsesProjectile = false;
 	SetMarkActiveTag(false);
+	// 黄圈使用独立60秒，不跟随Debuff自然到期；新印会在完整提交后刷新。
+	if (Reason != EIGMarkClearReason::Replaced && Reason != EIGMarkClearReason::Expired)
+	{
+		ClearMarkUIHint();
+	}
 }
 
 void URes_InsectGlaive::HandleMarkTargetHealthChanged(

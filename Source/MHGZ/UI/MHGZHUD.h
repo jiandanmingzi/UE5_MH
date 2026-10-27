@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "GameFramework/HUD.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeTypes.h"
+#include "UI/MHGZRecentDamageWindow.h"
 #include "MHGZHUD.generated.h"
 
 class UMHGZAttributeBarWidget;
@@ -26,6 +27,7 @@ class MHGZ_API AMHGZHUD : public AHUD
 public:
 	AMHGZHUD();
 	void RefreshPawnContext();
+	virtual void Tick(float DeltaSeconds) override;
 
 protected:
 	virtual void BeginPlay() override;
@@ -77,6 +79,8 @@ private:
 	void HandleWeaponRuntimeReady(const FWeaponRuntimeToken& Token,
 		class UMHGZWeaponResourceComponent* Resource);
 	void HandleWeaponRuntimeInvalidated(const FWeaponRuntimeToken& Token);
+	/** 来源角色的实际输出伤害；不记录预测伤害或受伤。 */
+	void HandleOutgoingDamage(float ActualDamage);
 
 	TWeakObjectPtr<class AMHGZCharacter> BoundCharacter;
 	TWeakObjectPtr<UAbilitySystemComponent> BoundASC;
@@ -85,6 +89,11 @@ private:
 	FDelegateHandle RuntimeReadyHandle;
 	FDelegateHandle RuntimeInvalidatedHandle;
 	FWeaponRuntimeToken BoundRuntimeToken;
+	/** 当前受控角色的伤害事件源；换角色时退订。 */
+	TWeakObjectPtr<class UMHGZHitFeedbackRouterComponent> BoundDamageRouter;
+	FDelegateHandle OutgoingDamageHandle;
+	/** 当前HUD的10秒滑动伤害窗口；换角色/销毁时清空。 */
+	FMHGZRecentDamageWindow RecentDamage;
 	// Possess/Ready may arrive before BeginPlay has created the widget tree.
 	bool bWidgetTreeReady = false;
 	bool bPawnContextInitialized = false;

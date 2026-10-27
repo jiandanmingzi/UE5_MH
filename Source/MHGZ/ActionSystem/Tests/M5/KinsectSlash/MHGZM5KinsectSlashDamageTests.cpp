@@ -120,6 +120,8 @@ bool FMHGZKinsectSlashIndependentContactTest::RunTest(const FString& Parameters)
 			return false;
 		}
 		H.Hitzone->SetSphereRadius(1.0f);
+		TestTrue(TEXT("slash starts with a different carried extract"), H.Resource->GetKinsectActor()
+			->CapturePendingExtractColor(FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White"))));
 		const FVector Rear = Weapon->GetSocketLocation(TEXT("IG_RearTip"));
 		const FVector Root = Weapon->GetSocketLocation(TEXT("Root"));
 		const FVector Insect = Weapon->GetSocketLocation(TEXT("IG_Kinsect"));
@@ -147,7 +149,8 @@ bool FMHGZKinsectSlashIndependentContactTest::RunTest(const FString& Parameters)
 			HitWindow(1, Rear);
 			TestTrue(TEXT("weapon alone queues Dance, without fabricating an insect hit/cargo"),
 				Ability->bPendingDanceTransition && !Ability->bKinsectDamageApplied
-				&& !H.Resource->GetKinsectActor()->HasPendingExtract());
+				&& H.Resource->GetKinsectActor()->GetPendingExtractColor()
+				== FGameplayTag::RequestGameplayTag(TEXT("WeaponResource.IG.Extract.White")));
 		}
 		// A zero-distance target at the exact insect origin has no front/back.
 		// Test the real window on both sides of the visible insect instead.
@@ -188,6 +191,8 @@ bool FMHGZKinsectSlashIndependentContactTest::RunTest(const FString& Parameters)
 		TestTrue(TEXT("insect has its own success latch and captures cargo, not player extract"),
 			Ability->bKinsectDamageApplied && H.Resource->GetKinsectActor()->HasPendingExtract()
 			&& !H.Resource->HasExtract(H.Hitzone->ExtractColorTag));
+		TestEqual(TEXT("successful slash replaces the previously carried white with the actual hit color"),
+			H.Resource->GetKinsectActor()->GetPendingExtractColor(), H.Hitzone->ExtractColorTag);
 		if (Order != 1)
 		{
 			TestTrue(TEXT("insect-only contact leaves dash, pitch, montage and movement live"),

@@ -12,6 +12,9 @@ class APlayerController;
 class UAbilitySystemComponent;
 struct FGameplayCueParameters;
 
+/** 来源角色对外造成一次已结算正伤害；不依赖任何表现Cue是否成功播放。 */
+DECLARE_MULTICAST_DELEGATE_OneParam(FOnMHGZOutgoingDamageResolved, float);
+
 /**
  * 目标侧命中反馈路由器。
  *
@@ -31,6 +34,9 @@ public:
 	/** 结算层唯一入口：按冻结顺序执行 Cue、提交卡肉与镜头反馈。 */
 	UFUNCTION(BlueprintCallable, Category = "MHGZ|Feedback")
 	void RouteHitFeedback(const FMHGZHitFeedbackResult& Result);
+
+	/** 本角色输出伤害事件；HUD可订阅，包含武器、猎虫和粉尘。 */
+	FOnMHGZOutgoingDamageResolved& OnOutgoingDamageResolved() { return OutgoingDamageResolved; }
 
 	// ── 最小 C++ 测试查询面 ──
 	UFUNCTION(BlueprintPure, Category = "MHGZ|Feedback|Test")
@@ -53,4 +59,5 @@ private:
 	int32 ExecutedCueCount = 0;
 	FGameplayTag LastExecutedCueTag;
 	float LastDamageNumberMagnitude = 0.f;
+	FOnMHGZOutgoingDamageResolved OutgoingDamageResolved;
 };

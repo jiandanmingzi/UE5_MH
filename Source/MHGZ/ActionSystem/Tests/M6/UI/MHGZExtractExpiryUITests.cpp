@@ -140,4 +140,28 @@ bool FMHGZExtractExpiryPaleColorTest::RunTest(const FString&)
 		UMHGZInsectGlaiveResourceWidget::GetExtractWarningColor(State, 0, Colors[0]).Equals(Colors[0]));
 	return true;
 }
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZMarkHintWarningTest,
+	"MHGZ.Maintenance.UI.MarkHint.ThresholdsCadenceAndPaleColor",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZMarkHintWarningTest::RunTest(const FString&)
+{
+	using W = UMHGZInsectGlaiveResourceWidget;
+	TestEqual(TEXT("above twenty steady"), W::GetMarkHintWarningIntensity(20.01f), 1.f);
+	TestEqual(TEXT("twenty starts warning"), W::GetMarkHintWarningIntensity(20.f), .2f);
+	TestEqual(TEXT("slow warning lasts 0.2 seconds"), W::GetMarkHintWarningIntensity(19.9f), .2f);
+	TestEqual(TEXT("normal color returns"), W::GetMarkHintWarningIntensity(19.7f), 1.f);
+	TestEqual(TEXT("slow warning repeats each two seconds"), W::GetMarkHintWarningIntensity(17.9f), .2f);
+	TestEqual(TEXT("five starts urgent warning"), W::GetMarkHintWarningIntensity(5.f), .2f);
+	TestEqual(TEXT("urgent warning"), W::GetMarkHintWarningIntensity(4.9f), .2f);
+	TestEqual(TEXT("urgent returns to normal"), W::GetMarkHintWarningIntensity(4.7f), 1.f);
+	TestEqual(TEXT("urgent repeats after half a second"), W::GetMarkHintWarningIntensity(4.4f), .2f);
+	for (float Seconds : {0.f, -1.f, std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()})
+		TestEqual(TEXT("invalid/expired hint does not flash"), W::GetMarkHintWarningIntensity(Seconds), 1.f);
+	const FLinearColor Yellow(1.f, .72f, .06f, .8f);
+	const FLinearColor Muted = W::GetMarkHintWarningColor(4.9f, Yellow);
+	TestEqual(TEXT("yellow warning keeps opacity"), Muted.A, Yellow.A);
+	TestFalse(TEXT("yellow becomes visibly pale"), Muted.Equals(Yellow));
+	TestTrue(TEXT("yellow returns between pulses"), W::GetMarkHintWarningColor(4.7f, Yellow).Equals(Yellow));
+	return true;
+}
 #endif

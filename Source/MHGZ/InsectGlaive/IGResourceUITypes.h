@@ -24,6 +24,9 @@ struct FIGResourceUISnapshot
 {
 	GENERATED_BODY()
 
+	/** 虫印黄圈的固定显示周期；不读取实际部位Debuff的时长。 */
+	static constexpr float MarkHintDurationSeconds = 60.f;
+
 	/** 当前武器运行期的身份令牌；代际变化后旧回调和旧请求失效。 */
 	UPROPERTY(BlueprintReadOnly)
 	FWeaponRuntimeToken RuntimeToken;
@@ -51,6 +54,10 @@ struct FIGResourceUISnapshot
 	/** 当前运行期是否存在可用猎虫实例。 */
 	UPROPERTY(BlueprintReadOnly)
 	bool bHasKinsect = false;
+
+	/** 最近一次成功施印的黄圈剩余秒数；成功聚爆、目标失效/死亡及卸装会清零。仅供显示。 */
+	UPROPERTY(BlueprintReadOnly)
+	float MarkHintRemainingSeconds = 0.0f;
 
 	/** 玩家当前是否拥有有效红灯。 */
 	UPROPERTY(BlueprintReadOnly)

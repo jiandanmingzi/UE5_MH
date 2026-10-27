@@ -6,6 +6,7 @@
 
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "ActionSystem/MHGZWeaponComboData.h"
+#include "ActionSystem/MHGZHitFeedbackRouterComponent.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "UI/MHGZUITelemetry.h"
 #include "UI/MHGZHUD.h"
@@ -410,6 +411,199 @@ bool FMHGZM6UIRenderPreview::RunTest(const FString& Parameters)
 		const uint32 Hash=FCrc::MemCrc32(Pixels.GetData(),Pixels.Num()*sizeof(FColor));
 		TestTrue(TEXT("One/two/three cargo sectors change actual rendered pixels"),!Pixels.IsEmpty() && (I==0 || Hash!=PreviousCargoHash));
 		PreviousCargoHash=Hash;
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZMarkHintRenderPreview,
+	"MHGZ.Maintenance.UI.MarkHint.RenderPreview", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZMarkHintRenderPreview::RunTest(const FString&)
+{
+	if (!FParse::Param(FCommandLine::Get(), TEXT("MHGZMarkHintUIRenderPreview")))
+	{
+		AddInfo(TEXT("Opt-in GPU preview: -MHGZMarkHintUIRenderPreview, without -NullRHI"));
+		return true;
+	}
+	// 仅创建真实资源WBP；图标绘制不依赖角色模型或战斗世界。
+	UClass* Class = LoadClass<UMHGZInsectGlaiveResourceWidget>(nullptr,
+		TEXT("/Game/UI/InsectGlaive/WBP_IG_ResourcePanel.WBP_IG_ResourcePanel_C"));
+	if (!TestNotNull(TEXT("resident resource WBP class"), Class)) return false;
+	UMHGZInsectGlaiveResourceWidget* Panel = NewObject<UMHGZInsectGlaiveResourceWidget>(GetTransientPackage(), Class);
+	if (!TestTrue(TEXT("initialize resident WBP"), Panel->Initialize())) return false;
+	FWidgetRenderer Renderer(true);
+	const FString Directory = FPaths::ProjectSavedDir() / TEXT("Maintenance/KinsectMarkHintUI20261027/Preview");
+	IFileManager::Get().MakeDirectory(*Directory, true);
+	FIGResourceUISnapshot State;
+	{
+		State.bHasKinsect = true;
+		State.KinsectPendingExtractColor = {};
+		State.KinsectPendingExtractColors.Reset();
+		State.bRed = State.bWhite = State.bOrange = State.bTripleUp = false;
+		const TSharedRef<SWidget> IconRoot = SNew(SBorder)
+			.BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+			.BorderBackgroundColor(FLinearColor(.07f, .10f, .13f, 1))
+			.Padding(4) [Panel->TakeWidget()];
+		const auto RenderHint = [&](float Remaining, const TCHAR* Name)
+		{
+			State.MarkHintRemainingSeconds = Remaining;
+			Panel->OnResourceUIUpdated(State);
+			UTextureRenderTarget2D* Target = Renderer.DrawWidget(IconRoot, FVector2D(192, 72));
+			FlushRenderingCommands();
+			TArray<FColor> Pixels;
+			FReadSurfaceDataFlags Flags(RCM_MinMax); Flags.SetLinearToGamma(false);
+			if (!Target || !Target->GameThread_GetRenderTargetResource()->ReadPixels(Pixels, Flags))
+			{ AddError(TEXT("Mark hint GPU readback failed")); return Pixels; }
+			TArray64<uint8> PNG;
+			FImageUtils::PNGCompressImageArray(192, 72, TArrayView64<const FColor>(Pixels.GetData(), Pixels.Num()), PNG);
+			TUniquePtr<FArchive> Writer(IFileManager::Get().CreateFileWriter(*(Directory / (FString(Name) + TEXT(".png")))));
+			TestTrue(TEXT("preview PNG saved"), Writer && !PNG.IsEmpty());
+			if (Writer && !PNG.IsEmpty()) Writer->Serialize(PNG.GetData(), PNG.Num());
+			return Pixels;
+		};
+		const auto YellowPixels = [](const TArray<FColor>& Pixels)
+		{
+			int32 Count = 0;
+			if (Pixels.Num() != 192 * 72) return Count;
+			for (int32 Y = 4; Y < 53; ++Y)
+				for (int32 X = 4; X < 46; ++X)
+				{
+					const FColor& P = Pixels[Y * 192 + X];
+					// Slate截图是显示空间字节；按黄/蓝相对分量识别，避免套用线性色阈值。
+					if (P.R > 180 && P.G > 130 && P.R > P.B * 1.3f && P.G > P.B * 1.2f) ++Count;
+				}
+			return Count;
+		};
+		const auto Empty = RenderHint(0, TEXT("09-markhint-empty"));
+		if (TestEqual(TEXT("actual icon image size"), Empty.Num(), 192 * 72))
+		{
+			const FColor Inside = Empty[(4 + 26) * 192 + 4 + 15];
+			TestTrue(TEXT("empty insect wing is black, not a filled white silhouette"), Inside.R < 20 && Inside.G < 20 && Inside.B < 20);
+		}
+		const auto Full = RenderHint(60, TEXT("10-markhint-full"));
+		const auto Half = RenderHint(30, TEXT("11-markhint-half"));
+		TestTrue(TEXT("full yellow rim is rendered"), YellowPixels(Full) > 100);
+		TestTrue(TEXT("countdown shortens the yellow rim"), YellowPixels(Half) > 0 && YellowPixels(Half) < YellowPixels(Full));
+		const auto Slow = RenderHint(19.9f, TEXT("12-markhint-slow"));
+		const auto Urgent = RenderHint(4.9f, TEXT("13-markhint-urgent"));
+		TestTrue(TEXT("pale warning changes actual pixels"), Slow != Half && Urgent != Empty);
+		const auto Cleared = RenderHint(0, TEXT("14-markhint-cleared"));
+		TestTrue(TEXT("cleared hint restores the empty icon exactly"), Cleared == Empty);
+	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZRollingDPSWindowTest,
+	"MHGZ.Maintenance.UI.RollingDPS.Window", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZRollingDPSWindowTest::RunTest(const FString&)
+{
+	FMHGZRecentDamageWindow Window;
+	TestEqual(TEXT("idle starts at zero"), Window.GetDPS(0), 0.0);
+	Window.Add(5, 100);
+	TestEqual(TEXT("first hit still divides by ten seconds"), Window.GetDPS(5), 10.0);
+	Window.Add(10, 50);
+	TestEqual(TEXT("multiple hits share one rolling window"), Window.GetDPS(14.999), 15.0);
+	Window.Add(14.999, 0);
+	Window.Add(14.999, -200);
+	Window.Add(14.999, std::numeric_limits<float>::infinity());
+	TestEqual(TEXT("invalid/zero damage is ignored"), Window.GetDPS(14.999), 15.0);
+	TestEqual(TEXT("ten-second-old first hit leaves the window"), Window.GetDPS(15), 5.0);
+	TestEqual(TEXT("idle expires the last hit without another attack"), Window.GetDPS(20), 0.0);
+	Window.Add(100, 300);
+	TestEqual(TEXT("time rewind clears the old timeline"), Window.GetDPS(99), 0.0);
+	Window.Add(99, 400);
+	Window.Reset();
+	TestEqual(TEXT("pawn reset clears all damage"), Window.GetDPS(99), 0.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZRollingDPSHUDTest,
+	"MHGZ.Maintenance.UI.RollingDPS.SourceAndHUDLifecycle", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZRollingDPSHUDTest::RunTest(const FString&)
+{
+	FHUDWidgetFixture F;
+	if (!F.Setup(true, true)) { AddError(TEXT("HUD fixture setup failed")); return false; }
+	F.Start();
+	auto* Main = FMHGZM6HUDTestAccess::Main(F.HUD);
+	if (!TestNotNull(TEXT("actual main HUD"), Main)) return false;
+	AActor* Target = F.H.World->SpawnActor<AActor>();
+	auto* TargetASC = NewObject<UAbilitySystemComponent>(Target);
+	Target->AddInstanceComponent(TargetASC); TargetASC->RegisterComponent();
+	TargetASC->InitAbilityActorInfo(Target, Target);
+	auto* TargetRouter = NewObject<UMHGZHitFeedbackRouterComponent>(Target);
+	Target->AddInstanceComponent(TargetRouter); TargetRouter->RegisterComponent();
+	FMHGZHitFeedbackResult Hit;
+	Hit.SourceActor = F.H.Character; Hit.ActualDamage = 100;
+	TargetRouter->RouteHitFeedback(Hit);
+	TestEqual(TEXT("positive resolved weapon/kinsect damage reaches the HUD once without number assets"), Main->GetRecentDPS(), 10.0);
+	Hit.SourceActor = F.H.PlayerState;
+	Hit.ContextHandle = F.H.ASC->MakeEffectContext();
+	Hit.ContextHandle.AddInstigator(F.H.PlayerState, F.H.Character);
+	TargetRouter->RouteHitFeedback(Hit);
+	TestEqual(TEXT("powder PlayerState source resolves to the same ASC avatar"), Main->GetRecentDPS(), 20.0);
+	Hit.SourceActor = nullptr;
+	Hit.ContextHandle = FGameplayEffectContextHandle(new FGameplayEffectContext());
+	Hit.ContextHandle.AddInstigator(nullptr, F.H.Character);
+	TargetRouter->RouteHitFeedback(Hit);
+	TestEqual(TEXT("physical causer fallback is attributed"), Main->GetRecentDPS(), 30.0);
+	Hit.ActualDamage = 0; TargetRouter->RouteHitFeedback(Hit);
+	Hit.ActualDamage = -50; TargetRouter->RouteHitFeedback(Hit);
+	TestEqual(TEXT("zero/negative damage cannot affect DPS"), Main->GetRecentDPS(), 30.0);
+	Hit.SourceActor = Target; Hit.ContextHandle = {}; Hit.ActualDamage = 100;
+	TargetRouter->RouteHitFeedback(Hit);
+	TestEqual(TEXT("another source does not count toward the local player"), Main->GetRecentDPS(), 30.0);
+	F.H.World->TimeSeconds += 10;
+	F.HUD->Tick(0.f);
+	TestEqual(TEXT("HUD expires damage while idle"), Main->GetRecentDPS(), 0.0);
+	Hit.SourceActor = F.H.Character; TargetRouter->RouteHitFeedback(Hit);
+	TestEqual(TEXT("new attack starts a fresh window"), Main->GetRecentDPS(), 10.0);
+	F.PC->SetPawn(nullptr); F.HUD->RefreshPawnContext();
+	TestEqual(TEXT("unpossess clears the display"), Main->GetRecentDPS(), 0.0);
+	TargetRouter->RouteHitFeedback(Hit);
+	TestEqual(TEXT("old pawn callback is unsubscribed"), Main->GetRecentDPS(), 0.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZRollingDPSRenderTest,
+	"MHGZ.Maintenance.UI.RollingDPS.RenderPreview", EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZRollingDPSRenderTest::RunTest(const FString&)
+{
+	if (!FParse::Param(FCommandLine::Get(), TEXT("MHGZDPSRenderPreview")))
+	{
+		AddInfo(TEXT("Opt-in GPU preview: -MHGZDPSRenderPreview without -NullRHI")); return true;
+	}
+	UClass* Class = LoadClass<UMHGZMainHUDWidget>(nullptr, TEXT("/Game/UI/HUD/WBP_HUD.WBP_HUD_C"));
+	if (!TestNotNull(TEXT("resident HUD WBP"), Class)) return false;
+	auto* Main = NewObject<UMHGZMainHUDWidget>(GetTransientPackage(), Class);
+	if (!Main->Initialize()) return false;
+	const auto Root = SNew(SBorder).BorderImage(FCoreStyle::Get().GetBrush("WhiteBrush"))
+		.BorderBackgroundColor(FLinearColor(.07f, .10f, .13f, 1)).Padding(0)[Main->TakeWidget()];
+	FWidgetRenderer Renderer(true);
+	const FString Directory = FPaths::ProjectSavedDir() / TEXT("Maintenance/RollingDPS20261027/Preview");
+	IFileManager::Get().MakeDirectory(*Directory, true);
+	for (int32 Width : {1280, 1920})
+	{
+		const int32 Height = Width * 9 / 16;
+		TArray<FColor> Before;
+		for (double Value : {0.0, 123.4})
+		{
+			Main->SetRecentDPS(Value);
+			auto* Target = Renderer.DrawWidget(Root, FVector2D(Width, Height));
+			FlushRenderingCommands();
+			TArray<FColor> Pixels; FReadSurfaceDataFlags Flags(RCM_MinMax); Flags.SetLinearToGamma(false);
+			if (!Target || !Target->GameThread_GetRenderTargetResource()->ReadPixels(Pixels, Flags)) return false;
+			if (Value == 0) Before = Pixels;
+			else
+			{
+				TestTrue(TEXT("resolved DPS changes actual rendered numbers"), Before != Pixels);
+				TestTrue(TEXT("panel is at the right edge and vertical center"), Pixels[(Height/2)*Width+Width-200] != Pixels[(Height/2)*Width+Width-4]);
+			}
+			TArray64<uint8> PNG;
+			FImageUtils::PNGCompressImageArray(Width, Height, TArrayView64<const FColor>(Pixels.GetData(), Pixels.Num()), PNG);
+			const FString File = Directory / FString::Printf(TEXT("dps-%d-%.0f.png"), Width, Value);
+			TUniquePtr<FArchive> Writer(IFileManager::Get().CreateFileWriter(*File));
+			TestTrue(TEXT("DPS preview saved"), Writer && !PNG.IsEmpty());
+			if (Writer && !PNG.IsEmpty()) Writer->Serialize(PNG.GetData(), PNG.Num());
+		}
 	}
 	return true;
 }

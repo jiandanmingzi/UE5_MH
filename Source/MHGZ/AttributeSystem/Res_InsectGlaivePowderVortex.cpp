@@ -154,6 +154,7 @@ bool URes_InsectGlaive::StartPowderVortex(const FWeaponActionToken& Action,
 	ActivePowderVortexSettings = Settings;
 	ActivePowderVortexAttackPower = GetModifiedKinsectAttackPower();
 	SetKinsectActiveTag(true);
+	ClearMarkUIHint();
 	return true;
 }
 

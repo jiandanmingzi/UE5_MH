@@ -76,6 +76,7 @@ void URes_InsectGlaive::RecordCombatTelemetryEvent(
 
 void URes_InsectGlaive::InitializeRuntime(const FWeaponRuntimeContext& Context)
 {
+	MarkUIHintExpireWorldTime = 0.0;
 	GuaranteedKinsectHitReceipts.Reset();
 	ClearOwnedPowders(EWeaponRuntimeEndReason::RuntimeShutdown);
 	Super::InitializeRuntime(Context);
@@ -281,6 +282,7 @@ bool URes_InsectGlaive::OnWeaponEquipped(UInsectGlaiveKinsectData* Data,
 
 void URes_InsectGlaive::OnWeaponUnequipped()
 {
+	ClearMarkUIHint();
 	ResetDescendingThrustKinsect();
 	if (CoAttackComponent)
 	{

@@ -107,11 +107,14 @@ bool FMHGZDescendingCoPierceTest::RunTest(const FString&)
 	TestTrue(TEXT("target does not follow hunter movement"), F.H.Kinsect->ActiveRequest.TargetPointSnapshot.Equals(Target, .01));
 	const FGameplayTag Red = M3::Tag(TEXT("WeaponResource.IG.Extract.Red"));
 	const FGameplayTag White = M3::Tag(TEXT("WeaponResource.IG.Extract.White"));
+	TestTrue(TEXT("dive starts with an occupied white cargo"), F.H.Kinsect->CapturePendingExtractColor(White));
 	F.Part->ExtractColorTag = Red;
 	F.SetTarget(Target + FVector(0, 0, 500));
 	F.H.Kinsect->SetActorLocation(Target + FVector(0, 0, 520));
 	F.H.World->TimeSeconds = .1; F.H.Kinsect->Tick(0);
 	TestEqual(TEXT("first real piercing contact"), F.KinsectHits, 1);
+	TestTrue(TEXT("occupied cargo cannot prevent collecting the red dive contact"),
+		F.H.Kinsect->GetPendingExtractColors().HasTagExact(Red));
 	F.H.World->TimeSeconds = .2; F.H.Kinsect->Tick(0);
 	TestEqual(TEXT("interval rejects early repeated contact"), F.KinsectHits, 1);
 	F.H.World->TimeSeconds = .36; F.H.Kinsect->Tick(0);

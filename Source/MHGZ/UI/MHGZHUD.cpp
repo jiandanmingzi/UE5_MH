@@ -4,6 +4,7 @@
 
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
+#include "ActionSystem/MHGZHitFeedbackRouterComponent.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/CanvasPanelSlot.h"
@@ -35,6 +36,24 @@ UOverlay* ResolveOverlaySlot(UMHGZMainHUDWidget* MainWidget,
 
 AMHGZHUD::AMHGZHUD()
 {
+}
+
+void AMHGZHUD::HandleOutgoingDamage(float ActualDamage)
+{
+	if (GetWorld())
+	{
+		RecentDamage.Add(GetWorld()->GetTimeSeconds(), ActualDamage);
+		if (MainHUDWidget) { MainHUDWidget->SetRecentDPS(RecentDamage.GetDPS(GetWorld()->GetTimeSeconds())); }
+	}
+}
+
+void AMHGZHUD::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	if (MainHUDWidget && GetWorld())
+	{
+		MainHUDWidget->SetRecentDPS(RecentDamage.GetDPS(GetWorld()->GetTimeSeconds()));
+	}
 }
 
 void AMHGZHUD::BeginPlay()
@@ -255,6 +274,15 @@ void AMHGZHUD::RefreshPawnContext()
 	BoundAimComponent = Aim;
 	BoundRuntimeHost = RuntimeHost;
 	bPawnContextInitialized = true;
+	if (Character)
+	{
+		BoundDamageRouter = Character->GetHitFeedbackRouter();
+		if (BoundDamageRouter.IsValid())
+		{
+			OutgoingDamageHandle = BoundDamageRouter->OnOutgoingDamageResolved().AddUObject(
+				this, &AMHGZHUD::HandleOutgoingDamage);
+		}
+	}
 	UE_LOG(LogTemp, Display,
 		TEXT("[E6.3HUD] Context PC=%s pawn=%s character=%s ASC=%s Aim=%s Host=%s"),
 		*GetNameSafe(PlayerOwner), *GetNameSafe(PlayerOwner->GetPawn()),
@@ -300,6 +328,14 @@ void AMHGZHUD::RefreshPawnContext()
 
 void AMHGZHUD::UnbindPawnContext()
 {
+	if (BoundDamageRouter.IsValid())
+	{
+		BoundDamageRouter->OnOutgoingDamageResolved().Remove(OutgoingDamageHandle);
+	}
+	BoundDamageRouter.Reset();
+	OutgoingDamageHandle.Reset();
+	RecentDamage.Reset();
+	if (MainHUDWidget) { MainHUDWidget->SetRecentDPS(0.0); }
 	if (AMHGZCharacter* Character = BoundCharacter.Get())
 	{
 		if (AMHGZPlayerController* MHGZPlayerController =

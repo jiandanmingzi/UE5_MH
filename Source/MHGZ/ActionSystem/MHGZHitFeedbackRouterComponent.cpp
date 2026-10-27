@@ -69,6 +69,27 @@ void UMHGZHitFeedbackRouterComponent::RouteHitFeedback(
 	{
 		return;
 	}
+	if (FMath::IsFinite(Result.ActualDamage) && Result.ActualDamage > 0.f)
+	{
+		AActor* Source = Result.SourceActor.Get();
+		UMHGZHitFeedbackRouterComponent* SourceRouter = Source
+			? Source->FindComponentByClass<UMHGZHitFeedbackRouterComponent>() : nullptr;
+		// 粉尘的Instigator可为PlayerState；输出伤害仍属于源ASC的当前角色。
+		if (!SourceRouter)
+		{
+			if (const UAbilitySystemComponent* SourceASC = Result.ContextHandle.GetInstigatorAbilitySystemComponent())
+			{
+				AActor* Avatar = SourceASC->GetAvatarActor_Direct();
+				SourceRouter = Avatar ? Avatar->FindComponentByClass<UMHGZHitFeedbackRouterComponent>() : nullptr;
+			}
+		}
+		if (!SourceRouter)
+		{
+			AActor* Causer = Result.ContextHandle.GetEffectCauser();
+			SourceRouter = Causer ? Causer->FindComponentByClass<UMHGZHitFeedbackRouterComponent>() : nullptr;
+		}
+		if (SourceRouter) { SourceRouter->OutgoingDamageResolved.Broadcast(Result.ActualDamage); }
+	}
 
 	// 所有 Cue 参数携带真实命中位置/法线与原 GE Context；不重算伤害。
 	FGameplayCueParameters Params;

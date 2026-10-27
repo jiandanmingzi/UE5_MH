@@ -220,6 +220,8 @@ bool FMHGZM3KinsectPendingExtractAndReturn::RunTest(const FString& Parameters)
 	AKinsect* Kinsect = H.Kinsect;
 	const FGameplayTag White = M3::Tag(TEXT("WeaponResource.IG.Extract.White"));
 	const FGameplayTag KinsectActive = M3::Tag(TEXT("WeaponResource.IG.Kinsect.Active"));
+	TestTrue(TEXT("existing red cargo before ordinary flight"),
+		Kinsect->CapturePendingExtractColor(M3::Tag(TEXT("WeaponResource.IG.Extract.Red"))));
 	TestNotNull(TEXT("hitzone spawned on flight path"),
 		SpawnTestHitzone(H.World, FVector(400.f, 0.f, 0.f), White));
 

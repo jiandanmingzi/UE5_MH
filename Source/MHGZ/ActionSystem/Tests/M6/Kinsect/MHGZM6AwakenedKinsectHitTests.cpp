@@ -345,8 +345,8 @@ bool FMHGZM6AwakenedKinsectCargoReturn::RunTest(const FString& Parameters)
 			H.Kinsect->Tick(0.016f);
 			TestEqual(TEXT("repeated same-color hit adds no cargo slot"), H.Kinsect->GetPendingExtractColors().Num(), Index + 1);
 		}
-		TestTrue(TEXT("ordinary capture cannot add a second kind to occupied cargo"),
-			!H.Kinsect->CapturePendingExtractColor(Colors[ColorCount == 1 ? 1 : 0]));
+		TestFalse(TEXT("multi-color capture deduplicates an already carried color"),
+			H.Kinsect->CapturePendingExtractColor(Colors[0], true));
 		H.Kinsect->Interrupt();
 		TestEqual(TEXT("interruption preserves all carried colors"), H.Kinsect->GetPendingExtractColors().Num(), ColorCount);
 		TestTrue(TEXT("explicit recall starts"), H.Resource->RecallKinsect());
@@ -534,6 +534,33 @@ bool FMHGZAwakenedSixHitCleanup::RunTest(const FString&)
 			After.ContainsByPredicate([&](const auto& Event) { return Event.SourceAttackID==Request.SourceAttackInstanceID && Event.EventName==FName(TEXT("KinsectDamageSubmitted")); }));
 		H.Teardown();
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZKinsectCargoReplacementTest,
+	"MHGZ.Maintenance.Kinsect.CargoReplacementAndFullProtection",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZKinsectCargoReplacementTest::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup()) return false;
+	const FGameplayTag Red = M3::Tag(TEXT("WeaponResource.IG.Extract.Red"));
+	const FGameplayTag White = M3::Tag(TEXT("WeaponResource.IG.Extract.White"));
+	const FGameplayTag Orange = M3::Tag(TEXT("WeaponResource.IG.Extract.Orange"));
+	TestTrue(TEXT("capture first red"), H.Kinsect->CapturePendingExtractColor(Red));
+	TestTrue(TEXT("ordinary white replaces occupied red"), H.Kinsect->CapturePendingExtractColor(White));
+	TestEqual(TEXT("ordinary cargo remains single-colored"), H.Kinsect->GetPendingExtractColors().Num(), 1);
+	TestEqual(TEXT("latest color wins"), H.Kinsect->GetPendingExtractColor(), White);
+	TestTrue(TEXT("piercing adds red to partial cargo"), H.Kinsect->CapturePendingExtractColor(Red, true));
+	TestTrue(TEXT("ordinary orange replaces a partial two-color cargo"), H.Kinsect->CapturePendingExtractColor(Orange));
+	TestEqual(TEXT("partial two-color cargo becomes the new single color"), H.Kinsect->GetPendingExtractColors().Num(), 1);
+	TestTrue(TEXT("piercing adds red"), H.Kinsect->CapturePendingExtractColor(Red, true));
+	TestTrue(TEXT("piercing fills the third white"), H.Kinsect->CapturePendingExtractColor(White, true));
+	const FGameplayTagContainer Full = H.Kinsect->GetPendingExtractColors();
+	TestFalse(TEXT("ordinary capture preserves full three colors"), H.Kinsect->CapturePendingExtractColor(Red));
+	TestFalse(TEXT("piercing capture preserves full three colors"), H.Kinsect->CapturePendingExtractColor(White, true));
+	TestTrue(TEXT("full cargo is untouched"), H.Kinsect->GetPendingExtractColors() == Full);
+	H.Teardown();
 	return true;
 }
 

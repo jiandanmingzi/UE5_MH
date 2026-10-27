@@ -314,7 +314,7 @@ public:
 	FGameplayTag TakePendingExtractColor();
 	/** 原子取出完整携带精华，仅返回到主人时交付。 */
 	FGameplayTagContainer TakePendingExtractColors();
-	/** 普通/操虫斩只存首色；强化贯通显式允许红白橙去重多色。 */
+	/** 未满三色时普通采集替换旧携带，贯通采集追加不同颜色；三色齐全均不覆盖。 */
 	bool CapturePendingExtractColor(FGameplayTag ExtractColor, bool bAllowMultipleColors = false);
 	float GetFlightSpeed() const;
 	float GetReturnSpeed() const;
@@ -414,6 +414,8 @@ private:
 	double AimRayTravelled = 0.0;
 	FHitResult PendingWorldHit;
 	bool bHasDealtDamage = false;
+	/** FirstHitOnly按本次飞行锁定首个有效颜色，不以出发前是否有携带判断。 */
+	bool bHasCapturedExtractThisFlight = false;
 	FWeaponActionToken ActionAttachmentToken;
 	TWeakObjectPtr<USkeletalMeshComponent> SlashAttachMesh;
 	FName SlashAttachSocket = NAME_None;

@@ -5,6 +5,26 @@
 #include "Blueprint/WidgetTree.h"
 #include "MHGZHUDDrawing.h"
 
+namespace
+{
+float ExpiryWarningIntensity(float Seconds, float SlowThreshold, float FastThreshold)
+{
+	if (!FMath::IsFinite(Seconds) || Seconds <= 0.f || Seconds > SlowThreshold) { return 1.f; }
+	const bool bUrgent = Seconds <= FastThreshold;
+	const float Period = bUrgent ? 0.5f : 2.f;
+	const float Phase = FMath::Fmod((bUrgent ? FastThreshold : SlowThreshold) - Seconds, Period);
+	return Phase < 0.2f ? 0.2f : 1.f;
+}
+
+FLinearColor PaleWarningColor(const FLinearColor& BaseColor)
+{
+	const float Grey = FMath::Max3(BaseColor.R, BaseColor.G, BaseColor.B) * 0.65f;
+	return FLinearColor(FMath::Lerp(BaseColor.R, Grey, 0.65f),
+		FMath::Lerp(BaseColor.G, Grey, 0.65f),
+		FMath::Lerp(BaseColor.B, Grey, 0.65f), BaseColor.A);
+}
+}
+
 void UMHGZInsectGlaiveResourceWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
@@ -97,10 +117,7 @@ float UMHGZInsectGlaiveResourceWidget::GetExtractWarningIntensity(
 
 	// Use the authoritative GE countdown, not a second timer. Snapshot refreshes
 	// therefore cannot restart the blink; pause/slomo follow extract expiry.
-	const bool bUrgent = Seconds <= 10.f;
-	const float Period = bUrgent ? 0.5f : 2.f;
-	const float Phase = FMath::Fmod((bUrgent ? 10.f : 30.f) - Seconds, Period);
-	return Phase < 0.2f ? 0.2f : 1.f;
+	return ExpiryWarningIntensity(Seconds, 30.f, 10.f);
 }
 
 FLinearColor UMHGZInsectGlaiveResourceWidget::GetExtractWarningColor(
@@ -109,10 +126,18 @@ FLinearColor UMHGZInsectGlaiveResourceWidget::GetExtractWarningColor(
 	if (GetExtractWarningIntensity(State, ExtractIndex) >= 1.f) { return BaseColor; }
 	// Muted colour, not transparency: keep the coloured lamp visibly present.
 	// White also shifts to a light grey instead of flashing white-on-white.
-	const float Grey = FMath::Max3(BaseColor.R, BaseColor.G, BaseColor.B) * 0.65f;
-	return FLinearColor(FMath::Lerp(BaseColor.R, Grey, 0.65f),
-		FMath::Lerp(BaseColor.G, Grey, 0.65f),
-		FMath::Lerp(BaseColor.B, Grey, 0.65f), BaseColor.A);
+	return PaleWarningColor(BaseColor);
+}
+
+float UMHGZInsectGlaiveResourceWidget::GetMarkHintWarningIntensity(float RemainingSeconds)
+{
+	return ExpiryWarningIntensity(RemainingSeconds, 20.f, 5.f);
+}
+
+FLinearColor UMHGZInsectGlaiveResourceWidget::GetMarkHintWarningColor(
+	float RemainingSeconds, const FLinearColor& BaseColor)
+{
+	return GetMarkHintWarningIntensity(RemainingSeconds) < 1.f ? PaleWarningColor(BaseColor) : BaseColor;
 }
 
 int32 UMHGZInsectGlaiveResourceWidget::NativePaint(const FPaintArgs& Args,
@@ -136,12 +161,17 @@ int32 UMHGZInsectGlaiveResourceWidget::NativePaint(const FPaintArgs& Args,
 
 	// Small beetle silhouette: body, wings, antennae and legs; no font glyph
 	// dependency. Its carried-extract dot is independent of delivered buffs.
-	const FLinearColor InsectColor = DisplayState.bHasKinsect ? Pale : Pale * 0.45f;
-	Polygon(Out, L, Geometry, {FVector2D(9, 22), FVector2D(20, 15),
-		FVector2D(20, 32), FVector2D(11, 34)}, InsectColor);
-	Polygon(Out, L, Geometry, {FVector2D(24, 15), FVector2D(35, 22),
-		FVector2D(33, 34), FVector2D(24, 32)}, InsectColor);
-	Polygon(Out, L + 1, Geometry, Diamond(FVector2D(22, 15), 6), InsectColor);
+	const FLinearColor InsectColor = FLinearColor::White * Tint * (DisplayState.bHasKinsect ? 1.f : 0.45f);
+	const FLinearColor InsectFill = FLinearColor::Black * Tint;
+	Polygon(Out, L, Geometry, {FVector2D(20, 17), FVector2D(24, 17),
+		FVector2D(24, 34), FVector2D(20, 34)}, InsectFill);
+	const TArray<FVector2D> LeftWing = {FVector2D(9, 22), FVector2D(20, 15), FVector2D(20, 32), FVector2D(11, 34)};
+	const TArray<FVector2D> RightWing = {FVector2D(24, 15), FVector2D(35, 22), FVector2D(33, 34), FVector2D(24, 32)};
+	for (const TArray<FVector2D>& Shape : {LeftWing, RightWing, Diamond(FVector2D(22, 15), 6)})
+	{
+		Polygon(Out, L, Geometry, Shape, InsectFill);
+		Outline(Out, L + 1, Geometry, Shape, InsectColor, 1.1f);
+	}
 	Line(Out, L + 2, Geometry, {FVector2D(22, 18), FVector2D(22, 34)}, Dark, 2);
 	for (const double Sign : {-1.0, 1.0})
 	{
@@ -178,6 +208,20 @@ int32 UMHGZInsectGlaiveResourceWidget::NativePaint(const FPaintArgs& Args,
 			Rim.Add(Center + FVector2D(FMath::Cos(Angle) * Radii.X, FMath::Sin(Angle) * Radii.Y));
 		}
 		Outline(Out, L + 4, Geometry, Rim, Pale, 1);
+	}
+	// 独立黄圈按60秒逐渐缩短；只由资源快照驱动，不再跟踪怪物或创建UI计时器。
+	if (FMath::IsFinite(DisplayState.MarkHintRemainingSeconds) && DisplayState.MarkHintRemainingSeconds > 0.f)
+	{
+		const float Ratio = FMath::Clamp(DisplayState.MarkHintRemainingSeconds
+			/ FIGResourceUISnapshot::MarkHintDurationSeconds, 0.f, 1.f);
+		TArray<FVector2D> Arc;
+		for (int32 I = 0; I <= 64; ++I)
+		{
+			const double Angle = -PI * .5 + 2 * PI * Ratio * I / 64.0;
+			Arc.Add(FVector2D(22, 25) + FVector2D(FMath::Cos(Angle) * 19, FMath::Sin(Angle) * 23));
+		}
+		Line(Out, L + 4, Geometry, Arc, GetMarkHintWarningColor(DisplayState.MarkHintRemainingSeconds,
+			FLinearColor(1.f, .72f, .06f, 1.f) * Tint), 3.f);
 	}
 	for (int32 I = 0; I < 3; ++I)
 	{

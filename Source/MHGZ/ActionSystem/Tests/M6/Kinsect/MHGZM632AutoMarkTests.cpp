@@ -562,19 +562,19 @@ bool FMHGZAutoMarkExtractCargo::RunTest(const FString&)
 		else
 		{
 			TestTrue(TEXT("automatic attack actually deals damage"), Target.Attributes->GetHealth() < 100.f);
-			const auto Expected = Mode == 1 ? White : Red;
-			TestEqual(TEXT("normal single-color cargo is collected/preserved"), H.Kinsect->GetPendingExtractColor(), Expected);
+			const auto Expected = Red;
+			TestEqual(TEXT("automatic contact collects red and replaces occupied non-full cargo"), H.Kinsect->GetPendingExtractColor(), Expected);
 			TestEqual(TEXT("UI shows the carried color before returning"), H.Resource->GetUIState().KinsectPendingExtractColor, Expected);
 			TestFalse(TEXT("automatic hit does not grant the hunter red directly"), H.Resource->HasExtract(Red));
 			TickM632World(H, 12, 1.f / 60.f);
-			TestEqual(TEXT("repeated attacks neither duplicate nor replace ordinary cargo"), H.Kinsect->GetPendingExtractColors().Num(), 1);
+			TestEqual(TEXT("repeated same-color attacks do not duplicate ordinary cargo"), H.Kinsect->GetPendingExtractColors().Num(), 1);
 			TestTrue(TEXT("manual recall starts"), H.Resource->RecallKinsect());
 			for (int32 Frame = 0; Frame < 120 && H.Kinsect->GetState() != EKinsectState::Attached; ++Frame)
 			{
 				TickM632World(H, 1, 1.f / 60.f);
 			}
 			TestEqual(TEXT("returns to the arm"), H.Kinsect->GetState(), EKinsectState::Attached);
-			TestTrue(TEXT("return delivers the original carried extract"), H.Resource->HasExtract(Expected));
+			TestTrue(TEXT("return delivers the latest captured extract"), H.Resource->HasExtract(Expected));
 			TestFalse(TEXT("return atomically clears carried extracts"), H.Kinsect->HasPendingExtract());
 			TestFalse(TEXT("UI cargo clears after delivery"), H.Resource->GetUIState().KinsectPendingExtractColor.IsValid());
 		}

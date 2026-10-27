@@ -403,6 +403,10 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 		const FGameplayTag& SourceTag) const;
 	void BroadcastExtractState();
 	void BroadcastResourceUIState(bool bForce = false);
+	/** 成功施印后刷新独立60秒黄圈；不改变实际虫印或其寿命。 */
+	void RefreshMarkUIHint();
+	/** 清空显示计时并推送快照；聚爆只有成功发出指令后才调用。 */
+	void ClearMarkUIHint();
 	void SetKinsectActiveTag(bool bActive);
 	void SetMarkActiveTag(bool bActive);
 	void ClearAllResourceGameplayEffects();
@@ -514,6 +518,8 @@ friend class FMHGZM6PowderVortexConsumesMarkAtGatherStart;
 	FOnIGResourceUIChanged IGResourceUIChanged;
 	FIGResourceUISnapshot LastPublishedUISnapshot;
 	bool bHasPublishedUISnapshot = false;
+	/** 纯显示黄圈的游戏时间截止点；与部位Debuff的ExpireTime独立。 */
+	double MarkUIHintExpireWorldTime = 0.0;
 
 	/** 当前唯一虫印实际附着并施加Debuff的受击部位。 */
 	UPROPERTY()

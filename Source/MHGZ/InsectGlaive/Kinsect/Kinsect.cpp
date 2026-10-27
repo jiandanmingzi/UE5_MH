@@ -518,6 +518,7 @@ bool AKinsect::BeginFlightInternal(
 	LastTickLocation = GetActorLocation();
 	PendingWorldHit.Reset();
 	bHasDealtDamage = false;
+	bHasCapturedExtractThisFlight = false;
 	HitzoneHitTimers.Reset();
 	State = EKinsectState::Flying;
 	RefreshFlightAudio(true);
@@ -1071,14 +1072,16 @@ bool AKinsect::CapturePendingExtractColor(const FGameplayTag ExtractColor,
 	const bool bAllowMultipleColors)
 {
 	const FString Name = ExtractColor.ToString();
-	if ((!bAllowMultipleColors && HasPendingExtract())
-		|| PendingExtractColors.HasTagExact(ExtractColor)
+	if (PendingExtractColors.Num() >= 3
 		|| (Name != TEXT("WeaponResource.IG.Extract.Red")
 		&& Name != TEXT("WeaponResource.IG.Extract.White")
 		&& Name != TEXT("WeaponResource.IG.Extract.Orange")))
 	{
 		return false;
 	}
+	if (PendingExtractColors.HasTagExact(ExtractColor)
+		&& (bAllowMultipleColors || PendingExtractColors.Num() == 1)) return false;
+	if (!bAllowMultipleColors) { PendingExtractColors.Reset(); }
 	PendingExtractColors.AddTag(ExtractColor);
 	return true;
 }
@@ -1184,8 +1187,9 @@ void AKinsect::HandleHitzoneHit(const FHitResult& Hit, float DeltaTime)
 	// 萃取：无颜色优先级、无部位名映射，直接用 Hitzone 的 ExtractColorTag
 	if (ActiveRequest.ExtractMode == EKinsectExtractMode::FirstHitOnly)
 	{
-		if (!HasPendingExtract() && Hitzone->ExtractColorTag.IsValid())
+		if (!bHasCapturedExtractThisFlight && Hitzone->ExtractColorTag.IsValid())
 		{
+			bHasCapturedExtractThisFlight = true;
 			CapturePendingExtractColor(Hitzone->ExtractColorTag);
 		}
 	}

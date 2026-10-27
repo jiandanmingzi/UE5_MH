@@ -38,6 +38,11 @@ public:
 	/** Pale/desaturated warning colour, always preserving the supplied opacity. */
 	static FLinearColor GetExtractWarningColor(const FIGResourceUISnapshot& State,
 		int32 ExtractIndex, const FLinearColor& BaseColor);
+	/** 虫印黄圈：20秒内每2秒、5秒内每0.5秒变淡0.2秒；不降低不透明度。 */
+	static float GetMarkHintWarningIntensity(float RemainingSeconds);
+	/** 虫印临期的淡色；与精华提示共用颜色处理。 */
+	static FLinearColor GetMarkHintWarningColor(float RemainingSeconds,
+		const FLinearColor& BaseColor);
 
 protected:
 	/** 猎虫当前耐力比例对应的进度条控件。 */

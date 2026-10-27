@@ -537,6 +537,21 @@ void URes_InsectGlaive::BroadcastExtractState()
 	BroadcastResourceUIState(true);
 }
 
+void URes_InsectGlaive::RefreshMarkUIHint()
+{
+	if (bRuntimeShuttingDown || !GetWorld()) { return; }
+	MarkUIHintExpireWorldTime = GetWorld()->GetTimeSeconds()
+		+ FIGResourceUISnapshot::MarkHintDurationSeconds;
+	BroadcastResourceUIState(true);
+}
+
+void URes_InsectGlaive::ClearMarkUIHint()
+{
+	if (MarkUIHintExpireWorldTime == 0.0) { return; }
+	MarkUIHintExpireWorldTime = 0.0;
+	BroadcastResourceUIState(true);
+}
+
 FIGResourceUISnapshot URes_InsectGlaive::GetUIState() const
 {
 	FIGResourceUISnapshot State;
@@ -544,6 +559,12 @@ FIGResourceUISnapshot URes_InsectGlaive::GetUIState() const
 	State.KinsectStamina = KinsectStamina;
 	State.MaxKinsectStamina = MaxKinsectStamina;
 	State.bHasKinsect = IsValid(KinsectActor);
+	if (!bRuntimeShuttingDown && GetWorld() && State.bHasKinsect && MarkUIHintExpireWorldTime > 0.0)
+	{
+		State.MarkHintRemainingSeconds = float(FMath::Clamp(
+			MarkUIHintExpireWorldTime - GetWorld()->GetTimeSeconds(),
+			0.0, double(FIGResourceUISnapshot::MarkHintDurationSeconds)));
+	}
 	if (State.bHasKinsect)
 	{
 		State.KinsectState = KinsectActor->GetState();
@@ -646,6 +667,8 @@ void URes_InsectGlaive::BroadcastResourceUIState(const bool bForce)
 		|| State.KinsectPendingExtractColors
 			!= LastPublishedUISnapshot.KinsectPendingExtractColors
 		|| State.bHasKinsect != LastPublishedUISnapshot.bHasKinsect
+		|| !FMath::IsNearlyEqual(State.MarkHintRemainingSeconds,
+			LastPublishedUISnapshot.MarkHintRemainingSeconds, 0.005f)
 		|| State.bRed != LastPublishedUISnapshot.bRed
 		|| State.bWhite != LastPublishedUISnapshot.bWhite
 		|| State.bOrange != LastPublishedUISnapshot.bOrange

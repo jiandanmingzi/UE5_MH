@@ -628,8 +628,16 @@ bool FMHGZM6PowderVortexAimsFromSnapshotAndManualRecallSupersedes::RunTest(
 	Aim.HitResult = AimHit;
 
 	FIGPowderVortexSettings SubmittedSettings = Harness.Resource->ActivePowderVortexSettings;
+	TestTrue(TEXT("mark starts a fresh display countdown"), Harness.Resource->SetKinsectMark(AimHitzone, InitialPoint, nullptr));
+	TestEqual(TEXT("mark hint starts at sixty"), Harness.Resource->GetUIState().MarkHintRemainingSeconds, 60.f);
+	FWeaponAimSnapshot InvalidAim = Aim;
+	InvalidAim.Context = EWeaponAimSnapshotContext::Action;
+	TestFalse(TEXT("rejected vortex cannot be a successful release"), Harness.Resource->StartPowderVortex(Action, InvalidAim, SubmittedSettings));
+	TestEqual(TEXT("rejected vortex preserves the hint"), Harness.Resource->GetUIState().MarkHintRemainingSeconds, 60.f);
 	TestTrue(TEXT("Resource starts ToPoint flight from the input-time hit snapshot"),
 		Harness.Resource->StartPowderVortex(Action, Aim, SubmittedSettings));
+	TestEqual(TEXT("successful launch clears the hint before arrival"), Harness.Resource->GetUIState().MarkHintRemainingSeconds, 0.f);
+	TestTrue(TEXT("UI clearing does not prematurely consume the gameplay mark"), Harness.Resource->HasValidKinsectMark());
 	SubmittedSettings.MotionValueAt1 = 999.f;
 	Harness.KinsectData->KinsectAttackPower = 999.f;
 	TestEqual(TEXT("the transaction owns a value snapshot, not live GA/config defaults"),

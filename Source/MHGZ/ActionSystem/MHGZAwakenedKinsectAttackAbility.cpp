@@ -179,6 +179,10 @@ void UMHGZAwakenedKinsectAttackAbility::EndAbility(
 		&& !bHunterFallTransitionCommitted;
 	UMHGZWeaponRuntimeHostComponent* Host = GetRuntimeHost();
 	RecallKinsectForThisAction();
+	if (URes_InsectGlaive* Resource = GetIGResourceComponent())
+	{
+		Resource->EndKinsectPlayerCommandLease(GetActionToken());
+	}
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 	StartFallbackFallingAfterActionEnd(Host, bNeedsFallbackFalling);
 	bEmpoweredKinsectBranch = false;
@@ -420,6 +424,8 @@ bool UMHGZAwakenedKinsectAttackAbility::PrepareAttackMontage()
 		? FindAwakenedKinsectWeaponMesh(Character, Config->KinsectSlashAttachSocket)
 		: nullptr;
 	if (!Resource || !Config || !WeaponMesh
+		// 从起手到结束召回持有租约，命中后悬停也不能被虫印自动指令接管。
+		|| !Resource->BeginKinsectPlayerCommandLease(GetActionToken())
 		|| !Resource->BeginKinsectActionAttachment(GetActionToken(), WeaponMesh,
 			Config->KinsectSlashAttachSocket))
 	{

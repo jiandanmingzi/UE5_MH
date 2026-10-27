@@ -261,14 +261,17 @@ bool FMHGZM6MarkClearsOnDeathAndReplacement::RunTest(const FString& Parameters)
 		Harness.Resource->SetKinsectMarkFromMeleeHit(MakeMarkHit(Second, SecondPoint)));
 	TestFalse(TEXT("replacing clears the old part Debuff"), First.Hitzone->HasKinsectMarkDebuff());
 	TestTrue(TEXT("replacement applies the new part Debuff"), Second.Hitzone->HasKinsectMarkDebuff());
+	TestEqual(TEXT("replacement refreshes the UI hint"), Harness.Resource->GetUIState().MarkHintRemainingSeconds, 60.f);
 
 	First.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetHealthAttribute(), 0.0f);
 	TestTrue(TEXT("death of the replaced target cannot clear the current mark"),
 		Harness.Resource->HasValidKinsectMark());
+	TestEqual(TEXT("old target death cannot clear the new UI hint"), Harness.Resource->GetUIState().MarkHintRemainingSeconds, 60.f);
 	Second.ASC->SetNumericAttributeBase(UMHGZAttributeSet::GetHealthAttribute(), 0.0f);
 	TestFalse(TEXT("current target death clears its mark immediately"),
 		Harness.Resource->HasValidKinsectMark());
 	TestFalse(TEXT("target death also clears its part Debuff"), Second.Hitzone->HasKinsectMarkDebuff());
+	TestEqual(TEXT("current target health callback clears the UI hint immediately"), Harness.Resource->GetUIState().MarkHintRemainingSeconds, 0.f);
 
 	Harness.Teardown();
 	return true;
@@ -365,4 +368,49 @@ bool FMHGZMarkDebuffOwnership::RunTest(const FString&)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZMarkHintCountdownTest,
+	"MHGZ.Maintenance.UI.MarkHint.RefreshCountdownAndCleanup",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZMarkHintCountdownTest::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup()) return false;
+	FMHGZM6MarkTarget Target = SpawnMarkTarget(*H.World, FVector(300, 0, 100), true);
+	if (!TestNotNull(TEXT("target"), Target.Hitzone)) { H.Teardown(); return false; }
+	H.CombatConfig->KinsectMarkDuration = 90.f;
+	const FHitResult Hit = MakeMarkHit(Target, Target.Hitzone->GetComponentLocation());
+	TestEqual(TEXT("no mark, no countdown"), H.Resource->GetUIState().MarkHintRemainingSeconds, 0.f);
+	int32 Events = 0;
+	FIGResourceUISnapshot Last;
+	const FDelegateHandle Handle = H.Resource->OnIGResourceUIChanged().AddLambda(
+		[&](const FIGResourceUISnapshot& S) { ++Events; Last = S; });
+	TestTrue(TEXT("successful mark"), H.Resource->SetKinsectMarkFromMeleeHit(Hit));
+	TestEqual(TEXT("success publishes sixty seconds immediately"), Last.MarkHintRemainingSeconds, 60.f);
+	TestTrue(TEXT("gameplay mark keeps its separate ninety seconds"),
+		FMath::IsNearlyEqual(H.Resource->GetKinsectMarkExpireTime() - H.World->GetTimeSeconds(), 90.0));
+	H.World->TimeSeconds += 10;
+	const int32 BeforeTick = Events;
+	H.Resource->TickComponent(.016f, LEVELTICK_All, nullptr);
+	TestTrue(TEXT("normal resource tick publishes countdown without a UI timer"), Events > BeforeTick);
+	TestEqual(TEXT("ten game seconds elapse"), Last.MarkHintRemainingSeconds, 50.f);
+	TestEqual(TEXT("same world time does not advance the countdown"), H.Resource->GetUIState().MarkHintRemainingSeconds, 50.f);
+	TestFalse(TEXT("invalid mark is rejected"), H.Resource->SetKinsectMark(nullptr, FVector::ZeroVector, nullptr));
+	TestEqual(TEXT("failed mark cannot refresh"), H.Resource->GetUIState().MarkHintRemainingSeconds, 50.f);
+	TestTrue(TEXT("reapplying refreshes"), H.Resource->SetKinsectMarkFromMeleeHit(Hit));
+	TestEqual(TEXT("new mark restarts sixty seconds"), Last.MarkHintRemainingSeconds, 60.f);
+	H.Resource->ClearKinsectMark(EIGMarkClearReason::Expired);
+	TestEqual(TEXT("gameplay expiry does not replace the independent sixty-second display clock"), H.Resource->GetUIState().MarkHintRemainingSeconds, 60.f);
+	H.World->TimeSeconds += 1;
+	TestEqual(TEXT("independent hint continues after gameplay expiry"), H.Resource->GetUIState().MarkHintRemainingSeconds, 59.f);
+	TestTrue(TEXT("fresh mark before expiration"), H.Resource->SetKinsectMarkFromMeleeHit(Hit));
+	H.World->TimeSeconds += 61;
+	TestEqual(TEXT("hint naturally reaches zero"), H.Resource->GetUIState().MarkHintRemainingSeconds, 0.f);
+	TestTrue(TEXT("hint expiration does not remove a longer gameplay Debuff"), H.Resource->HasValidKinsectMark());
+	TestTrue(TEXT("fresh mark before shutdown"), H.Resource->SetKinsectMarkFromMeleeHit(Hit));
+	H.Resource->ShutdownRuntime(EWeaponRuntimeEndReason::WeaponChanged);
+	TestEqual(TEXT("old runtime cannot leave a countdown"), H.Resource->GetUIState().MarkHintRemainingSeconds, 0.f);
+	H.Resource->OnIGResourceUIChanged().Remove(Handle);
+	H.Teardown();
+	return true;
+}
 #endif

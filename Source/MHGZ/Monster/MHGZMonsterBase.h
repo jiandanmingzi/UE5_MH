@@ -43,11 +43,9 @@ public:
 	void GenerateHitzonesFromConfig(class UMHGZDummyConfig* Config);
 
 	/**
-	 * Resolve a gameplay hit point to the outer queryable visual-mesh surface.
-	 * A dedicated trace channel keeps this presentation query separate from
-	 * weapon, aim, and physical-blocking collision. If no mesh surface is queryable,
-	 * the caller should retain the gameplay collision point. The direction-aware
-	 * overload should be preferred when the incoming attack direction is available.
+	 * 将玩法命中点投影到附近可查询的可见网格外表面。分别沿来源方向、
+	 * 接触法线与部位径向查询最外层，再取离命中点最近的候选，避免穿体投影。
+	 * 专用通道不改变攻击、准心或实体碰撞；没有可查询表面时由调用者保留原点。
 	 */
 	virtual bool ResolveHitEffectVisualSurface(
 		const UMHGZMonsterHitzoneComponent* Hitzone,

@@ -194,16 +194,23 @@ bool AMHGZMonsterBase::ResolveHitEffectVisualSurface(
 		return false;
 	}
 
-	FVector OutwardDirection = PreferredOutwardDirection.GetSafeNormal();
-	if (OutwardDirection.IsNearlyZero())
+	// 扫掠起点可能已经在模型内部；它指向的那一侧不一定是命中的外表面。
+	// 同时检查接触法线与部位径向，避免一次成功的穿体投影屏蔽附近的正确表面。
+	TArray<FVector, TInlineAllocator<3>> OutwardDirections;
+	auto AddDirection = [&OutwardDirections](const FVector& Direction)
 	{
-		OutwardDirection = CollisionNormal.GetSafeNormal();
-	}
-	if (OutwardDirection.IsNearlyZero())
-	{
-		OutwardDirection = (CollisionPoint - Hitzone->GetComponentLocation()).GetSafeNormal();
-	}
-	if (OutwardDirection.IsNearlyZero())
+		const FVector Unit = Direction.GetSafeNormal();
+		if (!Unit.IsNearlyZero() && !Unit.ContainsNaN()
+			&& !OutwardDirections.ContainsByPredicate([&Unit](const FVector& Existing)
+				{ return FVector::DotProduct(Existing, Unit) > .9999; }))
+		{
+			OutwardDirections.Add(Unit);
+		}
+	};
+	AddDirection(PreferredOutwardDirection);
+	AddDirection(CollisionNormal);
+	AddDirection(CollisionPoint - Hitzone->GetComponentLocation());
+	if (OutwardDirections.IsEmpty())
 	{
 		return false;
 	}
@@ -219,8 +226,6 @@ bool AMHGZMonsterBase::ResolveHitEffectVisualSurface(
 		(FVector::Distance(Bounds.GetCenter(), CollisionPoint)
 			+ Bounds.GetExtent().Size() + 100.0f),
 		100.0f, 50000.0f);
-	const FVector TraceStart = CollisionPoint + OutwardDirection * TraceHalfLength;
-	const FVector TraceEnd = CollisionPoint - OutwardDirection * TraceHalfLength;
 
 	// Do not pass this actor as FCollisionQueryParams' ignore actor: that would
 	// silently filter out the very mesh whose surface this query must resolve.
@@ -234,42 +239,49 @@ bool AMHGZMonsterBase::ResolveHitEffectVisualSurface(
 		QueryParams.AddIgnoredComponent(QueryHitzone);
 	}
 
-	TArray<FHitResult> SurfaceHits;
-	World->LineTraceMultiByChannel(SurfaceHits, TraceStart, TraceEnd,
-		ECC_GameTraceChannel4, QueryParams);
-
-	float BestOutwardDistance = -TNumericLimits<float>::Max();
-	float BestNormalAlignment = 0.0f;
+	double BestProjectionDistanceSquared = TNumericLimits<double>::Max();
 	bool bFoundSurface = false;
-	for (const FHitResult& SurfaceHit : SurfaceHits)
+	for (const FVector& OutwardDirection : OutwardDirections)
 	{
-		if (SurfaceHit.GetActor() != this
-			|| !Cast<UMeshComponent>(SurfaceHit.GetComponent()))
+		TArray<FHitResult> SurfaceHits;
+		World->LineTraceMultiByChannel(SurfaceHits,
+			CollisionPoint + OutwardDirection * TraceHalfLength,
+			CollisionPoint - OutwardDirection * TraceHalfLength,
+			ECC_GameTraceChannel4, QueryParams);
+		double BestOutwardDistance = -TNumericLimits<double>::Max();
+		double BestNormalAlignment = 0.0;
+		const FHitResult* OuterHit = nullptr;
+		for (const FHitResult& SurfaceHit : SurfaceHits)
 		{
-			continue;
+			if (SurfaceHit.GetActor() != this
+				|| !Cast<UMeshComponent>(SurfaceHit.GetComponent())) continue;
+			const FVector SurfaceNormal = SurfaceHit.ImpactNormal.GetSafeNormal();
+			const double NormalAlignment = FVector::DotProduct(SurfaceNormal, OutwardDirection);
+			if (SurfaceNormal.IsNearlyZero() || NormalAlignment <= 0.0) continue;
+			// 每条射线仍取所有可见网格的最外层，不能落在重叠网格的内部表面。
+			const double OutwardDistance = FVector::DotProduct(
+				SurfaceHit.ImpactPoint - CollisionPoint, OutwardDirection);
+			if (OutwardDistance > BestOutwardDistance
+				|| (FMath::IsNearlyEqual(OutwardDistance, BestOutwardDistance)
+					&& NormalAlignment > BestNormalAlignment))
+			{
+				BestOutwardDistance = OutwardDistance;
+				BestNormalAlignment = NormalAlignment;
+				OuterHit = &SurfaceHit;
+			}
 		}
-
-		const FVector SurfaceNormal = SurfaceHit.ImpactNormal.GetSafeNormal();
-		const float NormalAlignment = FVector::DotProduct(SurfaceNormal, OutwardDirection);
-		if (SurfaceNormal.IsNearlyZero() || NormalAlignment <= 0.0f)
+		if (OuterHit)
 		{
-			continue;
-		}
-
-		// A hitzone can be much larger than the visible model and several visual
-		// meshes can overlap. Choose the outermost visible intersection toward the
-		// attack source, not the intersection nearest the proxy's collision point.
-		const float OutwardDistance = FVector::DotProduct(
-			SurfaceHit.ImpactPoint - CollisionPoint, OutwardDirection);
-		if (OutwardDistance > BestOutwardDistance
-			|| (FMath::IsNearlyEqual(OutwardDistance, BestOutwardDistance)
-				&& NormalAlignment > BestNormalAlignment))
-		{
-			BestOutwardDistance = OutwardDistance;
-			BestNormalAlignment = NormalAlignment;
-			OutVisualPoint = SurfaceHit.ImpactPoint;
-			OutVisualNormal = SurfaceNormal;
-			bFoundSurface = true;
+			const double DistanceSquared = FVector::DistSquared(OuterHit->ImpactPoint, CollisionPoint);
+			// 比较的是各方向已经确认的外表面；贴近实际命中点的表面优先，
+			// 防止武器轴向射线穿过整个目标，把近侧命中投到远侧或底面。
+			if (DistanceSquared < BestProjectionDistanceSquared)
+			{
+				BestProjectionDistanceSquared = DistanceSquared;
+				OutVisualPoint = OuterHit->ImpactPoint;
+				OutVisualNormal = OuterHit->ImpactNormal.GetSafeNormal();
+				bFoundSurface = true;
+			}
 		}
 	}
 

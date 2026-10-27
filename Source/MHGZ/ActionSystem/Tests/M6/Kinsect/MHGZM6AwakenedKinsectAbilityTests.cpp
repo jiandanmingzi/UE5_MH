@@ -1275,4 +1275,82 @@ bool FMHGZM6AwakenedHunterFlightMarks::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZAwakenedMarkLeaseTest,
+	"MHGZ.Maintenance.AwakenedKinsect.MarkCannotStealFlightOrRecall",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZAwakenedMarkLeaseTest::RunTest(const FString&)
+{
+	TGuardValue<uint64> FrameGuard(GFrameCounter, GFrameCounter);
+	const auto Red = M3::Tag(TEXT("WeaponResource.IG.Extract.Red"));
+	const auto White = M3::Tag(TEXT("WeaponResource.IG.Extract.White"));
+	for (int32 Mode = 0; Mode < 3; ++Mode) // 普通命中、白灯贯通到达射程、飞行中取消。
+	{
+		FMHGZM3Harness H;
+		if (!H.Setup(false, AMHGZM6AwakenedKinsectTestCharacter::StaticClass())) return false;
+		if (!TestNotNull(TEXT("weapon socket"), AddKinsectWeaponSocketForTest(*H.Character))) { H.Teardown(); return false; }
+		const auto MakePart = [&](const FVector& At, const FGameplayTag& Color)
+		{
+			auto* Target = H.World->SpawnActor<AMHGZTrainingDummy>(At, FRotator::ZeroRotator);
+			if (!Target) return static_cast<UMHGZMonsterHitzoneComponent*>(nullptr);
+			Target->GetAbilitySystemComponent()->InitAbilityActorInfo(Target, Target);
+			auto* Part = NewObject<UMHGZMonsterHitzoneComponent>(Target);
+			Target->AddInstanceComponent(Part); Part->SetupAttachment(Target->GetRootComponent());
+			Part->ExtractColorTag = Color; Part->RegisterComponent(); Part->SetSphereRadius(100.f);
+			Part->SetWorldLocation(At);
+			return Part;
+		};
+		auto* Mark = MakePart(FVector(0, 800, 100), Red);
+		if (!TestNotNull(TEXT("off-axis marked target"), Mark)) { H.Teardown(); return false; }
+		TestTrue(TEXT("off-axis mark applied"), H.Resource->SetKinsectMark(Mark, Mark->GetComponentLocation(), nullptr));
+		if (Mode == 1) H.Resource->ApplyExtract(White);
+		H.Kinsect->CapturePendingExtractColor(Red);
+		const auto Handle = H.GiveAbility(UMHGZM6AwakenedKinsectAbilityTestDouble::StaticClass());
+		const auto Input = MakeAwakenedInput(1);
+		if (!TestTrue(TEXT("awake activation"), H.TryActivateWithInput(Handle, Input))) { H.Teardown(); return false; }
+		auto* Ability = FindAwakenedInstance(*H.ASC, Handle);
+		if (!TestNotNull(TEXT("awake instance"), Ability)) { H.Teardown(); return false; }
+		Ability->SetReleaseAimSnapshotForTest(Input.ActorForward, Input.Aim.Direction, Input.Aim.TargetPoint);
+		Ability->SetKinsectFlightDurationForTest(1.f);
+		if (!TestTrue(TEXT("prepare owns action lease"), Ability->PrepareKinsectAttachmentForTest())
+			|| !TestTrue(TEXT("real action launch"), Ability->CommitKinsectLaunch(Ability->GetActionToken()))) { H.Teardown(); return false; }
+		const auto Flight = H.Kinsect->ActiveRequest;
+		TestTrue(TEXT("mark does not change release-locked flight direction"), Flight.DirectionSnapshot.Equals(FVector::ForwardVector, .001));
+		if (Mode == 0)
+		{
+			const FVector Start = H.Kinsect->GetActorLocation();
+			if (!TestNotNull(TEXT("real target on aim ray"), MakePart(Start + FVector(180, 0, 0), White))) { H.Teardown(); return false; }
+			for (int32 I = 0; I < 60 && H.Kinsect->GetState() == EKinsectState::Flying; ++I)
+			{
+				H.World->TimeSeconds += .016f; ++GFrameCounter;
+				H.Kinsect->Tick(.016f); H.Resource->TickComponent(.016f, LEVELTICK_All, nullptr);
+			}
+			TestEqual(TEXT("ordinary real hit hovers"), H.Kinsect->GetState(), EKinsectState::Hovering);
+			TestEqual(TEXT("ordinary awake hit replaces pre-existing red with white cargo"), H.Kinsect->GetPendingExtractColor(), White);
+		}
+		else if (Mode == 1) { H.Kinsect->Tick(1.1f); }
+		if (Mode < 2)
+		{
+			for (int32 I = 0; I < 8; ++I)
+			{
+				++GFrameCounter; H.Resource->TickComponent(.016f, LEVELTICK_All, nullptr);
+			}
+			TestEqual(TEXT("hover stays reserved until hunter flight ends"), H.Kinsect->GetState(), EKinsectState::Hovering);
+			TestEqual(TEXT("automatic mark cannot replace the owned flight ID"), H.Kinsect->ActiveRequest.FlightInstanceID, Flight.FlightInstanceID);
+		}
+		H.ASC->CancelAbilityHandle(Handle);
+		TestEqual(TEXT("action cleanup recalls its real insect despite the mark"), H.Kinsect->GetState(), EKinsectState::Returning);
+		H.Kinsect->SetActorLocation(H.Character->GetMesh()->GetComponentLocation()); H.Kinsect->Tick(.016f);
+		TestEqual(TEXT("return reaches the arm"), H.Kinsect->GetState(), EKinsectState::Attached);
+		FKinsectFlightRequest Free;
+		Free.RuntimeToken = H.Host->GetCurrentToken(); Free.FlightInstanceID = FGuid::NewGuid();
+		Free.FlightSpeed = 1000; Free.MaxDistance = 2000; Free.ArrivalRadius = 10;
+		Free.PostFlightPolicy = EKinsectPostFlightPolicy::Hover;
+		TestTrue(TEXT("next manual command can deploy"), H.Resource->DeployKinsect(Free));
+		H.Kinsect->Interrupt(); ++GFrameCounter; H.Resource->TickComponent(.016f, LEVELTICK_All, nullptr);
+		TestEqual(TEXT("lease is released and normal automatic mark seeking resumes"), H.Kinsect->ActiveRequest.CommandSource, EKinsectCommandSource::AutoMark);
+		H.Teardown();
+	}
+	return true;
+}
+
 #endif // WITH_DEV_AUTOMATION_TESTS && WITH_EDITOR
