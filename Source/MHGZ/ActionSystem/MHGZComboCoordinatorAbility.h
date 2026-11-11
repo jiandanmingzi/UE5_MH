@@ -100,6 +100,8 @@ public:
 	FName GetCurrentState() const { return CurrentState; }
 
 	const TOptional<FActiveComboTransition>& GetActiveTransition() const { return ActiveTransition; }
+	/** 只读操作预览：沿用实际匹配/优先级/接受窗口；快照标签可包含假设按住的LT/RT瞄准状态。 */
+	const FComboTransition* PreviewInputHint(const FWeaponInputSnapshot& Input) const;
 
 	virtual void ActivateAbility(
 		const FGameplayAbilitySpecHandle Handle,
@@ -152,12 +154,12 @@ private:
 		bool bIgnoreAcceptWindows = false,
 		bool bAllowAerialHandoffPreInput = false,
 		bool bAllowEarlyDescendingThrust = false,
-		bool bAllowDodgePreInput = false) const;
+		bool bAllowDodgePreInput = false, bool bInputHint = false) const;
 	bool TransitionRequirementsPass(const FComboTransition& Transition,
 		const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows = false,
 		bool bAllowAerialHandoffPreInput = false,
 		bool bAllowEarlyDescendingThrust = false,
-		bool bAllowDodgePreInput = false) const;
+		bool bAllowDodgePreInput = false, bool bInputHint = false) const;
 	bool ExecuteTransition(const FComboTransition& Transition,
 		const FWeaponInputSnapshot& Input, const FWeaponActionToken* SourceAction = nullptr,
 		const FWeaponActionToken* AerialHandoffSourceAction = nullptr);

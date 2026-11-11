@@ -1148,6 +1148,8 @@ M6/E6 创建并填入 `WBP_IG_ResourcePanel` 后：
 
 ### UI 状态传递
 
+2026-11-11键鼠与操作提示：WASD移动，鼠标左/右键映射Y/B，空格映射A，Ctrl映射RT，R映射LT，Shift映射RB。左右Ctrl/Shift均支持；键鼠与手柄共用原始InputAction及组合解析，不复制GA或Combo边。主HUD左侧中部按当前InputProfile/Combo状态/标签及实际接受窗口生成输入结果，并按最近有效设备显示对应名称；顺序为A、Y、B、RT、LT，RB在最后。预览只读，不消费资源或修改姿态/瞄准标签；详细显示规则、GA中文名称入口及输入资产回查见[编辑器说明](../editor/desktop-input-and-hints.md)。
+
 准心目标和颜色通过 `OnAimTargetChanged` Delegate 直接传给 Widget，不写入 ASC。`UI.Aim.*` 不属于战斗权威状态；只有 `Combat.State.Aiming.Kinsect` 进入 ASC，供输入和 Ability 条件查询。
 
 ### 近10秒DPS面板（2026-10-27）

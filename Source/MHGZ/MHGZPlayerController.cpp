@@ -10,6 +10,16 @@
 #include "HAL/IConsoleManager.h"
 #include "MHGZHUD.h"
 #include "MHGZ.h"
+#include "InputKeyEventArgs.h"
+
+bool AMHGZPlayerController::InputKey(const FInputKeyEventArgs& Params)
+{
+	if (InputComponent_MHGZ && IsLocalPlayerController())
+	{
+		InputComponent_MHGZ->ObserveInputDevice(Params.Key, Params.Event, Params.AmountDepressed);
+	}
+	return Super::InputKey(Params);
+}
 
 AMHGZPlayerController::AMHGZPlayerController()
 {

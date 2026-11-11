@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Blueprint/UserWidget.h"
+#include "UI/MHGZInputHints.h"
 #include "MHGZMainHUDWidget.generated.h"
 
 class UOverlay;
@@ -19,6 +20,9 @@ public:
 	void SetRecentDPS(double Value);
 	/** 当前面板显示的近10秒DPS。 */
 	double GetRecentDPS() const { return RecentDPS; }
+	/** 更新左侧当前状态的操作提示；相同内容不重复刷新布局。 */
+	void SetInputHints(const TArray<FMHGZInputHint>& Rows);
+	const TArray<FMHGZInputHint>& GetInputHints() const { return InputHints; }
 
 	/** 主HUD中放置生命条的容器插槽。 */
 	UPROPERTY(meta = (BindWidget), BlueprintReadOnly, Category = "MHGZ|UI")
@@ -44,4 +48,6 @@ protected:
 private:
 	/** 仅供显示的DPS快照，不参与伤害结算。 */
 	double RecentDPS = 0.0;
+	/** 本地当前设备对应的按键及招式结果。 */
+	TArray<FMHGZInputHint> InputHints;
 };

@@ -2,6 +2,11 @@
 #include "MHGZMainHUDWidget.h"
 #include "MHGZHUDDrawing.h"
 
+void UMHGZMainHUDWidget::SetInputHints(const TArray<FMHGZInputHint>& Rows)
+{
+	if (InputHints != Rows) { InputHints = Rows; InvalidateLayoutAndVolatility(); }
+}
+
 void UMHGZMainHUDWidget::SetRecentDPS(double Value)
 {
 	const double Sanitized = FMath::IsFinite(Value) ? FMath::Max(Value, 0.0) : 0.0;
@@ -29,5 +34,19 @@ int32 UMHGZMainHUDWidget::NativePaint(const FPaintArgs& Args, const FGeometry& G
 		FLinearColor(.72f, .75f, .74f, 1) * Tint);
 	Text(Out, L + 2, Geometry, P + FVector2D(16, 29), FString::Printf(TEXT("%.1f"), RecentDPS), 25,
 		FLinearColor(1.f, .78f, .30f, 1) * Tint);
+	if (!InputHints.IsEmpty())
+	{
+		const double LineHeight = FMath::Clamp((Size.Y - 240.0 - 38.0) / InputHints.Num(), 16.0, 26.0);
+		const double Height = 38.0 + InputHints.Num() * LineHeight;
+		const FVector2D HintP(24, FMath::Max(200.0, (Size.Y - Height) * .5));
+		Text(Out, L + 2, Geometry, HintP + FVector2D(14, 8), TEXT("操作"), 13,
+			FLinearColor(1.f, .78f, .30f, 1) * Tint);
+		for (int32 I = 0; I < InputHints.Num(); ++I)
+		{
+			Text(Out, L + 2, Geometry, HintP + FVector2D(14, 33 + I * LineHeight),
+				InputHints[I].Keys + TEXT("：") + InputHints[I].Action, LineHeight < 22 ? 11 : 13,
+				FLinearColor(.88f, .90f, .88f, 1) * Tint);
+		}
+	}
 	return L + 2;
 }

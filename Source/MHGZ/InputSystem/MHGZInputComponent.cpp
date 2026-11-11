@@ -17,6 +17,18 @@ UMHGZInputComponent::UMHGZInputComponent()
 	PrimaryComponentTick.bCanEverTick = false;
 }
 
+void UMHGZInputComponent::ObserveInputDevice(const FKey& Key, EInputEvent Event, float Amount)
+{
+	if (!Key.IsValid() || !FMath::IsFinite(Amount) || Event == IE_Released) return;
+	if (Key.IsAnalog())
+	{
+		const float Threshold = Key.IsGamepadKey() ? .2f : .01f;
+		if (FMath::Abs(Amount) <= Threshold) return;
+	}
+	else if (Event != IE_Pressed && Event != IE_Repeat) return;
+	bUsingGamepad = Key.IsGamepadKey();
+}
+
 void UMHGZInputComponent::BeginPlay()
 {
 	Super::BeginPlay();

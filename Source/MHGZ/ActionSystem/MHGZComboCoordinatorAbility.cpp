@@ -187,7 +187,7 @@ bool UGA_WeaponComboCoordinator::HasOpenDodgeAcceptWindowFor(
 bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	const FComboTransition& Transition, const FWeaponInputSnapshot& Input,
 	bool bIgnoreAcceptWindows, bool bAllowAerialHandoffPreInput,
-	bool bAllowEarlyDescendingThrust, bool bAllowDodgePreInput) const
+	bool bAllowEarlyDescendingThrust, bool bAllowDodgePreInput, bool bInputHint) const
 {
 	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
 	// Read-only candidate matching may ignore only this live Dodge's input lock.
@@ -201,7 +201,7 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	}
 	for (const FGameplayTag& RequiredTag : Transition.RequiredTags)
 	{
-		if (ASC->HasMatchingGameplayTag(RequiredTag))
+		if (bInputHint ? Input.ContextTags.HasTag(RequiredTag) : ASC->HasMatchingGameplayTag(RequiredTag))
 		{
 			continue;
 		}
@@ -227,7 +227,7 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	}
 	FGameplayTagContainer BlockedTags = Transition.BlockedTags;
 	if (bDodgeCandidate) { BlockedTags.RemoveTag(DodgingTag); }
-	if (!BlockedTags.IsEmpty() && ASC->HasAnyMatchingGameplayTags(BlockedTags))
+	if (!BlockedTags.IsEmpty() && (bInputHint ? Input.ContextTags.HasAny(BlockedTags) : ASC->HasAnyMatchingGameplayTags(BlockedTags)))
 	{
 		return false;
 	}
@@ -258,7 +258,7 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 	const FWeaponInputSnapshot& Input, bool bIgnoreAcceptWindows,
 	bool bAllowAerialHandoffPreInput, bool bAllowEarlyDescendingThrust,
-	bool bAllowDodgePreInput) const
+	bool bAllowDodgePreInput, bool bInputHint) const
 {
 	if (!ComboData) return nullptr;
 	TArray<int32> Candidates;
@@ -275,7 +275,7 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 		const FComboTransition& Candidate = ComboData->Transitions[Index];
 		if (Candidate.bAutoTransition || Candidate.InputTag != Input.ResolvedInputTag
 			|| !TransitionRequirementsPass(Candidate, Input, bIgnoreAcceptWindows,
-				bAllowAerialHandoffPreInput, bAllowEarlyDescendingThrust, bAllowDodgePreInput))
+				bAllowAerialHandoffPreInput, bAllowEarlyDescendingThrust, bAllowDodgePreInput, bInputHint))
 		{
 			continue;
 		}
@@ -297,6 +297,11 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 		}
 	}
 	return Best;
+}
+
+const FComboTransition* UGA_WeaponComboCoordinator::PreviewInputHint(const FWeaponInputSnapshot& Input) const
+{
+	return FindBestMatch(Input, false, false, true, false, true);
 }
 
 void UGA_WeaponComboCoordinator::HandleWeaponInput(const FWeaponInputSnapshot& Input)

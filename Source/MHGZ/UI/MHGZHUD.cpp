@@ -5,6 +5,10 @@
 #include "AbilitySystemComponent.h"
 #include "AbilitySystemInterface.h"
 #include "ActionSystem/MHGZHitFeedbackRouterComponent.h"
+#include "ActionSystem/MHGZAbilitySystemComponent.h"
+#include "InputSystem/MHGZInputComponent.h"
+#include "InputSystem/MHGZWeaponInputRouterComponent.h"
+#include "UI/MHGZInputHints.h"
 #include "AttributeSystem/MHGZWeaponResourceComponent.h"
 #include "Blueprint/UserWidget.h"
 #include "Components/CanvasPanelSlot.h"
@@ -53,6 +57,18 @@ void AMHGZHUD::Tick(float DeltaSeconds)
 	if (MainHUDWidget && GetWorld())
 	{
 		MainHUDWidget->SetRecentDPS(RecentDamage.GetDPS(GetWorld()->GetTimeSeconds()));
+	}
+	const double Now = FPlatformTime::Seconds();
+	if (MainHUDWidget && Now >= NextInputHintUpdateRealTime)
+	{
+		NextInputHintUpdateRealTime = Now + .1;
+		auto* PC = Cast<AMHGZPlayerController>(PlayerOwner);
+		auto* ASC = Cast<UMHGZAbilitySystemComponent>(BoundASC.Get());
+		const auto* Router = PC ? PC->GetWeaponInputRouter() : nullptr;
+		const auto* Input = PC ? PC->GetMHGZInputComponent() : nullptr;
+		MainHUDWidget->SetInputHints(ASC && Router && Router->GetInputProfile()
+			? MHGZInputHints::Build(*ASC, *Router->GetInputProfile(), !Input || Input->IsUsingGamepad())
+			: TArray<FMHGZInputHint>());
 	}
 }
 
@@ -335,6 +351,8 @@ void AMHGZHUD::UnbindPawnContext()
 	BoundDamageRouter.Reset();
 	OutgoingDamageHandle.Reset();
 	RecentDamage.Reset();
+	NextInputHintUpdateRealTime = 0.0;
+	if (MainHUDWidget) { MainHUDWidget->SetInputHints({}); }
 	if (MainHUDWidget) { MainHUDWidget->SetRecentDPS(0.0); }
 	if (AMHGZCharacter* Character = BoundCharacter.Get())
 	{

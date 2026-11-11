@@ -41,6 +41,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Ability|Input")
 	FGameplayTag InputTag;
 
+	/** 操作提示中的中文招式名；留空时按现有招式类名显示默认名称。 */
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Input", meta = (DisplayName = "操作提示名称"))
+	FText InputHintDisplayName;
+	/** 只读查询公共动作输入锁，供能力门禁和操作提示使用。 */
+	static bool HasPlayerActionInputLock(const UAbilitySystemComponent* ASC);
+
 	/** 仅控制本GA能否由缓存输入触发；关闭不影响合法窗口内的即时输入，也不禁止本招期间缓存其它招式。 */
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Ability|Input",
 		meta = (DisplayName = "允许被预输入触发"))
@@ -223,8 +229,6 @@ protected:
 	/** Infrastructure/forced-reaction abilities override this explicitly. */
 	virtual bool ShouldIgnorePlayerActionLocks() const { return false; }
 
-	/** True while Sheathing, Dodging or the system-owned aerial landing is present on the ASC. */
-	static bool HasPlayerActionInputLock(const UAbilitySystemComponent* ASC);
 
 	/**
 	 * Action 依赖预检（Commit 前、零副作用时调用）。

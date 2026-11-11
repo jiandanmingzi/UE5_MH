@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include "InputCoreTypes.h"
 #include "MHGZInputComponent.generated.h"
 
 class APlayerController;
@@ -44,6 +45,10 @@ public:
 
 	/** Idempotent teardown: removes every stored binding handle and added IMC. */
 	void ShutdownInput();
+	/** 根据真实按键/轴事件识别最近输入设备；松开及摇杆微小漂移不切换设备。 */
+	void ObserveInputDevice(const FKey& Key, EInputEvent Event, float Amount);
+	/** 当前操作提示使用手柄名称；收到有效键鼠输入后切换为键鼠名称。 */
+	bool IsUsingGamepad() const { return bUsingGamepad; }
 
 	/** 持有/释放运行时输入映射；重复持有计数，无持有权的释放不影响其它映射。 */
 	void PushIMC(UInputMappingContext* IMC, int32 Priority);
@@ -83,4 +88,6 @@ private:
 
 	FDelegateHandle OnRouterProfileChangedHandle;
 	bool bInputInitialized = false;
+	/** 最近一次有效输入的设备类别，跨换角色保留。 */
+	bool bUsingGamepad = true;
 };

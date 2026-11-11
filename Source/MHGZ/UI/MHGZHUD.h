@@ -94,6 +94,8 @@ private:
 	FDelegateHandle OutgoingDamageHandle;
 	/** 当前HUD的10秒滑动伤害窗口；换角色/销毁时清空。 */
 	FMHGZRecentDamageWindow RecentDamage;
+	/** 操作提示最多每0.1真实秒重新读取状态，不受慢放倍率影响。 */
+	double NextInputHintUpdateRealTime = 0.0;
 	// Possess/Ready may arrive before BeginPlay has created the widget tree.
 	bool bWidgetTreeReady = false;
 	bool bPawnContextInitialized = false;

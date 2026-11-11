@@ -7,6 +7,10 @@
 #include "AttributeSystem/Res_InsectGlaive.h"
 #include "ActionSystem/MHGZWeaponComboData.h"
 #include "ActionSystem/MHGZHitFeedbackRouterComponent.h"
+#include "ActionSystem/MHGZComboCoordinatorAbility.h"
+#include "InputSystem/MHGZInputComponent.h"
+#include "InputSystem/MHGZWeaponInputRouterComponent.h"
+#include "InputKeyEventArgs.h"
 #include "WeaponRuntime/MHGZWeaponRuntimeHostComponent.h"
 #include "UI/MHGZUITelemetry.h"
 #include "UI/MHGZHUD.h"
@@ -605,6 +609,47 @@ bool FMHGZRollingDPSRenderTest::RunTest(const FString&)
 			if (Writer && !PNG.IsEmpty()) Writer->Serialize(PNG.GetData(), PNG.Num());
 		}
 	}
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZDesktopHUDWiringTest,
+	"MHGZ.Maintenance.DesktopInput.ActualHUDWiring",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZDesktopHUDWiringTest::RunTest(const FString&)
+{
+	FHUDWidgetFixture F;
+	if (!F.Setup(true,true)) return false;
+	F.Start();
+	auto* Main = FMHGZM6HUDTestAccess::Main(F.HUD);
+	if (!TestNotNull(TEXT("actual HUD root"), Main)) return false;
+	auto* Profile = LoadObject<UWeaponInputProfile>(nullptr,TEXT("/Game/Weapons/InsectGlaive/Data/DA_IG_InputProfile.DA_IG_InputProfile"));
+	auto* Combo = LoadObject<UMHGZWeaponComboData>(nullptr,TEXT("/Game/Weapons/InsectGlaive/Data/DA_IG_Combo.DA_IG_Combo"));
+	if (!TestNotNull(TEXT("profile"),Profile) || !TestNotNull(TEXT("combo"),Combo)) return false;
+	auto* Coordinator = F.H.ASC->GetActiveComboCoordinator();
+	if (!Coordinator)
+	{
+		const auto Handle = F.H.GiveAbility(UGA_WeaponComboCoordinator::StaticClass()); F.H.ASC->TryActivateAbility(Handle);
+		Coordinator = F.H.ASC->GetActiveComboCoordinator();
+	}
+	if (!TestNotNull(TEXT("coordinator"),Coordinator)) return false;
+	Coordinator->InjectComboData(Combo);
+	F.PC->GetWeaponInputRouter()->SetInputProfile(Profile);
+	F.H.Host->SetSheathed(true);
+	F.HUD->Tick(0.f);
+	const auto Has = [&](const TCHAR* Keys, const TCHAR* Action)
+	{ return Main->GetInputHints().ContainsByPredicate([&](const auto& R) { return R.Keys==Keys && R.Action==Action; }); };
+	TestTrue(TEXT("HUD tick receives actual sheathed Combo hint"),Has(TEXT("Y"),TEXT("拔刀")));
+	F.PC->InputKey(FInputKeyEventArgs(nullptr,FInputDeviceId::CreateFromInternalId(0),EKeys::W,IE_Pressed));
+	FPlatformProcess::Sleep(.11f); F.HUD->Tick(0.f);
+	TestTrue(TEXT("real controller input changes actual HUD key names"),Has(TEXT("鼠标左键"),TEXT("拔刀")));
+	F.H.Host->SetSheathed(false);
+	FPlatformProcess::Sleep(.11f); F.HUD->Tick(0.f);
+	TestTrue(TEXT("pose changes actual HUD action results"),Has(TEXT("鼠标左键"),TEXT("上捞斩")));
+	F.PC->InputKey(FInputKeyEventArgs(nullptr,FInputDeviceId::CreateFromInternalId(0),EKeys::Gamepad_FaceButton_Top,IE_Pressed));
+	FPlatformProcess::Sleep(.11f); F.HUD->Tick(0.f);
+	TestTrue(TEXT("gamepad returns actual HUD to Y labels"),Has(TEXT("Y"),TEXT("上捞斩")));
+	F.PC->SetPawn(nullptr); F.HUD->RefreshPawnContext();
+	TestTrue(TEXT("unpossess clears old input hints"),Main->GetInputHints().IsEmpty());
 	return true;
 }
 
