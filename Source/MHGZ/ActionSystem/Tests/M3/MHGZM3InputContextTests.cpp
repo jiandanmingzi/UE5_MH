@@ -146,13 +146,23 @@ bool FMHGZM3ContextChordRoutingTest::RunTest(const FString& Parameters)
 	}
 	Router->HandlePhysicalCompleted(RB, 3.1);
 
+	Router->HandlePhysicalStarted(LT, 3.11);
+	TestTrue(TEXT("grounded LT enables kinsect aim"), ASC->HasMatchingGameplayTag(InputTag(TEXT("Combat.State.Aiming.Kinsect"))));
 	Host->SetGrounded(false);
+	TestFalse(TEXT("takeoff clears held LT kinsect aim"), ASC->HasMatchingGameplayTag(InputTag(TEXT("Combat.State.Aiming.Kinsect"))));
 	const int32 BeforeAerialRB = Router->GetCapturedSnapshots().Num();
 	Router->HandlePhysicalStarted(RB, 3.2);
 	Router->FlushExpiredInputs(3.6);
 	TestEqual(TEXT("unsheathed aerial RB does not emit Sheathe"),
 		Router->GetCapturedSnapshots().Num(), BeforeAerialRB);
 	Router->HandlePhysicalCompleted(RB, 3.7);
+	Host->SetGrounded(true);
+	TestTrue(TEXT("landing restores still-held LT kinsect aim"), ASC->HasMatchingGameplayTag(InputTag(TEXT("Combat.State.Aiming.Kinsect"))));
+	Router->HandlePhysicalCompleted(LT, 3.8);
+	Host->SetGrounded(false);
+	Router->HandlePhysicalStarted(LT, 3.9);
+	TestFalse(TEXT("starting LT in air does not enable kinsect aim"), ASC->HasMatchingGameplayTag(InputTag(TEXT("Combat.State.Aiming.Kinsect"))));
+	Router->HandlePhysicalCompleted(LT, 3.95);
 	Host->SetGrounded(true);
 
 	Host->SetSheathed(true);

@@ -100,7 +100,7 @@ public:
 	FName GetCurrentState() const { return CurrentState; }
 
 	const TOptional<FActiveComboTransition>& GetActiveTransition() const { return ActiveTransition; }
-	/** 只读操作预览：沿用实际匹配/优先级/接受窗口；快照标签可包含假设按住的LT/RT瞄准状态。 */
+	/** 只读操作预览：地面提前显示后继并在窗口结束后按Idle匹配，空中检查当前实际状态和窗口。 */
 	const FComboTransition* PreviewInputHint(const FWeaponInputSnapshot& Input) const;
 
 	virtual void ActivateAbility(
@@ -142,6 +142,8 @@ private:
 	TMap<FName, int32> TransitionIndex;
 	TOptional<FPendingComboTransition> PendingTransition;
 	TOptional<FActiveComboTransition> ActiveTransition;
+	/** 仅供提示判断前摇/收招：当前动作是否曾成功开启连招窗口，新动作确认后清零。 */
+	bool bInputHintComboWindowOpened = false;
 	TOptional<FWeaponActionToken> EarlyDescendingThrustSourceActionToken;
 	FWeaponOwnedTagToken ActiveTransitionTagToken;
 	TMap<FName, FComboWindowEntry> ComboWindows;
@@ -165,7 +167,9 @@ private:
 		const FWeaponActionToken* AerialHandoffSourceAction = nullptr);
 	bool ExecuteStateOnlyTransition(const FComboTransition& Transition,
 		const FWeaponActionToken& SourceAction);
-	bool DoesTransitionMatchState(const FComboTransition& Transition) const;
+	bool DoesTransitionMatchState(const FComboTransition& Transition, bool bInputHint = false) const;
+	/** 提示专用源状态，不修改实际连招状态或窗口。 */
+	FName GetInputHintState() const;
 	bool IsSnapshotPostureCompatible(const FComboTransition& Transition,
 		const FWeaponInputSnapshot& Input) const;
 	bool HasOpenWindowFor(const FWeaponActionToken& ActionToken) const;

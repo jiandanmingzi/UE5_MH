@@ -44,6 +44,15 @@ FString AbilityName(const UClass* Class)
 	return Class->GetDisplayNameText().ToString();
 }
 
+bool IsDirectionalVault(const UClass* Class)
+{
+	if (!Class) return false;
+	FString Name = Class->GetName();
+	Name.RemoveFromStart(TEXT("GA_IG_")); Name.RemoveFromEnd(TEXT("_C"));
+	return Name == TEXT("QianChengGanTiao") || Name == TEXT("HouChengGanTiao")
+		|| Name == TEXT("ZuoChengGanTiao") || Name == TEXT("YouChengGanTiao");
+}
+
 int32 ControlOrder(const FString& Control)
 {
 	if (Control == TEXT("LT")) return 0;
@@ -75,17 +84,26 @@ TArray<FMHGZInputHint> MHGZInputHints::Build(UMHGZAbilitySystemComponent& ASC,
 	const UWeaponInputProfile& Profile, bool bGamepad)
 {
 	TArray<FMHGZInputHint> Rows;
-	if (UMHGZGameplayAbility::HasPlayerActionInputLock(&ASC)) return Rows;
 	FGameplayTagContainer Owned;
 	ASC.GetOwnedGameplayTags(Owned);
 	if (Owned.HasTag(Tag(TEXT("Combat.State.Dead"))) || Owned.HasTag(Tag(TEXT("Combat.State.Hitstun")))
 		|| Owned.HasTag(Tag(TEXT("Combat.State.Knockdown")))) return Rows;
+	const bool bUnsheathed = Owned.HasTag(Tag(TEXT("Combat.State.Unsheathed")));
+	const bool bAerial = !Owned.HasTag(Tag(TEXT("Combat.State.Grounded")))
+		&& Owned.HasTag(Tag(TEXT("Combat.State.Aerial")));
+	if (bUnsheathed && !bAerial)
+	{
+		Rows.Add({KeyName(TEXT("A"), bGamepad), TEXT("翻滚"), 5});
+		Rows.Add({KeyName(TEXT("RB"), bGamepad), TEXT("收刀"), 500});
+	}
+	if (UMHGZGameplayAbility::HasPlayerActionInputLock(&ASC)) return Rows;
 	TArray<FRecipe> Recipes;
 	const auto AddRecipe = [&](FGameplayTag Output, TArray<FString> Controls,
 		const FGameplayTagContainer& Required, const FGameplayTagContainer& Blocked, bool bShortRelease)
 	{
 		if (Controls.IsEmpty() || Controls.Contains(FString())) return;
 		Controls.Sort([](const FString& A, const FString& B) { return ControlOrder(A) < ControlOrder(B); });
+		if (bAerial && bUnsheathed && Controls.Contains(TEXT("LT"))) return;
 		FGameplayTagContainer Context = Owned;
 		for (const auto* Aim : {TEXT("Combat.State.Aiming.Kinsect"), TEXT("Combat.State.Aiming.Action"), TEXT("Combat.State.Aiming.Slinger")})
 			Context.RemoveTag(Tag(Aim));
@@ -119,6 +137,8 @@ TArray<FMHGZInputHint> MHGZInputHints::Build(UMHGZAbilitySystemComponent& ASC,
 		const int32 BaseOrder = Group * 100 + (Recipe.Controls.Num() - 1) * 20 + ButtonOrder * 5;
 		if (!Recipe.Output.MatchesTag(Tag(TEXT("Input.Weapon"))))
 		{
+			if (bUnsheathed && (Recipe.Output == Tag(TEXT("Input.Dodge"))
+				|| Recipe.Output == Tag(TEXT("Input.Sheathe")))) continue;
 			const auto Handle = ASC.FindAbilityHandleByInputTag(Recipe.Output);
 			const auto* Spec = ASC.FindAbilitySpecFromHandle(Handle);
 			if (!Spec || !Spec->Ability || !Spec->Ability->CanActivateAbility(Handle, ASC.AbilityActorInfo.Get())) continue;
@@ -131,13 +151,25 @@ TArray<FMHGZInputHint> MHGZInputHints::Build(UMHGZAbilitySystemComponent& ASC,
 		}
 		if (!Coordinator) continue;
 		TSet<TSubclassOf<UGameplayAbility>> Seen;
+		bool bShownVault = false;
 		for (const auto Direction : {EDirectionalInput::None, EDirectionalInput::Forward, EDirectionalInput::Back, EDirectionalInput::Left, EDirectionalInput::Right})
 		{
 			FWeaponInputSnapshot Input;
 			Input.ResolvedInputTag = Recipe.Output; Input.ContextTags = Recipe.Context; Input.Direction = Direction;
 			const auto* Transition = Coordinator->PreviewInputHint(Input);
 			if (!Transition || !Transition->AbilityClass || Seen.Contains(Transition->AbilityClass)) continue;
+			if (bAerial)
+			{
+				const auto* Spec = ASC.FindAbilitySpecFromClass(Transition->AbilityClass);
+				if (!Spec || !Spec->Ability || !Spec->Ability->CanActivateAbility(Spec->Handle, ASC.AbilityActorInfo.Get())) continue;
+			}
 			Seen.Add(Transition->AbilityClass);
+			if (IsDirectionalVault(Transition->AbilityClass))
+			{
+				if (!bShownVault) Rows.Add({Keys, TEXT("撑杆跳"), BaseOrder});
+				bShownVault = true;
+				continue;
+			}
 			const TCHAR* Prefix = Direction == EDirectionalInput::Forward ? TEXT("前+") : Direction == EDirectionalInput::Back ? TEXT("后+")
 				: Direction == EDirectionalInput::Left ? TEXT("左+") : Direction == EDirectionalInput::Right ? TEXT("右+") : TEXT("");
 			Rows.Add({FString(Prefix) + Keys, AbilityName(Transition->AbilityClass), BaseOrder + int32(Direction)});
@@ -148,7 +180,7 @@ TArray<FMHGZInputHint> MHGZInputHints::Build(UMHGZAbilitySystemComponent& ASC,
 		const auto* Attributes = ASC.GetSet<UMHGZAttributeSet>();
 		if (Attributes && Attributes->GetStamina() > 0.f) Rows.Add({TEXT("前+") + KeyName(TEXT("RB"), bGamepad), TEXT("疾跑"), 501});
 	}
-	if (Owned.HasTag(Tag(TEXT("Combat.State.Unsheathed")))) Rows.Add({KeyName(TEXT("LT"), bGamepad), TEXT("猎虫瞄准"), 400});
+	if (bUnsheathed && !bAerial) Rows.Add({KeyName(TEXT("LT"), bGamepad), TEXT("猎虫瞄准"), 400});
 	Rows.Sort([](const auto& A, const auto& B) { return A.SortOrder == B.SortOrder ? A.Keys < B.Keys : A.SortOrder < B.SortOrder; });
 	return Rows;
 }

@@ -6,6 +6,7 @@
 #include "InputAction.h"
 #include "InputModifiers.h"
 #include "ActionSystem/MHGZComboCoordinatorAbility.h"
+#include "ActionSystem/MHGZM1PlaceholderAbilities.h"
 #include "ActionSystem/MHGZDodgeAbility.h"
 #include "ActionSystem/MHGZAirDodgeAbility.h"
 #include "ActionSystem/MHGZSheatheAbility.h"
@@ -112,15 +113,144 @@ bool FMHGZDesktopInputHintsTest::RunTest(const FString&)
 	for (int32 I=1; I<Rows.Num(); ++I) TestTrue(TEXT("A/Y/B/RT/LT/RB order"), Rows[I].SortOrder >= Rows[I-1].SortOrder);
 	const auto Desktop = MHGZInputHints::Build(*H.ASC,*Profile,false);
 	Check(Desktop,TEXT("Ctrl+空格"),TEXT("撑杆跳")); Check(Desktop,TEXT("R+鼠标左键+鼠标右键"),TEXT("粉尘聚爆"));
+	Check(Rows,TEXT("RB"),TEXT("收刀"));
+	for (const TCHAR* Lock : {TEXT("Combat.State.Attacking"), TEXT("Combat.State.Dodging"), TEXT("Combat.State.Sheathing")})
+	{
+		H.ASC->AddLooseGameplayTag(M3::Tag(Lock));
+		const auto LockedRows = MHGZInputHints::Build(*H.ASC,*Profile,true);
+		Check(LockedRows,TEXT("A"),TEXT("翻滚")); Check(LockedRows,TEXT("RB"),TEXT("收刀"));
+		H.ASC->RemoveLooseGameplayTag(M3::Tag(Lock));
+	}
+	int32 StatesWithVault = 0;
+	for (const auto& Edge : Combo->Transitions)
+	{
+		Coordinator->CurrentState = Edge.SourceState;
+		const auto StateRows = MHGZInputHints::Build(*H.ASC,*Profile,true);
+		int32 Vaults = 0;
+		for (const auto& Row : StateRows)
+		{
+			if (Row.Action == TEXT("撑杆跳")) { ++Vaults; TestEqual(TEXT("vault uses unqualified keys"), Row.Keys, FString(TEXT("RT+A"))); }
+			TestFalse(TEXT("direction-specific vault labels are hidden"), Row.Action == TEXT("前撑杆跳")
+				|| Row.Action == TEXT("后撑杆跳") || Row.Action == TEXT("左撑杆跳") || Row.Action == TEXT("右撑杆跳"));
+		}
+		if (Vaults) ++StatesWithVault;
+		TestTrue(TEXT("at most one vault row per state"), Vaults <= 1);
+	}
+	TestTrue(TEXT("real Combo exposes at least one vault state"), StatesWithVault > 0);
+	Coordinator->CurrentState = TEXT("Idle");
 	SaveRows(Rows,TEXT("gamepad-unsheathed")); SaveRows(Desktop,TEXT("desktop-unsheathed"));
 	H.Character->GetCharacterMovement()->SetMovementMode(MOVE_Falling);
+	H.Host->SetGrounded(false);
 	H.ASC->AddLooseGameplayTag(M3::Tag(TEXT("Combat.State.Aerial.Falling")));
+	for (const auto& Edge : Combo->Transitions)
+	{
+		if (!Edge.AbilityClass) continue;
+		const FString Name = Edge.AbilityClass->GetName();
+		if ((Name.Contains(TEXT("CaoChongZhan")) || Name.Contains(TEXT("JiXiTuCi"))
+			|| Name.Contains(TEXT("QiangHuaCaoChongChuanCi")))
+			&& !H.ASC->FindAbilitySpecFromClass(Edge.AbilityClass)) H.GiveAbility(Edge.AbilityClass);
+	}
+	const auto Source = H.MakeActionToken(UMHGZM1PlaceholderActionA::StaticClass());
+	TestTrue(TEXT("test aerial source registered"), H.Host->RegisterAction(Source));
+	TestTrue(TEXT("test aerial movement source published"), H.Host->SetAerialMovementSource(Source,
+		M3::Tag(TEXT("Combat.State.Aerial.Source.IG_BackVault"))));
 	Rows = MHGZInputHints::Build(*H.ASC,*Profile,true);
 	Check(Rows,TEXT("A"),TEXT("空回"));
+	TestFalse(TEXT("aerial ground-only hints hidden"), Rows.ContainsByPredicate([](const auto& R)
+		{ return R.Action == TEXT("翻滚") || R.Action == TEXT("收刀") || R.Action == TEXT("猎虫瞄准"); }));
 	Check(Rows,TEXT("B"),TEXT("操虫斩")); Check(Rows,TEXT("RT（短按松开）"),TEXT("急袭突刺"));
+	TestTrue(TEXT("kinsect slash dance registered"), H.Resource->AddDanceStack(EIGDanceSource::KinsectSlash));
+	Rows = MHGZInputHints::Build(*H.ASC,*Profile,true);
+	Check(Rows,TEXT("RT+Y"),TEXT("强化操虫穿刺"));
+	H.ASC->AddLooseGameplayTag(M3::Tag(TEXT("Combat.State.Aerial.CantAttack")));
+	Rows = MHGZInputHints::Build(*H.ASC,*Profile,true);
+	TestFalse(TEXT("spent air attack gate hides all air attacks"), Rows.ContainsByPredicate([](const auto& R)
+		{ return R.Action == TEXT("操虫斩") || R.Action == TEXT("强化操虫穿刺") || R.Action == TEXT("急袭突刺"); }));
+	H.ASC->RemoveLooseGameplayTag(M3::Tag(TEXT("Combat.State.Aerial.CantAttack")));
+	Rows = MHGZInputHints::Build(*H.ASC,*Profile,true);
 	SaveRows(Rows,TEXT("gamepad-air"));
 	H.ASC->AddLooseGameplayTag(M3::Tag(TEXT("Combat.State.Dead")));
 	TestTrue(TEXT("dead state hides action results"), MHGZInputHints::Build(*H.ASC,*Profile,true).IsEmpty());
+	H.Teardown();
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FMHGZInputHintWindowTest, "MHGZ.Maintenance.DesktopInput.WindowPreview",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+bool FMHGZInputHintWindowTest::RunTest(const FString&)
+{
+	FMHGZM3Harness H;
+	if (!H.Setup()) return false;
+	const auto Handle = H.GiveAbility(UGA_WeaponComboCoordinator::StaticClass());
+	H.ASC->TryActivateAbility(Handle);
+	auto* Coordinator = H.ASC->GetActiveComboCoordinator();
+	if (!TestNotNull(TEXT("coordinator"), Coordinator)) { H.Teardown(); return false; }
+	H.GiveAbility(UMHGZM1PlaceholderActionA::StaticClass());
+	H.GiveAbility(UMHGZM1PlaceholderActionB::StaticClass());
+	auto* Data = NewObject<UMHGZWeaponComboData>(Coordinator);
+	const auto Y = M3::Tag(TEXT("Input.Weapon.Y"));
+	const auto B = M3::Tag(TEXT("Input.Weapon.B"));
+	const auto YB = M3::Tag(TEXT("Input.Weapon.YB"));
+	const auto Add = [&](const TCHAR* ID, const TCHAR* Source, FGameplayTag Input,
+		TSubclassOf<UGameplayAbility> Class, const TCHAR* Target, bool bWindow = false)
+	{
+		auto& Edge = Data->Transitions.AddDefaulted_GetRef();
+		Edge.TransitionID = ID; Edge.SourceState = Source; Edge.InputTag = Input;
+		Edge.AbilityClass = Class; Edge.TargetState = Target; Edge.bRequiresComboWindow = bWindow;
+	};
+	Add(TEXT("IdleY"),TEXT("Idle"),Y,UMHGZM1PlaceholderActionA::StaticClass(),TEXT("A"));
+	Add(TEXT("IdleB"),TEXT("Idle"),B,UMHGZM1PlaceholderActionA::StaticClass(),TEXT("IdleB"));
+	Add(TEXT("AToB"),TEXT("A"),B,UMHGZM1PlaceholderActionB::StaticClass(),TEXT("B"),true);
+	Add(TEXT("BToA"),TEXT("B"),Y,UMHGZM1PlaceholderActionA::StaticClass(),TEXT("A"),true);
+	Add(TEXT("AnyYB"),TEXT("Idle"),YB,UMHGZM1PlaceholderActionB::StaticClass(),TEXT("Any"));
+	Data->Transitions.Last().bMatchAnyState = true;
+	Data->Transitions.Last().BlockedSourceStates.Add(TEXT("A"));
+	Coordinator->InjectComboData(Data);
+	uint32 Sequence = 0;
+	const auto Snapshot = [&](FGameplayTag Input)
+	{
+		FWeaponInputSnapshot S; S.ResolvedInputTag = Input; S.SourceControlTag = Input;
+		S.Phase = EWeaponInputPhase::Started; S.SequenceID = ++Sequence;
+		H.ASC->GetOwnedGameplayTags(S.ContextTags); return S;
+	};
+	const auto HintID = [&](FGameplayTag Input)
+	{
+		const auto* Edge = Coordinator->PreviewInputHint(Snapshot(Input));
+		return Edge ? Edge->TransitionID : NAME_None;
+	};
+	Coordinator->HandleWeaponInput(Snapshot(Y));
+	if (!TestTrue(TEXT("first action committed"), Coordinator->GetActiveTransition().IsSet())) { H.Teardown(); return false; }
+	const auto AToken = Coordinator->GetActiveTransition()->ActionToken;
+	TestEqual(TEXT("before window previews successor"), HintID(B), FName(TEXT("AToB")));
+	TestTrue(TEXT("any-state blocked by current action before window"), HintID(YB).IsNone());
+	Coordinator->HandleWeaponInput(Snapshot(B));
+	TestEqual(TEXT("preview does not open actual activation gate"), Coordinator->GetCurrentState(), FName(TEXT("A")));
+	Coordinator->OnDirectActionConfirmed(); // 清除本断言产生的预输入，随后单独验证提示窗口。
+	TestTrue(TEXT("first window opens"), Coordinator->OpenComboWindow(AToken,TEXT("First")));
+	TestTrue(TEXT("overlapping window opens"), Coordinator->OpenComboWindow(AToken,TEXT("Second")));
+	Coordinator->CloseComboWindow(AToken,TEXT("First"));
+	TestEqual(TEXT("one open window keeps successor"), HintID(B), FName(TEXT("AToB")));
+	Coordinator->CloseComboWindow(AToken,TEXT("Second"));
+	FGameplayTagContainer Before, After; H.ASC->GetOwnedGameplayTags(Before);
+	TestEqual(TEXT("all windows closed previews Idle edge"), HintID(B), FName(TEXT("IdleB")));
+	TestEqual(TEXT("any-state exclusions also use preview Idle"), HintID(YB), FName(TEXT("AnyYB")));
+	H.ASC->GetOwnedGameplayTags(After);
+	TestTrue(TEXT("preview leaves actual tags unchanged"), Before == After);
+	TestEqual(TEXT("preview leaves actual state unchanged"), Coordinator->GetCurrentState(), FName(TEXT("A")));
+	TestTrue(TEXT("preview leaves exact action unchanged"), Coordinator->GetActiveTransition()->ActionToken == AToken);
+	TestTrue(TEXT("reopened window returns to successor"), Coordinator->OpenComboWindow(AToken,TEXT("Reopen")));
+	Coordinator->HandleWeaponInput(Snapshot(B));
+	if (!TestEqual(TEXT("actual open window still permits combo"), Coordinator->GetCurrentState(), FName(TEXT("B")))) { H.Teardown(); return false; }
+	const auto BToken = Coordinator->GetActiveTransition()->ActionToken;
+	Coordinator->CloseComboWindow(AToken,TEXT("Reopen"));
+	TestEqual(TEXT("new action resets history; old callback cannot change it"), HintID(Y), FName(TEXT("BToA")));
+	TestTrue(TEXT("second action window opens"), Coordinator->OpenComboWindow(BToken,TEXT("Last")));
+	Coordinator->CloseComboWindow(BToken,TEXT("Last"));
+	TestEqual(TEXT("second action recovery previews Idle"), HintID(Y), FName(TEXT("IdleY")));
+	Coordinator->ResetCombo(EWeaponActionEndReason::Cancelled);
+	TestEqual(TEXT("reset previews Idle"), HintID(Y), FName(TEXT("IdleY")));
+	Coordinator->HandleWeaponInput(Snapshot(Y));
+	TestEqual(TEXT("same GA reentry starts before-window preview"), HintID(B), FName(TEXT("AToB")));
 	H.Teardown();
 	return true;
 }

@@ -136,11 +136,21 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindTransition(FName Transit
 }
 
 bool UGA_WeaponComboCoordinator::DoesTransitionMatchState(
-	const FComboTransition& Transition) const
+	const FComboTransition& Transition, bool bInputHint) const
 {
+	const FName State = bInputHint ? GetInputHintState() : CurrentState;
 	return Transition.bMatchAnyState
-		? !Transition.BlockedSourceStates.Contains(CurrentState)
-		: Transition.SourceState == CurrentState;
+		? !Transition.BlockedSourceStates.Contains(State)
+		: Transition.SourceState == State;
+}
+
+FName UGA_WeaponComboCoordinator::GetInputHintState() const
+{
+	const UAbilitySystemComponent* ASC = GetAbilitySystemComponentFromActorInfo();
+	if (ASC && !ASC->HasMatchingGameplayTag(GroundedTag)
+		&& ASC->HasMatchingGameplayTag(AerialTag)) return CurrentState;
+	return ActiveTransition.IsSet() && bInputHintComboWindowOpened
+		&& !HasOpenWindowFor(ActiveTransition->ActionToken) ? IdleState : CurrentState;
 }
 
 bool UGA_WeaponComboCoordinator::IsSnapshotPostureCompatible(
@@ -194,7 +204,7 @@ bool UGA_WeaponComboCoordinator::TransitionRequirementsPass(
 	// No tags are removed and normal activation always rechecks the real gates.
 	const bool bDodgeCandidate = bAllowDodgePreInput && FindLockedDodgePreInputSource();
 	if (!ASC || (HasPlayerActionInputLock(ASC) && !bDodgeCandidate)
-		|| !DoesTransitionMatchState(Transition)
+		|| !DoesTransitionMatchState(Transition, bInputHint)
 		|| !IsSnapshotPostureCompatible(Transition, Input))
 	{
 		return false;
@@ -262,7 +272,7 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 {
 	if (!ComboData) return nullptr;
 	TArray<int32> Candidates;
-	if (const TArray<int32>* Exact = StateIndex.Find(CurrentState))
+	if (const TArray<int32>* Exact = StateIndex.Find(bInputHint ? GetInputHintState() : CurrentState))
 	{
 		Candidates.Append(*Exact);
 	}
@@ -301,7 +311,8 @@ const FComboTransition* UGA_WeaponComboCoordinator::FindBestMatch(
 
 const FComboTransition* UGA_WeaponComboCoordinator::PreviewInputHint(const FWeaponInputSnapshot& Input) const
 {
-	return FindBestMatch(Input, false, false, true, false, true);
+	const bool bAerial = !Input.ContextTags.HasTag(GroundedTag) && Input.ContextTags.HasTag(AerialTag);
+	return FindBestMatch(Input, !bAerial, false, true, false, true);
 }
 
 void UGA_WeaponComboCoordinator::HandleWeaponInput(const FWeaponInputSnapshot& Input)
@@ -562,6 +573,7 @@ bool UGA_WeaponComboCoordinator::ConfirmTransitionActivation(
 	NewActive.TargetState = Transition->TargetState;
 	NewActive.OwnedTags = Transition->GrantedTags;
 	ActiveTransition = NewActive;
+	bInputHintComboWindowOpened = false;
 	if (Transition->StatePolicy == EComboStatePolicy::Replace)
 	{
 		CurrentState = Transition->TargetState;
@@ -638,6 +650,7 @@ void UGA_WeaponComboCoordinator::OnActionFinished(
 	CloseWindowsFor(ActionToken);
 	ReleaseActiveTransitionTags();
 	ActiveTransition.Reset();
+	bInputHintComboWindowOpened = false;
 	CurrentState = IdleState;
 	if (AActor* Owner = GetOwningActorFromActorInfo())
 	{
@@ -719,6 +732,7 @@ void UGA_WeaponComboCoordinator::OnLanded(const FHitResult& Hit)
 
 void UGA_WeaponComboCoordinator::ResetCombo(EWeaponActionEndReason Reason)
 {
+	bInputHintComboWindowOpened = false;
 	ClearBufferedCombatInput();
 	PendingTransition.Reset();
 	FWeaponActionToken PreviousAction;
@@ -791,6 +805,7 @@ bool UGA_WeaponComboCoordinator::OpenComboWindow(
 		ActionToken.AbilityHandle, ActionToken.ActivationSequenceID, NotifyEventID, Tags);
 	if (!Entry.TagToken.IsValid()) return false;
 	ComboWindows.Add(Key, Entry);
+	bInputHintComboWindowOpened = true;
 	TryConsumeBufferedCombatInput(/* bAllowDirectInput = */ false);
 	return true;
 }

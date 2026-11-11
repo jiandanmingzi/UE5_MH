@@ -1446,7 +1446,8 @@ void UMHGZWeaponInputRouterComponent::RecomputeAimChildTags()
 				{
 					Desired.Add(SlingerAimTag());
 				}
-				else if (CachedASC->HasMatchingGameplayTag(UnsheathedTag()))
+				else if (CachedASC->HasMatchingGameplayTag(UnsheathedTag())
+					&& CachedASC->HasMatchingGameplayTag(GroundedTag()))
 				{
 					Desired.Add(KinsectAimTag());
 				}
@@ -1520,6 +1521,8 @@ void UMHGZWeaponInputRouterComponent::SubscribePoseTags()
 		TArray<FGameplayTag> Tags;
 		Tags.Add(SheathedTag());
 		Tags.Add(UnsheathedTag());
+		Tags.Add(GroundedTag());
+		Tags.Add(AerialTag());
 		Tags.Add(HitstunTag());
 		Tags.Add(KnockdownTag());
 		return Tags;
